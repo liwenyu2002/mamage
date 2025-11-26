@@ -1,0 +1,129 @@
+
+.project-grid {
+  display: flex;
+  flex-wrap: wrap;          /* 超出一行就自动换行 */
+  justify-content: center;  /* 每一行整体水平居中 */
+  gap: 30px;               /* 卡片之间的横向 + 纵向间距都是 10px */
+   /* 可选：让这一块和窗口左右留一点空 */
+}
+
+
+.project-card {
+  cursor: pointer;
+  width: 342px;
+  flex: 0 0 auto;
+  border-radius: 16px;
+  padding: 16px;
+  /* ✅ 改成普通实色背景，不再毛玻璃 */
+  background: #ffffff;               /* 深灰，配你黑色页面背景 */
+  
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  color: #f9fafb;
+
+  /* 删掉毛玻璃相关： */
+  /* backdrop-filter: blur(20px); */
+  /* -webkit-backdrop-filter: blur(20px); */
+
+  /* 悬停动画过渡 */
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    background 0.2s ease
+    
+}
+
+/* 🧊 悬停特效：轻微抬起 + 阴影更深 + 背景稍微提亮 */
+.project-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.65);
+  background: #e7e7e7;
+  
+}
+
+/* 顶部大图区域 */
+.project-card__cover-image {
+  width: 342px;
+  height: 230px;
+}
+
+.project-card__cover-image img {
+  width: 342px;
+  height: 230px;
+  object-fit: cover;
+  display: block;
+  border-radius: 5px;
+}
+
+/* 中间文字信息行 */
+.project-card__meta-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 12px 4px 8px;
+}
+
+.project-card__meta-left {
+  display: flex;
+  flex-direction: column;  /* 竖着排 */
+  gap: 4px;                /* 上下行之间留点间距 */
+}
+
+.project-card__meta-up {
+  display: flex;
+  align-items: center;
+  gap: 8px;                /* 日期 / 标题 / 标签之间留间距 */
+}
+.project-card__meta-middle{
+  align-items: center;
+}
+.project-card__meta-down {
+  display: flex;
+  align-items: center;
+  gap: 8px;/* 看需要再加颜色、字号等 */
+}
+
+.project-card__date {
+  font-size: 14px;
+  color: #000000;
+}
+
+.project-card__title {
+  font-size: 18px;
+  color: #000000;
+}
+
+.project-card__tag {
+  border-radius: 999px;
+  padding: 10 10px;
+}
+.project-card__description {
+  font-size: 12px;
+  color: #000000;
+}
+.project-card__count {
+  font-size: 14px;
+  color: #000000;
+}
+
+/* 底部 2×2 小图网格（最多 3 张也可以） */
+.project-card__thumb-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)); 
+  gap: 8px;
+  margin-top: 4px;
+  width: 342px;
+  height: 110px;
+}
+
+.project-card__thumb {
+  border-radius: 1px;
+  overflow: hidden;
+  aspect-ratio: 1 / 1; /* 强制1:1比例 */
+}
+
+.project-card__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
