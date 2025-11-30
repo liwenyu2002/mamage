@@ -1,6 +1,7 @@
 import React from 'react';
 import { Button, Toast } from '@douyinfe/semi-ui';
 import { getAll, getCount, add, clear, subscribe, removeById } from './services/transferStore';
+import { resolveAssetUrl } from './services/request';
 
 function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
@@ -96,6 +97,52 @@ export default function TransferStation() {
     }
   }, []);
 
+  const getPhotoUrl = React.useCallback((p) => {
+    const raw = p?.url || p?.original || p?.fullUrl || p?.src || p?.thumbSrc || '';
+    return raw ? resolveAssetUrl(raw) : '';
+  }, []);
+
+  const handleCopyRichHtml = React.useCallback(async () => {
+    const list = getAll();
+    if (!list || list.length === 0) return Toast.warning('中转站为空');
+    const urls = list.map((p) => getPhotoUrl(p)).filter(Boolean);
+    if (!urls.length) return Toast.warning('中转站内无可用链接');
+
+    const html = urls.map((u) => `<img src="${u}" />`).join('\n');
+    const plain = urls.join('\n');
+
+    try {
+      // 优先写入富文本类型 text/html（现代浏览器，需 https 或 localhost）
+      if (navigator.clipboard && navigator.clipboard.write && typeof ClipboardItem !== 'undefined') {
+        const blobHtml = new Blob([html], { type: 'text/html' });
+        const blobPlain = new Blob([plain], { type: 'text/plain' });
+        const item = new ClipboardItem({ 'text/html': blobHtml, 'text/plain': blobPlain });
+        await navigator.clipboard.write([item]);
+        Toast.success('已复制富文本（HTML）到剪贴板');
+        return;
+      }
+
+      // 回退：只复制文本（HTML 字符串）
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(html);
+        Toast.success('已复制富文本（HTML）到剪贴板');
+        return;
+      }
+
+      // 最后回退到 textarea 复制
+      const ta = document.createElement('textarea');
+      ta.value = html;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      ta.remove();
+      Toast.success('已复制富文本（HTML）到剪贴板');
+    } catch (e) {
+      console.error('copy rich html failed', e);
+      Toast.error('复制失败');
+    }
+  }, [getPhotoUrl]);
+
   const handleToggleExpand = React.useCallback(() => {
     setExpanded((v) => !v);
   }, []);
@@ -155,6 +202,7 @@ export default function TransferStation() {
           <div style={circleStyle} title="存入当前选中" onClick={handleStore}>存入</div>
           <div style={circleStyle} title="展开中转预览" onClick={handleToggleExpand}>{expanded ? '收起' : '展开'}</div>
           <div style={circleStyle} title="打包下载" onClick={handlePackDownload}>打包 ({count})</div>
+          <div style={circleStyle} title="复制为富文本（HTML）" onClick={handleCopyRichHtml}>复制</div>
           <div style={circleStyle} title="清空中转站" onClick={handleClear}>清空</div>
 
           {expanded && (

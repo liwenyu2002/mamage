@@ -29,52 +29,82 @@ npm install
 - 开发服务器（热重载）：
 
 ```powershell
-npm run start
-```
+"""
+Update README with recent feature notes and developer tips.
+"""
 
-默认会启动 `webpack-dev-server`（可在 `webpack.config.js` 中修改端口/静态资源设置）。
+# MaMage_Web
 
-- 打包生产版本：
+简体中文说明（更新于 2025-11-30）。
 
-```powershell
-npm run build
-```
+## 项目简介
+- 前端：React + Webpack，UI 使用 `@douyinfe/semi-ui`；样式包含自定义主题 `@semi-bot/semi-theme-mamage`。
+- 主要目录：
+	- `public/`：静态资源与入口 `index.html`。
+	- `src/`：应用源码（`App.jsx`, `ProjectDetail.jsx`, `TransferStation.jsx` 等）。
+	- `webpack.config.js`：开发/构建配置。
 
-打包输出由 `webpack.config.js` 控制。
+## 新增功能（近期变更摘要）
+- 新建相册：在 Header 增加 `新建相册` 按钮，打开模态窗创建项目（前端组件 `src/CreateAlbumModal.jsx`，后端请求 `POST /api/projects`，必需字段 `projectName`）。
+- 中转站（Transfer Station）：跨页面收集选中图片，支持“存入 / 展开预览 / 打包下载 / 清空 / 复制”。复制功能会把中转站内图片转换为富文本 HTML（多行 `<img src="...">`）并写入剪贴板，方便粘贴到富文本编辑器中。
+- 打包下载（Pack Download）：支持从中转站或项目中选中图片后向后端请求打包（`POST /api/photos/zip`），服务器返回 zip 文件并触发浏览器下载（后端需安装 `archiver` 或实现对应压缩逻辑）。
+- 缺省封面：当项目无图片时使用 `uploads/assets/daishangchuan.png` 作为默认封面显示。
 
-## package.json 摘要
-- 主要脚本：
-	- `start`: `webpack serve --mode development`
-	- `build`: `webpack --mode production`
-- 关键依赖：`react`, `react-dom`, `@douyinfe/semi-ui`, `@douyinfe/semi-icons`, 自定义主题 `@semi-bot/semi-theme-mamage`。
+## API 与后端约定（前端与后端交互要点）
+- 创建项目：`POST /api/projects`，Content-Type: `application/json`。必须包含 `projectName`（也可使用 `name` 或 `title`），可选字段 `description` / `desc`、`eventDate`（格式 `YYYY-MM-DD`）等。示例请求体：
 
-## 调试与常见问题
-- 如果 `npm run start` 报 `npm` 未找到：
-	- 关闭并重新打开 PowerShell/终端，使安装器写入的 Machine PATH 生效；或在当前会话临时执行：
-
-```powershell
-$env:Path = 'C:\Program Files\nodejs;' + $env:Path
-```
-
-	然后再运行 `node -v` / `npm -v` / `npm run start`。
-- 若需将 Node 永久加入用户 PATH（无需管理员），可运行：
-
-```powershell
-$u=[Environment]::GetEnvironmentVariable('Path','User')
-if ($u -notmatch 'C:\\Program Files\\nodejs') {
-	[Environment]::SetEnvironmentVariable('Path', $u + ';C:\Program Files\\nodejs', 'User')
-	Write-Output '已添加到 User PATH，重新打开终端后生效。'
-} else {
-	Write-Output 'User PATH 已包含 nodejs。'
+```json
+{
+	"projectName": "软件工程课堂-2025",
+	"description": "课堂拍摄汇总",
+	"eventDate": "2025-11-30"
 }
 ```
 
-## 编辑与扩展
-- 若需添加新的依赖，执行 `npm install <package> --save` 或 `npm install <package> --save-dev`。
-- 若需自定义 Webpack 配置，请编辑 `webpack.config.js`。
+- 上传图片：前端上传使用 `/api/photos/upload`（FormData，字段名为 `file`）。
+- 打包下载：前端向 `/api/photos/zip` POST 需要的 photo IDs；后端应返回 zip 二进制并带 `Content-Disposition` 指定文件名。
 
-## 其他说明
-- 若你想要我把 README 调整为英文版或添加更多内容（例如贡献指南、CI 配置、License 等），告诉我具体需求即可。
+## CORS 与开发代理（重要，避免复制图片/Fetch 失败）
+- 问题描述：浏览器跨域会阻塞直接 fetch 后端静态图片（例如 `/uploads/...`），导致无法读取 Blob，从而无法把图片写入剪贴板（截图报错：No 'Access-Control-Allow-Origin' header）。
+- 解决方法（任选其一）：
+	1. 在前端 dev server 配置代理，把 `/uploads`（以及 `/api`）代理到后端（推荐开发时使用）：
+
+```js
+// webpack.config.js (devServer.proxy 示例)
+devServer: {
+	proxy: {
+		'/api': { target: 'http://localhost:3000', changeOrigin: true },
+		'/uploads': { target: 'http://localhost:3000', changeOrigin: true },
+	}
+}
+```
+
+	2. 或在后端为静态资源/接口添加 CORS 头，例如使用 `cors` middleware：
+
+```js
+const cors = require('cors');
+app.use(cors({ origin: 'http://localhost:5173', credentials: true }));
+```
+
+	3. 如果使用 cookies/凭证，确保同时设置 `Access-Control-Allow-Credentials: true` 并把 `fetch` 的 `credentials` 设置为 `include`，且 `Access-Control-Allow-Origin` 不能是 `*`，必须是具体 origin。
+
+## 使用指南（关键操作）
+- 启动开发服务器：
+```powershell
+npm install
+npm run start
+```
+- 新建相册：点击 Header 的 `新建相册`，填写项目名称（必填），可选描述、标签与活动日期，点击创建。创建成功后前端会刷新项目列表。
+- 中转站：在项目详情页选中图片后点击 `存入`，在页面右侧打开中转站可展开预览、删除单张、打包下载或复制（富文本 HTML）。
+- 打包下载：在中转站或项目详情中选择图片并点击“打包”，前端会 POST photo IDs 到 `/api/photos/zip` 并下载返回的 zip 文件。
+
+## 调试与排错建议
+- 复制为图片失败：通常是 CORS 导致 `fetch` 失败，查看浏览器控制台的 Network 与 Console，可见 `No 'Access-Control-Allow-Origin'` 警告。按上文代理或后端 CORS 配置修复。
+- 打包下载返回 500：检查后端是否安装并正确使用 `archiver`（或其他 zip 库）。
+- 资源路径问题：前端使用 `resolveAssetUrl` 将相对路径转换为绝对 URL，默认 API 基准为 `http://localhost:3000`，但开发时优先使用相对路径以配合 dev-server 代理。
+
+## 贡献与扩展
+- 若需添加新功能或修复 bug，建议先在本地创建分支、实现并提交 PR。需要我帮你做具体改动（例如把 `/uploads` 代理加入 `webpack.config.js`）我可以直接提交补丁。
 
 ---
-生成于项目 `package.json` 信息与代码结构。
+如需将 README 翻译为英文或添加部署/CI 示例，请告诉我具体需求。
