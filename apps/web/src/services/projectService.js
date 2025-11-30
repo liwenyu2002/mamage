@@ -51,4 +51,11 @@ async function createProject(data) {
   });
 }
 
-export { fetchLatestProjects, fetchProjectList, getProjectById, updateProject, createProject };
+async function deleteProject(id) {
+  if (!id) throw new Error('missing project id');
+  return request(`/api/projects/${id}`, {
+    method: 'DELETE'
+  });
+}
+
+export { fetchLatestProjects, fetchProjectList, getProjectById, updateProject, createProject, deleteProject };

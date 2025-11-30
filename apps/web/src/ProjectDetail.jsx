@@ -2,7 +2,7 @@
 import React from 'react';
 import { Typography, Button, Tag, Spin, Empty, Modal, Input, DatePicker, TextArea, Toast } from '@douyinfe/semi-ui';
 import './ProjectDetail.css';
-import { getProjectById, updateProject } from './services/projectService';
+import { getProjectById, updateProject, deleteProject } from './services/projectService';
 import { fetchRandomByProject, uploadPhotos, deletePhotos } from './services/photoService';
 import { resolveAssetUrl } from './services/request';
 
@@ -266,6 +266,27 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
       Toast.error('保存失败');
     }
   }, [projectId, editTitle, editDescription, editEventDate]);
+
+  const handleDeleteProject = React.useCallback(() => {
+    if (!projectId) return Toast.warning('无效的项目ID');
+    Modal.confirm({
+      title: '确认删除相册',
+      content: '删除后将不可恢复，且可能同时删除关联照片。确定要删除该相册吗？',
+      onOk: async () => {
+        try {
+          await deleteProject(projectId);
+          Toast.success('相册已删除');
+          if (typeof onBack === 'function') {
+            // tell parent to reload list
+            onBack(true);
+          }
+        } catch (err) {
+          console.error('deleteProject error', err);
+          Toast.error('删除失败');
+        }
+      }
+    });
+  }, [projectId, onBack]);
 
   const toggleDeleteMode = React.useCallback(() => {
     const turningOff = !!deleteMode;
@@ -572,10 +593,12 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
       <div className="detail-header">
         <div>
           <Button
-            theme="borderless"
-            type="tertiary"
             onClick={onBack}
+            type="primary"
+            size="large"
+            theme="solid"
             className="detail-back-btn"
+            style={{ borderRadius: 8, boxShadow: '0 6px 18px rgba(16,24,40,0.08)', padding: '10px 18px' }}
           >
             ← 返回项目列表
           </Button>
@@ -709,6 +732,9 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
             style={{ width: '100%' }}
             clearable
           />
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 6 }}>
+            <Button type="danger" onClick={handleDeleteProject}>删除相册</Button>
+          </div>
         </div>
       </Modal>
 

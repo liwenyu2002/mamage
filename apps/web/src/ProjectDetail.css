@@ -10,8 +10,10 @@
 }
 
 .detail-back-btn {
+  display: inline-block;
+  margin-bottom: 12px;
   padding-left: 0;
-  margin-bottom: 8px;
+  font-weight: 600;
 }
 
 .detail-title-row {

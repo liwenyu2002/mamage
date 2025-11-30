@@ -5,6 +5,7 @@ import '@semi-bot/semi-theme-mamage_day/semi.css';
 import { IconUser, IconSearch } from '@douyinfe/semi-icons';
 import ProjectCard from './ProjectCard';
 import ProjectDetail from './ProjectDetail';
+import Scenery from './Scenery';
 import { fetchProjectList, createProject } from './services/projectService';
 import CreateAlbumModal from './CreateAlbumModal';
 import { resolveAssetUrl } from './services/request';
@@ -19,7 +20,39 @@ function App() {
   const [error, setError] = React.useState(null);
   const [keyword, setKeyword] = React.useState('');
   const [currentProjectId, setCurrentProjectId] = React.useState(null);
+  const [selectedNav, setSelectedNav] = React.useState('projects');
   const [showCreateModal, setShowCreateModal] = React.useState(false);
+  const latestPathRef = React.useRef(window.location.pathname);
+  // sync initial path -> selectedNav / currentProjectId
+  React.useEffect(() => {
+    const applyPath = (p) => {
+      if (!p || p === '/' || p === '/projects') {
+        setSelectedNav('projects');
+        setCurrentProjectId(null);
+        return;
+      }
+      if (p.startsWith('/projects/')) {
+        const id = p.split('/')[2];
+        setSelectedNav('projects');
+        setCurrentProjectId(id);
+        return;
+      }
+      if (p.startsWith('/scenery')) {
+        setSelectedNav('scenery');
+        setCurrentProjectId(null);
+        return;
+      }
+      // fallback
+      setSelectedNav('projects');
+      setCurrentProjectId(null);
+    };
+    applyPath(window.location.pathname);
+    const onPop = () => {
+      applyPath(window.location.pathname);
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
 
   const latestRequestRef = React.useRef(0);
 
@@ -59,11 +92,22 @@ function App() {
 
   const handleSelectProject = React.useCallback((projectId) => {
     setCurrentProjectId(projectId);
+    // navigate to project detail URL
+    const path = `/projects/${projectId}`;
+    try { window.history.pushState({}, '', path); } catch (e) { /* ignore */ }
+    latestPathRef.current = path;
+    setSelectedNav('projects');
+    setCurrentProjectId(projectId);
   }, []);
 
-  const handleBackToList = React.useCallback(() => {
+  const handleBackToList = React.useCallback((shouldReload = false) => {
     setCurrentProjectId(null);
-  }, []);
+    try { window.history.pushState({}, '', '/'); } catch (e) {}
+    latestPathRef.current = '/';
+    setSelectedNav('projects');
+    setCurrentProjectId(null);
+    if (shouldReload) loadProjects();
+  }, [loadProjects]);
 
   const normalizedProjects = React.useMemo(() => {
     const result = projects.map((project) => {
@@ -140,10 +184,10 @@ function App() {
           <Nav
             mode="horizontal"
             items={[
-              { itemKey: 'projects', text: '项目' },
-              { itemKey: 'scenery', text: '风景' },
-              { itemKey: 'function', text: '功能' },
-              { itemKey: 'about', text: '关于' },
+              { itemKey: 'projects', text: '项目', onClick: () => setSelectedNav('projects') },
+              { itemKey: 'scenery', text: '风景', onClick: () => { try { window.open('/scenery', '_blank', 'noopener,noreferrer'); } catch (e) { window.location.href = '/scenery'; } } },
+              { itemKey: 'function', text: '功能', onClick: () => setSelectedNav('function') },
+              { itemKey: 'about', text: '关于', onClick: () => setSelectedNav('about') },
             ]}
             header={{
               text: 'MaMage 图库',
@@ -181,34 +225,40 @@ function App() {
               onBack={handleBackToList}
             />
           ) : (
-            <div className="project-grid">
-              {loading && (
-                <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '80px 0' }}>
-                  <Spin size="large" tip="加载项目中" />
-                </div>
-              )}
+            selectedNav === 'projects' ? (
+              <div className="project-grid">
+                {loading && (
+                  <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '80px 0' }}>
+                    <Spin size="large" tip="加载项目中" />
+                  </div>
+                )}
 
-              {!loading && error && (
-                <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '80px 0' }}>
-                  <Text type="danger">{error}</Text>
-                </div>
-              )}
+                {!loading && error && (
+                  <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '80px 0' }}>
+                    <Text type="danger">{error}</Text>
+                  </div>
+                )}
 
-              {!loading && !error && normalizedProjects.length === 0 && (
-                <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '80px 0' }}>
-                  <Empty description="暂无项目" />
-                </div>
-              )}
+                {!loading && !error && normalizedProjects.length === 0 && (
+                  <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '80px 0' }}>
+                    <Empty description="暂无项目" />
+                  </div>
+                )}
 
-              {!loading && !error &&
-                normalizedProjects.map((project) => (
-                  <ProjectCard
-                    key={project.id}
-                    {...project}
-                    onClick={() => handleSelectProject(project.id)}
-                  />
-                ))}
-            </div>
+                {!loading && !error &&
+                  normalizedProjects.map((project) => (
+                    <ProjectCard
+                      key={project.id}
+                      {...project}
+                      onClick={() => handleSelectProject(project.id)}
+                    />
+                  ))}
+              </div>
+            ) : selectedNav === 'scenery' ? (
+              <Scenery />
+            ) : (
+              <div style={{ padding: 24 }}><Text>暂未实现该页面</Text></div>
+            )
           )}
         </div>
       </Content>
