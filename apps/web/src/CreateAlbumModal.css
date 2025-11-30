@@ -1,0 +1,7 @@
+.cam-form { display: flex; flex-direction: column; gap: 12px; }
+.cam-tags-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.cam-tag { background: #f3f6ff; border-radius: 16px; padding: 6px 10px; position: relative; display: inline-flex; align-items: center; }
+.cam-tag-text { color: #1f3a93; font-weight: 600; }
+.cam-tag-remove { background: transparent; border: none; color: #999; margin-left: 8px; cursor: pointer; font-size: 14px; display: inline-block; }
+.cam-tag-input { border: 0; outline: none; padding: 6px 8px; min-width: 120px; }
+.cam-tags-row input.cam-tag-input { border-bottom: 1px dashed rgba(0,0,0,0.08); }

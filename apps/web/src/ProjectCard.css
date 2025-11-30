@@ -83,8 +83,36 @@
 }
 
 .project-card__date {
-  font-size: 14px;
+  font-size: 12px;
   color: #000000;
+}
+
+.project-card__date-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px; /* 更扁，左右内边距也略微减小 */
+  border-radius: 999px;
+  background: rgba(0,0,0,0.04);
+  border: 1px solid rgba(0,0,0,0.06);
+  line-height: 1; /* 使视觉更扁 */
+}
+
+.project-card__date-pill .project-card__date-label,
+.project-card__date-pill .project-card__date-label {
+  font-weight: 700; /* 标签加粗 */
+  font-size: 12px;
+}
+.project-card__date-pill .project-card__date-value {
+  font-weight: 700;
+  font-size: 12px;
+  color: #000000; /* 数字为黑色 */
+}
+
+.project-card__date-pill .project-card__date-label.start {
+  color: #2dbf7f; /* 浅绿色 */
+}
+.project-card__date-pill .project-card__date-label.create {
+  color: #3b82f6; /* 浅蓝色 */
 }
 
 .project-card__title {

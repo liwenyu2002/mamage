@@ -40,7 +40,15 @@ module.exports = {
     }),
   ],
   devServer: {
-    port: 3000,
+    port: 5173,
     open: true,
+    proxy: [
+      {
+        context: ['/api'],
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+        secure: false,
+      },
+    ],
   },
 };
