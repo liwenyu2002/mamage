@@ -5,6 +5,7 @@ import '@semi-bot/semi-theme-mamage_day/semi.css';
 import { IconUser, IconSearch } from '@douyinfe/semi-icons';
 import ProjectCard from './ProjectCard';
 import ProjectDetail from './ProjectDetail';
+import Scenery from './Scenery';
 import { fetchProjectList, createProject } from './services/projectService';
 import CreateAlbumModal from './CreateAlbumModal';
 import { resolveAssetUrl } from './services/request';
@@ -19,6 +20,7 @@ function App() {
   const [error, setError] = React.useState(null);
   const [keyword, setKeyword] = React.useState('');
   const [currentProjectId, setCurrentProjectId] = React.useState(null);
+  const [selectedNav, setSelectedNav] = React.useState('projects');
   const [showCreateModal, setShowCreateModal] = React.useState(false);
   
 
@@ -60,10 +62,72 @@ function App() {
 
   const handleSelectProject = React.useCallback((projectId) => {
     setCurrentProjectId(projectId);
+    setSelectedNav('projects');
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set('projectId', projectId);
+      window.history.pushState({}, '', url);
+    } catch (e) {
+      // ignore
+    }
   }, []);
 
   const handleBackToList = React.useCallback(() => {
     setCurrentProjectId(null);
+    setSelectedNav('projects');
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('projectId');
+      // navigate back to root list view
+      const base = url.pathname && url.pathname !== '/' ? '/' : url.pathname || '/';
+      window.history.pushState({}, '', base + (url.search ? url.search : ''));
+    } catch (e) {
+      // ignore
+    }
+  }, []);
+
+  // On mount: read projectId from URL and listen to popstate for back/forward navigation
+  React.useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const pid = params.get('projectId');
+      const path = window.location.pathname;
+      if (path === '/scenery') {
+        setSelectedNav('scenery');
+        setCurrentProjectId(null);
+      } else if (pid) {
+        setSelectedNav('projects');
+        setCurrentProjectId(pid);
+      } else {
+        setSelectedNav('projects');
+        setCurrentProjectId(null);
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    const onPop = () => {
+      try {
+        const path = window.location.pathname;
+        const p = new URLSearchParams(window.location.search).get('projectId');
+        if (path === '/scenery') {
+          setSelectedNav('scenery');
+          setCurrentProjectId(null);
+        } else if (p) {
+          setSelectedNav('projects');
+          setCurrentProjectId(p);
+        } else {
+          setSelectedNav('projects');
+          setCurrentProjectId(null);
+        }
+      } catch (err) {
+        setCurrentProjectId(null);
+        setSelectedNav('projects');
+      }
+    };
+
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
   }, []);
 
   const normalizedProjects = React.useMemo(() => {
@@ -142,8 +206,9 @@ function App() {
             mode="horizontal"
             items={[
               { itemKey: 'projects', text: '项目', onClick: () => { handleBackToList(); } },
-              { itemKey: 'function', text: '功能', onClick: () => { /* 未实现的导航项 */ } },
-              { itemKey: 'about', text: '关于', onClick: () => { /* 未实现的导航项 */ } },
+              { itemKey: 'scenery', text: '风景', onClick: () => { setSelectedNav('scenery'); setCurrentProjectId(null); try { window.history.pushState({}, '', '/scenery'); } catch(e){} } },
+              { itemKey: 'function', text: '功能', onClick: () => { setSelectedNav('function'); setCurrentProjectId(null); try { window.history.pushState({}, '', '/function'); } catch(e){} } },
+              { itemKey: 'about', text: '关于', onClick: () => { setSelectedNav('about'); setCurrentProjectId(null); try { window.history.pushState({}, '', '/about'); } catch(e){} } },
             ]}
             header={{
               text: 'MaMage 图库',
@@ -181,6 +246,7 @@ function App() {
               onBack={handleBackToList}
             />
           ) : (
+            selectedNav === 'projects' ? (
             <div className="project-grid">
               {loading && (
                 <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '80px 0' }}>
@@ -209,6 +275,11 @@ function App() {
                   />
                 ))}
             </div>
+            ) : selectedNav === 'scenery' ? (
+              <Scenery />
+            ) : (
+              <div style={{ padding: 24 }}><Text>暂未实现该页面</Text></div>
+            )
           )}
         </div>
       </Content>

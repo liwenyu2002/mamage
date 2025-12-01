@@ -69,8 +69,24 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
         const meta = { url: item };
         if (photoIds && photoIds[idx] !== undefined) meta.id = photoIds[idx];
         // determine thumbnail and original candidates
-        const thumbCandidate = meta.thumbUrl || meta.thumbnail || meta.thumb || item;
+        let thumbCandidate = meta.thumbUrl || meta.thumbnail || meta.thumb || item;
         const origCandidate = meta.originalUrl || meta.original || meta.full || meta.large || item;
+        // If thumb candidate equals original, try to infer a thumbnail path in the same directory
+        // common pattern: /uploads/2025/12/01/<filename>.jpg -> /uploads/2025/12/01/thumbs/thumb_<filename>.jpg
+        try {
+          if (thumbCandidate === origCandidate) {
+            const m = String(origCandidate).match(/^(.*\/)([^\/]+)$/);
+            if (m) {
+              const dir = m[1];
+              const file = m[2];
+              thumbCandidate = `${dir}thumbs/thumb_${file}`;
+            } else {
+              // fallback: append a query param to distinguish cache key
+              thumbCandidate = `${thumbCandidate}${thumbCandidate.includes('?') ? '&' : '?'}thumb=1`;
+            }
+          }
+        } catch (e) {}
+
         return {
           src: resolveAssetUrl(thumbCandidate),
           meta: Object.assign({}, meta, { thumbSrc: resolveAssetUrl(thumbCandidate), originalSrc: resolveAssetUrl(origCandidate) })
@@ -80,8 +96,20 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
       const meta = Object.assign({}, item);
       if (!meta.id && photoIds && photoIds[idx] !== undefined) meta.id = photoIds[idx];
       if (!src) return null;
-      const thumbCandidate = meta.thumbUrl || meta.thumbnail || meta.thumb || src;
+      let thumbCandidate = meta.thumbUrl || meta.thumbnail || meta.thumb || src;
       const origCandidate = meta.originalUrl || meta.original || meta.full || meta.large || src;
+      try {
+        if (thumbCandidate === origCandidate) {
+          const m = String(origCandidate).match(/^(.*\/)([^\/]+)$/);
+          if (m) {
+            const dir = m[1];
+            const file = m[2];
+            thumbCandidate = `${dir}thumbs/thumb_${file}`;
+          } else {
+            thumbCandidate = `${thumbCandidate}${thumbCandidate.includes('?') ? '&' : '?'}thumb=1`;
+          }
+        }
+      } catch (e) {}
       return {
         src: resolveAssetUrl(thumbCandidate),
         meta: Object.assign({}, meta, { thumbSrc: resolveAssetUrl(thumbCandidate), originalSrc: resolveAssetUrl(origCandidate) })
@@ -682,6 +710,19 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
                         height={r.height}
                         onLoad={(event) => handleImageLoad(src, event)}
                         style={{ display: 'block', cursor: deleteMode ? 'pointer' : 'zoom-in' }}
+                        data-original={photoMetas && photoMetas[overallIndex] ? (photoMetas[overallIndex].originalSrc || images[overallIndex]) : images[overallIndex]}
+                        data-tried="0"
+                        onError={(e) => {
+                          try {
+                            const img = e.target;
+                            const tried = img.getAttribute('data-tried');
+                            if (tried === '0') {
+                              img.setAttribute('data-tried', '1');
+                              const original = img.getAttribute('data-original');
+                              if (original) img.src = original;
+                            }
+                          } catch (err) {}
+                        }}
                         onClick={() => {
                           if (deleteMode) {
                             toggleSelect(overallIndex);
