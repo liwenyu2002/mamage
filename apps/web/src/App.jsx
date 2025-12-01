@@ -1,11 +1,13 @@
 // src/App.jsx
 import React from 'react';
-import { Layout, Typography, Input, Nav, Avatar, Spin, Empty, Button } from '@douyinfe/semi-ui';
+import { Layout, Typography, Input, Nav, Avatar, Spin, Empty, Button, Popover } from '@douyinfe/semi-ui';
 import '@semi-bot/semi-theme-mamage_day/semi.css';
 import { IconUser, IconSearch } from '@douyinfe/semi-icons';
 import ProjectCard from './ProjectCard';
 import ProjectDetail from './ProjectDetail';
 import Scenery from './Scenery';
+import AuthPage from './AuthPage';
+import * as authService from './services/authService';
 import { fetchProjectList, createProject } from './services/projectService';
 import CreateAlbumModal from './CreateAlbumModal';
 import { resolveAssetUrl } from './services/request';
@@ -22,6 +24,8 @@ function App() {
   const [currentProjectId, setCurrentProjectId] = React.useState(null);
   const [selectedNav, setSelectedNav] = React.useState('projects');
   const [showCreateModal, setShowCreateModal] = React.useState(false);
+  const [currentUser, setCurrentUser] = React.useState(null);
+  const [authLoading, setAuthLoading] = React.useState(true);
   
 
   const latestRequestRef = React.useRef(0);
@@ -55,6 +59,24 @@ function App() {
   React.useEffect(() => {
     loadProjects();
   }, [loadProjects]);
+
+  // load current user on app start
+  React.useEffect(() => {
+    let canceled = false;
+    (async () => {
+      setAuthLoading(true);
+      try {
+        const u = await authService.me();
+        if (canceled) return;
+        setCurrentUser(u);
+      } catch (e) {
+        setCurrentUser(null);
+      } finally {
+        if (!canceled) setAuthLoading(false);
+      }
+    })();
+    return () => { canceled = true; };
+  }, []);
 
   const handleSearchSubmit = React.useCallback(() => {
     loadProjects(keyword);
@@ -95,6 +117,13 @@ function App() {
       if (path === '/scenery') {
         setSelectedNav('scenery');
         setCurrentProjectId(null);
+      } else if (path === '/login') {
+        // if visiting /login and already authenticated, redirect to root
+        if (currentUser) {
+          try { window.history.replaceState({}, '', '/'); } catch (e) {}
+          setSelectedNav('projects');
+          setCurrentProjectId(null);
+        }
       } else if (pid) {
         setSelectedNav('projects');
         setCurrentProjectId(pid);
@@ -113,6 +142,13 @@ function App() {
         if (path === '/scenery') {
           setSelectedNav('scenery');
           setCurrentProjectId(null);
+        } else if (path === '/login') {
+          // on popstate to /login, keep showing auth if not logged in
+          if (currentUser) {
+            try { window.history.replaceState({}, '', '/'); } catch (e) {}
+            setSelectedNav('projects');
+            setCurrentProjectId(null);
+          }
         } else if (p) {
           setSelectedNav('projects');
           setCurrentProjectId(p);
@@ -191,6 +227,14 @@ function App() {
   }, [normalizedProjects, currentProjectId]);
 
   return (
+    // If still checking auth, show spinner; if not logged in, show AuthPage
+    authLoading ? (
+      <div style={{ width: '100%', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Spin size="large" tip="检查登录状态中" />
+      </div>
+    ) : !currentUser ? (
+      <AuthPage onAuthenticated={(u) => { setCurrentUser(u); loadProjects(); }} />
+    ) : (
     <Layout style={{ background: '#f4f4f4ff' }}>
       <Header
         style={{
@@ -230,7 +274,25 @@ function App() {
                   <Button onClick={() => setShowCreateModal(true)}>
                     新建相册
                   </Button>
-                <Avatar size="small" color="orange" icon={<IconUser />} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {currentUser ? (
+                    <Popover
+                      content={(
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 140 }}>
+                          <Button type="tertiary" onClick={() => { try { const url = new URL(window.location.href); window.history.pushState({}, '', '/account'); setSelectedNav('about'); } catch (e) {} }}>账户信息</Button>
+                          <Button type="tertiary" theme="borderless" onClick={async () => { try { await authService.logout(); setCurrentUser(null); try { window.history.pushState({}, '', '/login'); } catch(e){} } catch (e) { console.error(e); } }}>退出账号</Button>
+                        </div>
+                      )}
+                      trigger="hover"
+                      position="bottomRight"
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                        <Avatar size="small" alt={currentUser?.name || ''} style={{ backgroundColor: '#d9d9d9' }}>{(currentUser?.name || currentUser?.displayName || currentUser?.email || 'U')[0]}</Avatar>
+                        <span style={{ fontSize: 14 }}>{currentUser && (currentUser.displayName || currentUser.email || currentUser.name)}</span>
+                      </div>
+                    </Popover>
+                  ) : null}
+                </div>
               </div>
             )}
           />
@@ -298,6 +360,7 @@ function App() {
         }}
       />
     </Layout>
+    )
   );
 }
 
