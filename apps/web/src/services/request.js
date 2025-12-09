@@ -1,6 +1,6 @@
 // src/services/request.js
 // 浏览器端的请求封装，基于 fetch
-const DEFAULT_BASE_URL = 'https://increscent-nanette-seldom.ngrok-free.dev';
+const DEFAULT_BASE_URL = '';
 
 const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
 const isLocalHost = hostname === 'localhost' || hostname === '127.0.0.1';
