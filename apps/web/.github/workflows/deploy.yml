@@ -28,12 +28,12 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
 
-      # 在服务器上准备好前端目录
+      # 在服务器上准备好前端目录（注意这里用 MaMage_Web，和服务器实际一致）
       - name: Prepare target directory on server
         run: |
           ssh -o StrictHostKeyChecking=no -p ${{ secrets.DEPLOY_PORT }} \
             ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} \
-            "mkdir -p /home/liwy/mamage-web/dist"
+            "mkdir -p /home/liwy/MaMage_Web/dist"
 
       # 上传 dist 到服务器
       - name: Upload dist/ to server via rsync
@@ -41,13 +41,4 @@ jobs:
           rsync -az --delete \
             -e "ssh -p ${{ secrets.DEPLOY_PORT }} -o StrictHostKeyChecking=no" \
             dist/ \
-            ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/home/liwy/mamage-web/dist/
-
-      # 让 nginx 重新加载配置（有更新就生效）
-      - name: Reload nginx on server
-        run: |
-          ssh -o StrictHostKeyChecking=no -p ${{ secrets.DEPLOY_PORT }} \
-            ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} << 'EOF'
-          sudo nginx -t
-          sudo systemctl reload nginx
-          EOF
+            ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/home/liwy/MaMage_Web/dist/
