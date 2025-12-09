@@ -31,8 +31,8 @@ async function getProjectById(id) {
 
 async function updateProject(id, data) {
   if (!id) throw new Error('missing project id');
-  // determine API base: prefer window.__MAMAGE_API_BASE__, then REQ_BASE, then localhost:3000 for dev
-  const apiBase = (typeof window !== 'undefined' && window.__MAMAGE_API_BASE__) ? window.__MAMAGE_API_BASE__ : (REQ_BASE || 'http://localhost:3000');
+  // determine API base: prefer window.__MAMAGE_API_BASE__, then REQ_BASE, then use relative paths for proxy
+  const apiBase = (typeof window !== 'undefined' && window.__MAMAGE_API_BASE__) ? window.__MAMAGE_API_BASE__ : (REQ_BASE || '');
   const url = `${String(apiBase).replace(/\/+$/,'')}/api/projects/${id}/update`;
   const token = (typeof window !== 'undefined') ? (localStorage.getItem('mamage_jwt_token') || '') : '';
   const headers = Object.assign({ 'Content-Type': 'application/json' }, token ? { Authorization: `Bearer ${token}` } : {});
@@ -58,7 +58,7 @@ async function createProject(data) {
   if (data?.meta) payload.meta = data.meta;
 
   // send to backend directly to avoid dev-server 404 when proxy is not configured
-  const apiBase = (typeof window !== 'undefined' && window.__MAMAGE_API_BASE__) ? window.__MAMAGE_API_BASE__ : (REQ_BASE || 'http://localhost:3000');
+  const apiBase = (typeof window !== 'undefined' && window.__MAMAGE_API_BASE__) ? window.__MAMAGE_API_BASE__ : (REQ_BASE || '');
   const url = `${String(apiBase).replace(/\/+$/,'')}/api/projects`;
   const token = (typeof window !== 'undefined') ? (localStorage.getItem('mamage_jwt_token') || '') : '';
   const headers = Object.assign({ 'Content-Type': 'application/json' }, token ? { Authorization: `Bearer ${token}` } : {});

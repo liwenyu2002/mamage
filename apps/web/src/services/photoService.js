@@ -82,7 +82,7 @@ async function deletePhotos(photoIds) {
   if (!Array.isArray(photoIds)) photoIds = [photoIds];
 
   const baseMaybe = (typeof window !== 'undefined' && window.__MAMAGE_API_BASE__) ? window.__MAMAGE_API_BASE__ : (BASE_URL || '');
-  const fallbackHost = 'http://localhost:3000';
+  const fallbackHost = '';
   // prefer relative endpoints first (avoids CORS preflight when using devServer proxy)
   const candidates = [];
   candidates.push({ url: '/api/photos/delete', opts: { method: 'POST', data: { photoIds } } });
@@ -97,9 +97,11 @@ async function deletePhotos(photoIds) {
   }
 
   // absolute fallback host last (likely cross-origin from dev server)
-  candidates.push({ url: `${fallbackHost}/api/photos/delete`, opts: { method: 'POST', data: { photoIds } } });
-  candidates.push({ url: `${fallbackHost}/api/photos`, opts: { method: 'DELETE', data: { photoIds } } });
-  candidates.push({ url: `${fallbackHost}/api/photos`, opts: { method: 'POST', data: { photoIds } } });
+  if (fallbackHost) {
+    candidates.push({ url: `${fallbackHost}/api/photos/delete`, opts: { method: 'POST', data: { photoIds } } });
+    candidates.push({ url: `${fallbackHost}/api/photos`, opts: { method: 'DELETE', data: { photoIds } } });
+    candidates.push({ url: `${fallbackHost}/api/photos`, opts: { method: 'POST', data: { photoIds } } });
+  }
 
   let lastErr = null;
   // attach Authorization header when possible

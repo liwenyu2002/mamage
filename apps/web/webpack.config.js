@@ -45,7 +45,7 @@ module.exports = {
     proxy: [
       {
         context: ['/api'],
-        target: 'http://localhost:3000',
+        target: process.env.MAMAGE_BACKEND_URL || 'http://localhost:3000',
         changeOrigin: true,
         secure: false,
       },
