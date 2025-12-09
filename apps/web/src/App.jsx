@@ -7,11 +7,13 @@ import ProjectCard from './ProjectCard';
 import ProjectDetail from './ProjectDetail';
 import Scenery from './Scenery';
 import AuthPage from './AuthPage';
+import AccountPage from './AccountPage';
 import * as authService from './services/authService';
 import { fetchProjectList, createProject } from './services/projectService';
 import CreateAlbumModal from './CreateAlbumModal';
 import { resolveAssetUrl } from './services/request';
 import TransferStation from './TransferStation';
+import IfCan from './components/IfCan';
 
 const { Header, Content, Footer } = Layout;
 const { Text } = Typography;
@@ -60,7 +62,7 @@ function App() {
     loadProjects();
   }, [loadProjects]);
 
-  // load current user on app start
+  // load current user on app start (fetch permissions from backend)
   React.useEffect(() => {
     let canceled = false;
     (async () => {
@@ -68,6 +70,7 @@ function App() {
       try {
         const u = await authService.me();
         if (canceled) return;
+        // u now includes permissions array from backend: { id, username, role, permissions: [...] }
         setCurrentUser(u);
       } catch (e) {
         setCurrentUser(null);
@@ -271,15 +274,18 @@ function App() {
                   <Button theme="solid" type="primary" onClick={handleSearchSubmit}>
                     搜索
                   </Button>
-                  <Button onClick={() => setShowCreateModal(true)}>
-                    新建相册
-                  </Button>
+                  <IfCan perms={['projects.create']}>
+                    <Button onClick={() => setShowCreateModal(true)}>
+                      新建相册
+                    </Button>
+                  </IfCan>
+                  {/* 全局上传入口已移除 — 上传由项目详情页的“我要补充照片”承担 */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   {currentUser ? (
                     <Popover
                       content={(
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 140 }}>
-                          <Button type="tertiary" onClick={() => { try { const url = new URL(window.location.href); window.history.pushState({}, '', '/account'); setSelectedNav('about'); } catch (e) {} }}>账户信息</Button>
+                          <Button type="tertiary" onClick={() => { try { const url = new URL(window.location.href); window.history.pushState({}, '', '/account'); setSelectedNav('account'); } catch (e) {} }}>账户信息</Button>
                           <Button type="tertiary" theme="borderless" onClick={async () => { try { await authService.logout(); setCurrentUser(null); try { window.history.pushState({}, '', '/login'); } catch(e){} } catch (e) { console.error(e); } }}>退出账号</Button>
                         </div>
                       )}
@@ -339,6 +345,8 @@ function App() {
             </div>
             ) : selectedNav === 'scenery' ? (
               <Scenery />
+            ) : selectedNav === 'account' ? (
+              <AccountPage currentUser={currentUser} onUpdated={(u) => { setCurrentUser(u); }} />
             ) : (
               <div style={{ padding: 24 }}><Text>暂未实现该页面</Text></div>
             )

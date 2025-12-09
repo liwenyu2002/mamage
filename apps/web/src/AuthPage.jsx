@@ -28,6 +28,7 @@ export default function AuthPage({ onAuthenticated }) {
   const [loginPassword, setLoginPassword] = React.useState('');
   const [regName, setRegName] = React.useState('');
   const [regEmail, setRegEmail] = React.useState('');
+  const [regInviteCode, setRegInviteCode] = React.useState('');
   const [regPassword, setRegPassword] = React.useState('');
   const [loginErrors, setLoginErrors] = React.useState({ email: '', password: '', general: '' });
   const [regErrors, setRegErrors] = React.useState({ name: '', email: '', password: '', general: '' });
@@ -36,6 +37,11 @@ export default function AuthPage({ onAuthenticated }) {
   const [regPasswordValid, setRegPasswordValid] = React.useState(false);
   React.useEffect(() => {
     try {
+      // prefill invite code from URL ?invite=CODE
+      const params = new URLSearchParams(window.location.search);
+      const iv = params.get('invite') || params.get('invite_code') || params.get('inviteCode');
+      if (iv) setRegInviteCode(iv);
+
       const btn = document.getElementById('mamage-register-btn');
       if (!btn) {
         console.debug('[AuthPage] register button not found in DOM');
@@ -84,12 +90,13 @@ export default function AuthPage({ onAuthenticated }) {
       console.debug('[AuthPage] login response', res.status, data);
       if (!res.ok) {
         const code = data.error_code || data.error || 'UNKNOWN_ERROR';
-        const message = data.message || '登录失败';
-        if (code === 'INVALID_PASSWORD') {
-          setLoginErrors((prev) => ({ ...prev, password: message }));
-        } else if (code === 'USER_NOT_FOUND') {
-          setLoginErrors((prev) => ({ ...prev, general: message }));
+        // Friendly message for authentication failure
+        const authFailureCodes = ['INVALID_PASSWORD', 'USER_NOT_FOUND', 'INVALID_CREDENTIALS', 'UNAUTHORIZED'];
+        if (res.status === 401 || authFailureCodes.includes(code)) {
+          const errMsg = '邮箱或密码错误';
+          setLoginErrors((prev) => ({ ...prev, general: errMsg }));
         } else {
+          const message = data.message || '登录失败';
           setLoginErrors((prev) => ({ ...prev, general: message }));
         }
         return;
@@ -143,10 +150,11 @@ export default function AuthPage({ onAuthenticated }) {
       setRegErrors({ name: '', email: '', password: '', general: '' });
       setLoading(true);
       try {
+        const invite_code = regInviteCode ? regInviteCode.trim() : undefined;
         const res = await fetch('/api/users/register', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, password, email: email || undefined }),
+          body: JSON.stringify({ name, password, email: email || undefined, invite_code: invite_code || undefined }),
         });
         const data = await res.json().catch(() => ({}));
         console.debug('[AuthPage] register response', res.status, data);
@@ -234,12 +242,13 @@ export default function AuthPage({ onAuthenticated }) {
                 }}
               />
               {loginErrors.password && <div style={{ color: '#e53935', fontSize: 12, marginTop: 4 }}>{loginErrors.password}</div>}
+              {loginErrors.general && <div style={{ color: '#e53935', fontSize: 12, marginTop: 6 }}>{loginErrors.general}</div>}
             </div>
 
             {/* login errors shown via Toast, no inline general message */}
 
             <div style={{ marginTop: 12 }}>
-              <Button type="primary" theme="solid" loading={loading} onClick={handleLogin}>登录</Button>
+                    <Button type="primary" theme="solid" loading={loading} onClick={handleLogin}>登录</Button>
             </div>
           </div>
         ) : (
@@ -267,6 +276,10 @@ export default function AuthPage({ onAuthenticated }) {
                 </div>
               )}
               {regErrors.email && <div style={{ color: '#e53935', fontSize: 12, marginTop: 4 }}>{regErrors.email}</div>}
+            </div>
+
+            <div>
+              <Input placeholder="邀请码（可选）" value={regInviteCode} onChange={(v) => { setRegInviteCode(v); }} />
             </div>
 
             <div>

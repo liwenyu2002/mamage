@@ -32,6 +32,12 @@
     
 }
 
+/* 使卡片成为垂直弹性容器：顶部封面固定，中间 meta 区域弹性拉伸，底部缩略图固定在底部 */
+.project-card {
+  display: flex;
+  flex-direction: column;
+}
+
 /* 🧊 悬停特效：轻微抬起 + 阴影更深 + 背景稍微提亮 */
 .project-card:hover {
   transform: translateY(-4px);
@@ -44,6 +50,7 @@
 .project-card__cover-image {
   width: 342px;
   height: 230px;
+  flex: 0 0 auto;
 }
 
 .project-card__cover-image img {
@@ -57,15 +64,19 @@
 /* 中间文字信息行 */
 .project-card__meta-row {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  flex-direction: column;
   margin: 12px 4px 8px;
+  gap: 8px;
+  /* 固定在大图下方，按内容高度计算 */
+  flex: 0 0 auto;
 }
 
 .project-card__meta-left {
   display: flex;
   flex-direction: column;  /* 竖着排 */
   gap: 4px;                /* 上下行之间留点间距 */
+  width: 100%;
+  min-width: 0;
 }
 
 .project-card__meta-up {
@@ -74,7 +85,10 @@
   gap: 8px;                /* 日期 / 标题 / 标签之间留间距 */
 }
 .project-card__meta-middle{
-  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
 }
 .project-card__meta-down {
   display: flex;
@@ -118,19 +132,59 @@
 .project-card__title {
   font-size: 18px;
   color: #000000;
+  display: block;
+  /* allow wrapping and occupy full card width; clamp to 2 lines visually */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.2em;
+  max-height: 2.4em;
+  width: 100%;
 }
 
 .project-card__tag {
   border-radius: 999px;
-  padding: 10 10px;
+  padding: 6px 10px;
+  display: inline-block;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .project-card__description {
   font-size: 12px;
-  color: #000000;
+  color: #6b7280;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.2em;
+  max-height: 2.4em;
+  width: 100%;
 }
+.project-card__meta-top {
+  width: 100%;
+  display: flex;
+  justify-content: space-between; /* left: date, right: count */
+  align-items: center;
+}
+
+.project-card__meta-top-left {
+  display: flex;
+  align-items: center;
+}
+
+.project-card__meta-top-right {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
 .project-card__count {
   font-size: 14px;
   color: #000000;
+  white-space: nowrap;
 }
 
 /* 底部 2×2 小图网格（最多 3 张也可以） */
@@ -141,6 +195,11 @@
   margin-top: 4px;
   width: 342px;
   height: 110px;
+}
+
+/* 始终贴在卡片底部 */
+.project-card__thumb-grid {
+  margin-top: auto;
 }
 
 .project-card__thumb {
@@ -154,4 +213,9 @@
   height: 100%;
   object-fit: cover;
   display: block;
+}
+
+/* 中间占位：推挤缩略图到卡片底部 */
+.project-card__spacer {
+  flex: 1 1 auto;
 }

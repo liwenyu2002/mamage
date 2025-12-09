@@ -17,7 +17,8 @@ function fetchRandomByProject(projectId, limit = 4) {
   });
 }
 
-// 上传图片，参数为 FormData 或者一个包含 files 和 projectId 的对象
+// 上传图片，参数为 FormData 或者一个包含 { file, projectId, title, type, tags } 的对象
+// 如果 tags 为数组，会自动转为 JSON 字符串
 async function uploadPhotos(formDataOrObj) {
   // normalize to FormData
   let fd;
@@ -25,26 +26,39 @@ async function uploadPhotos(formDataOrObj) {
     fd = formDataOrObj;
   } else if (formDataOrObj && typeof formDataOrObj === 'object') {
     fd = new FormData();
-    const { files, projectId } = formDataOrObj;
+    const { file, projectId, title, type, tags } = formDataOrObj;
+    // append file (required)
+    if (file) {
+      fd.append('file', file);
+    }
+    // append optional fields
     if (projectId !== undefined) fd.append('projectId', String(projectId));
-    if (files && files.forEach) {
-      // append each file under field name 'file' (backend expects upload.single('file') or multiple 'file' entries)
-      files.forEach((f) => {
-        fd.append('file', f);
-      });
+    if (title !== undefined) fd.append('title', String(title));
+    if (type !== undefined) fd.append('type', String(type));
+    // if tags is array, convert to JSON string
+    if (tags !== undefined) {
+      const tagsStr = Array.isArray(tags) ? JSON.stringify(tags) : String(tags);
+      fd.append('tags', tagsStr);
     }
   } else {
-    throw new Error('uploadPhotos: expected FormData or { files, projectId }');
+    throw new Error('uploadPhotos: expected FormData or { file, projectId, title, type, tags }');
   }
 
-  // Prefer a single relative endpoint to avoid cross-origin / duplicate uploads.
-  // Backend expects single-file field name 'file' and commonly exposes POST /api/photos/upload
-  const uploadUrl = '/api/photos/upload';
+  // Correct endpoint: POST /api/upload/photo
+  const uploadUrl = '/api/upload/photo';
   try {
     // eslint-disable-next-line no-console
     console.debug('[photoService] uploading to', uploadUrl);
+    // Get JWT token for Authorization header
+    const token = (typeof window !== 'undefined') ? (localStorage.getItem('mamage_jwt_token') || '') : '';
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
     // send FormData as-is; do not set Content-Type so browser can add multipart boundary
-    const resp = await fetch(uploadUrl, { method: 'POST', body: fd, credentials: 'same-origin' });
+    const resp = await fetch(uploadUrl, { 
+      method: 'POST', 
+      body: fd, 
+      credentials: 'same-origin',
+      headers 
+    });
     if (!resp.ok) {
       const text = await resp.text();
       const err = new Error(`upload failed ${resp.status} for ${uploadUrl}`);
@@ -88,6 +102,9 @@ async function deletePhotos(photoIds) {
   candidates.push({ url: `${fallbackHost}/api/photos`, opts: { method: 'POST', data: { photoIds } } });
 
   let lastErr = null;
+  // attach Authorization header when possible
+  const token = (typeof window !== 'undefined') ? (localStorage.getItem('mamage_jwt_token') || '') : '';
+
   for (const c of candidates) {
     try {
       // prefer using the request helper for relative/absolute mapping when appropriate
@@ -98,7 +115,7 @@ async function deletePhotos(photoIds) {
         // absolute URL — use fetch directly to avoid REQUEST wrapper base-prefixing
         const resp = await fetch(c.url, {
           method: c.opts.method,
-          headers: { 'Content-Type': 'application/json' },
+          headers: Object.assign({ 'Content-Type': 'application/json' }, token ? { Authorization: `Bearer ${token}` } : {}),
           credentials: 'same-origin',
           body: JSON.stringify(c.opts.data)
         });
@@ -118,7 +135,9 @@ async function deletePhotos(photoIds) {
 
       // relative URL — use request helper
       try {
-        return await request(c.url.replace(/^\/+/, '/'), c.opts);
+        // ensure Authorization header passed to request helper
+        const optsWithHeaders = Object.assign({}, c.opts, { headers: Object.assign({}, c.opts.headers || {}, token ? { Authorization: `Bearer ${token}` } : {}) });
+        return await request(c.url.replace(/^\/+/, '/'), optsWithHeaders);
       } catch (e) {
         // eslint-disable-next-line no-console
         console.warn('[photoService] request() delete attempt failed for', c.url, e);

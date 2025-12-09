@@ -1,4 +1,6 @@
 // src/services/authService.js
+import { setPermissions, clearPermissions } from '../permissionStore';
+
 const API_PREFIX = '/api/users';
 const TOKEN_KEY = 'mamage_jwt_token';
 const DEBUG = true; // 临时调试开关，调试完成后可设为 false
@@ -7,7 +9,7 @@ function setToken(token) {
   if (token) localStorage.setItem(TOKEN_KEY, token);
   else localStorage.removeItem(TOKEN_KEY);
 }
-function getToken() { return localStorage.getItem(TOKEN_KEY); }
+export function getToken() { return localStorage.getItem(TOKEN_KEY); }
 
 async function requestJson(url, opts = {}) {
   const headers = Object.assign({}, opts.headers || {});
@@ -31,6 +33,7 @@ async function requestJson(url, opts = {}) {
       // clear token on unauthorized to avoid repeated 401s
       console.warn('Received 401 from', url, 'clearing stored token');
       setToken(null);
+      clearPermissions();
     }
     if (DEBUG) console.debug('[authService] response:', res.status, data);
     return { ok: res.ok, data, status: res.status };
@@ -38,6 +41,7 @@ async function requestJson(url, opts = {}) {
     if (res.status === 401) {
       console.warn('Received 401 from', url, 'clearing stored token');
       setToken(null);
+      clearPermissions();
     }
     if (DEBUG) console.debug('[authService] response-text:', res.status, text);
     return { ok: res.ok, data: text, status: res.status };
@@ -47,6 +51,9 @@ async function requestJson(url, opts = {}) {
 export async function me() {
   const r = await requestJson(`${API_PREFIX}/me`, { method: 'GET' });
   if (!r.ok) return null;
+  // Backend now returns: { id, username, role, permissions, ... }
+  const perms = Array.isArray(r.data?.permissions) ? r.data.permissions : [];
+  setPermissions(perms);
   return r.data;
 }
 
@@ -59,7 +66,13 @@ export async function login(email, password) {
   });
   if (!r.ok) throw new Error((r.data && r.data.error) || '登录失败');
   if (r.data && r.data.token) setToken(r.data.token);
-  // fetch current user
+  // Backend login response should include: { id, token, username, role, permissions }
+  // Return the full data (no need to call me() again if login response is complete)
+  if (r.data && r.data.permissions) {
+    setPermissions(Array.isArray(r.data.permissions) ? r.data.permissions : []);
+    return r.data;
+  }
+  // Fallback: fetch user if login response doesn't include permissions
   return await me();
 }
 
@@ -102,6 +115,7 @@ export async function updateMe(payload) {
 export async function logout() {
   // just clear token client-side; backend has no logout endpoint by default
   setToken(null);
+  clearPermissions();
 }
 
-export default { me, login, register, logout, updateMe };
+export default { me, login, register, logout, updateMe, getToken };

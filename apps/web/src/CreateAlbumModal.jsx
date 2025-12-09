@@ -1,6 +1,7 @@
 import React from 'react';
 import { Modal, Input, TextArea, DatePicker, Toast } from '@douyinfe/semi-ui';
 import './CreateAlbumModal.css';
+import { me as fetchMe } from './services/authService';
 
 function TagChip({ tag, onRemove }) {
   const [hover, setHover] = React.useState(false);
@@ -19,12 +20,29 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
   const [tags, setTags] = React.useState([]);
   const [startDate, setStartDate] = React.useState(null);
   const [submitting, setSubmitting] = React.useState(false);
+  const [userPermissions, setUserPermissions] = React.useState([]);
 
   React.useEffect(() => {
     if (!visible) {
       setName(''); setDescription(''); setTagInput(''); setTags([]); setStartDate(null); setSubmitting(false);
     }
   }, [visible]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const u = await fetchMe();
+        if (cancelled) return;
+        // u.permissions is array from backend RBAC
+        const perms = Array.isArray(u && u.permissions) ? u.permissions : [];
+        setUserPermissions(perms);
+      } catch (e) {
+        // ignore
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const addTag = React.useCallback((t) => {
     const val = (t || '').trim();
@@ -52,7 +70,8 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
       const payload = {
         title: name.trim(),
         description: description.trim() || undefined,
-        tags: tags.length ? tags : undefined,
+        // only include tags when current user has permission
+        ...(userPermissions.includes('projects.create') && tags && tags.length ? { tags } : {}),
         eventDate: startDate ? (startDate instanceof Date ? `${startDate.getFullYear()}-${String(startDate.getMonth()+1).padStart(2,'0')}-${String(startDate.getDate()).padStart(2,'0')}` : String(startDate).slice(0,10)) : undefined
       };
       let result;
@@ -90,13 +109,15 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
         <Input value={name} onChange={(v) => setName(v)} placeholder="项目名称（必填）" />
         <TextArea value={description} onChange={(v) => setDescription(v)} rows={3} placeholder="项目描述（可选）" />
 
-        <div>
-          <div style={{ marginBottom: 6 }}>项目标签（按回车添加）</div>
-          <div className="cam-tags-row">
-            {tags.map((t) => <TagChip key={t} tag={t} onRemove={removeTag} />)}
-            <input className="cam-tag-input" value={tagInput} onChange={(e) => setTagInput(e.target.value)} onKeyDown={onTagKeyDown} placeholder="输入标签并回车" />
+        {userPermissions.includes('projects.create') ? (
+          <div>
+            <div style={{ marginBottom: 6 }}>项目标签（按回车添加）</div>
+            <div className="cam-tags-row">
+              {tags.map((t) => <TagChip key={t} tag={t} onRemove={removeTag} />)}
+              <input className="cam-tag-input" value={tagInput} onChange={(e) => setTagInput(e.target.value)} onKeyDown={onTagKeyDown} placeholder="输入标签并回车" />
+            </div>
           </div>
-        </div>
+        ) : null}
 
         <div style={{ marginTop: 12 }}>
           <DatePicker value={startDate} onChange={(v) => setStartDate(v)} format="yyyy-MM-dd" placeholder="开展日期（可选）" style={{ width: '100%' }} />

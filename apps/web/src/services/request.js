@@ -1,6 +1,6 @@
 // src/services/request.js
 // 浏览器端的请求封装，基于 fetch
-const DEFAULT_BASE_URL = 'http://localhost:3000';
+const DEFAULT_BASE_URL = 'https://increscent-nanette-seldom.ngrok-free.dev';
 
 const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
 const isLocalHost = hostname === 'localhost' || hostname === '127.0.0.1';
@@ -9,7 +9,10 @@ const BASE_URL = typeof window !== 'undefined' && window.__MAMAGE_API_BASE__
   ? window.__MAMAGE_API_BASE__
   : (isLocalHost ? '' : DEFAULT_BASE_URL);
 
-const ABSOLUTE_API_BASE = BASE_URL || DEFAULT_BASE_URL;
+// Use the backend-provided BASE_URL for asset URLs when available.
+// Do NOT automatically fall back to DEFAULT_BASE_URL for relative asset paths —
+// when BASE_URL is empty (local dev with proxy), we should keep relative paths.
+const ABSOLUTE_API_BASE = BASE_URL || '';
 
 async function request(path, options = {}) {
   const method = (options.method || 'GET').toUpperCase();
@@ -45,7 +48,9 @@ function resolveAssetUrl(src) {
   if (!src) return src;
   if (/^https?:\/\//i.test(src)) return src;
   const normalized = src.startsWith('/') ? src : `/${src}`;
-  return `${ABSOLUTE_API_BASE}${normalized}`;
+  // If ABSOLUTE_API_BASE is provided (from backend or window.__MAMAGE_API_BASE__),
+  // prefix it. Otherwise return a relative path so local dev/proxy works.
+  return ABSOLUTE_API_BASE ? `${ABSOLUTE_API_BASE}${normalized}` : normalized;
 }
 
-export { BASE_URL, request, resolveAssetUrl };
+export { BASE_URL, ABSOLUTE_API_BASE, request, resolveAssetUrl };
