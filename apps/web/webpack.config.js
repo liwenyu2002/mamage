@@ -40,7 +40,7 @@ module.exports = {
     }),
   ],
   devServer: {
-    port: 5173,
+    port: process.env.WEBPACK_DEV_SERVER_PORT || process.env.PORT || 8000,
     open: true,
     proxy: [
       {
