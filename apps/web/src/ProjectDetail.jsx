@@ -55,6 +55,8 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
 
   const fileInputRef = React.useRef(null);
   const [hoveredPhotoIdx, setHoveredPhotoIdx] = React.useState(-1);
+  const [dragActive, setDragActive] = React.useState(false);
+  const [uploadHover, setUploadHover] = React.useState(false);
 
   const galleryRef = React.useRef(null);
   const [galleryWidth, setGalleryWidth] = React.useState(0);
@@ -350,7 +352,12 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
   }, []);
 
   const handleFilesSelected = React.useCallback((files) => {
-    const list = Array.from(files || []);
+    const MAX_FILES = 15;
+    let list = Array.from(files || []);
+    if (list.length > MAX_FILES) {
+      try { Toast.warning(`一次最多上传 ${MAX_FILES} 张照片，已选择前 ${MAX_FILES} 张`); } catch (e) {}
+      list = list.slice(0, MAX_FILES);
+    }
     const previews = list.map((f) => URL.createObjectURL(f));
     setStagingFiles(list);
     setStagingPreviews(previews);
@@ -367,10 +374,16 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
 
   const confirmUpload = React.useCallback(async () => {
     if (!stagingFiles.length || !projectId) return;
+    const MAX_FILES = 15;
+    let filesToUpload = stagingFiles;
+    if (stagingFiles.length > MAX_FILES) {
+      try { Toast.warning(`一次最多上传 ${MAX_FILES} 张照片，已按前 ${MAX_FILES} 张上传`); } catch (e) {}
+      filesToUpload = stagingFiles.slice(0, MAX_FILES);
+    }
     setUploading(true);
     try {
       // upload one file at a time using correct endpoint
-      for (const f of stagingFiles) {
+      for (const f of filesToUpload) {
         // pass file and projectId to uploadPhotos; it will construct FormData
         await uploadPhotos({ file: f, projectId });
       }
@@ -1045,16 +1058,80 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
       {/* 顶部信息栏 */}
       <div className="detail-header">
         <div>
-          <Button
-            onClick={onBack}
-            type="primary"
-            size="large"
-            theme="solid"
-            className="detail-back-btn"
-            style={{ borderRadius: 8, boxShadow: '0 6px 18px rgba(16,24,40,0.08)', padding: '10px 18px' }}
-          >
-            ← 返回项目列表
-          </Button>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+            <Button
+              onClick={onBack}
+              type="primary"
+              size="large"
+              theme="solid"
+              className="detail-back-btn"
+              style={{ borderRadius: 8, boxShadow: '0 6px 18px rgba(16,24,40,0.08)', padding: '10px 18px' }}
+            >
+              ← 返回项目列表
+            </Button>
+
+            {canUploadPhotos ? (
+              <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Button
+                      onClick={openUploadPicker}
+                      onMouseEnter={() => setUploadHover(true)}
+                      onMouseLeave={() => setUploadHover(false)}
+                      onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+                      onDragEnter={(e) => { e.preventDefault(); setDragActive(true); }}
+                      onDragLeave={(e) => { e.preventDefault(); setDragActive(false); }}
+                      onDrop={(e) => { e.preventDefault(); setDragActive(false); if (e.dataTransfer && e.dataTransfer.files) handleFilesSelected(e.dataTransfer.files); }}
+                      type="primary"
+                      style={{
+                        borderRadius: 10,
+                        padding: '16px 24px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 12,
+                        fontSize: 16,
+                        height: 72,
+                        border: '1.5px dashed #d9d9d9',
+                        boxShadow: dragActive ? '0 6px 18px rgba(0,0,0,0.12)' : (uploadHover ? '0 8px 20px rgba(0,0,0,0.12)' : undefined),
+                        transform: dragActive ? 'translateY(-1px)' : undefined,
+                      }}
+                      title="点击上传或者将图片拖拽到按钮上"
+                      aria-label="上传照片"
+                    >
+                      <svg style={{ marginRight: 10 }} width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
+                        <path d="M12 3v10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                        <path d="M8 7l4-4 4 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                        <path d="M21 21H3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: 1 }}>
+                        <span style={{ fontWeight: 400, color: '#111', marginBottom: 6 }}>补充照片</span>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                          <span style={{ fontSize: 12, color: '#6b6b6b', opacity: 0.95, fontWeight: 400, textAlign: 'left' }}>支持拖拽到按钮或点击上传</span>
+                          <span style={{ fontSize: 12, color: '#6b6b6b', opacity: 0.95, fontWeight: 400, textAlign: 'left' }}>一次最多上传15张</span>
+                        </div>
+                      </div>
+                      {stagingFiles && stagingFiles.length > 0 ? (
+                        <span style={{ marginLeft: 8, background: '#ff4d4f', color: '#fff', padding: '4px 10px', borderRadius: 14, fontSize: 13 }}>
+                          {stagingFiles.length}
+                        </span>
+                      ) : null}
+                    </Button>
+                  </div>
+
+                  <input
+                    id="project-file-input"
+                    ref={fileInputRef}
+                    style={{ display: 'none' }}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={(e) => handleFilesSelected(e.target.files)}
+                    aria-hidden="true"
+                  />
+                </div>
+              </div>
+            ) : null}
+          </div>
 
           <div className="detail-title-row">
             <Title heading={3} style={{ margin: 0 }}>
@@ -1067,20 +1144,23 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
             )}
           </div>
 
-          <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
-            <IfCan perms={['projects.update']}>
-              <Button onClick={openEdit} type="primary">修改信息</Button>
-            </IfCan>
-            {canUploadPhotos ? (
-              <>
-                <Button onClick={openUploadPicker} type="tertiary">我要补充照片</Button>
-                <input ref={fileInputRef} style={{ display: 'none' }} type="file" accept="image/*" multiple onChange={(e) => handleFilesSelected(e.target.files)} />
-              </>
-            ) : null}
+          <div style={{ display: 'flex', gap: 12, marginTop: 8, alignItems: 'center', width: '100%' }}>
+            <div style={{ display: 'flex', gap: 0, alignItems: 'center' }}>
+              <IfCan perms={['projects.update']}>
+                <Button onClick={openEdit} type="primary">修改信息</Button>
+              </IfCan>
+              <Button
+                onClick={() => setShowAILabels(!showAILabels)}
+                type={showAILabels ? 'primary' : 'tertiary'}
+                style={{ color: '#722ed1', marginLeft: 6 }}
+              >
+                AI 选片
+              </Button>
+            </div>
+            {/* "我要补充照片" 已移至顶部返回按钮行 */}
             {(canDeletePhotos || canPackDownload) ? (
-              <Button onClick={toggleDeleteMode} type={deleteMode ? 'danger' : 'tertiary'}>{deleteMode ? '取消选择' : '选择'}</Button>
+              <Button onClick={toggleDeleteMode} type={deleteMode ? 'danger' : 'tertiary'} style={{ marginLeft: 'auto' }}>{deleteMode ? '取消选择' : '选择'}</Button>
             ) : null}
-            <Button onClick={() => setShowAILabels(!showAILabels)} type={showAILabels ? 'primary' : 'tertiary'}>AI 选片</Button>
           </div>
 
           <div className="detail-meta" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
