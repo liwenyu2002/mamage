@@ -78,7 +78,7 @@ async function deleteProject(id) {
   if (!id) throw new Error('missing project id');
   const token = (typeof window !== 'undefined') ? (localStorage.getItem('mamage_jwt_token') || '') : '';
   const headers = token ? { Authorization: `Bearer ${token}` } : {};
-  const apiBase = (typeof window !== 'undefined' && window.__MAMAGE_API_BASE__) ? window.__MAMAGE_API_BASE__ : (REQ_BASE || 'http://localhost:3000');
+    const apiBase = (typeof window !== 'undefined' && window.__MAMAGE_API_BASE__) ? window.__MAMAGE_API_BASE__ : (REQ_BASE || '');
   const url = `${String(apiBase).replace(/\/+$/,'')}/api/projects/${id}`;
   const resp = await fetch(url, { method: 'DELETE', headers });
   if (!resp.ok) {
