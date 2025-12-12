@@ -208,6 +208,9 @@ export default function TransferStation() {
 
   return (
     <div style={containerStyle} aria-label="transfer-station">
+      <a href="https://aqzp8yijm6s.feishu.cn/share/base/form/shrcnwu5HlSiXlpt6JiqumTVKec" target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none' }}>
+        <div style={{ padding: '6px 10px', borderRadius: 6, background: '#0070cc', color: '#fff', fontSize: 12, cursor: 'pointer', boxShadow: '0 2px 6px rgba(0,0,0,0.12)' }}>点击跳转反馈问题</div>
+      </a>
       <Tooltip
         content={
           '中转站用法：在任意相册中点击相册中右上角的选择，勾选特定照片后点击中转站-存入，可在功能区导入中转站中照片或者直接下载'
