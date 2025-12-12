@@ -14,6 +14,7 @@ import CreateAlbumModal from './CreateAlbumModal';
 import { resolveAssetUrl } from './services/request';
 import TransferStation from './TransferStation';
 import IfCan from './components/IfCan';
+import AiNewsWriter from './AiNewsWriter';
 
 const { Header, Content, Footer } = Layout;
 const { Text } = Typography;
@@ -26,6 +27,7 @@ function App() {
   const [currentProjectId, setCurrentProjectId] = React.useState(null);
   const [selectedNav, setSelectedNav] = React.useState('projects');
   const [showCreateModal, setShowCreateModal] = React.useState(false);
+  const [functionPage, setFunctionPage] = React.useState<string | null>(null);
   const [currentUser, setCurrentUser] = React.useState(null);
   const [authLoading, setAuthLoading] = React.useState(true);
   
@@ -127,6 +129,10 @@ function App() {
           setSelectedNav('projects');
           setCurrentProjectId(null);
         }
+      } else if (path === '/function/ai-writer') {
+        setSelectedNav('function');
+        setFunctionPage('ai-writer');
+        setCurrentProjectId(null);
       } else if (pid) {
         setSelectedNav('projects');
         setCurrentProjectId(pid);
@@ -152,6 +158,10 @@ function App() {
             setSelectedNav('projects');
             setCurrentProjectId(null);
           }
+        } else if (path === '/function/ai-writer') {
+          setSelectedNav('function');
+          setFunctionPage('ai-writer');
+          setCurrentProjectId(null);
         } else if (p) {
           setSelectedNav('projects');
           setCurrentProjectId(p);
@@ -347,6 +357,21 @@ function App() {
               <Scenery />
             ) : selectedNav === 'account' ? (
               <AccountPage currentUser={currentUser} onUpdated={(u) => { setCurrentUser(u); }} />
+            ) : selectedNav === 'function' ? (
+              functionPage === 'ai-writer' ? (
+                <AiNewsWriter />
+              ) : (
+                <div style={{ padding: 24 }}>
+                  <Card title="功能" bordered>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <Button onClick={() => { try { window.history.pushState({}, '', '/function/ai-writer'); } catch (e) {} setSelectedNav('function'); setFunctionPage('ai-writer'); }}>AI 写新闻/推送</Button>
+                      </div>
+                      <div style={{ color: '#666' }}>更多功能正在开发中…</div>
+                    </div>
+                  </Card>
+                </div>
+              )
             ) : (
               <div style={{ padding: 24 }}><Text>暂未实现该页面</Text></div>
             )
