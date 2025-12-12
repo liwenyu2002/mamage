@@ -1,5 +1,5 @@
 import React from 'react';
-import { Button, Toast } from '@douyinfe/semi-ui';
+import { Button, Toast, Tooltip } from '@douyinfe/semi-ui';
 import { getAll, getCount, add, clear, subscribe, removeById } from './services/transferStore';
 import { resolveAssetUrl } from './services/request';
 
@@ -86,9 +86,15 @@ export default function TransferStation() {
     if (!ids.length) return Toast.warning('中转站内项目无可下载 ID');
     const zipName = `transfer_${Date.now()}`;
     try {
+      const token = (typeof window !== 'undefined') ? (localStorage.getItem('mamage_jwt_token') || '') : '';
+      if (!token) {
+        Toast.warning('当前未登录，打包下载需要登录后操作');
+        return;
+      }
+
       const resp = await fetch('/api/photos/zip', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         credentials: 'same-origin',
         body: JSON.stringify({ photoIds: ids, zipName }),
       });
@@ -202,9 +208,16 @@ export default function TransferStation() {
 
   return (
     <div style={containerStyle} aria-label="transfer-station">
-      <div style={{ ...circleStyle, fontSize: 12, padding: 6, cursor: 'pointer' }} onClick={handleToggleOpen} title="中转站" aria-expanded={open}>
-        中转站
-      </div>
+      <Tooltip
+        content={
+          '中转站用法：在任意相册中点击相册中右上角的选择，勾选特定照片后点击中转站-存入，可在功能区导入中转站中照片或者直接下载'
+        }
+        position="left"
+      >
+        <div style={{ ...circleStyle, fontSize: 12, padding: 6, cursor: 'pointer' }} onClick={handleToggleOpen} title="中转站" aria-expanded={open}>
+          中转站
+        </div>
+      </Tooltip>
 
       {open && (
         <>

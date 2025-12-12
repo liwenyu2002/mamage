@@ -731,9 +731,14 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
 
     const zipName = `photos_${projectId || 'pkg'}`;
     try {
+      const token = typeof getToken === 'function' ? getToken() : (localStorage.getItem ? localStorage.getItem('mamage_jwt_token') : '');
+      if (!token) {
+        Toast.warning('打包下载需要登录，请先登录');
+        return;
+      }
       const resp = await fetch('/api/photos/zip', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         credentials: 'same-origin',
         body: JSON.stringify({ photoIds: ids, zipName }),
       });
