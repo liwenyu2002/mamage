@@ -1,6 +1,6 @@
 // src/App.jsx
 import React from 'react';
-import { Layout, Typography, Input, Nav, Avatar, Spin, Empty, Button, Popover } from '@douyinfe/semi-ui';
+import { Layout, Typography, Input, Nav, Avatar, Spin, Empty, Button, Popover, Card } from '@douyinfe/semi-ui';
 import '@semi-bot/semi-theme-mamage_day/semi.css';
 import { IconUser, IconSearch } from '@douyinfe/semi-icons';
 import ProjectCard from './ProjectCard';
@@ -14,7 +14,7 @@ import CreateAlbumModal from './CreateAlbumModal';
 import { resolveAssetUrl } from './services/request';
 import TransferStation from './TransferStation';
 import IfCan from './components/IfCan';
-import AiNewsWriter from './AiNewsWriter';
+import AiNewsWriter from './AiNewsWriter.jsx';
 
 const { Header, Content, Footer } = Layout;
 const { Text } = Typography;
@@ -27,7 +27,7 @@ function App() {
   const [currentProjectId, setCurrentProjectId] = React.useState(null);
   const [selectedNav, setSelectedNav] = React.useState('projects');
   const [showCreateModal, setShowCreateModal] = React.useState(false);
-  const [functionPage, setFunctionPage] = React.useState<string | null>(null);
+  const [functionPage, setFunctionPage] = React.useState(null);
   const [currentUser, setCurrentUser] = React.useState(null);
   const [authLoading, setAuthLoading] = React.useState(true);
   
@@ -264,7 +264,20 @@ function App() {
             items={[
               { itemKey: 'projects', text: '项目', onClick: () => { handleBackToList(); } },
               { itemKey: 'scenery', text: '风景', onClick: () => { setSelectedNav('scenery'); setCurrentProjectId(null); try { window.history.pushState({}, '', '/scenery'); } catch(e){} } },
-              { itemKey: 'function', text: '功能', onClick: () => { setSelectedNav('function'); setCurrentProjectId(null); try { window.history.pushState({}, '', '/function'); } catch(e){} } },
+              { itemKey: 'function', text: (
+                <Popover
+                  position="bottomLeft"
+                  trigger="hover"
+                  content={(
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 160 }}>
+                      <Button onClick={() => { try { window.history.pushState({}, '', '/function/ai-writer'); } catch (e) {} setSelectedNav('function'); setFunctionPage('ai-writer'); }}>AI 写新闻/推送</Button>
+                      <div style={{ color: '#666', fontSize: 13 }}>更多功能入口</div>
+                    </div>
+                  )}
+                >
+                  <span style={{ cursor: 'pointer' }}>功能</span>
+                </Popover>
+              ), onClick: () => { setSelectedNav('function'); setCurrentProjectId(null); try { window.history.pushState({}, '', '/function'); } catch(e){} } },
               { itemKey: 'about', text: '关于', onClick: () => { setSelectedNav('about'); setCurrentProjectId(null); try { window.history.pushState({}, '', '/about'); } catch(e){} } },
             ]}
             header={{
@@ -284,6 +297,7 @@ function App() {
                   <Button theme="solid" type="primary" onClick={handleSearchSubmit}>
                     搜索
                   </Button>
+                  
                   <IfCan perms={['projects.create']}>
                     <Button onClick={() => setShowCreateModal(true)}>
                       新建相册

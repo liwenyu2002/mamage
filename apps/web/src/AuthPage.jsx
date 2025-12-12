@@ -1,5 +1,5 @@
 import React from 'react';
-import { Card, Input, Button, Toast } from '@douyinfe/semi-ui';
+import { Card, Input, Button, Toast, Select } from '@douyinfe/semi-ui';
 import './AuthPage.css';
 import * as authService from './services/authService';
 
@@ -31,7 +31,12 @@ export default function AuthPage({ onAuthenticated }) {
   const [regInviteCode, setRegInviteCode] = React.useState('');
   const [regPassword, setRegPassword] = React.useState('');
   const [loginErrors, setLoginErrors] = React.useState({ email: '', password: '', general: '' });
-  const [regErrors, setRegErrors] = React.useState({ name: '', email: '', password: '', general: '' });
+  const [regErrors, setRegErrors] = React.useState({ name: '', email: '', password: '', invite: '', general: '' });
+  const [orgs, setOrgs] = React.useState([]);
+  const [orgOptions, setOrgOptions] = React.useState([]);
+  const [selectedOrgId, setSelectedOrgId] = React.useState('');
+  const [orgQuery, setOrgQuery] = React.useState('');
+  const [loadingOrgs, setLoadingOrgs] = React.useState(false);
   const commonSuffixes = ['@qq.com', '@163.com', '@gmail.com', '@hotmail.com', '@edu.cn'];
   const [showRegSuggestions, setShowRegSuggestions] = React.useState(false);
   const [regPasswordValid, setRegPasswordValid] = React.useState(false);
@@ -41,6 +46,9 @@ export default function AuthPage({ onAuthenticated }) {
       const params = new URLSearchParams(window.location.search);
       const iv = params.get('invite') || params.get('invite_code') || params.get('inviteCode');
       if (iv) setRegInviteCode(iv);
+
+      // initial fetch
+      fetchOrgs();
 
       const btn = document.getElementById('mamage-register-btn');
       if (!btn) {
@@ -55,6 +63,58 @@ export default function AuthPage({ onAuthenticated }) {
       console.debug('[AuthPage] register button effect error', e);
     }
   }, []);
+
+  // fetch organizations with optional query and limit
+  async function fetchOrgs(qStr = '') {
+    setLoadingOrgs(true);
+    try {
+      const params = new URLSearchParams();
+      if (qStr) params.set('q', qStr);
+      params.set('limit', '50');
+      // Try relative path first (works when dev-server proxy is configured).
+      let resp = null;
+      let data = [];
+      try {
+        resp = await fetch('/api/organizations?' + params.toString());
+        if (resp && resp.ok) data = await resp.json().catch(() => []);
+      } catch (e) {
+        // ignore and try absolute fallback
+        resp = null;
+      }
+      // Fallback: try backend at localhost:8000 (useful during local dev when proxy not configured)
+      if ((!resp || !resp.ok) && typeof window !== 'undefined') {
+        try {
+          const host = (window.__MAMAGE_API_BASE__ && window.__MAMAGE_API_BASE__.replace(/\/$/, '')) || 'http://localhost:8000';
+          const full = `${host}/api/organizations?${params.toString()}`;
+          const resp2 = await fetch(full);
+          if (resp2 && resp2.ok) data = await resp2.json().catch(() => []);
+        } catch (e) {
+          // ignore
+        }
+      }
+      if (Array.isArray(data)) {
+        setOrgs(data);
+        // normalize options to string values for Select
+        const opts = data.map(o => ({ label: `${o.name}${o.is_public ? '' : '（需邀请码）'}`, value: String(o.id), raw: o }));
+        setOrgOptions(opts);
+        
+      } else {
+        setOrgs([]);
+        setOrgOptions([]);
+      }
+    } catch (e) {
+      console.debug('fetch organizations failed', e);
+      setOrgs([]);
+    } finally {
+      setLoadingOrgs(false);
+    }
+  }
+
+  // debounce orgQuery changes
+  React.useEffect(() => {
+    const id = setTimeout(() => fetchOrgs(orgQuery || ''), 300);
+    return () => clearTimeout(id);
+  }, [orgQuery]);
   // detailed live checks for password
   const passwordChecks = React.useMemo(() => ({
     minMax: (p) => !!p && p.length >= 8 && p.length <= 16,
@@ -147,14 +207,27 @@ export default function AuthPage({ onAuthenticated }) {
         }
       }
 
-      setRegErrors({ name: '', email: '', password: '', general: '' });
+      // If user selected a private organization, require invite_code client-side as UX hint
+      const selectedOrg = orgs.find(o => String(o.id) === String(selectedOrgId));
+      if (selectedOrg && selectedOrg.is_public === false) {
+        if (!regInviteCode || regInviteCode.trim().length === 0) {
+          setRegErrors((prev) => ({ ...prev, invite: '该组织需要邀请码', general: '' }));
+          return;
+        }
+      }
+
+      setRegErrors({ name: '', email: '', password: '', invite: '', general: '' });
       setLoading(true);
       try {
         const invite_code = regInviteCode ? regInviteCode.trim() : undefined;
+        const payload = { name, password };
+        if (email) payload.email = email;
+        if (selectedOrgId) payload.organization_id = selectedOrgId;
+        if (invite_code) payload.invite_code = invite_code;
         const res = await fetch('/api/users/register', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, password, email: email || undefined, invite_code: invite_code || undefined }),
+          body: JSON.stringify(payload),
         });
         const data = await res.json().catch(() => ({}));
         console.debug('[AuthPage] register response', res.status, data);
@@ -171,6 +244,18 @@ export default function AuthPage({ onAuthenticated }) {
           }
           if (code === 'INVALID_EMAIL') {
             setRegErrors((prev) => ({ ...prev, email: message }));
+            return;
+          }
+          if (code === 'INVALID_ORGANIZATION') {
+            setRegErrors((prev) => ({ ...prev, general: '选择的组织不存在' }));
+            return;
+          }
+          if (code === 'INVITE_REQUIRED') {
+            setRegErrors((prev) => ({ ...prev, invite: '该组织需要邀请码' }));
+            return;
+          }
+          if (code === 'INVALID_INVITE') {
+            setRegErrors((prev) => ({ ...prev, invite: '邀请码无效或不匹配' }));
             return;
           }
           if (code === 'MISSING_FIELDS') {
@@ -279,7 +364,49 @@ export default function AuthPage({ onAuthenticated }) {
             </div>
 
             <div>
-              <Input placeholder="邀请码（可选）" value={regInviteCode} onChange={(v) => { setRegInviteCode(v); }} />
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ marginBottom: 6, fontSize: 12, color: '#444' }}>组织（可选）</div>
+                <Select
+                  placeholder={loadingOrgs ? '加载中...' : '搜索或选择组织（可选）'}
+                  value={selectedOrgId}
+                  onChange={(v) => { setSelectedOrgId(v ? String(v) : ''); setRegErrors((prev) => ({ ...prev, invite: '' })); }}
+                  style={{ width: '100%' }}
+                  // disable local filtering: we use remote search
+                  filterOption={false}
+                  // when user types in the select search box, update orgQuery to trigger fetch
+                  onSearch={(val) => setOrgQuery(val)}
+                  // allow clearing selection
+                  allowClear
+                >
+                  {/* render Option children explicitly to avoid potential options prop compatibility issues */}
+                  {Array.isArray(orgOptions) && orgOptions.length > 0 ? (
+                    orgOptions.map((o) => (
+                      <Select.Option key={o.value} value={o.value}>
+                        {o.label}
+                      </Select.Option>
+                    ))
+                  ) : null}
+                </Select>
+                
+              </div>
+              {/* only show invite input when selected org is private */}
+              {(() => {
+                const selectedOrg = orgs.find(o => String(o.id) === String(selectedOrgId));
+                if (selectedOrg && selectedOrg.is_public === false) {
+                  return (
+                    <div>
+                      <Input placeholder="邀请码（必填）" value={regInviteCode} onChange={(v) => { setRegInviteCode(v); setRegErrors((prev) => ({ ...prev, invite: '' })); }} />
+                      {regErrors.invite && <div style={{ color: '#e53935', fontSize: 12, marginTop: 6 }}>{regErrors.invite}</div>}
+                    </div>
+                  );
+                }
+                return (
+                  <div>
+                    <Input placeholder="邀请码（可选）" value={regInviteCode} onChange={(v) => { setRegInviteCode(v); setRegErrors((prev) => ({ ...prev, invite: '' })); }} />
+                    {regErrors.invite && <div style={{ color: '#e53935', fontSize: 12, marginTop: 6 }}>{regErrors.invite}</div>}
+                  </div>
+                );
+              })()}
             </div>
 
             <div>

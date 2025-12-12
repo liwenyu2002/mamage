@@ -64,10 +64,19 @@ function getCount() {
 function add(photo) {
   if (!photo) return false;
   if (selection.length >= MAX_COUNT) return false;
-  const key = photo.id || photo.url;
+  // normalize stored shape to ensure downstream consumers always have these fields
+  const normalized = {
+    id: photo.id || photo.url || null,
+    url: photo.url || photo.fullUrl || photo.cosUrl || photo.src || photo.original || null,
+    thumbSrc: photo.thumbSrc || photo.thumb || photo.thumbUrl || photo.url || null,
+    description: photo.description || photo.caption || photo.alt || photo.title || '',
+    tags: Array.isArray(photo.tags) ? photo.tags : (photo.tagList || []),
+    projectTitle: photo.projectTitle || photo.source || ''
+  };
+  const key = normalized.id || normalized.url;
   if (!key) return false;
   if (selection.some(p => (p.id || p.url) === key)) return true;
-  selection.push(photo);
+  selection.push(normalized);
   persist();
   notify();
   return true;

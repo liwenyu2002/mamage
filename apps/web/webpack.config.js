@@ -40,12 +40,15 @@ module.exports = {
     }),
   ],
   devServer: {
-    port: process.env.WEBPACK_DEV_SERVER_PORT || process.env.PORT || 8000,
+    // Default dev server port changed to 3000 to avoid colliding with backend on 8000.
+    port: process.env.WEBPACK_DEV_SERVER_PORT || process.env.PORT || 3000,
     open: true,
     proxy: [
       {
         context: ['/api'],
-        target: process.env.MAMAGE_BACKEND_URL || 'http://localhost:3000',
+        // Default proxy target should point to the backend (commonly running on 8000 in this project).
+        // Proxy target: point to backend running on localhost:8000.
+        target: process.env.MAMAGE_BACKEND_URL || 'http://localhost:8000',
         changeOrigin: true,
         secure: false,
       },

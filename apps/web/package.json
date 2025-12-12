@@ -4,8 +4,11 @@
     "@douyinfe/semi-ui": "^2.88.3",
     "@semi-bot/semi-theme-mamage_day": "^1.0.0",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "marked": "^5.0.2"
   },
+  "dependenciesMeta": {},
+  "optionalDependencies": {},
   "scripts": {
     "start": "webpack serve --mode development",
     "build": "webpack --mode production"

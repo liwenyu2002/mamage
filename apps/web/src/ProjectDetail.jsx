@@ -162,8 +162,14 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
         meta: metaFinal
       };
     }).filter(Boolean);
-    setPhotoTagsMap(tagsMap);
-    setPhotoDescMap(descMap);
+    // Only update global maps if we actually found any tags/descriptions
+    // to avoid clearing previously-loaded tags (for example from /api/photos)
+    if (Object.keys(tagsMap).length) {
+      setPhotoTagsMap(tagsMap);
+    }
+    if (Object.keys(descMap).length) {
+      setPhotoDescMap(descMap);
+    }
     return { images: normalized.map((n) => n.src), metas: normalized.map((n) => n.meta) };
   }, []);
 
@@ -236,79 +242,107 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
         setImages(built.images);
         setPhotoMetas(built.metas);
 
-        // fetch full photo data with tags from /api/photos
+        // Use photos embedded in project detail (preferred) instead of calling /api/photos
         try {
           const photoIds = built.metas.map((m) => m.id).filter(Boolean);
           if (photoIds.length > 0) {
-            const photosResp = await fetch(`/api/photos?projectId=${projectId}&limit=100`);
-            if (photosResp.ok) {
-              const photosData = await photosResp.json();
-              const photosArray = Array.isArray(photosData) ? photosData : (photosData.list || []);
-              const photoMap = {};
-              photosArray.forEach((p) => {
-                if (p.id) {
-                  const allTags = p.tags ? safeParseTags(p.tags) : [];
-                  // 分离 AI 标签
-                  let aiLabel = null;
-                  if (allTags.includes('AI recommended')) {
-                    aiLabel = 'recommended';
-                  } else if (allTags.includes('AI rejected')) {
-                    aiLabel = 'rejected';
-                  }
-                  // 过滤掉 AI 标签，只保留其他标签
-                  const otherTags = allTags.filter(tag => tag !== 'AI recommended' && tag !== 'AI rejected');
-                  photoMap[p.id] = {
-                    tags: otherTags,
-                    description: p.description || '',
-                    aiLabel: aiLabel
-                  };
-                }
-              });
-              
-              // 立即更新两个 map
-              const tagsMapOnly = {};
-              const descMapOnly = {};
-              const aiLabelMapOnly = {};
-              Object.keys(photoMap).forEach((id) => {
-                tagsMapOnly[id] = photoMap[id].tags;
-                descMapOnly[id] = photoMap[id].description;
-                aiLabelMapOnly[id] = photoMap[id].aiLabel;
-              });
-              
-              setPhotoTagsMap(tagsMapOnly);
-              setPhotoDescMap(descMapOnly);
-              setPhotoAILabelMap(aiLabelMapOnly);
+            const photosArray = Array.isArray(detail.photos) ? detail.photos : (Array.isArray(detail.images) ? detail.images : []);
+            const photoMap = {};
 
-              // 如果后端返回了带完整 URL 的 photos（包含 url / thumbUrl），
-              // 将这些字段合并回 photoMetas，并用合并后的 thumb/original 更新 images 数组，
-              // 避免继续使用项目详情中遗留的相对路径。
-              try {
-                const photoById = {};
-                photosArray.forEach(p => { if (p && p.id) photoById[p.id] = p; });
-                if (Object.keys(photoById).length) {
-                  const merged = (built.metas || []).map((m) => {
-                    if (!m) return m;
-                    const p = photoById[m.id];
-                    if (!p) return m;
-                    const mergedMeta = Object.assign({}, m, p);
-                    // prefer backend thumb/url fields when present
-                    const thumbCandidate = p.thumbUrl || p.thumb || p.thumbnail || mergedMeta.thumbSrc || mergedMeta.thumb || mergedMeta.src || p.url;
-                    const origCandidate = p.url || p.originalUrl || p.original || p.full || mergedMeta.originalSrc || mergedMeta.url || mergedMeta.src;
-                    mergedMeta.thumbSrc = resolveAssetUrl(thumbCandidate);
-                    mergedMeta.originalSrc = resolveAssetUrl(origCandidate);
-                    return mergedMeta;
-                  });
-                  setPhotoMetas(merged);
-                  setImages(merged.map((m) => m.thumbSrc || m.src || resolveAssetUrl(m.url || m.fileUrl || m.imageUrl || '')));
-                }
-              } catch (e) {
-                // 合并失败不影响标签/描述的更新
-                console.warn('merge photo urls failed', e);
+            if (photosArray.length) {
+              photosArray.forEach((p) => {
+                const id = p && (p.id || p.photoId || p.photo_id);
+                if (!id) return;
+                const allTags = p.tags ? safeParseTags(p.tags) : [];
+                let aiLabel = null;
+                if (allTags.includes('AI recommended')) aiLabel = 'recommended';
+                else if (allTags.includes('AI rejected')) aiLabel = 'rejected';
+                const otherTags = allTags.filter(tag => tag !== 'AI recommended' && tag !== 'AI rejected');
+                photoMap[id] = { tags: otherTags, description: p.description || p.desc || '', aiLabel, raw: p };
+              });
+            }
+
+            // merge/extend existing maps instead of replacing to avoid wiping data
+            const tagsMapOnly = {};
+            const descMapOnly = {};
+            const aiLabelMapOnly = {};
+            Object.keys(photoMap).forEach((id) => {
+              tagsMapOnly[id] = photoMap[id].tags;
+              descMapOnly[id] = photoMap[id].description;
+              aiLabelMapOnly[id] = photoMap[id].aiLabel;
+            });
+
+            setPhotoTagsMap((prev) => ({ ...(prev || {}), ...tagsMapOnly }));
+            setPhotoDescMap((prev) => ({ ...(prev || {}), ...descMapOnly }));
+            setPhotoAILabelMap((prev) => ({ ...(prev || {}), ...aiLabelMapOnly }));
+
+            // 如果 detail 中返回了更完整的 photo 对象，合并这些字段回 photoMetas
+            try {
+              const photoById = {};
+              photosArray.forEach(p => { const id = p && (p.id || p.photoId || p.photo_id); if (id) photoById[id] = p; });
+              if (Object.keys(photoById).length) {
+                const merged = (built.metas || []).map((m) => {
+                  if (!m) return m;
+                  const p = photoById[m.id];
+                  if (!p) return m;
+                  const mergedMeta = Object.assign({}, m, p);
+                  const thumbCandidate = p.thumbUrl || p.thumb || p.thumbnail || mergedMeta.thumbSrc || mergedMeta.thumb || mergedMeta.src || p.url;
+                  const origCandidate = p.url || p.originalUrl || p.original || p.full || mergedMeta.originalSrc || mergedMeta.url || mergedMeta.src;
+                  mergedMeta.thumbSrc = resolveAssetUrl(thumbCandidate);
+                  mergedMeta.originalSrc = resolveAssetUrl(origCandidate);
+                  return mergedMeta;
+                });
+                setPhotoMetas(merged);
+                setImages(merged.map((m) => m.thumbSrc || m.src || resolveAssetUrl(m.url || m.fileUrl || m.imageUrl || '')));
               }
+            } catch (e) {
+              console.warn('merge photo urls failed', e);
+            }
+
+            // 如果部分 photo meta 缺少 photographerName，但包含 photographerId，
+            // 前端仍可回退去请求用户信息并补全 name（可保留以提升体验）。
+            try {
+              const mergedList = (built.metas || []).map(m => m).map(m => ({ ...(m || {}) }));
+              const idsToFetch = Array.from(new Set((mergedList || [])
+                .filter(p => p && !p.photographerName && (p.photographerId || p.userId || p.ownerId))
+                .map(p => p.photographerId || p.userId || p.ownerId)
+                .filter(Boolean)));
+              if (idsToFetch.length) {
+                const token = getToken ? getToken() : null;
+                const headers = token ? { Authorization: `Bearer ${token}` } : {};
+                const fetchUser = async (id) => {
+                  try {
+                    const resp = await fetch(`/api/users/${id}`, { headers });
+                    if (!resp.ok) return null;
+                    const data = await resp.json();
+                    return data && (data.name || data.username || data.displayName || data.nickname || data.nick || data.realName);
+                  } catch (e) {
+                    return null;
+                  }
+                };
+
+                const userNamePromises = idsToFetch.map(id => fetchUser(id));
+                const names = await Promise.all(userNamePromises);
+                const idToName = {};
+                idsToFetch.forEach((id, i) => { if (names[i]) idToName[id] = names[i]; });
+                if (Object.keys(idToName).length) {
+                  const updated = (mergedList || []).map((m) => {
+                    if (!m) return m;
+                    const pid = m.photographerId || m.userId || m.ownerId;
+                    if (pid && !m.photographerName && idToName[pid]) {
+                      return Object.assign({}, m, { photographerName: idToName[pid] });
+                    }
+                    return m;
+                  });
+                  setPhotoMetas(updated);
+                }
+              }
+            } catch (e) {
+              // 忽略网络错误，不影响主流程
             }
           }
         } catch (e) {
-          console.warn('Failed to fetch photos with tags:', e);
+          console.warn('Failed to process photos from project detail:', e);
         }
       } catch (err) {
         if (canceled) return;
@@ -634,11 +668,14 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
           || '项目';
         return idxs.map((i) => {
           const meta = (photoMetas && photoMetas[i]) || {};
+          const pid = meta.id || meta.photoId || meta.photo_id || null;
           return {
-            id: meta.id || meta.photoId || meta.photo_id || null,
-            url: meta.originalSrc || meta.thumbSrc || images[i] || null,
+            id: pid,
+            url: meta.originalSrc || meta.url || meta.thumbSrc || images[i] || null,
             thumbSrc: meta.thumbSrc || images[i] || null,
             originalSrc: meta.originalSrc || images[i] || null,
+            description: (pid && photoDescMap && photoDescMap[pid]) ? photoDescMap[pid] : (meta.description || ''),
+            tags: (pid && photoTagsMap && photoTagsMap[pid]) ? photoTagsMap[pid] : (safeParseTags(meta.tags) || []),
             projectTitle: srcProjectName,
           };
         }).filter(Boolean);
@@ -1260,6 +1297,32 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
                           }
                         }}
                       />
+                      {(() => {
+                        const meta = photoMetas?.[overallIndex] || {};
+                        // 支持多种可能的字段名，优先使用姓名字符串
+                        const rawName = meta.photographerName || meta.photographer_name || meta.photographer || (meta.photographerId ? String(meta.photographerId) : null) || (meta.photographer_id ? String(meta.photographer_id) : null);
+                        const hasName = rawName && String(rawName).trim();
+                        let photographerLabel = null;
+                        if (hasName) {
+                          photographerLabel = String(rawName);
+                        } else {
+                          // 尝试从项目详情或初始项目中回退查找 photographerName
+                          try {
+                            const list = (project && (project.photos || project.images || project.gallery)) || (initialProject && (initialProject.photos || initialProject.images || initialProject.gallery)) || [];
+                            const found = Array.isArray(list) ? list.find(p => p && (String(p.id) === String(meta.id) || String(p.photoId) === String(meta.id))) : null;
+                            const fb = found ? (found.photographerName || found.photographer || found.photographer_name || found.photographerId || found.photographer_id) : null;
+                            if (fb) photographerLabel = String(fb);
+                          } catch (e) { /* ignore */ }
+                          if (!photographerLabel) {
+                            photographerLabel = meta.photographerId ? `摄影师 #${meta.photographerId}` : (meta.photographer_id ? `摄影师 #${meta.photographer_id}` : '未知摄影师');
+                          }
+                        }
+                        return (
+                          <div style={{ position: 'absolute', left: 8, top: 8, background: 'rgba(0,0,0,0.55)', color: '#fff', padding: '4px 6px', borderRadius: 4, fontSize: '12px', pointerEvents: 'none', maxWidth: '70%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {photographerLabel}
+                          </div>
+                        );
+                      })()}
                       {deleteMode && (
                         <div style={{ position: 'absolute', right: 8, top: 8, width: 32, height: 32, borderRadius: 16, background: selectedMap[String(overallIndex)] ? '#ff5252' : 'rgba(0,0,0,0.45)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); toggleSelect(overallIndex); }}>
                           {selectedMap[String(overallIndex)] ? '✓' : ''}
@@ -1402,6 +1465,29 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
                     className="viewer-img"
                     onClick={(e) => e.stopPropagation()}
                   />
+                  {(() => {
+                    const meta = photoMetas[viewerIndex] || {};
+                    const rawName = meta.photographerName || meta.photographer_name || meta.photographer || (meta.photographerId ? String(meta.photographerId) : null) || (meta.photographer_id ? String(meta.photographer_id) : null);
+                    const hasName = rawName && String(rawName).trim();
+                    let label = null;
+                    if (hasName) {
+                      label = String(rawName);
+                    } else {
+                      try {
+                        const list = (project && (project.photos || project.images || project.gallery)) || (initialProject && (initialProject.photos || initialProject.images || initialProject.gallery)) || [];
+                        const found = Array.isArray(list) ? list.find(p => p && (String(p.id) === String(meta.id) || String(p.photoId) === String(meta.id))) : null;
+                        const fb = found ? (found.photographerName || found.photographer || found.photographer_name || found.photographerId || found.photographer_id) : null;
+                        if (fb) label = String(fb);
+                      } catch (e) { /* ignore */ }
+                      if (!label) label = meta.photographerId ? `摄影师 #${meta.photographerId}` : (meta.photographer_id ? `摄影师 #${meta.photographer_id}` : null);
+                    }
+                    if (!label) return null;
+                    return (
+                      <div style={{ position: 'absolute', left: 16, top: 16, background: 'rgba(0,0,0,0.55)', color: '#fff', padding: '6px 10px', borderRadius: 4, fontSize: '13px', pointerEvents: 'none', maxWidth: '60%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {label}
+                      </div>
+                    );
+                  })()}
                   <div style={{ position: 'absolute', right: 16, bottom: 16 }}>
                     <button type="button" className="viewer-original-btn" onClick={(e) => { e.stopPropagation(); setViewerShowOriginal((v) => !v); }}>
                       {viewerShowOriginal ? '查看缩略图' : '查看原图'}

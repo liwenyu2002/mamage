@@ -50,12 +50,21 @@ export default function TransferStation() {
       Toast.warning('当前页面未暴露选中数据，先在项目页选择后再点击 “存入”。');
       return;
     }
-    try {
+      try {
       const items = getter() || [];
       if (!items.length) return Toast.info('当前未选中任何照片');
+      // normalize items before adding to transfer store to ensure description/tags/url exist
       let added = 0; let skipped = 0;
       for (const it of items) {
-        const ok = add(it);
+        const mapped = {
+          id: it.id || it.url || null,
+          url: it.url || it.fullUrl || it.cosUrl || it.src || it.original || null,
+          thumbSrc: it.thumbSrc || it.thumb || it.thumbUrl || it.url || null,
+          description: it.description || it.caption || it.alt || it.title || '',
+          tags: Array.isArray(it.tags) ? it.tags : (it.tagList || []),
+          projectTitle: it.projectTitle || it.source || ''
+        };
+        const ok = add(mapped);
         if (ok) added++; else skipped++;
       }
       Toast.success(`已存入 ${added} 张，已存在/超限 ${skipped} 张`);

@@ -1,6 +1,7 @@
 // src/services/request.js
 // 浏览器端的请求封装，基于 fetch
 const DEFAULT_BASE_URL = '';
+import { getToken } from './authService';
 
 const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
 const isLocalHost = hostname === 'localhost' || hostname === '127.0.0.1';
@@ -19,6 +20,30 @@ async function request(path, options = {}) {
   let url = `${BASE_URL}${path}`;
   const headers = Object.assign({ 'Content-Type': 'application/json' }, options.headers || {});
 
+  // Development logging: if enabled (or running on localhost), record request payloads
+  const LOG_REQUESTS = typeof window !== 'undefined' && (window.__MAMAGE_LOG_REQUESTS || isLocalHost);
+  const pushRequestLog = async (entry) => {
+    try {
+      if (typeof window === 'undefined') return;
+      window.__MAMAGE_POST_LOGS = window.__MAMAGE_POST_LOGS || [];
+      window.__MAMAGE_POST_LOGS.unshift(entry);
+      // limit to 200 entries
+      if (window.__MAMAGE_POST_LOGS.length > 200) window.__MAMAGE_POST_LOGS.length = 200;
+    } catch (e) {
+      // ignore
+    }
+  };
+
+  // 如果 localStorage 中存有 token，则自动注入 Authorization 头
+  try {
+    const token = typeof getToken === 'function' ? getToken() : null;
+    if (token && !headers['Authorization']) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+  } catch (e) {
+    // ignore
+  }
+
   const fetchOpts = { method, headers, credentials: options.credentials || 'same-origin' };
 
   // GET 参数拼接
@@ -28,6 +53,38 @@ async function request(path, options = {}) {
   } else if (options.data) {
     // 其余方法默认以 JSON body 发送
     fetchOpts.body = JSON.stringify(options.data);
+  }
+
+  // Log outgoing request body when enabled (don't log sensitive tokens)
+  if (LOG_REQUESTS && method !== 'GET') {
+    try {
+      const isForm = (typeof FormData !== 'undefined') && (options.data instanceof FormData);
+      let bodyPreview = null;
+      if (isForm) {
+        // collect fields (do not include full file blobs)
+        const obj = {};
+        for (const pair of options.data.entries()) {
+          const k = pair[0];
+          const v = pair[1];
+          if (v && typeof v === 'object' && v instanceof File) {
+            obj[k] = { filename: v.name, size: v.size, type: v.type };
+          } else {
+            obj[k] = String(v).slice(0, 1024);
+          }
+        }
+        bodyPreview = obj;
+      } else if (fetchOpts.body) {
+        try { bodyPreview = JSON.parse(fetchOpts.body); } catch (e) { bodyPreview = String(fetchOpts.body).slice(0, 2000); }
+      }
+      const entry = { time: Date.now(), method, url, headers: Object.assign({}, headers), body: bodyPreview };
+      // don't await push to avoid blocking
+      pushRequestLog(entry);
+      // also print a compact debug line
+      // eslint-disable-next-line no-console
+      console.debug('[request] OUT', method, url, bodyPreview);
+    } catch (e) {
+      // ignore logging errors
+    }
   }
 
   const res = await fetch(url, fetchOpts);
