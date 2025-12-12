@@ -3,6 +3,7 @@ import { Modal, Input, TextArea, DatePicker, Toast } from '@douyinfe/semi-ui';
 import './CreateAlbumModal.css';
 import { me as fetchMe } from './services/authService';
 import { uploadPhotos } from './services/photoService';
+import { getProjectById } from './services/projectService';
 
 function TagChip({ tag, onRemove }) {
   const [hover, setHover] = React.useState(false);
@@ -70,7 +71,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
   }, [tagInput, addTag]);
 
   const handleFilesSelected = React.useCallback((files) => {
-    const MAX = 10;
+    const MAX = 15;
     const incoming = Array.from(files || []);
     if (!incoming.length) return;
 
@@ -146,9 +147,6 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
       let result;
       if (typeof createProject === 'function') {
         result = await createProject(payload);
-        if (typeof onCreated === 'function') {
-          try { await onCreated(result || payload); } catch (e) { /* ignore */ }
-        }
       } else if (typeof onCreated === 'function') {
         // caller handles creation and may return created object
         result = await onCreated(payload);
@@ -156,26 +154,71 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
       Toast.success('已创建项目');
       // 如果用户在新建时选择了照片，且服务器返回了新项目 id，则上传照片到该项目
       try {
-        const MAX = 10;
-        const filesToUpload = (stagingFiles && stagingFiles.length) ? stagingFiles.slice(0, MAX) : [];
-        const projectId = result && (result.id || result._id || result.projectId || result.id === 0 ? result.id : null) || null;
+        const MAX_FILES = 15;
+        const filesToUpload = (stagingFiles && stagingFiles.length) ? stagingFiles.slice(0, MAX_FILES) : [];
+        console.debug('[CreateAlbumModal] filesToUpload count', filesToUpload.length, 'stagingFiles count', (stagingFiles && stagingFiles.length) || 0);
+        const projectId = result && (result.id || result._id || result.projectId || (result.id === 0 ? result.id : null)) || null;
+        if (filesToUpload.length === 0) {
+          // no files selected: notify parent immediately so UI/list can refresh
+          if (typeof onCreated === 'function') {
+            try { await onCreated(result); } catch (e) { /* ignore */ }
+          }
+        }
+
         if (filesToUpload.length > 0) {
           if (!projectId) {
             Toast.warning('已创建项目，但未能获取项目 ID，照片未自动上传');
           } else {
-            for (const f of filesToUpload) {
-              try {
-                await uploadPhotos({ file: f, projectId });
-              } catch (e) {
-                console.error('upload photo during createAlbum failed', e);
+            // upload one file at a time (same logic as ProjectDetail)
+            // log token and projectId to help diagnose intermittent failures
+            try {
+              const token = (typeof window !== 'undefined') ? (localStorage.getItem('mamage_jwt_token') || '') : '';
+              console.debug('[CreateAlbumModal] starting uploads', { projectId, tokenPresent: !!token, files: filesToUpload.length });
+              if (!token) {
+                Toast.warning('未检测到登录 token，上传可能会失败');
+              }
+            } catch (e) {}
+
+            // 并行上传所有选中照片（同时发起多个请求），收集失败项以便提示
+            try {
+              const uploadPromises = filesToUpload.map((f) =>
+                uploadPhotos({ file: f, projectId }).then(() => ({ status: 'fulfilled', fileName: f.name }))
+                  .catch((err) => ({ status: 'rejected', fileName: f.name, error: err }))
+              );
+
+              const results = await Promise.all(uploadPromises);
+              const rejected = results.filter(r => r.status === 'rejected');
+              if (rejected.length > 0) {
+                console.error('[CreateAlbumModal] some uploads failed', rejected);
+                try { Toast.error(`部分图片上传失败：${rejected.length} 张`); } catch (e) {}
+              } else {
+                try { Toast.success('已上传所选照片'); } catch (e) {}
+              }
+            } catch (e) {
+              console.error('parallel uploads failed unexpectedly', e);
+              try { Toast.error('图片上传失败'); } catch (ee) {}
+            }
+
+            // refresh created project to include uploaded photos and return full object
+            try {
+              const full = await getProjectById(projectId);
+              // call onCreated with the refreshed project so caller can update UI
+              if (typeof onCreated === 'function') {
+                try { await onCreated(full); } catch (e) { /* ignore caller errors */ }
+              }
+            } catch (e) {
+              console.warn('Failed to reload project after uploads', e);
+              // still call onCreated with original result if available
+              if (typeof onCreated === 'function') {
+                try { await onCreated(result); } catch (err) { /* ignore */ }
               }
             }
-            Toast.success('已上传所选照片');
           }
         }
       } catch (e) {
         console.error('post-create upload failed', e);
       }
+      // close modal after all operations complete
       if (onClose) onClose();
     } catch (e) {
       console.error('create project failed', e);
@@ -183,7 +226,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
     } finally {
       setSubmitting(false);
     }
-  }, [name, description, tags, startDate, createProject, onCreated, onClose]);
+  }, [name, description, tags, startDate, createProject, onCreated, onClose, stagingFiles, userPermissions]);
 
   return (
     <Modal
@@ -201,7 +244,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
         <TextArea value={description} onChange={(v) => setDescription(v)} rows={3} placeholder="项目描述（可选）" />
 
         <div style={{ marginTop: 12 }}>
-          <div style={{ marginBottom: 6 }}>添加照片（可选，最多 10 张）</div>
+          <div style={{ marginBottom: 6 }}>添加照片（可选，最多 15 张）</div>
           <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
             <label style={{ display: 'inline-block' }}>
               <input type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={(e) => handleFilesSelected(e.target.files)} />
