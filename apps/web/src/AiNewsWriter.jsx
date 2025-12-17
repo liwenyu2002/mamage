@@ -28,11 +28,7 @@ const mockPhotos = [
 
 const AiNewsWriter = () => {
   const DRAFT_STORAGE_KEY = 'mamage.aiNewsWriter.draft.v1';
-
-  // state
-  // 不要默认预填已选照片，用户从中转站或手动选择后再加入
-  const [selectedPhotos, setSelectedPhotos] = React.useState([]);
-  const [formValues, setFormValues] = React.useState({
+  const INITIAL_FORM_VALUES = {
     eventName: '',
     eventDate: null,
     location: '',
@@ -42,7 +38,13 @@ const AiNewsWriter = () => {
     usage: '官网新闻',
     tone: '正式',
     targetWords: '500-800',
-  });
+  };
+  const skipNextAutoSaveRef = React.useRef(false);
+
+  // state
+  // 不要默认预填已选照片，用户从中转站或手动选择后再加入
+  const [selectedPhotos, setSelectedPhotos] = React.useState([]);
+  const [formValues, setFormValues] = React.useState(INITIAL_FORM_VALUES);
   const [referenceArticle, setReferenceArticle] = React.useState('');
   const [stylePreset, setStylePreset] = React.useState('默认风格');
   const [interviewText, setInterviewText] = React.useState('');
@@ -55,6 +57,28 @@ const AiNewsWriter = () => {
   const REFERENCE_MAX = 20000;
   const [showAdvancedEditor, setShowAdvancedEditor] = React.useState(false);
   const [advancedPrompt, setAdvancedPrompt] = React.useState('');
+
+  const clearAllDraft = React.useCallback(() => {
+    try {
+      skipNextAutoSaveRef.current = true;
+      window.localStorage.removeItem(DRAFT_STORAGE_KEY);
+    } catch (e) {
+      // ignore
+    }
+
+    setSelectedPhotos([]);
+    setFormValues(INITIAL_FORM_VALUES);
+    setReferenceArticle('');
+    setInterviewText('');
+    setStylePreset('默认风格');
+    setTitle('');
+    setSubtitle('');
+    setMarkdownText('');
+    setGeneratedHtml('');
+    setAdvancedPrompt('');
+    setShowAdvancedEditor(false);
+    Toast.success('已清空本页缓存');
+  }, [DRAFT_STORAGE_KEY, INITIAL_FORM_VALUES]);
 
   const removePhoto = React.useCallback((photoId) => {
     setSelectedPhotos((prev) => (prev || []).filter((p) => String(p.id) !== String(photoId)));
@@ -101,6 +125,11 @@ const AiNewsWriter = () => {
 
   // Auto-save draft (debounced) whenever key fields change.
   React.useEffect(() => {
+    if (skipNextAutoSaveRef.current) {
+      skipNextAutoSaveRef.current = false;
+      try { window.localStorage.removeItem(DRAFT_STORAGE_KEY); } catch (e) {}
+      return;
+    }
     const t = setTimeout(() => {
       try {
         const payload = {
@@ -794,7 +823,12 @@ const AiNewsWriter = () => {
   return (
     <Layout style={{ padding: 16 }}>
       <Header style={{ background: 'transparent', padding: 0, marginBottom: 12 }}>
-        <h2 style={{ margin: 0 }}>AI 写稿助手</h2>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <h2 style={{ margin: 0 }}>AI 写稿助手</h2>
+          <Button type="danger" theme="borderless" size="small" onClick={clearAllDraft}>
+            清空缓存
+          </Button>
+        </div>
       </Header>
 
       <Content>
