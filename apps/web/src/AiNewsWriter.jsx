@@ -27,6 +27,8 @@ const mockPhotos = [
 ];
 
 const AiNewsWriter = () => {
+  const DRAFT_STORAGE_KEY = 'mamage.aiNewsWriter.draft.v1';
+
   // state
   // 不要默认预填已选照片，用户从中转站或手动选择后再加入
   const [selectedPhotos, setSelectedPhotos] = React.useState([]);
@@ -53,6 +55,86 @@ const AiNewsWriter = () => {
   const REFERENCE_MAX = 20000;
   const [showAdvancedEditor, setShowAdvancedEditor] = React.useState(false);
   const [advancedPrompt, setAdvancedPrompt] = React.useState('');
+
+  const removePhoto = React.useCallback((photoId) => {
+    setSelectedPhotos((prev) => (prev || []).filter((p) => String(p.id) !== String(photoId)));
+  }, []);
+
+  // Restore draft on mount so page switching won't reset inputs.
+  React.useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(DRAFT_STORAGE_KEY);
+      if (!raw) return;
+      const draft = JSON.parse(raw);
+      if (!draft || typeof draft !== 'object') return;
+
+      if (draft.formValues && typeof draft.formValues === 'object') {
+        const ev = draft.formValues.eventDate;
+        let parsedEventDate = null;
+        if (ev) {
+          const d = new Date(ev);
+          if (!Number.isNaN(d.getTime())) parsedEventDate = d;
+        }
+        setFormValues((s) => ({
+          ...s,
+          ...draft.formValues,
+          eventDate: parsedEventDate,
+        }));
+      }
+
+      if (typeof draft.referenceArticle === 'string') setReferenceArticle(draft.referenceArticle);
+      if (typeof draft.interviewText === 'string') setInterviewText(draft.interviewText);
+      if (typeof draft.advancedPrompt === 'string') setAdvancedPrompt(draft.advancedPrompt);
+      if (typeof draft.title === 'string') setTitle(draft.title);
+      if (typeof draft.subtitle === 'string') setSubtitle(draft.subtitle);
+      if (typeof draft.markdownText === 'string') setMarkdownText(draft.markdownText);
+      if (typeof draft.generatedHtml === 'string') setGeneratedHtml(draft.generatedHtml);
+
+      if (Array.isArray(draft.selectedPhotos)) {
+        setSelectedPhotos(draft.selectedPhotos);
+      }
+    } catch (e) {
+      // ignore storage/parse errors
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Auto-save draft (debounced) whenever key fields change.
+  React.useEffect(() => {
+    const t = setTimeout(() => {
+      try {
+        const payload = {
+          formValues: {
+            ...formValues,
+            eventDate: formValues?.eventDate ? new Date(formValues.eventDate).toISOString() : null,
+          },
+          referenceArticle,
+          interviewText,
+          selectedPhotos,
+          title,
+          subtitle,
+          markdownText,
+          generatedHtml,
+          advancedPrompt,
+          savedAt: Date.now(),
+        };
+        window.localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(payload));
+      } catch (e) {
+        // ignore storage quota / disabled storage
+      }
+    }, 350);
+    return () => clearTimeout(t);
+  }, [
+    formValues,
+    referenceArticle,
+    interviewText,
+    selectedPhotos,
+    title,
+    subtitle,
+    markdownText,
+    generatedHtml,
+    advancedPrompt,
+  ]);
   
 
   // 参考素材改为粘贴文章内容（referenceArticle）
