@@ -1,110 +1,263 @@
 
 # MaMage_Web
 
-简体中文说明文档。
+一个基于 React + Webpack 的相册/图库前端项目（配合后端 `/api` 使用）。适合：做“项目相册列表 + 详情图片管理 + 打包下载 + 中转站复制”的内部工具。
 
-## 项目简介
-- 这是一个基于 React + Webpack 的前端项目样例，使用 `semi-ui` 组件库与自定义主题 `@semi-bot/semi-theme-mamage`。
-- 主要目录：
-	- `public/`：静态 HTML 入口 (`index.html`)。
-	- `src/`：应用源码，包含 `App.jsx`、`index.jsx`。
-	- `webpack.config.js`：构建配置。
+## 快速开始
 
-## 前置要求
-- Node.js（建议使用 LTS 版本，项目在开发环境上已用 Node v24.x 测试；通常使用 Node 18+ 即可）。
-- npm：随 Node.js 一起安装。安装后请在新打开的终端运行 `node -v` 与 `npm -v` 验证。
+> 目标：10 分钟内在本地看到页面并能请求到后端接口。
 
-如果在终端中看到 `node` 或 `npm` 未找到错误，请关闭并重新打开终端，或将 Node 安装目录加入你的 PATH（例如 `C:\Program Files\nodejs`）。
-
-## 安装（第一次）
-在项目根目录运行：
+### 1）安装（前端）
 
 ```powershell
 npm install
 ```
 
-这会安装 `dependencies` 与 `devDependencies`（项目中使用 `webpack`、`babel`、`semi-ui` 等）。
+### 2）启动后端（必需：否则前端请求 `/api/*` 会失败）
 
-## 常用命令
-- 开发服务器（热重载）：
+本仓库带了一个示例后端在 `backend/`（Express + MySQL），脚本来自 `backend/package.json`。
 
 ```powershell
-"""
-Update README with recent feature notes and developer tips.
-"""
-
-# MaMage_Web
-
-简体中文说明（更新于 2025-11-30）。
-
-## 项目简介
-- 前端：React + Webpack，UI 使用 `@douyinfe/semi-ui`；样式包含自定义主题 `@semi-bot/semi-theme-mamage`。
-- 主要目录：
-	- `public/`：静态资源与入口 `index.html`。
-	- `src/`：应用源码（`App.jsx`, `ProjectDetail.jsx`, `TransferStation.jsx` 等）。
-	- `webpack.config.js`：开发/构建配置。
-
-## 新增功能（近期变更摘要）
-- 新建相册：在 Header 增加 `新建相册` 按钮，打开模态窗创建项目（前端组件 `src/CreateAlbumModal.jsx`，后端请求 `POST /api/projects`，必需字段 `projectName`）。
-- 中转站（Transfer Station）：跨页面收集选中图片，支持“存入 / 展开预览 / 打包下载 / 清空 / 复制”。复制功能会把中转站内图片转换为富文本 HTML（多行 `<img src="...">`）并写入剪贴板，方便粘贴到富文本编辑器中。
-- 打包下载（Pack Download）：支持从中转站或项目中选中图片后向后端请求打包（`POST /api/photos/zip`），服务器返回 zip 文件并触发浏览器下载（后端需安装 `archiver` 或实现对应压缩逻辑）。
-- 缺省封面：当项目无图片时使用 `uploads/assets/daishangchuan.png` 作为默认封面显示。
-
-## API 与后端约定（前端与后端交互要点）
-- 创建项目：`POST /api/projects`，Content-Type: `application/json`。必须包含 `projectName`（也可使用 `name` 或 `title`），可选字段 `description` / `desc`、`eventDate`（格式 `YYYY-MM-DD`）等。示例请求体：
-
-```json
-{
-	"projectName": "软件工程课堂-2025",
-	"description": "课堂拍摄汇总",
-	"eventDate": "2025-11-30"
-}
-```
-
-- 上传图片：前端上传使用 `/api/photos/upload`（FormData，字段名为 `file`）。
-- 打包下载：前端向 `/api/photos/zip` POST 需要的 photo IDs；后端应返回 zip 二进制并带 `Content-Disposition` 指定文件名。
-
-## CORS 与开发代理（重要，避免复制图片/Fetch 失败）
-- 问题描述：浏览器跨域会阻塞直接 fetch 后端静态图片（例如 `/uploads/...`），导致无法读取 Blob，从而无法把图片写入剪贴板（截图报错：No 'Access-Control-Allow-Origin' header）。
-- 解决方法（任选其一）：
-	1. 在前端 dev server 配置代理，把 `/uploads`（以及 `/api`）代理到后端（推荐开发时使用）：
-
-```js
-// webpack.config.js (devServer.proxy 示例)
-devServer: {
-	proxy: {
-		'/api': { target: 'http://localhost:3000', changeOrigin: true },
-		'/uploads': { target: 'http://localhost:3000', changeOrigin: true },
-	}
-}
-```
-
-	2. 或在后端为静态资源/接口添加 CORS 头，例如使用 `cors` middleware：
-
-```js
-const cors = require('cors');
-app.use(cors({ origin: 'http://localhost:5173', credentials: true }));
-```
-
-	3. 如果使用 cookies/凭证，确保同时设置 `Access-Control-Allow-Credentials: true` 并把 `fetch` 的 `credentials` 设置为 `include`，且 `Access-Control-Allow-Origin` 不能是 `*`，必须是具体 origin。
-
-## 使用指南（关键操作）
-- 启动开发服务器：
-```powershell
+cd backend
 npm install
+npm run dev
+```
+
+默认后端监听 `PORT=3000`（见 `backend/server.js`）。
+
+### 3）启动前端（Webpack Dev Server）
+
+根目录脚本来自根 `package.json`：
+
+```powershell
+# 推荐：把前端端口改到 5173（避免和后端 3000 冲突）
+$env:WEBPACK_DEV_SERVER_PORT='5173'
+
+# 关键：把前端代理指向后端（后端默认 3000；webpack 默认会代理到 8000）
+$env:MAMAGE_BACKEND_URL='http://localhost:3000'
+
 npm run start
 ```
-- 新建相册：点击 Header 的 `新建相册`，填写项目名称（必填），可选描述、标签与活动日期，点击创建。创建成功后前端会刷新项目列表。
-- 中转站：在项目详情页选中图片后点击 `存入`，在页面右侧打开中转站可展开预览、删除单张、打包下载或复制（富文本 HTML）。
-- 打包下载：在中转站或项目详情中选择图片并点击“打包”，前端会 POST photo IDs 到 `/api/photos/zip` 并下载返回的 zip 文件。
 
-## 调试与排错建议
-- 复制为图片失败：通常是 CORS 导致 `fetch` 失败，查看浏览器控制台的 Network 与 Console，可见 `No 'Access-Control-Allow-Origin'` 警告。按上文代理或后端 CORS 配置修复。
-- 打包下载返回 500：检查后端是否安装并正确使用 `archiver`（或其他 zip 库）。
-- 资源路径问题：前端使用 `resolveAssetUrl` 将相对路径转换为绝对 URL，默认 API 基准为 `http://localhost:3000`，但开发时优先使用相对路径以配合 dev-server 代理。
+### 4）访问地址
 
-## 贡献与扩展
-- 若需添加新功能或修复 bug，建议先在本地创建分支、实现并提交 PR。需要我帮你做具体改动（例如把 `/uploads` 代理加入 `webpack.config.js`）我可以直接提交补丁。
+- 前端：`http://localhost:5173/`（如果你没改端口，默认是 3000）
+- 后端：`http://localhost:3000/ping` 返回 `pong` 代表后端已启动
 
 ---
-如需将 README 翻译为英文或添加部署/CI 示例，请告诉我具体需求。
+
+## 环境要求
+
+### Node / 包管理器
+
+- 建议 Node `18+`（依据不足：仓库未提供 `.nvmrc` / `engines`；但 `package-lock.json` 为 `lockfileVersion: 3`，通常对应较新的 npm/Node 版本）。
+- 包管理器：`npm`（仓库包含 `package-lock.json`）。
+
+### 后端依赖
+
+- 你需要一个 MySQL 实例（示例后端使用 `knex` + `mysql2`）。
+- 后端环境变量需要配置（见下方“配置说明”）。
+
+---
+
+### 环境变量（前端开发服务器 / Webpack）
+
+> 这些变量在启动 `npm run start` 前通过 PowerShell 设置。
+
+| 变量名 | 作用 | 示例值 | 常见坑 |
+|---|---|---:|---|
+| `WEBPACK_DEV_SERVER_PORT` | 前端 dev server 端口 | `5173` | 不设置时默认 `3000`，容易和后端示例端口冲突 |
+| `PORT` | 也会影响 dev server 端口（同上） | `5173` | 和很多后端/工具都叫 PORT，混用时容易误配置 |
+| `MAMAGE_BACKEND_URL` | Webpack devServer 代理 `/api` 的目标后端 | `http://localhost:3000` | **不设置时默认 `http://localhost:8000`**，会导致接口全 404/ECONNREFUSED |
+
+示例（Windows PowerShell）：
+
+```powershell
+$env:WEBPACK_DEV_SERVER_PORT='5173'
+$env:MAMAGE_BACKEND_URL='http://localhost:3000'
+npm run start
+```
+
+修改环境变量后需要**重启** `npm run start` 才会生效。
+
+### 运行时变量（浏览器 window.*）
+
+> 主要给“部署后前端静态文件不在同域”时用。可以在浏览器控制台临时设置验证。
+
+| 变量名 | 作用 | 示例值 | 常见坑 |
+|---|---|---:|---|
+| `window.__MAMAGE_API_BASE__` | 覆盖 API 基址（影响 `src/services/request.js` 和部分 service） | `https://api.example.com` | 设置后需要刷新页面；本地开发推荐留空，走相对路径配合代理 |
+| `window.__MAMAGE_LOG_REQUESTS` | 开启请求日志（写到 `window.__MAMAGE_POST_LOGS`） | `true` | 可能包含敏感信息摘要（不要在生产环境长期开） |
+
+### 环境变量（后端示例 backend/）
+
+> 后端通过 `process.env` 读取；示例写在 `backend/README.md`。
+
+| 变量名 | 作用 | 示例值 | 常见坑 |
+|---|---|---:|---|
+| `PORT` | 后端端口 | `3000` | 与前端 dev server 端口冲突 |
+| `DEV_FRONTEND_ORIGIN` | 允许跨域的前端 Origin（CORS） | `http://localhost:5173` | 如果前端端口改了，这里也要改，否则登录/请求可能被浏览器拦截 |
+| `DB_HOST` | MySQL 地址 | `127.0.0.1` | Docker/远程 MySQL 时别写错内网地址 |
+| `DB_PORT` | MySQL 端口 | `3306` | 云 MySQL 可能不是 3306 |
+| `DB_USER` | MySQL 用户 | `root` | 权限不足会导致启动报错 |
+| `DB_PASSWORD` | MySQL 密码 | `your_mysql_password` | 空密码/特殊字符需要正确引用 |
+| `DB_NAME` | 数据库名 | `mamage` | 库不存在会连接失败 |
+| `JWT_SECRET` | JWT 签名密钥 | `please-change-this...` | 生产环境务必更换；变更后旧 token 全部失效 |
+
+---
+
+## 常用命令
+
+> 只列出仓库 `package.json` 里真实存在的 scripts。
+
+### 前端（根目录）
+
+- 开发（dev）：
+
+```powershell
+npm run start
+```
+
+- 构建（build）：
+
+```powershell
+npm run build
+```
+
+- 预览（preview）：未提供脚本（⚠️ 待补充）
+- 代码检查（lint）：未提供脚本（⚠️ 待补充）
+- 测试（test）：未提供脚本（⚠️ 待补充）
+
+### 后端示例（backend/）
+
+- 开发（dev，自动重启）：
+
+```powershell
+npm run dev
+```
+
+- 运行（start）：
+
+```powershell
+npm run start
+```
+
+---
+
+## 目录结构（关键目录）
+
+- `public/`：HTML 模板入口（`public/index.html`）。
+- `src/`：前端源码（页面、组件、服务封装都在这里）。
+- `src/services/`：所有 API 请求与业务 service（如 `authService.js`、`projectService.js`、`photoService.js`、`request.js`）。
+- `src/components/`：可复用组件（如权限组件 `IfCan.jsx`、`PermButton.jsx`）。
+- `backend/`：示例后端（Express + MySQL），仅包含用户相关路由示例（`/api/users/*`）。
+- `dist/`：前端构建产物（`npm run build` 输出）。
+- `webpack.config.js`：前端构建与开发服务器配置（端口、proxy 等）。
+- `vite.config.js`：Vite 配置示例（当前未被 scripts 使用）。
+
+---
+
+## 开发约定
+
+### 1）页面与组件怎么放
+
+- 页面级组件：直接放在 `src/` 下（例如 `ProjectDetail.jsx`、`TransferStation.jsx`、`AuthPage.jsx`）。
+- 复用组件：放在 `src/components/`（例如权限相关组件）。
+- 样式：同名 `.css` 文件紧挨组件（例如 `ProjectDetail.css`、`AuthPage.css`）。
+
+### 2）API 请求写在哪里
+
+- 统一请求封装：`src/services/request.js`（基于 `fetch`，自动注入 `Authorization`）。
+- 业务 API：按领域拆分到 `src/services/*Service.js`：
+  - `authService.js`：登录/注册/获取当前用户（token 存在 `localStorage['mamage_jwt_token']`）。
+  - `projectService.js`：项目列表/详情/创建/更新/删除。
+  - `photoService.js`：图片上传/删除/打包等（以实际文件为准）。
+
+建议新增接口时：
+1) 先在对应 `*Service.js` 里加函数；2) 页面里只调用 service，不要到处散写 `fetch`。
+
+### 3）路由与页面跳转（本项目不是 react-router）
+
+- 本项目目前用 `window.history.pushState` + `window.location.pathname/search` 自己管理“伪路由”。
+- 常见路径：
+  - `/`：项目列表
+  - `/?projectId=xxx`：项目详情（通过 query 参数）
+  - `/scenery`：风景页
+  - `/function/ai-writer`：AI 文案页
+
+这意味着：
+- 生产部署如果启用了“前端路由刷新”，需要后端/网关把所有路径都回退到 `index.html`（见 FAQ）。
+
+### 4）权限与鉴权
+
+- 启动时会调用 `GET /api/users/me` 拉取用户信息与 `permissions` 列表。
+- 权限缓存：`src/permissionStore.js`（内存 Set）。
+- 权限组件：
+  - `src/components/IfCan.jsx`：没有权限就不渲染。
+  - `src/components/PermButton.jsx`：没有权限按钮置灰（不隐藏）。
+
+### 5）中转站（Transfer Station）约定
+
+- 全局存储：`src/services/transferStore.js`，使用 `localStorage['photo-transfer-selection']` 持久化（最多 30 张）。
+- 页面需要把“当前选中的照片”暴露为 `window.__MAMAGE_GET_CURRENT_PROJECT_SELECTION`，中转站按钮才知道从哪里取数据。
+
+---
+
+## 部署说明
+
+本项目未提供官方部署脚本（没有 Docker / Nginx / PM2 配置）。按“静态站点 + 反向代理 API”方式部署即可：
+
+1) 本地构建：运行根目录脚本 `npm run build`，产物在 `dist/`。
+2) 部署静态资源：把 `dist/` 放到任意静态托管（Nginx、OSS、CDN、静态站点服务等）。
+3) 配置后端转发：确保前端请求 `/api/*` 能被转发到真实后端（推荐由 Nginx/网关做反代）。
+4) 如果前端与后端不同域：
+   - 方案 A：网关把前端与后端放同域（最省心）。
+   - 方案 B：在页面里设置 `window.__MAMAGE_API_BASE__ = 'https://api.example.com'`，同时后端正确配置 CORS。
+
+---
+
+## 常见问题 FAQ
+
+1）打开页面但项目列表一直加载/报错
+
+- 现象：Network 里 `/api/projects/list` 失败，可能是 `ECONNREFUSED` 或 404。
+- 原因：前端 dev server 只代理 `/api`，默认目标是 `http://localhost:8000`。
+- 解决：启动前端前设置 `$env:MAMAGE_BACKEND_URL='http://localhost:3000'`（或让你的后端真的跑在 8000）。
+
+2）前端启动失败：端口被占用
+
+- 现象：提示 3000 已被占用。
+- 原因：示例后端默认也是 3000。
+- 解决：把前端换端口：`$env:WEBPACK_DEV_SERVER_PORT='5173'` 后再 `npm run start`。
+
+3）登录后立刻变成未登录 / 一直 401
+
+- 现象：`/api/users/me` 返回 401，前端会自动清除 `localStorage['mamage_jwt_token']`。
+- 排查：
+  - 后端 `JWT_SECRET` 是否变更导致 token 失效。
+  - 代理是否指向了“另一个环境”的后端（比如把 `/api` 代理到了错误地址）。
+
+4）“复制（富文本）”失败或粘贴后没有图片
+
+- 现象：复制按钮报错、或粘贴到富文本编辑器只有文字没有图。
+- 原因：浏览器剪贴板写入 `text/html` 受限制（通常需要 `https` 或 `localhost`），也可能是图片 URL 无法访问。
+- 解决：
+  - 本地开发请用 `localhost` 访问。
+  - 确保图片链接能在浏览器直接打开；必要时设置 `window.__MAMAGE_API_BASE__` 指向可访问的后端域名。
+
+5）图片能看到缩略图，但下载/打包失败
+
+- 现象：点击“打包”后端 500 或返回非 zip。
+- 原因：后端未实现或未按前端约定实现 `/api/photos/zip`（中转站会 POST `{ photoIds, zipName }` 并期待返回二进制 zip + `Content-Disposition`）。
+- 解决：对照前端实现 `src/TransferStation.jsx` 补齐后端接口。
+
+6）部署后刷新某些路径变 404（例如 `/scenery`）
+
+- 原因：本项目使用 History API 做“伪路由”，刷新会让服务器去找真实路径。
+- 解决：在 Nginx/网关配置“所有未知路径回退到 `index.html`”。
+
+---
+
+## 贡献方式
+
+- 贡献：欢迎直接提 PR。建议在提交里说明：改动点、影响范围、如何验证（截图/接口返回）。
