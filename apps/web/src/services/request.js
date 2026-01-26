@@ -105,8 +105,13 @@ function resolveAssetUrl(src) {
   if (!src) return src;
   if (/^https?:\/\//i.test(src)) return src;
   const normalized = src.startsWith('/') ? src : `/${src}`;
-  // If ABSOLUTE_API_BASE is provided (from backend or window.__MAMAGE_API_BASE__),
-  // prefix it. Otherwise return a relative path so local dev/proxy works.
+  // Prefer an explicitly configured COS base for public assets if provided.
+  // Allows deployment to serve static files from cloud storage rather than the API host.
+  const cosBase = (typeof window !== 'undefined' && window.__MAMAGE_COS_BASE__) ? window.__MAMAGE_COS_BASE__ : '';
+  if (cosBase) return `${cosBase.replace(/\/+$/, '')}${normalized}`;
+
+  // If ABSOLUTE_API_BASE is provided (from backend or window.__MAMAGE_API_BASE__), prefix it.
+  // Otherwise return a relative path so local dev/proxy works.
   return ABSOLUTE_API_BASE ? `${ABSOLUTE_API_BASE}${normalized}` : normalized;
 }
 

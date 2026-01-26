@@ -6,9 +6,9 @@ import { getProjectById, updateProject, deleteProject } from './services/project
 import { me as fetchMe, getToken } from './services/authService';
 import { fetchRandomByProject, uploadPhotos, deletePhotos } from './services/photoService';
 import { resolveAssetUrl, BASE_URL } from './services/request';
-import IfCan from './components/IfCan';
-import PermButton from './components/PermButton';
-import { canAny } from './permissionStore';
+import IfCan from './permissions/IfCan';
+import PermButton from './permissions/PermButton';
+import { canAny } from './permissions/permissionStore';
 
 const { Title, Text } = Typography;
 
@@ -122,15 +122,39 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
               thumbCandidate = `${thumbCandidate}${thumbCandidate.includes('?') ? '&' : '?'}thumb=1`;
             }
           }
-        } catch (e) {}
+        } catch (e) { }
 
         const metaFinal = Object.assign({}, meta, { thumbSrc: resolveAssetUrl(thumbCandidate), originalSrc: resolveAssetUrl(origCandidate) });
         if (metaFinal.id) {
           tagsMap[metaFinal.id] = safeParseTags(item.tags);
           descMap[metaFinal.id] = item.description || item.desc || '';
         }
+        // If this resolved src is still relative but there are absolute urls
+        // available elsewhere in the provided items, try to prefer an absolute one.
+        let resolvedSrc = resolveAssetUrl(thumbCandidate);
+        try {
+          const isRelativeResolved = resolvedSrc && /^\//.test(resolvedSrc);
+          if (isRelativeResolved) {
+            const allSrcs = items.map((it) => (typeof it === 'string' ? it : (it && (it.url || it.imageUrl || it.src || it.fileUrl)))).filter(Boolean);
+            const absCandidates = allSrcs.filter(s => /^https?:\/\//i.test(s));
+            if (absCandidates.length) {
+              const getFilename = (s) => { try { const m = String(s).match(/([^\/:?#]+)(?:[?#].*)?$/); return m ? m[1] : null; } catch (e) { return null; } };
+              const targetName = getFilename(item);
+              let pick = null;
+              if (targetName) pick = absCandidates.find(a => getFilename(a) === targetName) || null;
+              if (!pick) pick = absCandidates[0];
+              if (pick) {
+                resolvedSrc = pick;
+                metaFinal.thumbSrc = pick;
+                // if original was relative, also try to set originalSrc to absolute equivalent
+                metaFinal.originalSrc = pick;
+              }
+            }
+          }
+        } catch (e) { }
+
         return {
-          src: resolveAssetUrl(thumbCandidate),
+          src: resolvedSrc,
           meta: metaFinal
         };
       }
@@ -151,14 +175,36 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
             thumbCandidate = `${thumbCandidate}${thumbCandidate.includes('?') ? '&' : '?'}thumb=1`;
           }
         }
-      } catch (e) {}
+      } catch (e) { }
       const metaFinal = Object.assign({}, meta, { thumbSrc: resolveAssetUrl(thumbCandidate), originalSrc: resolveAssetUrl(origCandidate) });
       if (metaFinal.id) {
         tagsMap[metaFinal.id] = safeParseTags(item.tags);
         descMap[metaFinal.id] = item.description || item.desc || '';
       }
+      // Prefer absolute candidate when available (similar to ProjectCard behavior)
+      let resolvedSrc = resolveAssetUrl(thumbCandidate);
+      try {
+        const isRelativeResolved = resolvedSrc && /^\//.test(resolvedSrc);
+        if (isRelativeResolved) {
+          const allSrcs = items.map((it) => (typeof it === 'string' ? it : (it && (it.url || it.imageUrl || it.src || it.fileUrl)))).filter(Boolean);
+          const absCandidates = allSrcs.filter(s => /^https?:\/\//i.test(s));
+          if (absCandidates.length) {
+            const getFilename = (s) => { try { const m = String(s).match(/([^\/:?#]+)(?:[?#].*)?$/); return m ? m[1] : null; } catch (e) { return null; } };
+            const targetName = getFilename(src || meta.url);
+            let pick = null;
+            if (targetName) pick = absCandidates.find(a => getFilename(a) === targetName) || null;
+            if (!pick) pick = absCandidates[0];
+            if (pick) {
+              resolvedSrc = pick;
+              metaFinal.thumbSrc = pick;
+              metaFinal.originalSrc = pick;
+            }
+          }
+        }
+      } catch (e) { }
+
       return {
-        src: resolveAssetUrl(thumbCandidate),
+        src: resolvedSrc,
         meta: metaFinal
       };
     }).filter(Boolean);
@@ -177,7 +223,7 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
     // cleanup previews on unmount
     return () => {
       stagingPreviews.forEach((u) => {
-        try { URL.revokeObjectURL(u); } catch (e) {}
+        try { URL.revokeObjectURL(u); } catch (e) { }
       });
     };
   }, [stagingPreviews]);
@@ -365,7 +411,18 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
 
   // fetch current user to get permissions from backend
   React.useEffect(() => {
+    // If this detail view is being opened as a public share, skip fetching
+    // the current user to avoid forcing an auth check for anonymous visitors.
     let cancelled = false;
+    try {
+      if (typeof window !== 'undefined' && window.location && String(window.location.pathname).startsWith('/share/')) {
+        // do not attempt to fetch current user on public share pages
+        return () => { cancelled = true; };
+      }
+    } catch (e) {
+      // ignore and continue to fetch
+    }
+
     (async () => {
       try {
         const u = await fetchMe();
@@ -389,7 +446,7 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
     const MAX_FILES = 15;
     let list = Array.from(files || []);
     if (list.length > MAX_FILES) {
-      try { Toast.warning(`一次最多上传 ${MAX_FILES} 张照片，已选择前 ${MAX_FILES} 张`); } catch (e) {}
+      try { Toast.warning(`一次最多上传 ${MAX_FILES} 张照片，已选择前 ${MAX_FILES} 张`); } catch (e) { }
       list = list.slice(0, MAX_FILES);
     }
     const previews = list.map((f) => URL.createObjectURL(f));
@@ -399,7 +456,7 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
   }, []);
 
   const cancelUpload = React.useCallback(() => {
-    stagingPreviews.forEach((u) => { try { URL.revokeObjectURL(u); } catch (e) {} });
+    stagingPreviews.forEach((u) => { try { URL.revokeObjectURL(u); } catch (e) { } });
     setStagingFiles([]);
     setStagingPreviews([]);
     setUploadMode(false);
@@ -411,7 +468,7 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
     const MAX_FILES = 15;
     let filesToUpload = stagingFiles;
     if (stagingFiles.length > MAX_FILES) {
-      try { Toast.warning(`一次最多上传 ${MAX_FILES} 张照片，已按前 ${MAX_FILES} 张上传`); } catch (e) {}
+      try { Toast.warning(`一次最多上传 ${MAX_FILES} 张照片，已按前 ${MAX_FILES} 张上传`); } catch (e) { }
       filesToUpload = stagingFiles.slice(0, MAX_FILES);
     }
     setUploading(true);
@@ -485,7 +542,7 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
       console.error('saveEdit error', err);
       const status = err && err.status ? err.status : (err && err.cause && err.cause.status) ? err.cause.status : null;
       if (status === 401 || status === 403) {
-        try { localStorage.removeItem('mamage_jwt_token'); } catch (e) {}
+        try { localStorage.removeItem('mamage_jwt_token'); } catch (e) { }
         Toast.error('请重新登录管理员账号');
         try { window.history.pushState({}, '', '/login'); } catch (e) { window.location.href = '/login'; }
       } else if (status === 404) {
@@ -517,7 +574,7 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
           console.error('deleteProject error', err);
           const status = err && err.status ? err.status : (err && err.cause && err.cause.status) ? err.cause.status : null;
           if (status === 401 || status === 403) {
-            try { localStorage.removeItem('mamage_jwt_token'); } catch (e) {}
+            try { localStorage.removeItem('mamage_jwt_token'); } catch (e) { }
             Toast.error('权限不足或登录已过期，请重新登录或联系管理员');
             try { window.history.pushState({}, '', '/login'); } catch (e) { window.location.href = '/login'; }
           } else if (status === 404) {
@@ -562,7 +619,7 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
     if (allSelected) {
       setSelectedMap({}); setSelectedCount(0); setAllSelected(false);
     } else {
-      const map = {}; for (let i=0;i<total;i++) map[String(i)] = true; setSelectedMap(map); setSelectedCount(total); setAllSelected(true);
+      const map = {}; for (let i = 0; i < total; i++) map[String(i)] = true; setSelectedMap(map); setSelectedCount(total); setAllSelected(true);
     }
   }, [images, allSelected]);
 
@@ -614,7 +671,7 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
             Toast.warning('请选择至少一张照片');
           } else if (status === 401 || status === 403) {
             // clear token and redirect to login
-            try { localStorage.removeItem('mamage_jwt_token'); } catch (e) {}
+            try { localStorage.removeItem('mamage_jwt_token'); } catch (e) { }
             Toast.error('权限不足或登录已过期，请重新登录或联系管理员');
             try { window.history.pushState({}, '', '/login'); } catch (e) { window.location.href = '/login'; }
           } else {
@@ -628,7 +685,7 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
   }, [selectedMap, images, projectId]);
 
   // ========== Download helpers ==========
-  const getSelectedIndexes = React.useCallback(() => Object.keys(selectedMap || {}).map((k) => Number(k)).sort((a,b) => a-b), [selectedMap]);
+  const getSelectedIndexes = React.useCallback(() => Object.keys(selectedMap || {}).map((k) => Number(k)).sort((a, b) => a - b), [selectedMap]);
 
   const downloadCurrentPhoto = React.useCallback(async () => {
     const idx = viewerIndex;
@@ -717,7 +774,7 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
   };
 
 
-  
+
 
   // Try backend-pack endpoint first; fallback to individual downloads if unavailable.
   const packDownloadSelected = React.useCallback(async () => {
@@ -826,8 +883,8 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
       console.debug('[ProjectDetail] resolvedProject:', resolvedProject);
       // eslint-disable-next-line no-console
       console.debug('[ProjectDetail] parsed tags:', tags);
-      try { window.__MAMAGE_LAST_PROJECT = { resolvedProject: resolvedProject || null, tags: tags || [] }; } catch (e) {}
-    } catch (e) {}
+      try { window.__MAMAGE_LAST_PROJECT = { resolvedProject: resolvedProject || null, tags: tags || [] }; } catch (e) { }
+    } catch (e) { }
   }, [resolvedProject, tags]);
   // compute display dates: start (event) and created
   const startRaw = resolvedProject?.eventDate ?? resolvedProject?.startDate ?? resolvedProject?.date ?? resolvedProject?.shootDate ?? null;
@@ -970,15 +1027,15 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
     // 更新照片信息
     const photoId = updatedPhoto.id;
     const photoIndex = photoMetas?.findIndex(m => m.id === photoId) ?? -1;
-    
+
     if (photoIndex >= 0) {
       // 更新tags和description
       const newTags = safeParseTags(updatedPhoto.tags);
       const newDesc = updatedPhoto.description || '';
-      
+
       setPhotoTagsMap(prev => ({ ...prev, [photoId]: newTags }));
       setPhotoDescMap(prev => ({ ...prev, [photoId]: newDesc }));
-      
+
       // 刷新项目数据以保持同步
       getProjectById(projectId).then(detail => {
         setProject(detail);
@@ -1043,10 +1100,10 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
   // 推荐标记：添加"推荐"标签
   const addRecommendationTag = React.useCallback(async () => {
     if (viewerIndex < 0 || !photoMetas || !photoMetas[viewerIndex]) return;
-    
+
     const currentMeta = photoMetas[viewerIndex];
     const photoId = currentMeta.id;
-    
+
     // 检查是否已有"推荐"标签
     const currentTags = photoTagsMap[photoId] || [];
     if (currentTags.includes('推荐')) {
@@ -1063,7 +1120,7 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
 
       // 添加"推荐"标签到现有标签
       const newTags = [...currentTags, '推荐'];
-      
+
       const url = `${BASE_URL || ''}/api/photos/${photoId}`;
       const res = await fetch(url, {
         method: 'PATCH',
@@ -1289,7 +1346,7 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
                               const original = img.getAttribute('data-original');
                               if (original) img.src = original;
                             }
-                          } catch (err) {}
+                          } catch (err) { }
                         }}
                         onMouseEnter={() => setHoveredPhotoIdx(overallIndex)}
                         onMouseLeave={() => setHoveredPhotoIdx(-1)}
@@ -1370,9 +1427,9 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
               })}
             </div>
           ))}
-      {/* 底部操作：删除 / 全选 */}
-      {deleteMode && (canDeletePhotos || canPackDownload) && (
-        <div style={{ position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: 24, zIndex: 1400, display: 'flex', gap: 12 }}>
+        {/* 底部操作：删除 / 全选 */}
+        {deleteMode && (canDeletePhotos || canPackDownload) && (
+          <div style={{ position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: 24, zIndex: 1400, display: 'flex', gap: 12 }}>
             <Button onClick={toggleSelectAll}>{allSelected ? '取消全选' : '全选'}</Button>
             {canPackDownload ? <Button onClick={packDownloadSelected} type="tertiary">打包下载</Button> : null}
             {canDeletePhotos ? (
@@ -1381,270 +1438,270 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
               </>
             ) : null}
             <Button onClick={toggleDeleteMode}>完成</Button>
-        </div>
-      )}
-
-      {/* 编辑弹窗 */}
-      <Modal
-        title="修改项目信息"
-        visible={editVisible}
-        onOk={saveEdit}
-        onCancel={() => setEditVisible(false)}
-        okText="保存"
-        cancelText="取消"
-      >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <Input value={editTitle} onChange={(v) => setEditTitle(v)} placeholder="项目标题" />
-          <TextArea value={editDescription} onChange={(v) => setEditDescription(v)} rows={4} placeholder="项目描述" />
-          {(canUpdateProject || canEditTags) ? (
-            <div>
-              <div style={{ marginBottom: 6 }}>项目标签（按回车添加）</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                {(editTags || []).map((t, i) => (
-                  <Tag key={t + i} size="small" type="light" onClick={() => { /* no-op */ }}>{t}
-                    <button style={{ marginLeft: 6, border: 'none', background: 'transparent', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); setEditTags((s) => s.filter(x => x !== t)); }}>×</button>
-                  </Tag>
-                ))}
-                <input value={editTagInput} onChange={(e) => setEditTagInput(e.target.value)} onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ',') {
-                    e.preventDefault();
-                    const v = (editTagInput || '').trim();
-                    if (v && !(editTags || []).includes(v)) setEditTags((s) => [...(s || []), v]);
-                    setEditTagInput('');
-                  }
-                }} placeholder="输入标签并回车" style={{ minWidth: 160, padding: '6px 8px' }} />
-              </div>
-            </div>
-          ) : null}
-          <DatePicker
-            value={editEventDate}
-            onChange={(v) => setEditEventDate(v)}
-            format="yyyy-MM-dd"
-            placeholder="活动日期 (YYYY-MM-DD)"
-            style={{ width: '100%' }}
-            clearable
-          />
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 6 }}>
-            <IfCan perms={['projects.delete']}>
-              <Button type="danger" onClick={handleDeleteProject} loading={deletingProject} disabled={deletingProject}>删除相册</Button>
-            </IfCan>
           </div>
-        </div>
-      </Modal>
+        )}
 
-      {/* 上传预览弹窗 */}
-      <Modal
-        title={`准备上传 (${stagingFiles.length})`}
-        visible={uploadMode}
-        onOk={confirmUpload}
-        onCancel={cancelUpload}
-        okButtonProps={{ loading: uploading }}
-        okText="确认上传"
-        cancelText="取消"
-      >
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-          {stagingPreviews.map((p, i) => (
-            <div key={i} style={{ width: 120, height: 120, overflow: 'hidden', borderRadius: 0 }}>
-              <img src={p} alt={`preview-${i}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-            </div>
-          ))}
-        </div>
-      </Modal>
-
-      {/* Image viewer overlay (no container) */}
-      {viewerVisible && (
-        <div className="viewer-overlay" onClick={() => setViewerVisible(false)}>
-          <div className="viewer-wrap">
-            <button
-              className="viewer-nav viewer-nav-left"
-              onClick={(e) => { e.stopPropagation(); setViewerIndex((i) => (images.length ? (i - 1 + images.length) % images.length : i)); }}
-              aria-label="上一张"
+        {/* 编辑弹窗 */}
+        <Modal
+          title="修改项目信息"
+          visible={editVisible}
+          onOk={saveEdit}
+          onCancel={() => setEditVisible(false)}
+          okText="保存"
+          cancelText="取消"
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <Input value={editTitle} onChange={(v) => setEditTitle(v)} placeholder="项目标题" />
+            <TextArea value={editDescription} onChange={(v) => setEditDescription(v)} rows={4} placeholder="项目描述" />
+            {(canUpdateProject || canEditTags) ? (
+              <div>
+                <div style={{ marginBottom: 6 }}>项目标签（按回车添加）</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  {(editTags || []).map((t, i) => (
+                    <Tag key={t + i} size="small" type="light" onClick={() => { /* no-op */ }}>{t}
+                      <button style={{ marginLeft: 6, border: 'none', background: 'transparent', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); setEditTags((s) => s.filter(x => x !== t)); }}>×</button>
+                    </Tag>
+                  ))}
+                  <input value={editTagInput} onChange={(e) => setEditTagInput(e.target.value)} onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ',') {
+                      e.preventDefault();
+                      const v = (editTagInput || '').trim();
+                      if (v && !(editTags || []).includes(v)) setEditTags((s) => [...(s || []), v]);
+                      setEditTagInput('');
+                    }
+                  }} placeholder="输入标签并回车" style={{ minWidth: 160, padding: '6px 8px' }} />
+                </div>
+              </div>
+            ) : null}
+            <DatePicker
+              value={editEventDate}
+              onChange={(v) => setEditEventDate(v)}
+              format="yyyy-MM-dd"
+              placeholder="活动日期 (YYYY-MM-DD)"
+              style={{ width: '100%' }}
+              clearable
             />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 6 }}>
+              <IfCan perms={['projects.delete']}>
+                <Button type="danger" onClick={handleDeleteProject} loading={deletingProject} disabled={deletingProject}>删除相册</Button>
+              </IfCan>
+            </div>
+          </div>
+        </Modal>
 
-            <div className="viewer-img-wrap" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-              {photoMetas && photoMetas[viewerIndex] ? (
-                <>
+        {/* 上传预览弹窗 */}
+        <Modal
+          title={`准备上传 (${stagingFiles.length})`}
+          visible={uploadMode}
+          onOk={confirmUpload}
+          onCancel={cancelUpload}
+          okButtonProps={{ loading: uploading }}
+          okText="确认上传"
+          cancelText="取消"
+        >
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+            {stagingPreviews.map((p, i) => (
+              <div key={i} style={{ width: 120, height: 120, overflow: 'hidden', borderRadius: 0 }}>
+                <img src={p} alt={`preview-${i}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+              </div>
+            ))}
+          </div>
+        </Modal>
+
+        {/* Image viewer overlay (no container) */}
+        {viewerVisible && (
+          <div className="viewer-overlay" onClick={() => setViewerVisible(false)}>
+            <div className="viewer-wrap">
+              <button
+                className="viewer-nav viewer-nav-left"
+                onClick={(e) => { e.stopPropagation(); setViewerIndex((i) => (images.length ? (i - 1 + images.length) % images.length : i)); }}
+                aria-label="上一张"
+              />
+
+              <div className="viewer-img-wrap" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                {photoMetas && photoMetas[viewerIndex] ? (
+                  <>
+                    <img
+                      src={viewerShowOriginal ? (photoMetas[viewerIndex].originalSrc || images[viewerIndex]) : (photoMetas[viewerIndex].thumbSrc || images[viewerIndex])}
+                      alt={`viewer-${viewerIndex}`}
+                      className="viewer-img"
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                    {(() => {
+                      const meta = photoMetas[viewerIndex] || {};
+                      const rawName = meta.photographerName || meta.photographer_name || meta.photographer || (meta.photographerId ? String(meta.photographerId) : null) || (meta.photographer_id ? String(meta.photographer_id) : null);
+                      const hasName = rawName && String(rawName).trim();
+                      let label = null;
+                      if (hasName) {
+                        label = String(rawName);
+                      } else {
+                        try {
+                          const list = (project && (project.photos || project.images || project.gallery)) || (initialProject && (initialProject.photos || initialProject.images || initialProject.gallery)) || [];
+                          const found = Array.isArray(list) ? list.find(p => p && (String(p.id) === String(meta.id) || String(p.photoId) === String(meta.id))) : null;
+                          const fb = found ? (found.photographerName || found.photographer || found.photographer_name || found.photographerId || found.photographer_id) : null;
+                          if (fb) label = String(fb);
+                        } catch (e) { /* ignore */ }
+                        if (!label) label = meta.photographerId ? `摄影师 #${meta.photographerId}` : (meta.photographer_id ? `摄影师 #${meta.photographer_id}` : null);
+                      }
+                      if (!label) return null;
+                      return (
+                        <div style={{ position: 'absolute', left: 16, top: 16, background: 'rgba(0,0,0,0.55)', color: '#fff', padding: '6px 10px', borderRadius: 4, fontSize: '13px', pointerEvents: 'none', maxWidth: '60%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {label}
+                        </div>
+                      );
+                    })()}
+                    <div style={{ position: 'absolute', right: 16, bottom: 16 }}>
+                      <button type="button" className="viewer-original-btn" onClick={(e) => { e.stopPropagation(); setViewerShowOriginal((v) => !v); }}>
+                        {viewerShowOriginal ? '查看缩略图' : '查看原图'}
+                      </button>
+                    </div>
+                    {showAILabels && photoAILabelMap[photoMetas[viewerIndex].id] && (
+                      <div style={{ position: 'absolute', right: 16, top: 16, background: photoAILabelMap[photoMetas[viewerIndex].id] === 'recommended' ? '#4caf50' : '#f44336', color: '#fff', padding: '6px 12px', borderRadius: '3px', fontSize: '13px', fontWeight: 'bold' }}>
+                        {photoAILabelMap[photoMetas[viewerIndex].id] === 'recommended' ? 'AI推荐' : 'AI不推荐'}
+                      </div>
+                    )}
+                    {(() => {
+                      const pid = photoMetas[viewerIndex]?.id;
+                      if (!pid) return null;
+                      const hasRecommend = (photoTagsMap[pid] || []).includes('推荐');
+                      if (!hasRecommend) return null;
+                      const hasAI = showAILabels && photoAILabelMap[pid];
+                      return (
+                        <div style={{ position: 'absolute', right: 16, top: hasAI ? 48 : 16, background: '#2196f3', color: '#fff', padding: '6px 12px', borderRadius: '3px', fontSize: '13px', fontWeight: 'bold' }}>
+                          推荐
+                        </div>
+                      );
+                    })()}
+                    {(() => {
+                      const pid = photoMetas[viewerIndex]?.id;
+                      const hasDesc = !!(photoDescMap[pid]);
+                      const hasTags = (photoTagsMap[pid] || []).length > 0;
+                      if (!hasDesc && !hasTags && !viewerEditVisible) return null;
+                      return (
+                        <div
+                          style={{
+                            position: 'absolute',
+                            // center horizontally relative to the image container
+                            left: '50%',
+                            transform: 'translateX(-50%)',
+                            bottom: 96,
+                            width: '80%',
+                            maxWidth: '900px',
+                            padding: '12px',
+                            borderRadius: '4px',
+                            fontSize: '14px',
+                            // when editing use opaque light background and dark text for readability
+                            background: viewerEditVisible ? 'rgba(255,255,255,0.98)' : 'rgba(0,0,0,0.45)',
+                            color: viewerEditVisible ? '#111' : '#fff',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'stretch',
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {viewerEditVisible ? (
+                            <div style={{ pointerEvents: 'auto' }}>
+                              <TextArea value={viewerEditDescription} onChange={(v) => setViewerEditDescription(v)} rows={4} placeholder="照片描述" style={{ background: '#fff', color: '#111' }} />
+                              <div style={{ marginTop: 8, marginBottom: 6 }}>照片标签（按回车添加）</div>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                                {(viewerEditTags || []).map((t, i) => (
+                                  <Tag key={t + i} size="small" type="light">{t}
+                                    <button style={{ marginLeft: 6, border: 'none', background: 'transparent', cursor: 'pointer', color: '#333' }} onClick={(e) => { e.stopPropagation(); setViewerEditTags((s) => s.filter(x => x !== t)); }}>×</button>
+                                  </Tag>
+                                ))}
+                                <input value={viewerEditTagInput} onChange={(e) => setViewerEditTagInput(e.target.value)} onKeyDown={(e) => {
+                                  if (e.key === 'Enter' || e.key === ',') {
+                                    e.preventDefault();
+                                    const v = (viewerEditTagInput || '').trim();
+                                    if (v && !(viewerEditTags || []).includes(v)) setViewerEditTags((s) => [...(s || []), v]);
+                                    setViewerEditTagInput('');
+                                  }
+                                }} placeholder="输入标签并回车" style={{ minWidth: 160, padding: '6px 8px' }} />
+
+                                <div style={{ width: '100%', display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
+                                  <button type="button" className="viewer-original-btn" onClick={(e) => { e.stopPropagation(); saveViewerPhotoEdit(); }} style={{ padding: '8px 12px', background: '#1890ff', color: '#fff' }}>保存</button>
+                                  <button type="button" className="viewer-original-btn" onClick={(e) => { e.stopPropagation(); setViewerEditVisible(false); }} style={{ padding: '8px 12px', background: '#f0f0f0', color: '#333' }}>取消</button>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div style={{ pointerEvents: 'none' }}>
+                              {hasDesc && (
+                                <div style={{ marginBottom: hasTags ? '8px' : 0, fontSize: '14px' }}>{photoDescMap[pid]}</div>
+                              )}
+                              {hasTags && (
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                  {photoTagsMap[pid].map((tag, i) => (
+                                    <span key={i} style={{ background: '#1890ff', padding: '4px 8px', borderRadius: '3px', whiteSpace: 'nowrap', fontSize: '12px' }}>{tag}</span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </>
+                ) : images[viewerIndex] ? (
                   <img
-                    src={viewerShowOriginal ? (photoMetas[viewerIndex].originalSrc || images[viewerIndex]) : (photoMetas[viewerIndex].thumbSrc || images[viewerIndex])}
+                    src={images[viewerIndex]}
                     alt={`viewer-${viewerIndex}`}
                     className="viewer-img"
                     onClick={(e) => e.stopPropagation()}
                   />
-                  {(() => {
-                    const meta = photoMetas[viewerIndex] || {};
-                    const rawName = meta.photographerName || meta.photographer_name || meta.photographer || (meta.photographerId ? String(meta.photographerId) : null) || (meta.photographer_id ? String(meta.photographer_id) : null);
-                    const hasName = rawName && String(rawName).trim();
-                    let label = null;
-                    if (hasName) {
-                      label = String(rawName);
-                    } else {
-                      try {
-                        const list = (project && (project.photos || project.images || project.gallery)) || (initialProject && (initialProject.photos || initialProject.images || initialProject.gallery)) || [];
-                        const found = Array.isArray(list) ? list.find(p => p && (String(p.id) === String(meta.id) || String(p.photoId) === String(meta.id))) : null;
-                        const fb = found ? (found.photographerName || found.photographer || found.photographer_name || found.photographerId || found.photographer_id) : null;
-                        if (fb) label = String(fb);
-                      } catch (e) { /* ignore */ }
-                      if (!label) label = meta.photographerId ? `摄影师 #${meta.photographerId}` : (meta.photographer_id ? `摄影师 #${meta.photographer_id}` : null);
-                    }
-                    if (!label) return null;
-                    return (
-                      <div style={{ position: 'absolute', left: 16, top: 16, background: 'rgba(0,0,0,0.55)', color: '#fff', padding: '6px 10px', borderRadius: 4, fontSize: '13px', pointerEvents: 'none', maxWidth: '60%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {label}
-                      </div>
-                    );
-                  })()}
-                  <div style={{ position: 'absolute', right: 16, bottom: 16 }}>
-                    <button type="button" className="viewer-original-btn" onClick={(e) => { e.stopPropagation(); setViewerShowOriginal((v) => !v); }}>
-                      {viewerShowOriginal ? '查看缩略图' : '查看原图'}
-                    </button>
-                  </div>
-                  {showAILabels && photoAILabelMap[photoMetas[viewerIndex].id] && (
-                    <div style={{ position: 'absolute', right: 16, top: 16, background: photoAILabelMap[photoMetas[viewerIndex].id] === 'recommended' ? '#4caf50' : '#f44336', color: '#fff', padding: '6px 12px', borderRadius: '3px', fontSize: '13px', fontWeight: 'bold' }}>
-                      {photoAILabelMap[photoMetas[viewerIndex].id] === 'recommended' ? 'AI推荐' : 'AI不推荐'}
-                    </div>
-                  )}
-                  {(() => {
-                    const pid = photoMetas[viewerIndex]?.id;
-                    if (!pid) return null;
-                    const hasRecommend = (photoTagsMap[pid] || []).includes('推荐');
-                    if (!hasRecommend) return null;
-                    const hasAI = showAILabels && photoAILabelMap[pid];
-                    return (
-                      <div style={{ position: 'absolute', right: 16, top: hasAI ? 48 : 16, background: '#2196f3', color: '#fff', padding: '6px 12px', borderRadius: '3px', fontSize: '13px', fontWeight: 'bold' }}>
-                        推荐
-                      </div>
-                    );
-                  })()}
-                  {(() => {
-                    const pid = photoMetas[viewerIndex]?.id;
-                    const hasDesc = !!(photoDescMap[pid]);
-                    const hasTags = (photoTagsMap[pid] || []).length > 0;
-                    if (!hasDesc && !hasTags && !viewerEditVisible) return null;
-                    return (
-                      <div
-                        style={{
-                          position: 'absolute',
-                          // center horizontally relative to the image container
-                          left: '50%',
-                          transform: 'translateX(-50%)',
-                          bottom: 96,
-                          width: '80%',
-                          maxWidth: '900px',
-                          padding: '12px',
-                          borderRadius: '4px',
-                          fontSize: '14px',
-                          // when editing use opaque light background and dark text for readability
-                          background: viewerEditVisible ? 'rgba(255,255,255,0.98)' : 'rgba(0,0,0,0.45)',
-                          color: viewerEditVisible ? '#111' : '#fff',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          alignItems: 'stretch',
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        {viewerEditVisible ? (
-                          <div style={{ pointerEvents: 'auto' }}>
-                            <TextArea value={viewerEditDescription} onChange={(v) => setViewerEditDescription(v)} rows={4} placeholder="照片描述" style={{ background: '#fff', color: '#111' }} />
-                            <div style={{ marginTop: 8, marginBottom: 6 }}>照片标签（按回车添加）</div>
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                              {(viewerEditTags || []).map((t, i) => (
-                                <Tag key={t + i} size="small" type="light">{t}
-                                  <button style={{ marginLeft: 6, border: 'none', background: 'transparent', cursor: 'pointer', color: '#333' }} onClick={(e) => { e.stopPropagation(); setViewerEditTags((s) => s.filter(x => x !== t)); }}>×</button>
-                                </Tag>
-                              ))}
-                              <input value={viewerEditTagInput} onChange={(e) => setViewerEditTagInput(e.target.value)} onKeyDown={(e) => {
-                                if (e.key === 'Enter' || e.key === ',') {
-                                  e.preventDefault();
-                                  const v = (viewerEditTagInput || '').trim();
-                                  if (v && !(viewerEditTags || []).includes(v)) setViewerEditTags((s) => [...(s || []), v]);
-                                  setViewerEditTagInput('');
-                                }
-                              }} placeholder="输入标签并回车" style={{ minWidth: 160, padding: '6px 8px' }} />
+                ) : null}
+              </div>
 
-                              <div style={{ width: '100%', display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
-                                <button type="button" className="viewer-original-btn" onClick={(e) => { e.stopPropagation(); saveViewerPhotoEdit(); }} style={{ padding: '8px 12px', background: '#1890ff', color: '#fff' }}>保存</button>
-                                <button type="button" className="viewer-original-btn" onClick={(e) => { e.stopPropagation(); setViewerEditVisible(false); }} style={{ padding: '8px 12px', background: '#f0f0f0', color: '#333' }}>取消</button>
-                              </div>
-                            </div>
-                          </div>
-                        ) : (
-                          <div style={{ pointerEvents: 'none' }}>
-                            {hasDesc && (
-                              <div style={{ marginBottom: hasTags ? '8px' : 0, fontSize: '14px' }}>{photoDescMap[pid]}</div>
-                            )}
-                            {hasTags && (
-                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                                {photoTagsMap[pid].map((tag, i) => (
-                                  <span key={i} style={{ background: '#1890ff', padding: '4px 8px', borderRadius: '3px', whiteSpace: 'nowrap', fontSize: '12px' }}>{tag}</span>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })()}
-                </>
-              ) : images[viewerIndex] ? (
-                <img
-                  src={images[viewerIndex]}
-                  alt={`viewer-${viewerIndex}`}
-                  className="viewer-img"
-                  onClick={(e) => e.stopPropagation()}
-                />
-              ) : null}
-            </div>
-
-            <div style={{ position: 'absolute', left: '50%', bottom: 16, transform: 'translateX(-50%)', zIndex: 2, display: 'flex', gap: 12, alignItems: 'center' }}>
-              <button
-                type="button"
-                className="viewer-original-btn"
-                onClick={(e) => { e.stopPropagation(); downloadCurrentPhoto(); }}
-                style={{ padding: '10px 16px', minWidth: 140 }}
-              >
-                下载该照片
-              </button>
-
-              {(photoMetas && photoMetas[viewerIndex]) && (
+              <div style={{ position: 'absolute', left: '50%', bottom: 16, transform: 'translateX(-50%)', zIndex: 2, display: 'flex', gap: 12, alignItems: 'center' }}>
                 <button
                   type="button"
                   className="viewer-original-btn"
-                  onClick={(e) => { e.stopPropagation(); openPhotoEditModal(); }}
-                  style={{ padding: '10px 16px', minWidth: 140, background: '#1890ff', color: '#fff' }}
+                  onClick={(e) => { e.stopPropagation(); downloadCurrentPhoto(); }}
+                  style={{ padding: '10px 16px', minWidth: 140 }}
                 >
-                  修改照片信息
+                  下载该照片
                 </button>
-              )}
 
-              {(() => {
-                const meta = photoMetas?.[viewerIndex];
-                if (!meta || !meta.id) return null;
-                const hasRecommendTag = (photoTagsMap[meta.id] || []).includes('推荐');
-                const hasAIRecommend = photoAILabelMap[meta.id] === 'recommended';
-                if (!canEditTags || hasRecommendTag || hasAIRecommend) return null;
-                return (
+                {(photoMetas && photoMetas[viewerIndex]) && (
                   <button
                     type="button"
                     className="viewer-original-btn"
-                    onClick={(e) => { e.stopPropagation(); addRecommendationTag(); }}
-                    style={{ padding: '10px 16px', minWidth: 100, background: '#4caf50', color: '#fff' }}
+                    onClick={(e) => { e.stopPropagation(); openPhotoEditModal(); }}
+                    style={{ padding: '10px 16px', minWidth: 140, background: '#1890ff', color: '#fff' }}
                   >
-                    推荐标记
+                    修改照片信息
                   </button>
-                );
-              })()}
+                )}
+
+                {(() => {
+                  const meta = photoMetas?.[viewerIndex];
+                  if (!meta || !meta.id) return null;
+                  const hasRecommendTag = (photoTagsMap[meta.id] || []).includes('推荐');
+                  const hasAIRecommend = photoAILabelMap[meta.id] === 'recommended';
+                  if (!canEditTags || hasRecommendTag || hasAIRecommend) return null;
+                  return (
+                    <button
+                      type="button"
+                      className="viewer-original-btn"
+                      onClick={(e) => { e.stopPropagation(); addRecommendationTag(); }}
+                      style={{ padding: '10px 16px', minWidth: 100, background: '#4caf50', color: '#fff' }}
+                    >
+                      推荐标记
+                    </button>
+                  );
+                })()}
+              </div>
+
+              <button
+                className="viewer-nav viewer-nav-right"
+                onClick={(e) => { e.stopPropagation(); setViewerIndex((i) => (images.length ? (i + 1) % images.length : i)); }}
+                aria-label="下一张"
+              />
             </div>
-
-            <button
-              className="viewer-nav viewer-nav-right"
-              onClick={(e) => { e.stopPropagation(); setViewerIndex((i) => (images.length ? (i + 1) % images.length : i)); }}
-              aria-label="下一张"
-            />
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Inline viewer edit — replaced modal with inline editor under the photo */}
+        {/* Inline viewer edit — replaced modal with inline editor under the photo */}
 
       </div>
     </div>

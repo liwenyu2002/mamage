@@ -180,10 +180,17 @@ npm run start
 
 - 本项目目前用 `window.history.pushState` + `window.location.pathname/search` 自己管理“伪路由”。
 - 常见路径：
-  - `/`：项目列表
-  - `/?projectId=xxx`：项目详情（通过 query 参数）
-  - `/scenery`：风景页
-  - `/function/ai-writer`：AI 文案页
+-  `/`：项目列表（默认为导航状态 `projects`，点击相册卡片会在地址栏写入 `?projectId=xxx` 并显示项目详情页面）
+-  `/?projectId=xxx`：直接通过 query 参数访问某个项目详情，可复用同一页面逻辑，刷新/分享该链接会再次触发详情视图
+-  `/scenery`：风景页，点击底部导航“风景”或手动访问会切换到 `selectedNav = 'scenery'`
+-  `/function`：功能页总览，导航菜单“功能”对应的默认子页；会在 `window.history` 写入此路径
+-  `/function/ai-writer`：AI 写新闻/推送入口，可以通过功能页按钮或直接访问该路径（`functionPage` 状态变为 `ai-writer`）
+-  `/account`：账户信息页，只在登录后可见；通过头像下拉“账户信息”按钮或手动访问会把 `selectedNav` 设为 `account`
+-  `/login`：认证页，未登录时访问会显示 `AuthPage`；登录成功后会用 `history.replaceState` 回到 `/`
+-  `/about`：关于页，当前仅展示占位文本；在导航中点击“关于”会把路径更换为 `/about`
+-  `/` 以外路径刷新、后退、前进都会触发 `popstate` 监听器来同步 `selectedNav` / `currentProjectId`
+
+访问这些路径时，App 也会保存对应的状态（`selectedNav`、`functionPage`、`currentProjectId`），因此在浏览器地址栏粘贴路径后直接回车即可进入对应视图，导航按钮会自动同步；如果需要在代码里打开某个页面，可以调用 `window.history.pushState({}, '', '/function/ai-writer')`（在点击按钮的 `onClick` 中已示例）。
 
 这意味着：
 - 生产部署如果启用了“前端路由刷新”，需要后端/网关把所有路径都回退到 `index.html`（见 FAQ）。
@@ -200,6 +207,45 @@ npm run start
 
 - 全局存储：`src/services/transferStore.js`，使用 `localStorage['photo-transfer-selection']` 持久化（最多 30 张）。
 - 页面需要把“当前选中的照片”暴露为 `window.__MAMAGE_GET_CURRENT_PROJECT_SELECTION`，中转站按钮才知道从哪里取数据。
+
+### 6）前端调用的后端路由
+
+前端目前直接调用的 `/api/*` 路径集中在这几个模块。大多数请求通过 `src/services/request.js` 包装，因而会自动带上 `Authorization` token、代理期待的基础路径以及 `window.__MAMAGE_API_BASE__`。只有少数需要上传/下载二进制（如打包、图片上传）或兼容开发环境才直接用 `fetch`。
+
+#### 用户与权限
+- `GET /api/users/me`：启动时拉取当前用户和权限列表（`src/App.jsx`、`src/services/authService.js`）。
+- `POST /api/users/login`：登录表单（`src/AuthPage.jsx`），传入 `password` + `email/student_no`，返回 `token`（客户端会存入 `localStorage['mamage_jwt_token']`）。
+- `POST /api/users/register`：注册表单（`src/AuthPage.jsx`），需 `name`、`password`，可附带 `email`、`organization_id`、`invite_code`。
+- `PUT /api/users/me`：更新当前用户信息（`src/services/authService.js` 的 `updateMe`）。
+- `PUT /api/users/me/password`：账号页改密码（`src/AccountPage.jsx`），可带 `currentPassword`（可选）和 `newPassword`。
+- `POST /api/users/me/invite`：用户提交邀请码以升级角色（`src/AccountPage.jsx`）。
+- `GET /api/users/invitations`、`POST /api/users/invitations`、`DELETE /api/users/invitations/:id`：管理员管理邀请码（`src/AccountPage.jsx`），创建时携带 `role`、`expiresInDays`。
+- `GET /api/users/:id`：项目详情里回填摄影师姓名（`src/ProjectDetail.jsx`）或 AI 页面为图片匹配作者（`src/AiNewsWriter.jsx`）。
+- `GET /api/organizations`：注册页用来搜索组织列表（`src/AuthPage.jsx`，若 dev server 代理未配置会降级到 `${window.__MAMAGE_API_BASE__ || 'http://localhost:8000'}/api/organizations`）。
+
+#### 项目与列表
+- `GET /api/projects/list`：项目首页分页（`src/App.jsx`，`request` 带页码、关键字）。
+- `GET /api/projects`：`src/services/projectService.js` 的 `fetchLatestProjects()` 用于 AI/首页的快速预览。
+- `GET /api/projects/:id`：项目详情页（`src/services/projectService.js`）以及附带的 `photos`/`previewImages` 数据。
+- `POST /api/projects`：新建相册（`CreateAlbumModal.jsx` 调用 `createProject()`，负载包含 `projectName`、`description`、`eventDate`、`meta`）。
+- `POST /api/projects/:id/update`：编辑项目元数据（`src/services/projectService.js` 的 `updateProject()`）。
+- `DELETE /api/projects/:id`：删除相册（`src/services/projectService.js`）。
+- `GET /api/projects/scenery`：风景页拿到用于 `ProjectDetail` 的项目（`src/Scenery.jsx`）。
+
+#### 图片与传输
+- `GET /api/photos`：`photoService.fetchLatestByType()` / `fetchRandomByProject()` 会附带查询字段如 `limit`、`type`、`projectId`、`random`，用于侧边精选和项目缺省图片。
+- `POST /api/upload/photo`：上传图片（`photoService.uploadPhotos()` 接受 `FormData` 或 `{ file, projectId, title, type, tags }`）。
+- `POST /api/photos/delete`、`DELETE /api/photos`、`POST /api/photos`：`photoService.deletePhotos()` 会按照该顺序尝试多种组合（携带 `photoIds` 数组）以兼容不同后端实现。
+- `PATCH /api/photos/:id`：项目详情的图片编辑和标记推荐（`src/ProjectDetail.jsx`，含 `tags`、`description`）。
+- `GET /api/photos/:id`：AI 写稿页面在解析 `PHOTO:id` 占位符时会请求该接口获取 URL。
+- `POST /api/photos/zip`：打包下载中转站和项目详情都会上传 `photoIds` + `zipName`，返回二进制 zip（`src/TransferStation.jsx`、`src/ProjectDetail.jsx`）。
+
+#### AI 生成
+- `POST /api/ai/news/generate`：给服务器发送 `form`、`selectedPhotos`、`referenceArticle`、`interviewText` 等，可能同步返回 `result` 或 `jobId`。
+- `GET /api/ai/news/jobs/:jobId`：`handleGenerate` 在 `jobId` 返回后轮询直到 `status` 变为 `succeeded/failed/cancelled`，必要时把 `result` 解析回页面。
+- `POST /api/ai/news/preview`：高级编辑按钮请求，用于拿到自动组装的 Prompt（`advancedPrompt`）而不是直接生成稿件。
+
+目前的前端仅调用上述路由；若后端新增 `/api` 接口或调整参数，请同步 README 并解释 `request()` 中的 `BASE_URL`/`window.__MAMAGE_API_BASE__` 约定。
 
 ---
 

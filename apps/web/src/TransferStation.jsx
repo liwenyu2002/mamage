@@ -49,22 +49,13 @@ export default function TransferStation() {
     return unsub;
   }, []);
 
-  React.useEffect(() => {
-    return () => {
-      if (closeTimerRef.current) {
-        clearTimeout(closeTimerRef.current);
-        closeTimerRef.current = null;
-      }
-    };
-  }, []);
-
   const handleStore = React.useCallback(() => {
     const getter = window.__MAMAGE_GET_CURRENT_PROJECT_SELECTION;
     if (typeof getter !== 'function') {
       Toast.warning('当前页面未暴露选中数据，先在项目页选择后再点击 “存入”。');
       return;
     }
-      try {
+    try {
       const items = getter() || [];
       if (!items.length) return Toast.info('当前未选中任何照片');
       // normalize items before adding to transfer store to ensure description/tags/url exist
@@ -125,6 +116,178 @@ export default function TransferStation() {
       Toast.error('打包下载失败: ' + (e?.message || '请求错误'));
     }
   }, []);
+
+  const handleShare = React.useCallback(async () => {
+    const list = getAll();
+    if (!list || list.length === 0) return Toast.warning('中转站为空');
+    const ids = list.map((p) => p.id).filter(Boolean);
+    if (!ids.length) return Toast.warning('中转站内项目无可分享 ID');
+
+    try {
+      const token = (typeof window !== 'undefined') ? (localStorage.getItem('mamage_jwt_token') || '') : '';
+      if (!token) {
+        Toast.warning('当前未登录，创建外链需要登录后操作');
+        return;
+      }
+
+      const body = { shareType: 'collection', photoIds: ids, expiresInSeconds: 3600 };
+      const resp = await fetch('/api/share', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        credentials: 'same-origin',
+        body: JSON.stringify(body),
+      });
+      if (!resp.ok) {
+        const txt = await resp.text();
+        throw new Error(txt || `server responded ${resp.status}`);
+      }
+      const data = await resp.json().catch(() => ({}));
+      // extract code from various possible shapes
+      let code = data.code || data.shareCode || (data.data && (data.data.code || data.data.shareCode)) || null;
+      const rawUrl = data.url || data.shareUrl || data.data?.url || data.data?.shareUrl || null;
+
+      // If backend returned a path like '/api/share/<code>' or '/share/<code>', extract code
+      if (!code && rawUrl) {
+        try {
+          const m = String(rawUrl).match(/(?:\/api\/share|\/share)\/([A-Za-z0-9-_]+)/i);
+          if (m && m[1]) code = m[1];
+        } catch (e) { }
+      }
+
+      // build a view link that points to the frontend SPA route so users
+      // open the share page in the client (`/share/:code`). This requires
+      // the dev server to serve index.html for unknown routes (historyApiFallback).
+      let shareLink = null;
+      const frontendOrigin = (typeof window !== 'undefined') ? String(window.location.origin).replace(/\/+$/, '') : '';
+      if (code) {
+        shareLink = `${frontendOrigin}/share/${code}`;
+      } else if (rawUrl) {
+        if (/^https?:\/\//i.test(rawUrl)) {
+          // absolute URL — if it points to backend's API, try to extract code, otherwise use as-is
+          const m = String(rawUrl).match(/(?:\/api\/share|\/share)\/([A-Za-z0-9-_]+)/i);
+          if (m && m[1]) {
+            shareLink = `${frontendOrigin}/share/${m[1]}`;
+          } else {
+            shareLink = rawUrl;
+          }
+        } else {
+          // relative path: try to extract code from patterns like /api/share/<code>
+          const m2 = String(rawUrl).match(/(?:\/api\/share|\/share)\/([A-Za-z0-9-_]+)/i);
+          if (m2 && m2[1]) shareLink = `${frontendOrigin}/share/${m2[1]}`;
+          else shareLink = `${frontendOrigin}${rawUrl.startsWith('/') ? rawUrl : '/' + rawUrl}`;
+        }
+      }
+
+      if (!shareLink) {
+        Toast.success('已创建分享（未返回可用链接）');
+        return;
+      }
+
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(shareLink);
+          Toast.success('已创建分享链接并复制到剪贴板');
+        } else {
+          const ta = document.createElement('textarea');
+          ta.value = shareLink;
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          ta.remove();
+          Toast.success('已创建分享链接并复制到剪贴板');
+        }
+      } catch (e) {
+        Toast.info('已创建分享，链接：' + shareLink);
+      }
+    } catch (e) {
+      console.error('create share failed', e);
+      Toast.error('创建分享失败: ' + (e?.message || '请求错误'));
+    }
+  }, []);
+
+  // new: create share with custom expiry seconds (null means never expire)
+  const createShareWithExpiry = React.useCallback(async (expiresInSeconds) => {
+    const list = getAll();
+    if (!list || list.length === 0) return Toast.warning('中转站为空');
+    const ids = list.map((p) => p.id).filter(Boolean);
+    if (!ids.length) return Toast.warning('中转站内项目无可分享 ID');
+
+    try {
+      const token = (typeof window !== 'undefined') ? (localStorage.getItem('mamage_jwt_token') || '') : '';
+      if (!token) {
+        Toast.warning('当前未登录，创建外链需要登录后操作');
+        return;
+      }
+
+      const body = { shareType: 'collection', photoIds: ids, expiresInSeconds: (typeof expiresInSeconds === 'number' ? expiresInSeconds : null) };
+      const resp = await fetch('/api/share', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        credentials: 'same-origin',
+        body: JSON.stringify(body),
+      });
+      if (!resp.ok) {
+        const txt = await resp.text();
+        throw new Error(txt || `server responded ${resp.status}`);
+      }
+      const data = await resp.json().catch(() => ({}));
+      let code = data.code || data.shareCode || (data.data && (data.data.code || data.data.shareCode)) || null;
+      const rawUrl = data.url || data.shareUrl || data.data?.url || data.data?.shareUrl || null;
+      if (!code && rawUrl) {
+        try {
+          const m = String(rawUrl).match(/(?:\/api\/share|\/share)\/([A-Za-z0-9-_]+)/i);
+          if (m && m[1]) code = m[1];
+        } catch (e) { }
+      }
+
+      let shareLink = null;
+      const frontendOrigin = (typeof window !== 'undefined') ? String(window.location.origin).replace(/\/+$/, '') : '';
+      if (code) {
+        shareLink = `${frontendOrigin}/share/${code}`;
+      } else if (rawUrl) {
+        if (/^https?:\/\//i.test(rawUrl)) {
+          const m = String(rawUrl).match(/(?:\/api\/share|\/share)\/([A-Za-z0-9-_]+)/i);
+          if (m && m[1]) {
+            shareLink = `${frontendOrigin}/share/${m[1]}`;
+          } else {
+            shareLink = rawUrl;
+          }
+        } else {
+          const m2 = String(rawUrl).match(/(?:\/api\/share|\/share)\/([A-Za-z0-9-_]+)/i);
+          if (m2 && m2[1]) shareLink = `${frontendOrigin}/share/${m2[1]}`;
+          else shareLink = `${frontendOrigin}${rawUrl.startsWith('/') ? rawUrl : '/' + rawUrl}`;
+        }
+      }
+
+      if (!shareLink) {
+        Toast.success('已创建分享（未返回可用链接）');
+        return;
+      }
+
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(shareLink);
+          Toast.success('已创建分享链接并复制到剪贴板');
+        } else {
+          const ta = document.createElement('textarea');
+          ta.value = shareLink;
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          ta.remove();
+          Toast.success('已创建分享链接并复制到剪贴板');
+        }
+      } catch (e) {
+        Toast.info('已创建分享，链接：' + shareLink);
+      }
+    } catch (e) {
+      console.error('create share failed', e);
+      Toast.error('创建分享失败: ' + (e?.message || '请求错误'));
+    }
+  }, []);
+
+  // UI state for showing expiry choices
+  const [shareOptionsOpen, setShareOptionsOpen] = React.useState(false);
 
   const getPhotoUrl = React.useCallback((p) => {
     const raw = p?.url || p?.original || p?.fullUrl || p?.src || p?.thumbSrc || '';
@@ -382,68 +545,88 @@ export default function TransferStation() {
 
           {open && (
             <div style={panelStyle} onMouseEnter={handleMouseEnter}>
-            <div style={getCircleInteractiveStyle('store')} title="存入当前选中" onClick={handleStore} {...bindCircleEvents('store')}>存入</div>
-            <div style={getCircleInteractiveStyle('expand')} title="展开中转预览" onClick={handleToggleExpand} {...bindCircleEvents('expand')}>{expanded ? '收起' : '展开'}</div>
-            <div style={getCircleInteractiveStyle('pack')} title="打包下载" onClick={handlePackDownload} {...bindCircleEvents('pack')}>打包</div>
-            <div style={getCircleInteractiveStyle('copy')} title="复制为富文本（HTML）" onClick={handleCopyRichHtml} {...bindCircleEvents('copy')}>复制</div>
-            <div style={getCircleInteractiveStyle('clear')} title="清空中转站" onClick={handleClear} {...bindCircleEvents('clear')}>清空</div>
-
-            {expanded && (
-              <div
-                style={{
-                  position: 'absolute',
-                  right: 72,
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  width: 240,
-                  maxHeight: 320,
-                  background: '#fff',
-                  boxShadow: '0 6px 20px rgba(0,0,0,0.12)',
-                  borderRadius: 8,
-                  padding: 8,
-                  overflowY: 'auto',
-                  overflowX: 'hidden',
-                  zIndex: 2500,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 8,
-                }}
-                onMouseEnter={handleMouseEnter}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 6px' }}>
-                  <div style={{ fontSize: 13, color: '#333' }}>已存入 ({count})</div>
-                  <div style={{ fontSize: 12, color: '#666', cursor: 'pointer' }} onClick={() => setExpanded(false)}>关闭</div>
+              <div style={getCircleInteractiveStyle('store')} title="存入当前选中" onClick={handleStore} {...bindCircleEvents('store')}>存入</div>
+              <div style={getCircleInteractiveStyle('expand')} title="展开中转预览" onClick={handleToggleExpand} {...bindCircleEvents('expand')}>{expanded ? '收起' : '展开'}</div>
+              <div style={getCircleInteractiveStyle('pack')} title="打包下载" onClick={handlePackDownload} {...bindCircleEvents('pack')}>打包</div>
+              <div style={getCircleInteractiveStyle('share')} title="分享中转站" onClick={() => setShareOptionsOpen((v) => !v)} {...bindCircleEvents('share')}>分享</div>
+              {shareOptionsOpen ? (
+                <div style={{ position: 'absolute', top: -8, left: -260, width: 220, background: '#fff', boxShadow: '0 6px 18px rgba(0,0,0,0.12)', borderRadius: 8, padding: 8, zIndex: 2600 }} onMouseEnter={() => setShareOptionsOpen(true)} onMouseLeave={() => setShareOptionsOpen(false)}>
+                  <div style={{ fontSize: 13, marginBottom: 8, color: '#333' }}>选择分享过期时间</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {[
+                      { label: '1分钟', s: 60 },
+                      { label: '1小时', s: 3600 },
+                      { label: '6小时', s: 3600 * 6 },
+                      { label: '12小时', s: 3600 * 12 },
+                      { label: '1天', s: 86400 },
+                      { label: '7天', s: 86400 * 7 },
+                      { label: '1个月', s: 86400 * 30 },
+                      { label: '永久', s: null },
+                    ].map((opt) => (
+                      <button key={opt.label} onClick={() => { setShareOptionsOpen(false); createShareWithExpiry(opt.s); }} style={{ textAlign: 'left', padding: '8px 10px', borderRadius: 6, border: 'none', background: '#f6f6f6', cursor: 'pointer' }}>{opt.label}</button>
+                    ))}
+                  </div>
                 </div>
+              ) : null}
+              <div style={getCircleInteractiveStyle('copy')} title="复制为富文本（HTML）" onClick={handleCopyRichHtml} {...bindCircleEvents('copy')}>复制</div>
+              <div style={getCircleInteractiveStyle('clear')} title="清空中转站" onClick={handleClear} {...bindCircleEvents('clear')}>清空</div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {items && items.length ? items.map((p, idx) => (
-                    <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 6px', borderRadius: 6 }}>
-                      <div style={{ width: 72, height: 72, overflow: 'hidden', borderRadius: 4, flex: '0 0 72px', background: '#f6f6f6' }}>
-                        <img src={p.thumbSrc || p.url} alt={`thumb-${idx}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                      </div>
-                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}>
-                        <div style={{ fontSize: 12, color: '#222' }}>
-                          {p.projectTitle ? (
-                            <>
-                              从
-                              <span style={{ fontWeight: 700, color: '#0070cc', display: 'inline', whiteSpace: 'normal', wordBreak: 'break-word' }}>
-                                {p.projectTitle.length > 10 ? (p.projectTitle.slice(0, 10) + '...') : p.projectTitle}
-                              </span>
-                              中选中
-                            </>
-                          ) : (p.id || p.url || '未命名')}
+              {expanded && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    right: 72,
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    width: 240,
+                    maxHeight: 320,
+                    background: '#fff',
+                    boxShadow: '0 6px 20px rgba(0,0,0,0.12)',
+                    borderRadius: 8,
+                    padding: 8,
+                    overflowY: 'auto',
+                    overflowX: 'hidden',
+                    zIndex: 2500,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 8,
+                  }}
+                  onMouseEnter={handleMouseEnter}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 6px' }}>
+                    <div style={{ fontSize: 13, color: '#333' }}>已存入 ({count})</div>
+                    <div style={{ fontSize: 12, color: '#666', cursor: 'pointer' }} onClick={() => setExpanded(false)}>关闭</div>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {items && items.length ? items.map((p, idx) => (
+                      <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 6px', borderRadius: 6 }}>
+                        <div style={{ width: 72, height: 72, overflow: 'hidden', borderRadius: 4, flex: '0 0 72px', background: '#f6f6f6' }}>
+                          <img src={p.thumbSrc || p.url} alt={`thumb-${idx}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                         </div>
-                        <div style={{ display: 'flex', gap: 8 }}>
-                          <div style={{ fontSize: 12, color: '#0070cc', cursor: 'pointer' }} onClick={() => handleRemove(p)}>删除</div>
+                        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}>
+                          <div style={{ fontSize: 12, color: '#222' }}>
+                            {p.projectTitle ? (
+                              <>
+                                从
+                                <span style={{ fontWeight: 700, color: '#0070cc', display: 'inline', whiteSpace: 'normal', wordBreak: 'break-word' }}>
+                                  {p.projectTitle.length > 10 ? (p.projectTitle.slice(0, 10) + '...') : p.projectTitle}
+                                </span>
+                                中选中
+                              </>
+                            ) : (p.id || p.url || '未命名')}
+                          </div>
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            <div style={{ fontSize: 12, color: '#0070cc', cursor: 'pointer' }} onClick={() => handleRemove(p)}>删除</div>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  )) : (
-                    <div style={{ padding: 12, color: '#666', textAlign: 'center' }}>中转站为空</div>
-                  )}
+                    )) : (
+                      <div style={{ padding: 12, color: '#666', textAlign: 'center' }}>中转站为空</div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
             </div>
           )}
         </div>

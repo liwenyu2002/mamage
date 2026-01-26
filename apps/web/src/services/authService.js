@@ -1,5 +1,5 @@
 // src/services/authService.js
-import { setPermissions, clearPermissions } from '../permissionStore';
+import { setPermissions, clearPermissions } from '../permissions/permissionStore';
 
 const API_PREFIX = '/api/users';
 const TOKEN_KEY = 'mamage_jwt_token';

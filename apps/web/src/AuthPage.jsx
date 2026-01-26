@@ -81,7 +81,7 @@ export default function AuthPage({ onAuthenticated }) {
         // ignore and try absolute fallback
         resp = null;
       }
-      // Fallback: try backend at localhost:8000 (useful during local dev when proxy not configured)
+      // If initial relative request failed, try using configured API base (if provided).
       if ((!resp || !resp.ok) && typeof window !== 'undefined') {
         try {
           const host = (window.__MAMAGE_API_BASE__ && window.__MAMAGE_API_BASE__.replace(/\/$/, '')) || 'http://localhost:8000';
@@ -97,7 +97,7 @@ export default function AuthPage({ onAuthenticated }) {
         // normalize options to string values for Select
         const opts = data.map(o => ({ label: `${o.name}${o.is_public ? '' : '（需邀请码）'}`, value: String(o.id), raw: o }));
         setOrgOptions(opts);
-        
+
       } else {
         setOrgs([]);
         setOrgOptions([]);
@@ -183,118 +183,118 @@ export default function AuthPage({ onAuthenticated }) {
     console.debug('[AuthPage] handleRegister click', { regName, regEmail, regPassword: regPassword ? '***' : '' });
     const trimmedEmail = regEmail ? regEmail.trim() : regEmail;
     const trimmedPassword = regPassword ? regPassword.trim() : regPassword;
-      // Use explicit fetch to call backend and handle server validation codes.
-      console.debug('[AuthPage] handleRegister click');
-      const name = regName ? regName.trim() : '';
-      const email = regEmail ? regEmail.trim() : '';
-      const password = regPassword ? regPassword.trim() : '';
+    // Use explicit fetch to call backend and handle server validation codes.
+    console.debug('[AuthPage] handleRegister click');
+    const name = regName ? regName.trim() : '';
+    const email = regEmail ? regEmail.trim() : '';
+    const password = regPassword ? regPassword.trim() : '';
 
-      // client-side checks (backend requires name and password)
-      if (!name) {
-        setRegErrors((prev) => ({ ...prev, name: '请输入姓名', general: '' }));
+    // client-side checks (backend requires name and password)
+    if (!name) {
+      setRegErrors((prev) => ({ ...prev, name: '请输入姓名', general: '' }));
+      return;
+    }
+    const pwdOk = /^(?![0-9]+$)(?![a-zA-Z]+$)[0-9A-Za-z]{8,16}$/.test(password);
+    if (!pwdOk) {
+      setRegErrors((prev) => ({ ...prev, password: '密码须为8-16位，且为字母和数字的组合', general: '' }));
+      return;
+    }
+    if (email) {
+      const emailOk = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(email);
+      if (!emailOk) {
+        setRegErrors((prev) => ({ ...prev, email: '邮箱格式不正确', general: '' }));
         return;
       }
-      const pwdOk = /^(?![0-9]+$)(?![a-zA-Z]+$)[0-9A-Za-z]{8,16}$/.test(password);
-      if (!pwdOk) {
-        setRegErrors((prev) => ({ ...prev, password: '密码须为8-16位，且为字母和数字的组合', general: '' }));
+    }
+
+    // If user selected a private organization, require invite_code client-side as UX hint
+    const selectedOrg = orgs.find(o => String(o.id) === String(selectedOrgId));
+    if (selectedOrg && selectedOrg.is_public === false) {
+      if (!regInviteCode || regInviteCode.trim().length === 0) {
+        setRegErrors((prev) => ({ ...prev, invite: '该组织需要邀请码', general: '' }));
         return;
       }
-      if (email) {
-        const emailOk = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(email);
-        if (!emailOk) {
-          setRegErrors((prev) => ({ ...prev, email: '邮箱格式不正确', general: '' }));
+    }
+
+    setRegErrors({ name: '', email: '', password: '', invite: '', general: '' });
+    setLoading(true);
+    try {
+      const invite_code = regInviteCode ? regInviteCode.trim() : undefined;
+      const payload = { name, password };
+      if (email) payload.email = email;
+      if (selectedOrgId) payload.organization_id = selectedOrgId;
+      if (invite_code) payload.invite_code = invite_code;
+      const res = await fetch('/api/users/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      console.debug('[AuthPage] register response', res.status, data);
+      if (!res.ok) {
+        const code = data.error || 'UNKNOWN_ERROR';
+        const message = data.message || '注册失败';
+        if (code === 'EMAIL_EXISTS') {
+          setRegErrors((prev) => ({ ...prev, email: message }));
           return;
         }
-      }
-
-      // If user selected a private organization, require invite_code client-side as UX hint
-      const selectedOrg = orgs.find(o => String(o.id) === String(selectedOrgId));
-      if (selectedOrg && selectedOrg.is_public === false) {
-        if (!regInviteCode || regInviteCode.trim().length === 0) {
-          setRegErrors((prev) => ({ ...prev, invite: '该组织需要邀请码', general: '' }));
+        if (code === 'INVALID_PASSWORD') {
+          setRegErrors((prev) => ({ ...prev, password: message }));
           return;
         }
-      }
-
-      setRegErrors({ name: '', email: '', password: '', invite: '', general: '' });
-      setLoading(true);
-      try {
-        const invite_code = regInviteCode ? regInviteCode.trim() : undefined;
-        const payload = { name, password };
-        if (email) payload.email = email;
-        if (selectedOrgId) payload.organization_id = selectedOrgId;
-        if (invite_code) payload.invite_code = invite_code;
-        const res = await fetch('/api/users/register', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-        const data = await res.json().catch(() => ({}));
-        console.debug('[AuthPage] register response', res.status, data);
-        if (!res.ok) {
-          const code = data.error || 'UNKNOWN_ERROR';
-          const message = data.message || '注册失败';
-          if (code === 'EMAIL_EXISTS') {
-            setRegErrors((prev) => ({ ...prev, email: message }));
-            return;
-          }
-          if (code === 'INVALID_PASSWORD') {
-            setRegErrors((prev) => ({ ...prev, password: message }));
-            return;
-          }
-          if (code === 'INVALID_EMAIL') {
-            setRegErrors((prev) => ({ ...prev, email: message }));
-            return;
-          }
-          if (code === 'INVALID_ORGANIZATION') {
-            setRegErrors((prev) => ({ ...prev, general: '选择的组织不存在' }));
-            return;
-          }
-          if (code === 'INVITE_REQUIRED') {
-            setRegErrors((prev) => ({ ...prev, invite: '该组织需要邀请码' }));
-            return;
-          }
-          if (code === 'INVALID_INVITE') {
-            setRegErrors((prev) => ({ ...prev, invite: '邀请码无效或不匹配' }));
-            return;
-          }
-          if (code === 'MISSING_FIELDS') {
-            setRegErrors((prev) => ({ ...prev, general: message }));
-            return;
-          }
+        if (code === 'INVALID_EMAIL') {
+          setRegErrors((prev) => ({ ...prev, email: message }));
+          return;
+        }
+        if (code === 'INVALID_ORGANIZATION') {
+          setRegErrors((prev) => ({ ...prev, general: '选择的组织不存在' }));
+          return;
+        }
+        if (code === 'INVITE_REQUIRED') {
+          setRegErrors((prev) => ({ ...prev, invite: '该组织需要邀请码' }));
+          return;
+        }
+        if (code === 'INVALID_INVITE') {
+          setRegErrors((prev) => ({ ...prev, invite: '邀请码无效或不匹配' }));
+          return;
+        }
+        if (code === 'MISSING_FIELDS') {
           setRegErrors((prev) => ({ ...prev, general: message }));
           return;
         }
-
-        // success: expect { id, token }
-        if (data && data.token) {
-          try {
-            localStorage.setItem('mamage_jwt_token', data.token);
-          } catch (e) {
-            console.warn('Failed to save token to localStorage', e);
-          }
-          // fetch user via authService.me() to get full user object
-          const user = await authService.me();
-          Toast.success('注册并登录成功');
-          if (typeof onAuthenticated === 'function') onAuthenticated(user);
-        } else {
-          // unexpected but treat as registered
-          Toast.success('注册成功，请登录');
-          setActive('login');
-        }
-      } catch (err) {
-        console.error('register failed', err);
-        setRegErrors((prev) => ({ ...prev, general: '网络错误，请稍后重试' }));
-      } finally {
-        setLoading(false);
+        setRegErrors((prev) => ({ ...prev, general: message }));
+        return;
       }
+
+      // success: expect { id, token }
+      if (data && data.token) {
+        try {
+          localStorage.setItem('mamage_jwt_token', data.token);
+        } catch (e) {
+          console.warn('Failed to save token to localStorage', e);
+        }
+        // fetch user via authService.me() to get full user object
+        const user = await authService.me();
+        Toast.success('注册并登录成功');
+        if (typeof onAuthenticated === 'function') onAuthenticated(user);
+      } else {
+        // unexpected but treat as registered
+        Toast.success('注册成功，请登录');
+        setActive('login');
+      }
+    } catch (err) {
+      console.error('register failed', err);
+      setRegErrors((prev) => ({ ...prev, general: '网络错误，请稍后重试' }));
+    } finally {
+      setLoading(false);
+    }
   };
 
   // wrapper to log click events before invoking async handler
   const handleRegisterClick = () => {
     try {
       console.debug('[AuthPage] register button clicked');
-    } catch (e) {}
+    } catch (e) { }
     // call the async handler
     void handleRegister();
   };
@@ -333,7 +333,7 @@ export default function AuthPage({ onAuthenticated }) {
             {/* login errors shown via Toast, no inline general message */}
 
             <div style={{ marginTop: 12 }}>
-                    <Button type="primary" theme="solid" loading={loading} onClick={handleLogin}>登录</Button>
+              <Button type="primary" theme="solid" loading={loading} onClick={handleLogin}>登录</Button>
             </div>
           </div>
         ) : (
@@ -387,7 +387,7 @@ export default function AuthPage({ onAuthenticated }) {
                     ))
                   ) : null}
                 </Select>
-                
+
               </div>
               {/* only show invite input when selected org is private */}
               {(() => {

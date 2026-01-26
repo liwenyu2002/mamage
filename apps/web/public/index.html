@@ -1,11 +1,23 @@
 <!-- public/index.html -->
 <!DOCTYPE html>
 <html lang="zh-CN">
-  <head>
-    <meta charset="UTF-8" />
-    <title>MaMage 图库（Semi 主题版）</title>
-  </head>
-  <body>
-    <div id="root"></div>
-  </body>
+
+<head>
+  <meta charset="UTF-8" />
+  <title>MaMage 图库（Semi 主题版）</title>
+</head>
+
+<body>
+  <!-- Inject COS base for asset URLs; HtmlWebpackPlugin will replace the template value -->
+  <script>
+    (function () {
+      var cosBase = '<%= MAMAGE_COS_BASE %>' || '';
+      if (cosBase) {
+        try { window.__MAMAGE_COS_BASE__ = cosBase.replace(/\/+$/, ''); } catch (e) { }
+      }
+    })();
+  </script>
+  <div id="root"></div>
+</body>
+
 </html>

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Button } from '@douyinfe/semi-ui';
-import { canAll } from '../permissionStore';
+import { canAll } from './permissionStore';
 
 // Disabled (not hidden) if lacking permission
 export default function PermButton({ perms = [], children, ...rest }) {
