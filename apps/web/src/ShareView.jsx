@@ -251,9 +251,9 @@ export default function ShareView({ share = {}, onBack }) {
 
                 {viewerVisible ? (
                     <div className="viewer-overlay" onClick={closeViewer}>
-                        <div className="viewer-wrap" onClick={(e) => e.stopPropagation()}>
-                            <button className="viewer-nav viewer-nav-left" onClick={viewerPrev} aria-label="prev">‹</button>
-                            <div className="viewer-img-wrap">
+                        <div className="viewer-wrap">
+                            <button className="viewer-nav viewer-nav-left" onClick={(e) => { e.stopPropagation(); viewerPrev(); }} aria-label="prev">‹</button>
+                            <div className="viewer-img-wrap" onClick={(e) => e.stopPropagation()}>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center' }}>
                                     <img className="viewer-img" src={(viewerShowOriginalMap[viewerIndex]) ? originalFor(photos[viewerIndex]) : thumbFor(photos[viewerIndex])} alt="preview" />
                                     <div style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
@@ -269,13 +269,20 @@ export default function ShareView({ share = {}, onBack }) {
                                             {(viewerShowOriginalMap[viewerIndex]) ? '查看缩略' : '查看原图'}
                                         </Button>
                                     </div>
+                                    <button
+                                        className="viewer-close-btn"
+                                        onClick={(e) => { e.stopPropagation(); closeViewer(); }}
+                                        aria-label="关闭查看器"
+                                    >
+                                        ×
+                                    </button>
                                     <div style={{ maxWidth: '80vw', color: '#fff', textAlign: 'center' }}>
                                         <div style={{ fontSize: 14 }}>{photos[viewerIndex] && (photos[viewerIndex].title || '')}</div>
                                         <div style={{ fontSize: 12, color: '#ddd' }}>{photos[viewerIndex] && (photos[viewerIndex].description || '')}</div>
                                     </div>
                                 </div>
                             </div>
-                            <button className="viewer-nav viewer-nav-right" onClick={viewerNext} aria-label="next">›</button>
+                            <button className="viewer-nav viewer-nav-right" onClick={(e) => { e.stopPropagation(); viewerNext(); }} aria-label="next">›</button>
                         </div>
                     </div>
                 ) : null}

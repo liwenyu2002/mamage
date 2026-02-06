@@ -687,29 +687,29 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
   // ========== Download helpers ==========
   const getSelectedIndexes = React.useCallback(() => Object.keys(selectedMap || {}).map((k) => Number(k)).sort((a, b) => a - b), [selectedMap]);
 
-  const downloadCurrentPhoto = React.useCallback(async () => {
+  const downloadCurrentPhoto = React.useCallback(() => {
     const idx = viewerIndex;
     const meta = (photoMetas && photoMetas[idx]) || {};
     const url = meta.originalSrc || meta.url || meta.thumbSrc || images[idx];
     if (!url) return Toast.warning('无法获取图片资源');
     try {
-      const resp = await fetch(url, { credentials: 'same-origin' });
-      if (!resp.ok) throw new Error(`下载失败: ${resp.status}`);
-      const blob = await resp.blob();
-      let filename = getFilenameFromContentDisposition(resp);
-      if (!filename) {
-        try {
-          const u = new URL(url, window.location.origin);
-          filename = u.pathname.split('/').pop() || 'photo';
-        } catch (e) {
-          filename = 'photo';
-        }
+      if (typeof window !== 'undefined' && window.open) {
+        window.open(url, '_blank', 'noopener');
+        Toast.success('已在新标签页打开图片，浏览器将根据资源决定下载或显示');
+        return;
       }
-      await downloadBlob(blob, filename || 'photo');
-      Toast.success('已开始下载');
+      // Fallback: create an anchor and click it
+      const a = document.createElement('a');
+      a.href = url;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      Toast.success('已在新标签页打开图片，浏览器将根据资源决定下载或显示');
     } catch (err) {
       console.error('downloadCurrentPhoto error', err);
-      Toast.error('下载失败，请稍后再试');
+      Toast.error('打开图片失败，请稍后再试');
     }
   }, [viewerIndex, photoMetas, images]);
 
