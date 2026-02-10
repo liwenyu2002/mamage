@@ -85,6 +85,10 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
   const [simGroups, setSimGroups] = React.useState(null);
   const [simPhotos, setSimPhotos] = React.useState({}); // id -> meta
   const [simError, setSimError] = React.useState(null);
+  const [simDeleteMode, setSimDeleteMode] = React.useState(false);
+  const [simSelectedMap, setSimSelectedMap] = React.useState({}); // id -> true
+  const [simSelectedCount, setSimSelectedCount] = React.useState(0);
+  const [simDeleting, setSimDeleting] = React.useState(false);
 
   React.useEffect(() => {
     if (initialProject) {
@@ -1139,6 +1143,46 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
 
   const closeSimilarityModal = React.useCallback(() => setSimModalVisible(false), []);
 
+  const toggleSimSelect = React.useCallback((id) => {
+    setSimSelectedMap((prev) => {
+      const next = Object.assign({}, prev || {});
+      if (next[id]) delete next[id]; else next[id] = true;
+      const count = Object.keys(next).length;
+      setSimSelectedCount(count);
+      return next;
+    });
+  }, []);
+
+  const confirmSimDelete = React.useCallback(() => {
+    const ids = Object.keys(simSelectedMap || {}).filter(Boolean);
+    if (!ids.length) return Toast.warning('请先选择要删除的照片');
+    Modal.confirm({
+      title: '确认删除所选照片',
+      content: `删除后不可恢复，确定要删除 ${ids.length} 张照片吗？`,
+      onOk: async () => {
+        try {
+          setSimDeleting(true);
+          await deletePhotos(ids);
+          Toast.success('删除成功');
+          // remove deleted ids from simGroups and simPhotos
+          setSimGroups((prev) => (prev || []).map(g => g.filter(id => !ids.includes(String(id)))).filter(g => g.length));
+          setSimPhotos((prev) => { const next = Object.assign({}, prev || {}); ids.forEach(id => delete next[id]); return next; });
+          // also remove from main lists if present
+          setPhotoMetas((prev) => (prev || []).filter(m => !ids.includes(String(m.id))));
+          setImages((prev) => (prev || []).filter((src, idx) => { const m = photoMetas && photoMetas[idx]; return !(m && ids.includes(String(m.id))); }));
+          setSimSelectedMap({});
+          setSimSelectedCount(0);
+          setSimDeleteMode(false);
+        } catch (e) {
+          console.error('sim delete failed', e);
+          Toast.error('删除失败');
+        } finally {
+          setSimDeleting(false);
+        }
+      }
+    });
+  }, [simSelectedMap, deletePhotos, photoMetas, setPhotoMetas]);
+
   // 推荐标记：添加"推荐"标签
   const addRecommendationTag = React.useCallback(async () => {
     if (viewerIndex < 0 || !photoMetas || !photoMetas[viewerIndex]) return;
@@ -1542,13 +1586,21 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
         <Modal
           title="相似照片分组"
           visible={simModalVisible}
-          onOk={closeSimilarityModal}
           onCancel={closeSimilarityModal}
-          okText="关闭"
-          cancelText="关闭"
+          footer={null}
           size="large"
         >
           <div style={{ minHeight: 160 }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 8 }}>
+              {!simDeleteMode ? (
+                <Button onClick={() => setSimDeleteMode(true)} type="tertiary">选择</Button>
+              ) : (
+                <>
+                  <Button onClick={() => { setSimDeleteMode(false); setSimSelectedMap({}); setSimSelectedCount(0); }} type="tertiary">取消选择</Button>
+                  <PermButton perms={['photos.delete']} onClick={confirmSimDelete} type="danger" loading={simDeleting} disabled={simDeleting}>删除 ({simSelectedCount})</PermButton>
+                </>
+              )}
+            </div>
             {simLoading ? (
               <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '40px 0' }}>
                 <Spin tip="正在分析相似照片" />
@@ -1568,12 +1620,32 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
                         const thumb = p ? (p.thumbUrl || p.url || p.thumbSrc || p.originalSrc) : null;
                         const titleText = p ? (p.title || p.name || `#${id}`) : `#${id}`;
                         const url = thumb || (p && (p.url || p.originalSrc)) || (BASE_URL ? `${BASE_URL}/photos/${id}` : `/api/photos/${id}`);
+                        const selected = !!simSelectedMap[String(id)];
                         return (
-                          <div key={id} className="similarity-thumb" style={{ width: 180 }}>
+                          <div key={id} className="similarity-thumb" style={{ width: 180, position: 'relative' }}>
                             {thumb ? (
-                              <img src={thumb} alt={titleText} style={{ width: '100%', height: 120, objectFit: 'cover', display: 'block', cursor: 'pointer' }} onClick={() => window.open(url, '_blank')} />
+                              <img src={thumb} alt={titleText} style={{ width: '100%', height: 120, objectFit: 'cover', display: 'block', cursor: simDeleteMode ? 'pointer' : 'zoom-in' }} onClick={() => {
+                                if (simDeleteMode) {
+                                  toggleSimSelect(String(id));
+                                  return;
+                                }
+                                // try to open in viewer by finding index
+                                const findIdx = (photoMetas || []).findIndex(m => String(m.id) === String(id));
+                                if (findIdx >= 0) {
+                                  closeSimilarityModal();
+                                  setTimeout(() => {
+                                    setViewerIndex(findIdx);
+                                    setViewerVisible(true);
+                                  }, 0);
+                                } else {
+                                  window.open(url, '_blank');
+                                }
+                              }} />
                             ) : (
                               <div style={{ width: '100%', height: 120, background: '#eee' }} />
+                            )}
+                            {simDeleteMode && (
+                              <div onClick={(e) => { e.stopPropagation(); toggleSimSelect(String(id)); }} style={{ position: 'absolute', right: 8, top: 8, width: 28, height: 28, borderRadius: 14, background: selected ? '#ff5252' : 'rgba(0,0,0,0.45)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>{selected ? '✓' : ''}</div>
                             )}
                             <div style={{ fontSize: 12, marginTop: 6 }}>{titleText}</div>
                           </div>
