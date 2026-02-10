@@ -79,6 +79,13 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
   const [viewerEditTagInput, setViewerEditTagInput] = React.useState('');
   const [viewerEditDescription, setViewerEditDescription] = React.useState('');
 
+  // similarity modal (相似照片分组)
+  const [simModalVisible, setSimModalVisible] = React.useState(false);
+  const [simLoading, setSimLoading] = React.useState(false);
+  const [simGroups, setSimGroups] = React.useState(null);
+  const [simPhotos, setSimPhotos] = React.useState({}); // id -> meta
+  const [simError, setSimError] = React.useState(null);
+
   React.useEffect(() => {
     if (initialProject) {
       setProject((prev) => {
@@ -1097,6 +1104,41 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
     }
   }, [viewerIndex, viewerEditTags, viewerEditDescription, projectId, photoMetas]);
 
+  // 打开 / 关闭 相似分组弹窗并加载数据
+  const openSimilarityModal = React.useCallback(async () => {
+    if (!projectId) return;
+    setSimModalVisible(true);
+    if (simGroups !== null) return; // already loaded
+    setSimLoading(true);
+    setSimError(null);
+    try {
+      const token = getToken && typeof getToken === 'function' ? getToken() : null;
+      const headers = token ? { Authorization: 'Bearer ' + token } : {};
+      const url = `/api/similarity/groups/simple?projectId=${projectId}`;
+      const r = await fetch(url, { headers });
+      const data = await r.json().catch(() => ({}));
+      const groups = data && Array.isArray(data.groups) ? data.groups : [];
+      setSimGroups(groups);
+      const ids = Array.from(new Set((groups || []).flat()));
+      if (ids.length) {
+        const metas = await Promise.all(ids.map(id => fetch(`/api/photos/${id}`, { headers }).then(rr => rr.ok ? rr.json() : null).catch(() => null)));
+        const map = {};
+        ids.forEach((id, i) => { if (metas[i]) map[id] = metas[i]; });
+        setSimPhotos(map);
+      } else {
+        setSimPhotos({});
+      }
+    } catch (e) {
+      console.error('load similarity groups error', e);
+      setSimError('加载失败，请重试');
+      setSimGroups([]);
+    } finally {
+      setSimLoading(false);
+    }
+  }, [projectId, simGroups]);
+
+  const closeSimilarityModal = React.useCallback(() => setSimModalVisible(false), []);
+
   // 推荐标记：添加"推荐"标签
   const addRecommendationTag = React.useCallback(async () => {
     if (viewerIndex < 0 || !photoMetas || !photoMetas[viewerIndex]) return;
@@ -1254,6 +1296,13 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
                 style={{ color: '#722ed1', marginLeft: 6 }}
               >
                 AI 选片
+              </Button>
+              <Button
+                onClick={openSimilarityModal}
+                type="tertiary"
+                style={{ marginLeft: 6 }}
+              >
+                查看相似照片
               </Button>
             </div>
             {/* "我要补充照片" 已移至顶部返回按钮行 */}
@@ -1486,6 +1535,59 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
                 <Button type="danger" onClick={handleDeleteProject} loading={deletingProject} disabled={deletingProject}>删除相册</Button>
               </IfCan>
             </div>
+          </div>
+        </Modal>
+
+        {/* 相似分组弹窗 */}
+        <Modal
+          title="相似照片分组"
+          visible={simModalVisible}
+          onOk={closeSimilarityModal}
+          onCancel={closeSimilarityModal}
+          okText="关闭"
+          cancelText="关闭"
+          size="large"
+        >
+          <div style={{ minHeight: 160 }}>
+            {simLoading ? (
+              <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '40px 0' }}>
+                <Spin tip="正在分析相似照片" />
+              </div>
+            ) : simError ? (
+              <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '40px 0' }}>
+                <Text type="danger">{simError}</Text>
+              </div>
+            ) : (simGroups && simGroups.length) ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {simGroups.map((g, gi) => (
+                  <div key={gi} className="similarity-group">
+                    <div style={{ fontWeight: 'bold' }}>Group #{gi + 1} ({g.length} 照片)</div>
+                    <div className="similarity-group-images" style={{ marginTop: 8, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                      {g.map((id) => {
+                        const p = simPhotos[id];
+                        const thumb = p ? (p.thumbUrl || p.url || p.thumbSrc || p.originalSrc) : null;
+                        const titleText = p ? (p.title || p.name || `#${id}`) : `#${id}`;
+                        const url = thumb || (p && (p.url || p.originalSrc)) || (BASE_URL ? `${BASE_URL}/photos/${id}` : `/api/photos/${id}`);
+                        return (
+                          <div key={id} className="similarity-thumb" style={{ width: 180 }}>
+                            {thumb ? (
+                              <img src={thumb} alt={titleText} style={{ width: '100%', height: 120, objectFit: 'cover', display: 'block', cursor: 'pointer' }} onClick={() => window.open(url, '_blank')} />
+                            ) : (
+                              <div style={{ width: '100%', height: 120, background: '#eee' }} />
+                            )}
+                            <div style={{ fontSize: 12, marginTop: 6 }}>{titleText}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '40px 0' }}>
+                <Empty description="未发现相似分组" />
+              </div>
+            )}
           </div>
         </Modal>
 

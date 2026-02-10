@@ -164,3 +164,25 @@
 .viewer-close-btn:active {
   transform: scale(0.98);
 }
+
+/* 相似分组样式 */
+.similarity-group {
+  border: 1px solid #eee;
+  padding: 12px;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.similarity-group-images {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.similarity-thumb img {
+  display: block;
+  width: 100%;
+  height: 120px;
+  object-fit: cover;
+}
