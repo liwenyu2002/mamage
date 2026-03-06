@@ -1,22 +1,26 @@
-
 .project-grid {
   display: flex;
-  flex-wrap: wrap;          /* 超出一行就自动换行 */
-  justify-content: center;  /* 每一行整体水平居中 */
-  gap: 30px;               /* 卡片之间的横向 + 纵向间距都是 10px */
-   /* 可选：让这一块和窗口左右留一点空 */
+  flex-wrap: wrap;
+  /* 超出一行就自动换行 */
+  justify-content: center;
+  /* 每一行整体水平居中 */
+  gap: 30px;
+  /* 卡片之间的横向 + 纵向间距都是 10px */
+  /* 可选：让这一块和窗口左右留一点空 */
 }
 
 
 .project-card {
   cursor: pointer;
-  width: 342px;
+  width: 100%;
+  max-width: 342px;
   flex: 0 0 auto;
   border-radius: 16px;
   padding: 16px;
   /* ✅ 改成普通实色背景，不再毛玻璃 */
-  background: #ffffff;               /* 深灰，配你黑色页面背景 */
-  
+  background: #ffffff;
+  /* 深灰，配你黑色页面背景 */
+
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
   color: #f9fafb;
 
@@ -29,7 +33,6 @@
     transform 0.2s ease,
     box-shadow 0.2s ease,
     background 0.2s ease
-    
 }
 
 /* 使卡片成为垂直弹性容器：顶部封面固定，中间 meta 区域弹性拉伸，底部缩略图固定在底部 */
@@ -43,22 +46,24 @@
   transform: translateY(-4px);
   box-shadow: 0 14px 30px rgba(0, 0, 0, 0.65);
   background: #e7e7e7;
-  
+
 }
 
 /* 顶部大图区域 */
 .project-card__cover-image {
-  width: 342px;
-  height: 230px;
+  width: 100%;
   flex: 0 0 auto;
+  aspect-ratio: 342 / 230;
+  /* keep original proportion */
+  overflow: hidden;
+  border-radius: 5px;
 }
 
 .project-card__cover-image img {
-  width: 342px;
-  height: 230px;
+  width: 100%;
+  height: 100%;
   object-fit: cover;
   display: block;
-  border-radius: 5px;
 }
 
 /* 中间文字信息行 */
@@ -73,8 +78,10 @@
 
 .project-card__meta-left {
   display: flex;
-  flex-direction: column;  /* 竖着排 */
-  gap: 4px;                /* 上下行之间留点间距 */
+  flex-direction: column;
+  /* 竖着排 */
+  gap: 4px;
+  /* 上下行之间留点间距 */
   width: 100%;
   min-width: 0;
 }
@@ -82,18 +89,22 @@
 .project-card__meta-up {
   display: flex;
   align-items: center;
-  gap: 8px;                /* 日期 / 标题 / 标签之间留间距 */
+  gap: 8px;
+  /* 日期 / 标题 / 标签之间留间距 */
 }
-.project-card__meta-middle{
+
+.project-card__meta-middle {
   display: flex;
   flex-direction: column;
   gap: 6px;
   min-width: 0;
 }
+
 .project-card__meta-down {
   display: flex;
   align-items: center;
-  gap: 8px;/* 看需要再加颜色、字号等 */
+  gap: 8px;
+  /* 看需要再加颜色、字号等 */
 }
 
 .project-card__date {
@@ -104,29 +115,37 @@
 .project-card__date-pill {
   display: inline-flex;
   align-items: center;
-  padding: 4px 8px; /* 更扁，左右内边距也略微减小 */
+  padding: 4px 8px;
+  /* 更扁，左右内边距也略微减小 */
   border-radius: 999px;
-  background: rgba(0,0,0,0.04);
-  border: 1px solid rgba(0,0,0,0.06);
-  line-height: 1; /* 使视觉更扁 */
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  line-height: 1;
+  /* 使视觉更扁 */
 }
 
 .project-card__date-pill .project-card__date-label,
 .project-card__date-pill .project-card__date-label {
-  font-weight: 700; /* 标签加粗 */
+  font-weight: 700;
+  /* 标签加粗 */
   font-size: 12px;
 }
+
 .project-card__date-pill .project-card__date-value {
   font-weight: 700;
   font-size: 12px;
-  color: #000000; /* 数字为黑色 */
+  color: #000000;
+  /* 数字为黑色 */
 }
 
 .project-card__date-pill .project-card__date-label.start {
-  color: #2dbf7f; /* 浅绿色 */
+  color: #2dbf7f;
+  /* 浅绿色 */
 }
+
 .project-card__date-pill .project-card__date-label.create {
-  color: #3b82f6; /* 浅蓝色 */
+  color: #3b82f6;
+  /* 浅蓝色 */
 }
 
 .project-card__title {
@@ -152,6 +171,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
 .project-card__description {
   font-size: 12px;
   color: #6b7280;
@@ -163,10 +183,12 @@
   max-height: 2.4em;
   width: 100%;
 }
+
 .project-card__meta-top {
   width: 100%;
   display: flex;
-  justify-content: space-between; /* left: date, right: count */
+  justify-content: space-between;
+  /* left: date, right: count */
   align-items: center;
 }
 
@@ -190,11 +212,12 @@
 /* 底部 2×2 小图网格（最多 3 张也可以） */
 .project-card__thumb-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr)); 
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   margin-top: 4px;
-  width: 342px;
-  height: 110px;
+  width: 100%;
+  height: auto;
+  grid-auto-rows: 1fr;
 }
 
 /* 始终贴在卡片底部 */
@@ -205,7 +228,8 @@
 .project-card__thumb {
   border-radius: 1px;
   overflow: hidden;
-  aspect-ratio: 1 / 1; /* 强制1:1比例 */
+  aspect-ratio: 1 / 1;
+  /* 强制1:1比例 */
 }
 
 .project-card__thumb img {

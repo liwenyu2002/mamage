@@ -400,27 +400,30 @@ function App() {
               text: 'MaMage 图库',
             }}
             footer={(
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <Input
-                  placeholder="搜索项目 / 标签"
-                  prefix={<IconSearch />}
-                  showClear
-                  style={{ width: 260 }}
-                  value={keyword}
-                  onChange={(value) => setKeyword(value)}
-                  onEnterPress={handleSearchSubmit}
-                />
-                <Button theme="solid" type="primary" onClick={handleSearchSubmit}>
-                  搜索
-                </Button>
-
-                <IfCan perms={['projects.create']}>
-                  <Button onClick={() => setShowCreateModal(true)}>
-                    新建相册
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: '1 1 auto', minWidth: 0 }}>
+                  <Input
+                    placeholder="搜索项目 / 标签"
+                    prefix={<IconSearch />}
+                    showClear
+                    style={{ width: 'clamp(120px, 30vw, 260px)' }}
+                    value={keyword}
+                    onChange={(value) => setKeyword(value)}
+                    onEnterPress={handleSearchSubmit}
+                  />
+                  <Button theme="solid" type="primary" onClick={handleSearchSubmit}>
+                    搜索
                   </Button>
-                </IfCan>
-                {/* 全局上传入口已移除 — 上传由项目详情页的“我要补充照片”承担 */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+
+                  <IfCan perms={['projects.create']}>
+                    <Button onClick={() => setShowCreateModal(true)}>
+                      新建相册
+                    </Button>
+                  </IfCan>
+                </div>
+
+                {/* 右侧用户区域：不强制占满空间，用户名允许截断 */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '0 0 auto', minWidth: 0 }}>
                   {currentUser ? (
                     <Popover
                       content={(
@@ -432,9 +435,9 @@ function App() {
                       trigger="hover"
                       position="bottomRight"
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', minWidth: 0 }}>
                         <Avatar size="small" alt={currentUser?.name || ''} style={{ backgroundColor: '#d9d9d9' }}>{(currentUser?.name || currentUser?.displayName || currentUser?.email || 'U')[0]}</Avatar>
-                        <span style={{ fontSize: 14 }}>{currentUser && (currentUser.displayName || currentUser.email || currentUser.name)}</span>
+                        <span style={{ fontSize: 14, maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block' }}>{currentUser && (currentUser.displayName || currentUser.email || currentUser.name)}</span>
                       </div>
                     </Popover>
                   ) : null}
