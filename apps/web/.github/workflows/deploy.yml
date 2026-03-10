@@ -42,3 +42,9 @@ jobs:
             -e "ssh -p ${{ secrets.DEPLOY_PORT }} -o StrictHostKeyChecking=no" \
             dist/ \
             ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/home/liwy/MaMage_Web/dist/
+
+      - name: Validate and reload nginx
+        run: |
+          ssh -o StrictHostKeyChecking=no -p ${{ secrets.DEPLOY_PORT }} \
+            ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} \
+            "sudo nginx -t && sudo systemctl reload nginx"
