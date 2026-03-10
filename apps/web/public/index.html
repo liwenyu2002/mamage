@@ -13,8 +13,12 @@
   <script>
     (function () {
       var cosBase = '<%= MAMAGE_COS_BASE %>' || '';
+      var apiBase = '<%= MAMAGE_API_BASE %>' || '';
       if (cosBase) {
         try { window.__MAMAGE_COS_BASE__ = cosBase.replace(/\/+$/, ''); } catch (e) { }
+      }
+      if (apiBase) {
+        try { window.__MAMAGE_API_BASE__ = apiBase.replace(/\/+$/, ''); } catch (e) { }
       }
     })();
   </script>

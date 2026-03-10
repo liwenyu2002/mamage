@@ -84,7 +84,7 @@ export default function AuthPage({ onAuthenticated }) {
       // If initial relative request failed, try using configured API base (if provided).
       if ((!resp || !resp.ok) && typeof window !== 'undefined') {
         try {
-          const host = (window.__MAMAGE_API_BASE__ && window.__MAMAGE_API_BASE__.replace(/\/$/, '')) || 'http://localhost:8000';
+          const host = (window.__MAMAGE_API_BASE__ && window.__MAMAGE_API_BASE__.replace(/\/$/, '')) || '';
           const full = `${host}/api/organizations?${params.toString()}`;
           const resp2 = await fetch(full);
           if (resp2 && resp2.ok) data = await resp2.json().catch(() => []);

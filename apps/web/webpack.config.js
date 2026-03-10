@@ -38,10 +38,10 @@ module.exports = {
   plugins: [
     new HtmlWebpackPlugin({
       template: './public/index.html',
-      // Inject a COS base value from env into the generated HTML so client can
-      // construct absolute asset URLs without relying on the API host.
+      // Inject runtime config values into generated HTML.
       templateParameters: {
-        MAMAGE_COS_BASE: process.env.MAMAGE_COS_BASE || ''
+        MAMAGE_COS_BASE: process.env.MAMAGE_COS_BASE || '',
+        MAMAGE_API_BASE: process.env.MAMAGE_API_BASE || '',
       }
     }),
   ],
