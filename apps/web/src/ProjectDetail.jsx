@@ -102,6 +102,19 @@ function ProjectDetail({
   const [simSelectedMap, setSimSelectedMap] = React.useState({}); // id -> true
   const [simSelectedCount, setSimSelectedCount] = React.useState(0);
   const [simDeleting, setSimDeleting] = React.useState(false);
+  const [isMobile, setIsMobile] = React.useState(() => (typeof window !== 'undefined' ? window.innerWidth <= 768 : false));
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const onResize = () => setIsMobile(window.innerWidth <= 768);
+    onResize();
+    window.addEventListener('resize', onResize);
+    window.addEventListener('orientationchange', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('orientationchange', onResize);
+    };
+  }, []);
 
   React.useEffect(() => {
     if (initialProject) {
@@ -1735,13 +1748,16 @@ function ProjectDetail({
         {/* 缂栬緫寮圭獥 */}
         <Modal
           title="修改项目信息"
+          className="detail-edit-modal"
           visible={editVisible}
           onOk={saveEdit}
           onCancel={() => setEditVisible(false)}
           okText="保存"
           cancelText="取消"
+          width={isMobile ? 'calc(100vw - 16px)' : undefined}
+          bodyStyle={isMobile ? { maxHeight: '70vh', overflowY: 'auto', padding: '12px' } : undefined}
         >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div className="detail-edit-modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <Input value={editTitle} onChange={(v) => setEditTitle(v)} placeholder="项目标题" />
             <TextArea value={editDescription} onChange={(v) => setEditDescription(v)} rows={4} placeholder="项目描述" />
             {(canUpdateProject || canEditTags) ? (
@@ -1753,7 +1769,7 @@ function ProjectDetail({
                       <button style={{ marginLeft: 6, border: 'none', background: 'transparent', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); setEditTags((s) => s.filter(x => x !== t)); }}>×</button>
                     </Tag>
                   ))}
-                  <input value={editTagInput} onChange={(e) => setEditTagInput(e.target.value)} onKeyDown={(e) => {
+                  <input className="detail-edit-tag-input" value={editTagInput} onChange={(e) => setEditTagInput(e.target.value)} onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ',') {
                       e.preventDefault();
                       const v = (editTagInput || '').trim();
@@ -1774,7 +1790,7 @@ function ProjectDetail({
             />
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 6 }}>
               <IfCan perms={['projects.delete']}>
-                <Button type="danger" onClick={handleDeleteProject} loading={deletingProject} disabled={deletingProject}>删除项目</Button>
+                <Button className="detail-edit-delete-btn" type="danger" onClick={handleDeleteProject} loading={deletingProject} disabled={deletingProject}>删除项目</Button>
               </IfCan>
             </div>
           </div>
@@ -1783,10 +1799,13 @@ function ProjectDetail({
         {/* 鐩镐技鍒嗙粍寮圭獥 */}
         <Modal
           title="相似照片分组"
+          className="detail-sim-modal"
           visible={simModalVisible}
           onCancel={closeSimilarityModal}
           footer={null}
           size="large"
+          width={isMobile ? 'calc(100vw - 16px)' : undefined}
+          bodyStyle={isMobile ? { maxHeight: '72vh', overflowY: 'auto', padding: '10px 12px 12px' } : undefined}
         >
           <div style={{ minHeight: 160 }}>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 8 }}>
@@ -1812,7 +1831,7 @@ function ProjectDetail({
                 {simGroups.map((g, gi) => (
                   <div key={gi} className="similarity-group">
                     <div style={{ fontWeight: 'bold' }}>Group #{gi + 1} ({g.length} 张照片)</div>
-                    <div className="similarity-group-images" style={{ marginTop: 8, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                    <div className="similarity-group-images" style={{ marginTop: 8, display: 'flex', gap: 12, flexWrap: isMobile ? 'nowrap' : 'wrap', overflowX: isMobile ? 'auto' : 'visible', paddingBottom: isMobile ? 4 : 0 }}>
                       {g.map((id) => {
                         const p = simPhotos[id];
                         const thumb = p ? (p.thumbUrl || p.url || p.thumbSrc || p.originalSrc) : null;
@@ -1820,7 +1839,7 @@ function ProjectDetail({
                         const url = thumb || (p && (p.url || p.originalSrc)) || (BASE_URL ? `${BASE_URL}/photos/${id}` : `/api/photos/${id}`);
                         const selected = !!simSelectedMap[String(id)];
                         return (
-                          <div key={id} className="similarity-thumb" style={{ width: 180, position: 'relative' }}>
+                          <div key={id} className="similarity-thumb" style={{ width: isMobile ? 152 : 180, minWidth: isMobile ? 152 : undefined, flex: isMobile ? '0 0 auto' : undefined, position: 'relative' }}>
                             {thumb ? (
                               <img src={thumb} alt={titleText} style={{ width: '100%', height: 120, objectFit: 'cover', display: 'block', cursor: simDeleteMode ? 'pointer' : 'zoom-in' }} onClick={() => {
                                 if (simDeleteMode) {

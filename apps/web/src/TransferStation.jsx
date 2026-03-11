@@ -327,30 +327,34 @@ export default function TransferStation() {
 
     try {
       if (navigator.clipboard && navigator.clipboard.write && typeof ClipboardItem !== 'undefined') {
-        const blobHtml = new Blob([html], { type: 'text/html' });
-        const blobPlain = new Blob([plain], { type: 'text/plain' });
-        const item = new ClipboardItem({ 'text/html': blobHtml, 'text/plain': blobPlain });
-        await navigator.clipboard.write([item]);
-        Toast.success('已复制富文本 (HTML) 到剪贴板');
-        return;
+        try {
+          const blobHtml = new Blob([html], { type: 'text/html' });
+          const blobPlain = new Blob([plain], { type: 'text/plain' });
+          const item = new ClipboardItem({ 'text/html': blobHtml, 'text/plain': blobPlain });
+          await navigator.clipboard.write([item]);
+          Toast.success('已复制图片（富文本+链接）');
+          return;
+        } catch (e) {
+          // Continue to plain-text fallback for clients like WeChat input boxes.
+        }
       }
 
       if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(html);
-        Toast.success('已复制富文本 (HTML) 到剪贴板');
+        await navigator.clipboard.writeText(plain);
+        Toast.success('已复制图片链接');
         return;
       }
 
       const ta = document.createElement('textarea');
-      ta.value = html;
+      ta.value = plain;
       document.body.appendChild(ta);
       ta.select();
       document.execCommand('copy');
       ta.remove();
-      Toast.success('已复制富文本 (HTML) 到剪贴板');
+      Toast.success('已复制图片链接');
     } catch (e) {
       console.error('copy rich html failed', e);
-      Toast.error('复制失败');
+      Toast.error('复制失败，请在 HTTPS 页面或系统浏览器重试');
     }
   }, [getPhotoUrl]);
 

@@ -431,3 +431,58 @@
   height: 120px;
   object-fit: cover;
 }
+
+@media (max-width: 768px) {
+  .detail-edit-modal .semi-modal-content,
+  .detail-sim-modal .semi-modal-content {
+    border-radius: 14px;
+  }
+
+  .detail-edit-modal .semi-modal-header,
+  .detail-sim-modal .semi-modal-header {
+    padding: 12px 14px 8px;
+  }
+
+  .detail-edit-modal .semi-modal-footer,
+  .detail-sim-modal .semi-modal-footer {
+    padding: 8px 12px 12px;
+  }
+
+  .detail-edit-modal-body {
+    gap: 10px !important;
+  }
+
+  .detail-edit-tag-input {
+    min-width: 100% !important;
+    width: 100%;
+    box-sizing: border-box;
+    border: 1px solid #d0d7e2;
+    border-radius: 8px;
+  }
+
+  .detail-edit-delete-btn {
+    width: 100%;
+  }
+
+  .detail-sim-modal .similarity-group {
+    padding: 10px;
+    border-radius: 10px;
+    border-color: #e9eef5;
+  }
+
+  .detail-sim-modal .similarity-group-images {
+    gap: 10px !important;
+    scrollbar-width: thin;
+  }
+
+  .detail-sim-modal .similarity-thumb img {
+    height: 104px;
+    border-radius: 8px;
+  }
+
+  .detail-sim-modal .similarity-thumb > div:last-child {
+    font-size: 11px !important;
+    line-height: 1.3;
+    margin-top: 5px !important;
+  }
+}
