@@ -43,8 +43,15 @@ jobs:
             dist/ \
             ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/home/liwy/MaMage_Web/dist/
 
-      - name: Validate and reload nginx
+      - name: Reload nginx if passwordless sudo is available
         run: |
           ssh -o StrictHostKeyChecking=no -p ${{ secrets.DEPLOY_PORT }} \
-            ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} \
-            "sudo nginx -t && sudo systemctl reload nginx"
+            ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} <<'EOF'
+          if sudo -n true 2>/dev/null; then
+            sudo -n nginx -t
+            sudo -n systemctl reload nginx
+            echo "Nginx validated and reloaded."
+          else
+            echo "Skip nginx reload: passwordless sudo is not configured for this deploy user."
+          fi
+          EOF
