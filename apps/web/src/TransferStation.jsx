@@ -324,6 +324,25 @@ export default function TransferStation() {
 
     const html = urls.map((u) => `<img src="${u}" />`).join('\n');
     const plain = urls.join('\n');
+    const legacyCopyHtml = () => {
+      const box = document.createElement('div');
+      box.setAttribute('contenteditable', 'true');
+      box.style.position = 'fixed';
+      box.style.left = '-99999px';
+      box.style.top = '0';
+      box.style.opacity = '0';
+      box.innerHTML = html;
+      document.body.appendChild(box);
+      const selection = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(box);
+      selection.removeAllRanges();
+      selection.addRange(range);
+      const ok = document.execCommand('copy');
+      selection.removeAllRanges();
+      box.remove();
+      return ok;
+    };
 
     try {
       if (navigator.clipboard && navigator.clipboard.write && typeof ClipboardItem !== 'undefined') {
@@ -340,11 +359,29 @@ export default function TransferStation() {
       }
 
       if (navigator.clipboard && navigator.clipboard.writeText) {
+        try {
+          const ok = legacyCopyHtml();
+          if (ok) {
+            Toast.success('已复制图片（富文本）');
+            return;
+          }
+        } catch (e) {
+          // fallback to plain text below
+        }
         await navigator.clipboard.writeText(plain);
         Toast.success('已复制图片链接');
         return;
       }
 
+      try {
+        const ok = legacyCopyHtml();
+        if (ok) {
+          Toast.success('已复制图片（富文本）');
+          return;
+        }
+      } catch (e) {
+        // continue to plain fallback
+      }
       const ta = document.createElement('textarea');
       ta.value = plain;
       document.body.appendChild(ta);
