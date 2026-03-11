@@ -1,8 +1,8 @@
-// src/App.jsx
+﻿// src/App.jsx
 import React from 'react';
-import { Layout, Typography, Input, Nav, Avatar, Spin, Empty, Button, Popover, Card } from '@douyinfe/semi-ui';
+import { Layout, Typography, Input, Nav, Avatar, Spin, Empty, Button, Popover, Card, SideSheet } from '@douyinfe/semi-ui';
 import '@semi-bot/semi-theme-mamage_day/semi.css';
-import { IconUser, IconSearch } from '@douyinfe/semi-icons';
+import { IconUser, IconSearch, IconMenu } from '@douyinfe/semi-icons';
 import ProjectCard from './ProjectCard';
 import ProjectDetail from './ProjectDetail';
 import ShareView from './ShareView';
@@ -31,6 +31,8 @@ function App() {
   const [functionPage, setFunctionPage] = React.useState(null);
   const [currentUser, setCurrentUser] = React.useState(null);
   const [authLoading, setAuthLoading] = React.useState(true);
+  const [isMobileHeader, setIsMobileHeader] = React.useState(() => (typeof window !== 'undefined' ? window.innerWidth <= 768 : false));
+  const [mobileNavVisible, setMobileNavVisible] = React.useState(false);
   const [shareMode, setShareMode] = React.useState(false);
   const [shareInitialProject, setShareInitialProject] = React.useState(null);
   const isSharePath = (() => {
@@ -50,7 +52,7 @@ function App() {
     setLoading(true);
     setError(null);
     try {
-      // 后端分页接口：GET /api/projects/list?page=1&pageSize=6&keyword=xxx
+      // 鍚庣鍒嗛〉鎺ュ彛锛欸ET /api/projects/list?page=1&pageSize=6&keyword=xxx
       const response = await fetchProjectList({ page, pageSize, keyword: kw?.trim() || undefined });
       if (latestRequestRef.current !== currentToken) return;
 
@@ -58,7 +60,7 @@ function App() {
       setProjects(list);
     } catch (err) {
       if (latestRequestRef.current !== currentToken) return;
-      // 展示更详细的错误信息（后端可能携带 body）
+      // 灞曠ず鏇磋缁嗙殑閿欒淇℃伅锛堝悗绔彲鑳芥惡甯?body锛?
       const message = err?.body || err?.message || '获取项目列表失败';
       console.error('loadProjects error:', err);
       setError(message);
@@ -73,6 +75,18 @@ function App() {
   React.useEffect(() => {
     loadProjects();
   }, [loadProjects]);
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const onResize = () => setIsMobileHeader(window.innerWidth <= 768);
+    onResize();
+    window.addEventListener('resize', onResize);
+    window.addEventListener('orientationchange', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('orientationchange', onResize);
+    };
+  }, []);
 
   // load current user on app start (fetch permissions from backend)
   React.useEffect(() => {
@@ -164,18 +178,18 @@ function App() {
                   if (data.project) {
                     setShareInitialProject(Object.assign({}, data.project, meta));
                   } else if (Array.isArray(data.photos) || Array.isArray(data.list) || Array.isArray(data.images)) {
-                    setShareInitialProject(Object.assign({ title: data.title || '分享', images: data.photos || data.list || data.images }, meta));
+                    setShareInitialProject(Object.assign({ title: data.title || '鍒嗕韩', images: data.photos || data.list || data.images }, meta));
                   } else if (Array.isArray(data)) {
-                    setShareInitialProject(Object.assign({ title: '分享', images: data }, meta));
+                    setShareInitialProject(Object.assign({ title: '鍒嗕韩', images: data }, meta));
                   } else if (data.items) {
-                    setShareInitialProject(Object.assign({ title: data.title || '分享', images: data.items }, meta));
+                    setShareInitialProject(Object.assign({ title: data.title || '鍒嗕韩', images: data.items }, meta));
                   } else {
                     // fallback: pass raw data as images if it contains urls
                     const arr = [];
                     if (data && typeof data === 'object') {
                       Object.keys(data).forEach(k => { if (Array.isArray(data[k])) arr.push(...data[k]); });
                     }
-                    if (arr.length) setShareInitialProject(Object.assign({ title: data.title || '分享', images: arr }, meta));
+                    if (arr.length) setShareInitialProject(Object.assign({ title: data.title || '鍒嗕韩', images: arr }, meta));
                   }
                   setShareMode(true);
                   return;
@@ -192,7 +206,7 @@ function App() {
                   expiresAt: (typeof data.expiresAt !== 'undefined') ? data.expiresAt : (data.expires || null),
                   remainingSeconds: (typeof data.remainingSeconds === 'number') ? data.remainingSeconds : (typeof data.remaining_seconds === 'number' ? data.remaining_seconds : null),
                   error: data.error || null,
-                  message: data.message || (data.error === 'EXPIRED' ? '链接已过期' : (data.error === 'REVOKED' ? '链接已撤销' : null)),
+                  message: data.message || (data.error === 'EXPIRED' ? 'Link expired' : (data.error === 'REVOKED' ? 'Link revoked' : null)),
                 };
 
                 setShareInitialProject(meta);
@@ -200,7 +214,7 @@ function App() {
                 return;
               }
             } catch (e) {
-              // ignore fetch errors — fall back to normal app
+              // ignore fetch errors 鈥?fall back to normal app
             }
           })();
         }
@@ -273,7 +287,7 @@ function App() {
   const normalizedProjects = React.useMemo(() => {
     const result = projects.map((project) => {
       const id = project?.id ?? project?.projectId ?? project?._id;
-      const title = project?.title ?? project?.projectName ?? project?.name ?? '未命名项目';
+      const title = project?.title ?? project?.projectName ?? project?.name ?? 'Untitled Project';
       const subtitle = project?.subtitle ?? project?.tagline ?? project?.category ?? '';
       const description = project?.description ?? project?.intro ?? project?.description ?? '';
       const date = project?.date ?? project?.shootDate ?? project?.updatedAt ?? project?.createdAt ?? '';
@@ -344,7 +358,7 @@ function App() {
     }
     return (
       <div style={{ width: '100%', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Spin size="large" tip="加载分享内容中" />
+        <Spin size="large" tip="Loading shared content..." />
       </div>
     );
   }
@@ -370,85 +384,205 @@ function App() {
           zIndex: 1000,
           padding: 0,
           background: '#ffffff',
+          borderBottom: '1px solid #eef2f7',
         }}
       >
-        <div style={{ padding: '0 0px' }}>
-          <Nav
-            mode="horizontal"
-            items={[
-              { itemKey: 'projects', text: '项目', onClick: () => { handleBackToList(); } },
-              { itemKey: 'scenery', text: '风景', onClick: () => { setSelectedNav('scenery'); setCurrentProjectId(null); try { window.history.pushState({}, '', '/scenery'); } catch (e) { } } },
-              {
-                itemKey: 'function', text: (
-                  <Popover
-                    position="bottomLeft"
-                    trigger="hover"
-                    content={(
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 160 }}>
-                        <Button onClick={() => { try { window.history.pushState({}, '', '/function/ai-writer'); } catch (e) { } setSelectedNav('function'); setFunctionPage('ai-writer'); }}>AI 写新闻/推送</Button>
-                        <div style={{ color: '#666', fontSize: 13 }}>更多功能入口</div>
-                      </div>
-                    )}
-                  >
-                    <span style={{ cursor: 'pointer' }}>功能</span>
-                  </Popover>
-                ), onClick: () => { setSelectedNav('function'); setCurrentProjectId(null); try { window.history.pushState({}, '', '/function'); } catch (e) { } }
-              },
-              { itemKey: 'about', text: '关于', onClick: () => { setSelectedNav('about'); setCurrentProjectId(null); try { window.history.pushState({}, '', '/about'); } catch (e) { } } },
-            ]}
-            header={{
-              text: 'MaMage 图库',
-            }}
-            footer={(
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', justifyContent: 'space-between' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: '1 1 auto', minWidth: 0 }}>
-                  <Input
-                    placeholder="搜索项目 / 标签"
-                    prefix={<IconSearch />}
-                    showClear
-                    style={{ width: 'clamp(120px, 30vw, 260px)' }}
-                    value={keyword}
-                    onChange={(value) => setKeyword(value)}
-                    onEnterPress={handleSearchSubmit}
-                  />
-                  <Button theme="solid" type="primary" onClick={handleSearchSubmit}>
-                    搜索
-                  </Button>
+        {isMobileHeader ? (
+          <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                <Button
+                  icon={<IconMenu />}
+                  theme="borderless"
+                  size="small"
+                  onClick={() => setMobileNavVisible(true)}
+                  style={{ flex: '0 0 auto' }}
+                />
+                <button
+                  type="button"
+                  onClick={handleBackToList}
+                  style={{
+                    fontSize: 24,
+                    fontWeight: 700,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    border: 'none',
+                    background: 'transparent',
+                    padding: 0,
+                    cursor: 'pointer',
+                    color: 'inherit',
+                  }}
+                >
+                  MaMage 图库
+                </button>
+              </div>
+              <Popover
+                content={(
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 140 }}>
+                    <Button type="tertiary" onClick={() => { try { window.history.pushState({}, '', '/account'); } catch (e) { } setSelectedNav('account'); }}>账户信息</Button>
+                    <Button type="tertiary" theme="borderless" onClick={async () => { try { await authService.logout(); setCurrentUser(null); try { window.history.pushState({}, '', '/login'); } catch (e) { } } catch (e) { console.error(e); } }}>退出登录</Button>
+                  </div>
+                )}
+                trigger="click"
+                position="bottomRight"
+              >
+                <Avatar size="small" alt={currentUser?.name || ''} style={{ backgroundColor: '#d9d9d9', cursor: 'pointer' }}>
+                  {(currentUser?.name || currentUser?.displayName || currentUser?.email || 'U')[0]}
+                </Avatar>
+              </Popover>
+            </div>
+            <SideSheet
+              title="导航"
+              placement="left"
+              visible={mobileNavVisible}
+              onCancel={() => setMobileNavVisible(false)}
+              width={240}
+              bodyStyle={{ padding: 12 }}
+            >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <Button
+                  block
+                  type={selectedNav === 'projects' ? 'primary' : 'tertiary'}
+                  onClick={() => { handleBackToList(); setMobileNavVisible(false); }}
+                >
+                  项目
+                </Button>
+                <Button
+                  block
+                  type={selectedNav === 'scenery' ? 'primary' : 'tertiary'}
+                  onClick={() => {
+                    setSelectedNav('scenery');
+                    setCurrentProjectId(null);
+                    try { window.history.pushState({}, '', '/scenery'); } catch (e) { }
+                    setMobileNavVisible(false);
+                  }}
+                >
+                  风景
+                </Button>
+                <Button
+                  block
+                  type={selectedNav === 'function' ? 'primary' : 'tertiary'}
+                  onClick={() => {
+                    setSelectedNav('function');
+                    setCurrentProjectId(null);
+                    setFunctionPage('ai-writer');
+                    try { window.history.pushState({}, '', '/function/ai-writer'); } catch (e) { }
+                    setMobileNavVisible(false);
+                  }}
+                >
+                  功能
+                </Button>
+                <Button
+                  block
+                  type={selectedNav === 'about' ? 'primary' : 'tertiary'}
+                  onClick={() => {
+                    setSelectedNav('about');
+                    setCurrentProjectId(null);
+                    try { window.history.pushState({}, '', '/about'); } catch (e) { }
+                    setMobileNavVisible(false);
+                  }}
+                >
+                  关于
+                </Button>
+              </div>
+            </SideSheet>
 
-                  <IfCan perms={['projects.create']}>
-                    <Button onClick={() => setShowCreateModal(true)}>
-                      新建相册
-                    </Button>
-                  </IfCan>
-                </div>
-
-                {/* 右侧用户区域：不强制占满空间，用户名允许截断 */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '0 0 auto', minWidth: 0 }}>
-                  {currentUser ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Input
+                placeholder="搜索项目"
+                prefix={<IconSearch />}
+                showClear
+                size="small"
+                style={{ flex: 1, minWidth: 0 }}
+                value={keyword}
+                onChange={(value) => setKeyword(value)}
+                onEnterPress={handleSearchSubmit}
+              />
+              <Button size="small" theme="solid" type="primary" onClick={handleSearchSubmit}>搜索</Button>
+              <IfCan perms={['projects.create']}>
+                <Button size="small" onClick={() => setShowCreateModal(true)}>新建</Button>
+              </IfCan>
+            </div>
+          </div>
+        ) : (
+          <div style={{ padding: '0 0px' }}>
+            <Nav
+              mode="horizontal"
+              items={[
+                { itemKey: 'projects', text: '项目', onClick: () => { handleBackToList(); } },
+                { itemKey: 'scenery', text: '风景', onClick: () => { setSelectedNav('scenery'); setCurrentProjectId(null); try { window.history.pushState({}, '', '/scenery'); } catch (e) { } } },
+                {
+                  itemKey: 'function', text: (
                     <Popover
+                      position="bottomLeft"
+                      trigger="hover"
                       content={(
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 140 }}>
-                          <Button type="tertiary" onClick={() => { try { const url = new URL(window.location.href); window.history.pushState({}, '', '/account'); setSelectedNav('account'); } catch (e) { } }}>账户信息</Button>
-                          <Button type="tertiary" theme="borderless" onClick={async () => { try { await authService.logout(); setCurrentUser(null); try { window.history.pushState({}, '', '/login'); } catch (e) { } } catch (e) { console.error(e); } }}>退出账号</Button>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 160 }}>
+                          <Button onClick={() => { try { window.history.pushState({}, '', '/function/ai-writer'); } catch (e) { } setSelectedNav('function'); setFunctionPage('ai-writer'); }}>AI 写新闻稿</Button>
+                          <div style={{ color: '#666', fontSize: 13 }}>更多功能入口</div>
                         </div>
                       )}
-                      trigger="hover"
-                      position="bottomRight"
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', minWidth: 0 }}>
-                        <Avatar size="small" alt={currentUser?.name || ''} style={{ backgroundColor: '#d9d9d9' }}>{(currentUser?.name || currentUser?.displayName || currentUser?.email || 'U')[0]}</Avatar>
-                        <span style={{ fontSize: 14, maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block' }}>{currentUser && (currentUser.displayName || currentUser.email || currentUser.name)}</span>
-                      </div>
+                      <span style={{ cursor: 'pointer' }}>功能</span>
                     </Popover>
-                  ) : null}
+                  ), onClick: () => { setSelectedNav('function'); setCurrentProjectId(null); try { window.history.pushState({}, '', '/function'); } catch (e) { } }
+                },
+                { itemKey: 'about', text: '关于', onClick: () => { setSelectedNav('about'); setCurrentProjectId(null); try { window.history.pushState({}, '', '/about'); } catch (e) { } } },
+              ]}
+              header={{
+                text: 'MaMage 图库',
+              }}
+              footer={(
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: '1 1 auto', minWidth: 0 }}>
+                    <Input
+                      placeholder="搜索项目 / 标签"
+                      prefix={<IconSearch />}
+                      showClear
+                      style={{ width: 'clamp(120px, 30vw, 260px)' }}
+                      value={keyword}
+                      onChange={(value) => setKeyword(value)}
+                      onEnterPress={handleSearchSubmit}
+                    />
+                    <Button theme="solid" type="primary" onClick={handleSearchSubmit}>
+                      搜索
+                    </Button>
+
+                    <IfCan perms={['projects.create']}>
+                      <Button onClick={() => setShowCreateModal(true)}>
+                        新建相册
+                      </Button>
+                    </IfCan>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '0 0 auto', minWidth: 0 }}>
+                    {currentUser ? (
+                      <Popover
+                        content={(
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 140 }}>
+                            <Button type="tertiary" onClick={() => { try { const url = new URL(window.location.href); window.history.pushState({}, '', '/account'); setSelectedNav('account'); } catch (e) { } }}>账户信息</Button>
+                            <Button type="tertiary" theme="borderless" onClick={async () => { try { await authService.logout(); setCurrentUser(null); try { window.history.pushState({}, '', '/login'); } catch (e) { } } catch (e) { console.error(e); } }}>退出账号</Button>
+                          </div>
+                        )}
+                        trigger="hover"
+                        position="bottomRight"
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', minWidth: 0 }}>
+                          <Avatar size="small" alt={currentUser?.name || ''} style={{ backgroundColor: '#d9d9d9' }}>{(currentUser?.name || currentUser?.displayName || currentUser?.email || 'U')[0]}</Avatar>
+                          <span style={{ fontSize: 14, maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block' }}>{currentUser && (currentUser.displayName || currentUser.email || currentUser.name)}</span>
+                        </div>
+                      </Popover>
+                    ) : null}
+                  </div>
                 </div>
-              </div>
-            )}
-          />
-        </div>
+              )}
+            />
+          </div>
+        )}
       </Header>
 
-      <Content style={{ padding: 24 }}>
+      <Content style={{ padding: 'clamp(10px, 2.5vw, 24px)' }}>
         <div className="project-page">
           {currentProjectId ? (
             <ProjectDetail
@@ -461,7 +595,7 @@ function App() {
               <div className="project-grid">
                 {loading && (
                   <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '80px 0' }}>
-                    <Spin size="large" tip="加载项目中" />
+                    <Spin size="large" tip="Loading projects..." />
                   </div>
                 )}
 
@@ -498,15 +632,15 @@ function App() {
                   <Card title="功能" bordered>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                       <div style={{ display: 'flex', gap: 8 }}>
-                        <Button onClick={() => { try { window.history.pushState({}, '', '/function/ai-writer'); } catch (e) { } setSelectedNav('function'); setFunctionPage('ai-writer'); }}>AI 写新闻/推送</Button>
+                        <Button onClick={() => { try { window.history.pushState({}, '', '/function/ai-writer'); } catch (e) { } setSelectedNav('function'); setFunctionPage('ai-writer'); }}>AI 写新闻稿</Button>
                       </div>
-                      <div style={{ color: '#666' }}>更多功能正在开发中…</div>
+                      <div style={{ color: '#666' }}>更多功能正在开发中</div>
                     </div>
                   </Card>
                 </div>
               )
             ) : (
-              <div style={{ padding: 24 }}><Text>暂未实现该页面</Text></div>
+              <div style={{ padding: 24 }}><Text>该页面暂未实现</Text></div>
             )
           )}
         </div>

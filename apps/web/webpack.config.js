@@ -47,7 +47,7 @@ module.exports = {
   ],
   devServer: {
     // Default dev server port (can be overridden by env vars)
-    port: process.env.WEBPACK_DEV_SERVER_PORT || process.env.PORT || 3000,
+    port: process.env.WEBPACK_DEV_SERVER_PORT || process.env.PORT || 5173,
     // Serve index.html for unknown routes so SPA routes like /share/:code work in dev
     historyApiFallback: true,
     open: true,

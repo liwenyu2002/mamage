@@ -1,4 +1,4 @@
-// src/ProjectDetail.jsx
+﻿// src/ProjectDetail.jsx
 import React from 'react';
 import { Typography, Button, Tag, Spin, Empty, Modal, Input, DatePicker, TextArea, Toast } from '@douyinfe/semi-ui';
 import './ProjectDetail.css';
@@ -23,7 +23,13 @@ function safeParseTags(tags) {
   }
 }
 
-function ProjectDetail({ projectId, initialProject, onBack }) {
+function ProjectDetail({
+  projectId,
+  initialProject,
+  onBack,
+  galleryMode: controlledGalleryMode,
+  onGalleryModeChange,
+}) {
   const [project, setProject] = React.useState(initialProject || null);
   const [images, setImages] = React.useState(() => (initialProject?.images ? initialProject.images.map((it) => (typeof it === 'string' ? resolveAssetUrl(it) : resolveAssetUrl(it.url || it.imageUrl || it.src || it.fileUrl || ''))) : []));
   const [photoMetas, setPhotoMetas] = React.useState(() => (initialProject?.images ? initialProject.images.map((it) => (typeof it === 'string' ? { url: it } : it)) : []));
@@ -54,6 +60,7 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
   const [deletingPhotos, setDeletingPhotos] = React.useState(false);
 
   const fileInputRef = React.useRef(null);
+  const dragPreviewRef = React.useRef(null);
   const [hoveredPhotoIdx, setHoveredPhotoIdx] = React.useState(-1);
   const [dragActive, setDragActive] = React.useState(false);
   const [uploadHover, setUploadHover] = React.useState(false);
@@ -78,8 +85,14 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
   const [viewerEditTags, setViewerEditTags] = React.useState([]);
   const [viewerEditTagInput, setViewerEditTagInput] = React.useState('');
   const [viewerEditDescription, setViewerEditDescription] = React.useState('');
+  const [internalGalleryMode, setInternalGalleryMode] = React.useState('masonry'); // 'grid' | 'masonry'
+  const galleryMode = controlledGalleryMode || internalGalleryMode;
+  const handleGalleryModeChange = React.useCallback((nextMode) => {
+    if (onGalleryModeChange) onGalleryModeChange(nextMode);
+    if (!controlledGalleryMode) setInternalGalleryMode(nextMode);
+  }, [onGalleryModeChange, controlledGalleryMode]);
 
-  // similarity modal (相似照片分组)
+  // similarity modal (鐩镐技鐓х墖鍒嗙粍)
   const [simModalVisible, setSimModalVisible] = React.useState(false);
   const [simLoading, setSimLoading] = React.useState(false);
   const [simGroups, setSimGroups] = React.useState(null);
@@ -333,7 +346,7 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
             setPhotoDescMap((prev) => ({ ...(prev || {}), ...descMapOnly }));
             setPhotoAILabelMap((prev) => ({ ...(prev || {}), ...aiLabelMapOnly }));
 
-            // 如果 detail 中返回了更完整的 photo 对象，合并这些字段回 photoMetas
+            // 濡傛灉 detail 涓繑鍥炰簡鏇村畬鏁寸殑 photo 瀵硅薄锛屽悎骞惰繖浜涘瓧娈靛洖 photoMetas
             try {
               const photoById = {};
               photosArray.forEach(p => { const id = p && (p.id || p.photoId || p.photo_id); if (id) photoById[id] = p; });
@@ -356,8 +369,8 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
               console.warn('merge photo urls failed', e);
             }
 
-            // 如果部分 photo meta 缺少 photographerName，但包含 photographerId，
-            // 前端仍可回退去请求用户信息并补全 name（可保留以提升体验）。
+            // 濡傛灉閮ㄥ垎 photo meta 缂哄皯 photographerName锛屼絾鍖呭惈 photographerId锛?
+            // 鍓嶇浠嶅彲鍥為€€鍘昏姹傜敤鎴蜂俊鎭苟琛ュ叏 name锛堝彲淇濈暀浠ユ彁鍗囦綋楠岋級銆?
             try {
               const mergedList = (built.metas || []).map(m => m).map(m => ({ ...(m || {}) }));
               const idsToFetch = Array.from(new Set((mergedList || [])
@@ -395,7 +408,7 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
                 }
               }
             } catch (e) {
-              // 忽略网络错误，不影响主流程
+              // 蹇界暐缃戠粶閿欒锛屼笉褰卞搷涓绘祦绋?
             }
           }
         } catch (e) {
@@ -403,7 +416,7 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
         }
       } catch (err) {
         if (canceled) return;
-        setError(err?.message || '获取项目详情失败');
+        setError(err?.message || '鑾峰彇椤圭洰璇︽儏澶辫触');
         if (initialProject?.images?.length) {
           setImages(initialProject.images.map((it) => (typeof it === 'string' ? resolveAssetUrl(it) : resolveAssetUrl(it.url || it.imageUrl || it.src || it.fileUrl || ''))));
           setPhotoMetas(initialProject.images.map((it) => (typeof it === 'string' ? { url: it } : it)));
@@ -489,7 +502,7 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
         // pass file and projectId to uploadPhotos; it will construct FormData
         await uploadPhotos({ file: f, projectId });
       }
-      Toast.success('上传成功');
+      Toast.success('涓婁紶鎴愬姛');
       cancelUpload();
       // reload images
       try {
@@ -501,7 +514,7 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
       } catch (e) { /* ignore */ }
     } catch (err) {
       console.error('upload error', err);
-      Toast.error('上传失败');
+      Toast.error('涓婁紶澶辫触');
     } finally {
       setUploading(false);
     }
@@ -554,23 +567,23 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
       const status = err && err.status ? err.status : (err && err.cause && err.cause.status) ? err.cause.status : null;
       if (status === 401 || status === 403) {
         try { localStorage.removeItem('mamage_jwt_token'); } catch (e) { }
-        Toast.error('请重新登录管理员账号');
+        Toast.error('璇烽噸鏂扮櫥褰曠鐞嗗憳璐﹀彿');
         try { window.history.pushState({}, '', '/login'); } catch (e) { window.location.href = '/login'; }
       } else if (status === 404) {
-        Toast.warning('相册已不存在');
+        Toast.warning('鐩稿唽宸蹭笉瀛樺湪');
         if (typeof onBack === 'function') onBack(true);
       } else if (status && status >= 500) {
         Toast.error('服务器异常，请稍后重试');
       } else {
-        Toast.error('保存失败');
+        Toast.error('淇濆瓨澶辫触');
       }
     }
   }, [projectId, editTitle, editDescription, editEventDate]);
 
   const handleDeleteProject = React.useCallback(() => {
-    if (!projectId) return Toast.warning('无效的项目ID');
+    if (!projectId) return Toast.warning('鏃犳晥鐨勯」鐩甀D');
     Modal.confirm({
-      title: '确认删除相册',
+      title: '纭鍒犻櫎鐩稿唽',
       content: '删除后将不可恢复，且可能同时删除关联照片。确定要删除该相册吗？',
       onOk: async () => {
         setDeletingProject(true);
@@ -586,15 +599,15 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
           const status = err && err.status ? err.status : (err && err.cause && err.cause.status) ? err.cause.status : null;
           if (status === 401 || status === 403) {
             try { localStorage.removeItem('mamage_jwt_token'); } catch (e) { }
-            Toast.error('权限不足或登录已过期，请重新登录或联系管理员');
+            Toast.error('鏉冮檺涓嶈冻鎴栫櫥褰曞凡杩囨湡锛岃閲嶆柊鐧诲綍鎴栬仈绯荤鐞嗗憳');
             try { window.history.pushState({}, '', '/login'); } catch (e) { window.location.href = '/login'; }
           } else if (status === 404) {
-            Toast.warning('相册已不存在');
+            Toast.warning('鐩稿唽宸蹭笉瀛樺湪');
             if (typeof onBack === 'function') onBack(true);
           } else if (status && status >= 500) {
             Toast.error('服务器异常，请稍后重试');
           } else {
-            Toast.error('删除失败');
+            Toast.error('鍒犻櫎澶辫触');
           }
         } finally {
           setDeletingProject(false);
@@ -636,13 +649,13 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
 
   const confirmDelete = React.useCallback(() => {
     const indexes = Object.keys(selectedMap || {}).map(k => Number(k));
-    if (!indexes.length) return Toast.warning('未选择照片');
+    if (!indexes.length) return Toast.warning('鏈€夋嫨鐓х墖');
     const ids = indexes.map(i => {
       const meta = (photoMetas && photoMetas[i]) || null;
       if (!meta) return null;
       return meta.id || meta.photoId || meta.photo_id || null;
     }).filter(Boolean);
-    if (!ids.length) return Toast.warning('所选照片无可删除的 ID');
+    if (!ids.length) return Toast.warning('鎵€閫夌収鐗囨棤鍙垹闄ょ殑 ID');
 
     Modal.confirm({
       title: '确认删除所选照片',
@@ -657,10 +670,10 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
           if (Array.isArray(deleted) && deleted.length > 0) {
             Toast.success(`已删除 ${deleted.length} 张`);
           } else {
-            Toast.success('删除成功');
+            Toast.success('鍒犻櫎鎴愬姛');
           }
           if (Array.isArray(notFound) && notFound.length > 0) {
-            Toast.warning('部分照片已不存在');
+            Toast.warning('閮ㄥ垎鐓х墖宸蹭笉瀛樺湪');
           }
           // reload project detail
           try {
@@ -683,7 +696,7 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
           } else if (status === 401 || status === 403) {
             // clear token and redirect to login
             try { localStorage.removeItem('mamage_jwt_token'); } catch (e) { }
-            Toast.error('权限不足或登录已过期，请重新登录或联系管理员');
+            Toast.error('鏉冮檺涓嶈冻鎴栫櫥褰曞凡杩囨湡锛岃閲嶆柊鐧诲綍鎴栬仈绯荤鐞嗗憳');
             try { window.history.pushState({}, '', '/login'); } catch (e) { window.location.href = '/login'; }
           } else {
             Toast.error('服务器异常，请稍后重试');
@@ -702,11 +715,11 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
     const idx = viewerIndex;
     const meta = (photoMetas && photoMetas[idx]) || {};
     const url = meta.originalSrc || meta.url || meta.thumbSrc || images[idx];
-    if (!url) return Toast.warning('无法获取图片资源');
+    if (!url) return Toast.warning('鏃犳硶鑾峰彇鍥剧墖璧勬簮');
     try {
       if (typeof window !== 'undefined' && window.open) {
         window.open(url, '_blank', 'noopener');
-        Toast.success('已在新标签页打开图片，浏览器将根据资源决定下载或显示');
+        Toast.success('宸插湪鏂版爣绛鹃〉鎵撳紑鍥剧墖锛屾祻瑙堝櫒灏嗘牴鎹祫婧愬喅瀹氫笅杞芥垨鏄剧ず');
         return;
       }
       // Fallback: create an anchor and click it
@@ -717,10 +730,10 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
       document.body.appendChild(a);
       a.click();
       a.remove();
-      Toast.success('已在新标签页打开图片，浏览器将根据资源决定下载或显示');
+      Toast.success('宸插湪鏂版爣绛鹃〉鎵撳紑鍥剧墖锛屾祻瑙堝櫒灏嗘牴鎹祫婧愬喅瀹氫笅杞芥垨鏄剧ず');
     } catch (err) {
       console.error('downloadCurrentPhoto error', err);
-      Toast.error('打开图片失败，请稍后再试');
+      Toast.error('鎵撳紑鍥剧墖澶辫触锛岃绋嶅悗鍐嶈瘯');
     }
   }, [viewerIndex, photoMetas, images]);
 
@@ -733,7 +746,7 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
         // try to infer project title from available state
         const srcProjectName = (project && (project.title || project.projectName || project.name))
           || (initialProject && (initialProject.title || initialProject.projectName || initialProject.name))
-          || '项目';
+          || '椤圭洰';
         return idxs.map((i) => {
           const meta = (photoMetas && photoMetas[i]) || {};
           const pid = meta.id || meta.photoId || meta.photo_id || null;
@@ -790,18 +803,18 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
   // Try backend-pack endpoint first; fallback to individual downloads if unavailable.
   const packDownloadSelected = React.useCallback(async () => {
     const idxs = getSelectedIndexes();
-    if (!idxs.length) return Toast.warning('未选择照片');
+    if (!idxs.length) return Toast.warning('鏈€夋嫨鐓х墖');
     const ids = idxs.map((i) => {
       const meta = (photoMetas && photoMetas[i]) || {};
       return meta.id || null;
     }).filter(Boolean);
-    if (!ids.length) return Toast.warning('所选照片无可下载的 ID');
+    if (!ids.length) return Toast.warning('鎵€閫夌収鐗囨棤鍙笅杞界殑 ID');
 
     const zipName = `photos_${projectId || 'pkg'}`;
     try {
       const token = typeof getToken === 'function' ? getToken() : (localStorage.getItem ? localStorage.getItem('mamage_jwt_token') : '');
       if (!token) {
-        Toast.warning('打包下载需要登录，请先登录');
+        Toast.warning('鎵撳寘涓嬭浇闇€瑕佺櫥褰曪紝璇峰厛鐧诲綍');
         return;
       }
       const resp = await fetch('/api/photos/zip', {
@@ -817,17 +830,17 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
       const blob = await resp.blob();
       const serverFilename = getFilenameFromContentDisposition(resp) || `${zipName}.zip`;
       await downloadBlob(blob, serverFilename);
-      Toast.success('打包下载准备完成');
+      Toast.success('鎵撳寘涓嬭浇鍑嗗瀹屾垚');
       return;
     } catch (err) {
       console.warn('packDownloadSelected: server zip failed', err);
-      // 尝试从错误信息中提取服务器返回的详细文本并展示给用户
-      let msg = '打包下载失败';
+      // 灏濊瘯浠庨敊璇俊鎭腑鎻愬彇鏈嶅姟鍣ㄨ繑鍥炵殑璇︾粏鏂囨湰骞跺睍绀虹粰鐢ㄦ埛
+      let msg = '鎵撳寘涓嬭浇澶辫触';
       try {
         if (err && err.message) {
           const m = err.message.match(/download failed:\s*(.*)$/s);
           if (m && m[1]) {
-            // 如果服务器返回的是 JSON 字符串，尝试解析并展示 error 字段或摘要
+            // 濡傛灉鏈嶅姟鍣ㄨ繑鍥炵殑鏄?JSON 瀛楃涓诧紝灏濊瘯瑙ｆ瀽骞跺睍绀?error 瀛楁鎴栨憳瑕?
             let detail = m[1].trim();
             try {
               const j = JSON.parse(detail);
@@ -837,9 +850,9 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
             } catch (e) {
               // not json, keep as-is
             }
-            msg = `打包下载失败: ${detail}`;
+            msg = `鎵撳寘涓嬭浇澶辫触: ${detail}`;
           } else {
-            msg = `打包下载失败: ${err.message}`;
+            msg = `鎵撳寘涓嬭浇澶辫触: ${err.message}`;
           }
         }
       } catch (e) {
@@ -921,6 +934,23 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
   const startText = formatToMinute(startRaw);
   const createdText = formatToMinute(createdRaw);
   const count = resolvedProject?.photoCount ?? resolvedProject?.count ?? images.length;
+  const masonryColumns = React.useMemo(() => {
+    const w = galleryWidth || 0;
+    if (!w) return 3;
+    if (w <= 768) return 2;
+    // Force desktop to at least 4 columns so it won't fall back to 3 too early.
+    if (w <= 1200) return 4;
+    return Math.max(4, Math.floor((w + 12) / (240 + 12)));
+  }, [galleryWidth]);
+
+  const gridColumns = React.useMemo(() => {
+    const w = galleryWidth || 0;
+    if (!w) return 1;
+    if (w <= 768) return 3;
+    const gap = 8;
+    const minColWidth = 220;
+    return Math.max(1, Math.floor((w + gap) / (minColWidth + gap)));
+  }, [galleryWidth]);
 
   if (!projectId) {
     return null;
@@ -1009,6 +1039,37 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [viewerVisible, images]);
 
+  // While dragging project photos, keep copy cursor globally and avoid forbidden icon.
+  React.useEffect(() => {
+    const onDragOver = (e) => {
+      try {
+        const types = Array.from(e.dataTransfer?.types || []);
+        if (types.includes('application/x-mamage-photo')) {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'copy';
+        }
+      } catch (err) {
+        // ignore
+      }
+    };
+    const onDrop = (e) => {
+      try {
+        const types = Array.from(e.dataTransfer?.types || []);
+        if (types.includes('application/x-mamage-photo')) {
+          e.preventDefault();
+        }
+      } catch (err) {
+        // ignore
+      }
+    };
+    window.addEventListener('dragover', onDragOver);
+    window.addEventListener('drop', onDrop);
+    return () => {
+      window.removeEventListener('dragover', onDragOver);
+      window.removeEventListener('drop', onDrop);
+    };
+  }, []);
+
   // reset viewer original flag when opening viewer or when index changes
   React.useEffect(() => {
     if (viewerVisible) setViewerShowOriginal(false);
@@ -1035,19 +1096,19 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
   }, [viewerIndex, photoMetas, photoTagsMap, photoDescMap]);
 
   const handlePhotoEditSuccess = React.useCallback((updatedPhoto) => {
-    // 更新照片信息
+    // 鏇存柊鐓х墖淇℃伅
     const photoId = updatedPhoto.id;
     const photoIndex = photoMetas?.findIndex(m => m.id === photoId) ?? -1;
 
     if (photoIndex >= 0) {
-      // 更新tags和description
+      // 鏇存柊tags鍜宒escription
       const newTags = safeParseTags(updatedPhoto.tags);
       const newDesc = updatedPhoto.description || '';
 
       setPhotoTagsMap(prev => ({ ...prev, [photoId]: newTags }));
       setPhotoDescMap(prev => ({ ...prev, [photoId]: newDesc }));
 
-      // 刷新项目数据以保持同步
+      // 鍒锋柊椤圭洰鏁版嵁浠ヤ繚鎸佸悓姝?
       getProjectById(projectId).then(detail => {
         setProject(detail);
         const built = buildImagesAndMetas(detail);
@@ -1061,11 +1122,11 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
     const idx = viewerIndex;
     const meta = (photoMetas && photoMetas[idx]) || {};
     const photoId = meta.id;
-    if (!photoId) return Toast.warning('无法获取照片 ID');
+    if (!photoId) return Toast.warning('鏃犳硶鑾峰彇鐓х墖 ID');
     try {
       const token = getToken();
       if (!token) {
-        Toast.error('未登录，请先登录');
+        Toast.error('鏈櫥褰曪紝璇峰厛鐧诲綍');
         return;
       }
       const payload = { tags: viewerEditTags && viewerEditTags.length ? viewerEditTags : [], description: viewerEditDescription || '' };
@@ -1079,12 +1140,12 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
         body: JSON.stringify(payload),
       });
       if (res.status === 401 || res.status === 403) {
-        Toast.error('权限不足，仅管理员可操作');
+        Toast.error('鏉冮檺涓嶈冻锛屼粎绠＄悊鍛樺彲鎿嶄綔');
         return;
       }
       if (!res.ok) {
         const txt = await res.text();
-        throw new Error(txt || '保存失败');
+        throw new Error(txt || '淇濆瓨澶辫触');
       }
       const data = await res.json();
       const updatedTags = safeParseTags(data.tags);
@@ -1104,11 +1165,11 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
       }
     } catch (err) {
       console.error('saveViewerPhotoEdit error', err);
-      Toast.error('保存失败');
+      Toast.error('淇濆瓨澶辫触');
     }
   }, [viewerIndex, viewerEditTags, viewerEditDescription, projectId, photoMetas]);
 
-  // 打开 / 关闭 相似分组弹窗并加载数据
+  // 鎵撳紑 / 鍏抽棴 鐩镐技鍒嗙粍寮圭獥骞跺姞杞芥暟鎹?
   const openSimilarityModal = React.useCallback(async () => {
     if (!projectId) return;
     setSimModalVisible(true);
@@ -1134,7 +1195,7 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
       }
     } catch (e) {
       console.error('load similarity groups error', e);
-      setSimError('加载失败，请重试');
+      setSimError('鍔犺浇澶辫触锛岃閲嶈瘯');
       setSimGroups([]);
     } finally {
       setSimLoading(false);
@@ -1155,7 +1216,7 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
 
   const confirmSimDelete = React.useCallback(() => {
     const ids = Object.keys(simSelectedMap || {}).filter(Boolean);
-    if (!ids.length) return Toast.warning('请先选择要删除的照片');
+    if (!ids.length) return Toast.warning('璇峰厛閫夋嫨瑕佸垹闄ょ殑鐓х墖');
     Modal.confirm({
       title: '确认删除所选照片',
       content: `删除后不可恢复，确定要删除 ${ids.length} 张照片吗？`,
@@ -1163,7 +1224,7 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
         try {
           setSimDeleting(true);
           await deletePhotos(ids);
-          Toast.success('删除成功');
+          Toast.success('鍒犻櫎鎴愬姛');
           // remove deleted ids from simGroups and simPhotos
           setSimGroups((prev) => (prev || []).map(g => g.filter(id => !ids.includes(String(id)))).filter(g => g.length));
           setSimPhotos((prev) => { const next = Object.assign({}, prev || {}); ids.forEach(id => delete next[id]); return next; });
@@ -1175,7 +1236,7 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
           setSimDeleteMode(false);
         } catch (e) {
           console.error('sim delete failed', e);
-          Toast.error('删除失败');
+          Toast.error('鍒犻櫎澶辫触');
         } finally {
           setSimDeleting(false);
         }
@@ -1183,29 +1244,29 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
     });
   }, [simSelectedMap, deletePhotos, photoMetas, setPhotoMetas]);
 
-  // 推荐标记：添加"推荐"标签
+  // 鎺ㄨ崘鏍囪锛氭坊鍔?鎺ㄨ崘"鏍囩
   const addRecommendationTag = React.useCallback(async () => {
     if (viewerIndex < 0 || !photoMetas || !photoMetas[viewerIndex]) return;
 
     const currentMeta = photoMetas[viewerIndex];
     const photoId = currentMeta.id;
 
-    // 检查是否已有"推荐"标签
+    // 妫€鏌ユ槸鍚﹀凡鏈?鎺ㄨ崘"鏍囩
     const currentTags = photoTagsMap[photoId] || [];
-    if (currentTags.includes('推荐')) {
-      Toast.warning('该照片已有"推荐"标签');
+    if (currentTags.includes('鎺ㄨ崘')) {
+      Toast.warning('璇ョ収鐗囧凡鏈?鎺ㄨ崘"鏍囩');
       return;
     }
 
     try {
       const token = getToken();
       if (!token) {
-        Toast.error('未登录，请先登录');
+        Toast.error('鏈櫥褰曪紝璇峰厛鐧诲綍');
         return;
       }
 
-      // 添加"推荐"标签到现有标签
-      const newTags = [...currentTags, '推荐'];
+      // 娣诲姞"鎺ㄨ崘"鏍囩鍒扮幇鏈夋爣绛?
+      const newTags = [...currentTags, '鎺ㄨ崘'];
 
       const url = `${BASE_URL || ''}/api/photos/${photoId}`;
       const res = await fetch(url, {
@@ -1218,13 +1279,13 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
       });
 
       if (res.status === 401 || res.status === 403) {
-        Toast.error('权限不足，仅管理员可操作');
+        Toast.error('鏉冮檺涓嶈冻锛屼粎绠＄悊鍛樺彲鎿嶄綔');
         return;
       }
 
       if (!res.ok) {
         const errText = await res.text();
-        Toast.error(`操作失败: ${errText}`);
+        Toast.error(`鎿嶄綔澶辫触: ${errText}`);
         return;
       }
 
@@ -1234,32 +1295,256 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
       Toast.success('已添加推荐标签');
     } catch (err) {
       console.error('add recommendation failed:', err);
-      Toast.error(`操作失败: ${err.message}`);
+      Toast.error(`鎿嶄綔澶辫触: ${err.message}`);
     }
   }, [viewerIndex, photoMetas, photoTagsMap]);
 
+  const masonryBuckets = React.useMemo(() => {
+    const cols = Math.max(1, masonryColumns);
+    const buckets = Array.from({ length: cols }, () => ({ h: 0, items: [] }));
+    images.forEach((src, idx) => {
+      const ratio = imageRatios[src] || 1.5;
+      const estHeight = 1 / Math.max(0.2, ratio);
+      let minCol = 0;
+      for (let i = 1; i < buckets.length; i += 1) {
+        if (buckets[i].h < buckets[minCol].h) minCol = i;
+      }
+      buckets[minCol].items.push({ src, idx });
+      buckets[minCol].h += estHeight;
+    });
+    return buckets.map((b) => b.items);
+  }, [images, imageRatios, masonryColumns]);
+
+  const masonryPositionMap = React.useMemo(() => {
+    const map = {};
+    masonryBuckets.forEach((bucket, c) => {
+      bucket.forEach((item, r) => {
+        map[item.idx] = { r, c };
+      });
+    });
+    return map;
+  }, [masonryBuckets]);
+
+  const getRippleStyle = React.useCallback((index) => {
+    if (hoveredPhotoIdx < 0 || hoveredPhotoIdx === index) return undefined;
+    if (galleryMode === 'grid') {
+      const cols = Math.max(1, gridColumns || 1);
+      const r = Math.floor(index / cols);
+      const c = index % cols;
+      const hr = Math.floor(hoveredPhotoIdx / cols);
+      const hc = hoveredPhotoIdx % cols;
+      const dr = r - hr;
+      const dc = c - hc;
+      if (Math.abs(dr) > 1 || Math.abs(dc) > 1) return undefined;
+      const isDirect = Math.abs(dr) + Math.abs(dc) === 1;
+      const step = isDirect ? 6 : 4;
+      const tx = dc === 0 ? 0 : (dc > 0 ? step : -step);
+      const ty = dr === 0 ? 0 : (dr > 0 ? step : -step);
+      return { transform: `translate(${tx}px, ${ty}px)` };
+    }
+    if (galleryMode === 'masonry') {
+      const p = masonryPositionMap[index];
+      const hp = masonryPositionMap[hoveredPhotoIdx];
+      if (!p || !hp) return undefined;
+      const dr = p.r - hp.r;
+      const dc = p.c - hp.c;
+      if (Math.abs(dr) > 1 || Math.abs(dc) > 1) return undefined;
+      const isDirect = Math.abs(dr) + Math.abs(dc) === 1;
+      const step = isDirect ? 6 : 4;
+      const tx = dc === 0 ? 0 : (dc > 0 ? step : -step);
+      const ty = dr === 0 ? 0 : (dr > 0 ? step : -step);
+      return { transform: `translate(${tx}px, ${ty}px)` };
+    }
+    return undefined;
+  }, [galleryMode, hoveredPhotoIdx, gridColumns, masonryPositionMap]);
+
+  const buildTransferItem = React.useCallback((index) => {
+    const meta = (photoMetas && photoMetas[index]) || {};
+    const pid = meta.id || meta.photoId || meta.photo_id || null;
+    const url = meta.originalSrc || meta.url || images[index] || '';
+    const thumbSrc = meta.thumbSrc || images[index] || url;
+    const description = photoDescMap[pid] || meta.description || '';
+    const tags = Array.isArray(photoTagsMap[pid]) ? photoTagsMap[pid] : safeParseTags(meta.tags);
+    return {
+      id: pid || url,
+      url,
+      thumbSrc,
+      description,
+      tags: Array.isArray(tags) ? tags : [],
+      projectTitle: title || '',
+    };
+  }, [photoMetas, images, photoDescMap, photoTagsMap, title]);
+
+  const handlePhotoDragStart = React.useCallback((e, index) => {
+    try {
+      const payload = buildTransferItem(index);
+      e.dataTransfer.effectAllowed = 'copy';
+      e.dataTransfer.setData('application/x-mamage-photo', JSON.stringify(payload));
+      e.dataTransfer.setData('application/json', JSON.stringify(payload));
+      e.dataTransfer.setData('text/plain', payload.url || '');
+
+      // Create a "real photo card" drag preview.
+      const preview = document.createElement('div');
+      preview.style.width = '180px';
+      preview.style.height = '120px';
+      preview.style.borderRadius = '8px';
+      preview.style.overflow = 'hidden';
+      preview.style.boxShadow = '0 10px 24px rgba(0,0,0,0.28)';
+      preview.style.background = '#fff';
+      preview.style.position = 'fixed';
+      preview.style.left = '-9999px';
+      preview.style.top = '-9999px';
+      preview.style.pointerEvents = 'none';
+
+      const img = document.createElement('img');
+      img.src = payload.thumbSrc || payload.url || '';
+      img.style.width = '100%';
+      img.style.height = '100%';
+      img.style.objectFit = 'cover';
+      img.draggable = false;
+      preview.appendChild(img);
+      document.body.appendChild(preview);
+      dragPreviewRef.current = preview;
+      e.dataTransfer.setDragImage(preview, 24, 20);
+      try {
+        window.dispatchEvent(new CustomEvent('mamage-photo-drag-start'));
+      } catch (evtErr) {
+        // ignore
+      }
+    } catch (err) {
+      console.warn('photo dragstart failed', err);
+    }
+  }, [buildTransferItem]);
+
+  const handlePhotoDragEnd = React.useCallback(() => {
+    try {
+      if (dragPreviewRef.current) {
+        dragPreviewRef.current.remove();
+        dragPreviewRef.current = null;
+      }
+      try {
+        window.dispatchEvent(new CustomEvent('mamage-photo-drag-end'));
+      } catch (evtErr) {
+        // ignore
+      }
+    } catch (err) {
+      // ignore
+    }
+  }, []);
+
+  const renderPhotoItem = React.useCallback((src, overallIndex) => (
+    <div className="detail-photo-item" key={overallIndex} style={getRippleStyle(overallIndex)}>
+      <div className="detail-photo">
+        <div style={{ position: 'relative' }}>
+          <img
+            src={src}
+            alt={`${title}-${overallIndex}`}
+            draggable
+            onDragStart={(e) => handlePhotoDragStart(e, overallIndex)}
+            onDragEnd={handlePhotoDragEnd}
+            onLoad={(event) => handleImageLoad(src, event)}
+            style={{ display: 'block', cursor: deleteMode ? 'pointer' : 'zoom-in' }}
+            data-original={photoMetas && photoMetas[overallIndex] ? (photoMetas[overallIndex].originalSrc || images[overallIndex]) : images[overallIndex]}
+            data-tried="0"
+            onError={(e) => {
+              try {
+                const img = e.target;
+                const tried = img.getAttribute('data-tried');
+                if (tried === '0') {
+                  img.setAttribute('data-tried', '1');
+                  const original = img.getAttribute('data-original');
+                  if (original) img.src = original;
+                }
+              } catch (err) { }
+            }}
+            onMouseEnter={() => setHoveredPhotoIdx(overallIndex)}
+            onMouseLeave={() => setHoveredPhotoIdx(-1)}
+            onClick={() => {
+              if (deleteMode) {
+                toggleSelect(overallIndex);
+              } else if (overallIndex >= 0) {
+                setViewerIndex(overallIndex);
+                setViewerVisible(true);
+              }
+            }}
+          />
+          {(() => {
+            const meta = photoMetas?.[overallIndex] || {};
+            const rawName = meta.photographerName || meta.photographer_name || meta.photographer || (meta.photographerId ? String(meta.photographerId) : null) || (meta.photographer_id ? String(meta.photographer_id) : null);
+            const hasName = rawName && String(rawName).trim();
+            let photographerLabel = null;
+            if (hasName) {
+              photographerLabel = String(rawName);
+            } else {
+              try {
+                const list = (project && (project.photos || project.images || project.gallery)) || (initialProject && (initialProject.photos || initialProject.images || initialProject.gallery)) || [];
+                const found = Array.isArray(list) ? list.find(p => p && (String(p.id) === String(meta.id) || String(p.photoId) === String(meta.id))) : null;
+                const fb = found ? (found.photographerName || found.photographer || found.photographer_name || found.photographerId || found.photographer_id) : null;
+                if (fb) photographerLabel = String(fb);
+              } catch (e) { }
+              if (!photographerLabel) {
+                photographerLabel = meta.photographerId ? `摄影师#${meta.photographerId}` : (meta.photographer_id ? `摄影师#${meta.photographer_id}` : '未知摄影师');
+              }
+            }
+            return (
+              <div style={{ position: 'absolute', left: 8, top: 8, background: 'rgba(0,0,0,0.55)', color: '#fff', padding: '4px 6px', borderRadius: 4, fontSize: '12px', pointerEvents: 'none', maxWidth: '70%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {photographerLabel}
+              </div>
+            );
+          })()}
+          {deleteMode && (
+            <div style={{ position: 'absolute', right: 8, top: 8, width: 32, height: 32, borderRadius: 16, background: selectedMap[String(overallIndex)] ? '#ff5252' : 'rgba(0,0,0,0.45)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); toggleSelect(overallIndex); }}>
+              {selectedMap[String(overallIndex)] ? '✓' : ''}
+            </div>
+          )}
+          {hoveredPhotoIdx === overallIndex && !deleteMode && (
+            <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, color: '#fff', padding: '8px', fontSize: '12px', pointerEvents: 'none', display: 'flex', flexDirection: 'column-reverse' }}>
+              {(() => {
+                const photoId = photoMetas?.[overallIndex]?.id;
+                const tags = photoTagsMap[photoId];
+                return tags && tags.length > 0 ? (
+                  <div style={{ display: 'flex', flexWrap: 'wrap-reverse', gap: '4px' }}>
+                    {tags.slice(0, 5).map((tag, i) => (
+                      <span key={i} style={{ background: '#1890ff', padding: '2px 6px', borderRadius: '2px', whiteSpace: 'nowrap' }}>{tag}</span>
+                    ))}
+                  </div>
+                ) : <span style={{ color: '#ccc' }}>无标签</span>;
+              })()}
+            </div>
+          )}
+          {showAILabels && photoAILabelMap[photoMetas?.[overallIndex]?.id] && (
+            <div style={{ position: 'absolute', right: 8, top: 8, background: photoAILabelMap[photoMetas?.[overallIndex]?.id] === 'recommended' ? '#4caf50' : '#f44336', color: '#fff', padding: '4px 8px', borderRadius: '3px', fontSize: '12px', fontWeight: 'bold', pointerEvents: 'none' }}>
+              {photoAILabelMap[photoMetas?.[overallIndex]?.id] === 'recommended' ? 'AI推荐' : 'AI不推荐'}
+            </div>
+          )}
+          {(() => {
+            const pid = photoMetas?.[overallIndex]?.id;
+            if (!pid) return null;
+            const hasRecommend = (photoTagsMap[pid] || []).includes('推荐');
+            if (!hasRecommend) return null;
+            return (
+              <div style={{ position: 'absolute', right: 8, top: showAILabels && photoAILabelMap[pid] ? 36 : 8, background: '#2196f3', color: '#fff', padding: '4px 8px', borderRadius: '3px', fontSize: '12px', fontWeight: 'bold', pointerEvents: 'none' }}>
+                推荐
+              </div>
+            );
+          })()}
+        </div>
+      </div>
+    </div>
+  ), [title, handlePhotoDragStart, handleImageLoad, deleteMode, photoMetas, images, hoveredPhotoIdx, photoTagsMap, showAILabels, photoAILabelMap, selectedMap, toggleSelect, project, initialProject, getRippleStyle]);
+
   return (
     <div className="detail-page">
-      {/* 顶部信息栏 */}
+      {/* 椤堕儴淇℃伅鏍?*/}
       <div className="detail-header">
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-            <Button
-              onClick={onBack}
-              type="primary"
-              size="large"
-              theme="solid"
-              className="detail-back-btn"
-              style={{ borderRadius: 8, boxShadow: '0 6px 18px rgba(16,24,40,0.08)', padding: '10px 18px' }}
-            >
-              ← 返回项目列表
-            </Button>
-
+          <div className="detail-topbar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 12 }}>
             {canUploadPhotos ? (
-              <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div className="detail-upload-wrap" style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                <div className="detail-upload-stack" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <Button
+                      className="detail-upload-trigger"
                       onClick={openUploadPicker}
                       onMouseEnter={() => setUploadHover(true)}
                       onMouseLeave={() => setUploadHover(false)}
@@ -1280,7 +1565,7 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
                         boxShadow: dragActive ? '0 6px 18px rgba(0,0,0,0.12)' : (uploadHover ? '0 8px 20px rgba(0,0,0,0.12)' : undefined),
                         transform: dragActive ? 'translateY(-1px)' : undefined,
                       }}
-                      title="点击上传或者将图片拖拽到按钮上"
+                      title="点击上传，或将图片拖拽到按钮上"
                       aria-label="上传照片"
                     >
                       <svg style={{ marginRight: 10 }} width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
@@ -1288,11 +1573,11 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
                         <path d="M8 7l4-4 4 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
                         <path d="M21 21H3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
                       </svg>
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: 1 }}>
+                      <div className="detail-upload-copy" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: 1 }}>
                         <span style={{ fontWeight: 400, color: '#111', marginBottom: 6 }}>补充照片</span>
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
                           <span style={{ fontSize: 12, color: '#6b6b6b', opacity: 0.95, fontWeight: 400, textAlign: 'left' }}>支持拖拽到按钮或点击上传</span>
-                          <span style={{ fontSize: 12, color: '#6b6b6b', opacity: 0.95, fontWeight: 400, textAlign: 'left' }}>一次最多上传15张</span>
+                          <span style={{ fontSize: 12, color: '#6b6b6b', opacity: 0.95, fontWeight: 400, textAlign: 'left' }}>一次最多上传 15 张</span>
                         </div>
                       </div>
                       {stagingFiles && stagingFiles.length > 0 ? (
@@ -1329,12 +1614,20 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
             )}
           </div>
 
-          <div style={{ display: 'flex', gap: 12, marginTop: 8, alignItems: 'center', width: '100%' }}>
-            <div style={{ display: 'flex', gap: 0, alignItems: 'center' }}>
+          <div className="detail-toolbar" style={{ display: 'flex', gap: 12, marginTop: 8, alignItems: 'center', width: '100%' }}>
+            <div className="detail-toolbar-main" style={{ display: 'flex', gap: 0, alignItems: 'center' }}>
+              <Button
+                className="detail-view-toggle"
+                type="tertiary"
+                onClick={() => handleGalleryModeChange(galleryMode === 'grid' ? 'masonry' : 'grid')}
+              >
+                样式
+              </Button>
               <IfCan perms={['projects.update']}>
-                <Button onClick={openEdit} type="primary">修改信息</Button>
+                <Button className="detail-toolbar-btn" onClick={openEdit} type="primary" style={{ marginLeft: 6 }}>修改信息</Button>
               </IfCan>
               <Button
+                className="detail-toolbar-btn"
                 onClick={() => setShowAILabels(!showAILabels)}
                 type={showAILabels ? 'primary' : 'tertiary'}
                 style={{ color: '#722ed1', marginLeft: 6 }}
@@ -1342,6 +1635,7 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
                 AI 选片
               </Button>
               <Button
+                className="detail-toolbar-btn"
                 onClick={openSimilarityModal}
                 type="tertiary"
                 style={{ marginLeft: 6 }}
@@ -1349,15 +1643,15 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
                 查看相似照片
               </Button>
             </div>
-            {/* "我要补充照片" 已移至顶部返回按钮行 */}
+            {/* "鎴戣琛ュ厖鐓х墖" 宸茬Щ鑷抽《閮ㄨ繑鍥炴寜閽 */}
             {(canDeletePhotos || canPackDownload) ? (
-              <Button onClick={toggleDeleteMode} type={deleteMode ? 'danger' : 'tertiary'} style={{ marginLeft: 'auto' }}>{deleteMode ? '取消选择' : '选择'}</Button>
+              <Button className="detail-select-btn" onClick={toggleDeleteMode} type={deleteMode ? 'danger' : 'tertiary'} style={{ marginLeft: 'auto' }}>{deleteMode ? '取消选择' : '选择'}</Button>
             ) : null}
           </div>
 
           <div className="detail-meta" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              {startText && <Text type="tertiary">{`开展于 ${startText}`}</Text>}
+            <div className="detail-meta-dates" style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              {startText && <Text type="tertiary">{`开始于 ${startText}`}</Text>}
               {createdText && <Text type="tertiary">{`创建于 ${createdText}`}</Text>}
               {!startText && !createdText && date && <Text type="tertiary">{date}</Text>}
             </div>
@@ -1389,7 +1683,10 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
         </div>
       </div>
 
-      <div className="detail-gallery" ref={galleryRef}>
+      <div
+        className={`detail-gallery ${galleryMode === 'masonry' ? 'detail-gallery--masonry' : 'detail-gallery--grid'}`}
+        ref={galleryRef}
+      >
         {loading && (
           <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '60px 0' }}>
             <Spin size="large" tip="加载项目详情" />
@@ -1402,125 +1699,26 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
           </div>
         )}
 
-        {!loading && !error && rows.length === 0 && (
+        {!loading && !error && images.length === 0 && (
           <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '60px 0' }}>
             <Empty description="该项目暂无图片" />
           </div>
         )}
 
-        {!loading && !error &&
-          rows.map((r, rowIndex) => (
-            <div className="detail-gallery-row" key={rowIndex} style={{ height: r.height }}>
-              {r.images.map((src, idx) => {
-                const w = Math.round((r.ratios[idx] || 1) * r.height);
-                const overallIndex = images.indexOf(src);
-                return (
-                  <div
-                    className="detail-photo"
-                    key={`${rowIndex}-${idx}`}
-                    style={{ width: w }}
-                  >
-                    <div style={{ position: 'relative' }}>
-                      <img
-                        src={src}
-                        alt={`${title}-${rowIndex}-${idx}`}
-                        width={w}
-                        height={r.height}
-                        onLoad={(event) => handleImageLoad(src, event)}
-                        style={{ display: 'block', cursor: deleteMode ? 'pointer' : 'zoom-in' }}
-                        data-original={photoMetas && photoMetas[overallIndex] ? (photoMetas[overallIndex].originalSrc || images[overallIndex]) : images[overallIndex]}
-                        data-tried="0"
-                        onError={(e) => {
-                          try {
-                            const img = e.target;
-                            const tried = img.getAttribute('data-tried');
-                            if (tried === '0') {
-                              img.setAttribute('data-tried', '1');
-                              const original = img.getAttribute('data-original');
-                              if (original) img.src = original;
-                            }
-                          } catch (err) { }
-                        }}
-                        onMouseEnter={() => setHoveredPhotoIdx(overallIndex)}
-                        onMouseLeave={() => setHoveredPhotoIdx(-1)}
-                        onClick={() => {
-                          if (deleteMode) {
-                            toggleSelect(overallIndex);
-                          } else if (overallIndex >= 0) {
-                            setViewerIndex(overallIndex);
-                            setViewerVisible(true);
-                          }
-                        }}
-                      />
-                      {(() => {
-                        const meta = photoMetas?.[overallIndex] || {};
-                        // 支持多种可能的字段名，优先使用姓名字符串
-                        const rawName = meta.photographerName || meta.photographer_name || meta.photographer || (meta.photographerId ? String(meta.photographerId) : null) || (meta.photographer_id ? String(meta.photographer_id) : null);
-                        const hasName = rawName && String(rawName).trim();
-                        let photographerLabel = null;
-                        if (hasName) {
-                          photographerLabel = String(rawName);
-                        } else {
-                          // 尝试从项目详情或初始项目中回退查找 photographerName
-                          try {
-                            const list = (project && (project.photos || project.images || project.gallery)) || (initialProject && (initialProject.photos || initialProject.images || initialProject.gallery)) || [];
-                            const found = Array.isArray(list) ? list.find(p => p && (String(p.id) === String(meta.id) || String(p.photoId) === String(meta.id))) : null;
-                            const fb = found ? (found.photographerName || found.photographer || found.photographer_name || found.photographerId || found.photographer_id) : null;
-                            if (fb) photographerLabel = String(fb);
-                          } catch (e) { /* ignore */ }
-                          if (!photographerLabel) {
-                            photographerLabel = meta.photographerId ? `摄影师 #${meta.photographerId}` : (meta.photographer_id ? `摄影师 #${meta.photographer_id}` : '未知摄影师');
-                          }
-                        }
-                        return (
-                          <div style={{ position: 'absolute', left: 8, top: 8, background: 'rgba(0,0,0,0.55)', color: '#fff', padding: '4px 6px', borderRadius: 4, fontSize: '12px', pointerEvents: 'none', maxWidth: '70%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {photographerLabel}
-                          </div>
-                        );
-                      })()}
-                      {deleteMode && (
-                        <div style={{ position: 'absolute', right: 8, top: 8, width: 32, height: 32, borderRadius: 16, background: selectedMap[String(overallIndex)] ? '#ff5252' : 'rgba(0,0,0,0.45)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); toggleSelect(overallIndex); }}>
-                          {selectedMap[String(overallIndex)] ? '✓' : ''}
-                        </div>
-                      )}
-                      {hoveredPhotoIdx === overallIndex && !deleteMode && (
-                        <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, color: '#fff', padding: '8px', fontSize: '12px', pointerEvents: 'none', display: 'flex', flexDirection: 'column-reverse' }}>
-                          {(() => {
-                            const photoId = photoMetas?.[overallIndex]?.id;
-                            const tags = photoTagsMap[photoId];
-                            return tags && tags.length > 0 ? (
-                              <div style={{ display: 'flex', flexWrap: 'wrap-reverse', gap: '4px' }}>
-                                {tags.slice(0, 5).map((tag, i) => (
-                                  <span key={i} style={{ background: '#1890ff', padding: '2px 6px', borderRadius: '2px', whiteSpace: 'nowrap' }}>{tag}</span>
-                                ))}
-                              </div>
-                            ) : <span style={{ color: '#ccc' }}>无标签</span>;
-                          })()}
-                        </div>
-                      )}
-                      {showAILabels && photoAILabelMap[photoMetas?.[overallIndex]?.id] && (
-                        <div style={{ position: 'absolute', right: 8, top: 8, background: photoAILabelMap[photoMetas?.[overallIndex]?.id] === 'recommended' ? '#4caf50' : '#f44336', color: '#fff', padding: '4px 8px', borderRadius: '3px', fontSize: '12px', fontWeight: 'bold', pointerEvents: 'none' }}>
-                          {photoAILabelMap[photoMetas?.[overallIndex]?.id] === 'recommended' ? 'AI推荐' : 'AI不推荐'}
-                        </div>
-                      )}
-                      {(() => {
-                        const pid = photoMetas?.[overallIndex]?.id;
-                        if (!pid) return null;
-                        const hasRecommend = (photoTagsMap[pid] || []).includes('推荐');
-                        if (!hasRecommend) return null;
-                        return (
-                          <div style={{ position: 'absolute', right: 8, top: showAILabels && photoAILabelMap[pid] ? 36 : 8, background: '#2196f3', color: '#fff', padding: '4px 8px', borderRadius: '3px', fontSize: '12px', fontWeight: 'bold', pointerEvents: 'none' }}>
-                            推荐
-                          </div>
-                        );
-                      })()}
-                    </div>
-                  </div>
-                );
-              })}
+        {!loading && !error && (
+          galleryMode === 'masonry' ? (
+            <div className="detail-masonry-columns" style={{ '--masonry-cols': masonryColumns }}>
+              {masonryBuckets.map((bucket, colIdx) => (
+                <div className="detail-masonry-column" key={`masonry-col-${colIdx}`}>
+                  {bucket.map(({ src, idx }) => renderPhotoItem(src, idx))}
+                </div>
+              ))}
             </div>
-          ))}
-        {/* 底部操作：删除 / 全选 */}
+          ) : (
+            images.map((src, overallIndex) => renderPhotoItem(src, overallIndex))
+          )
+        )}
+        {/* 搴曢儴鎿嶄綔锛氬垹闄?/ 鍏ㄩ€?*/}
         {deleteMode && (canDeletePhotos || canPackDownload) && (
           <div style={{ position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: 24, zIndex: 1400, display: 'flex', gap: 12 }}>
             <Button onClick={toggleSelectAll}>{allSelected ? '取消全选' : '全选'}</Button>
@@ -1534,7 +1732,7 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
           </div>
         )}
 
-        {/* 编辑弹窗 */}
+        {/* 缂栬緫寮圭獥 */}
         <Modal
           title="修改项目信息"
           visible={editVisible}
@@ -1576,13 +1774,13 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
             />
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 6 }}>
               <IfCan perms={['projects.delete']}>
-                <Button type="danger" onClick={handleDeleteProject} loading={deletingProject} disabled={deletingProject}>删除相册</Button>
+                <Button type="danger" onClick={handleDeleteProject} loading={deletingProject} disabled={deletingProject}>删除项目</Button>
               </IfCan>
             </div>
           </div>
         </Modal>
 
-        {/* 相似分组弹窗 */}
+        {/* 鐩镐技鍒嗙粍寮圭獥 */}
         <Modal
           title="相似照片分组"
           visible={simModalVisible}
@@ -1613,7 +1811,7 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {simGroups.map((g, gi) => (
                   <div key={gi} className="similarity-group">
-                    <div style={{ fontWeight: 'bold' }}>Group #{gi + 1} ({g.length} 照片)</div>
+                    <div style={{ fontWeight: 'bold' }}>Group #{gi + 1} ({g.length} 张照片)</div>
                     <div className="similarity-group-images" style={{ marginTop: 8, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                       {g.map((id) => {
                         const p = simPhotos[id];
@@ -1663,7 +1861,7 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
           </div>
         </Modal>
 
-        {/* 上传预览弹窗 */}
+        {/* 涓婁紶棰勮寮圭獥 */}
         <Modal
           title={`准备上传 (${stagingFiles.length})`}
           visible={uploadMode}
@@ -1715,7 +1913,7 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
                           const fb = found ? (found.photographerName || found.photographer || found.photographer_name || found.photographerId || found.photographer_id) : null;
                           if (fb) label = String(fb);
                         } catch (e) { /* ignore */ }
-                        if (!label) label = meta.photographerId ? `摄影师 #${meta.photographerId}` : (meta.photographer_id ? `摄影师 #${meta.photographer_id}` : null);
+                        if (!label) label = meta.photographerId ? `摄影师#${meta.photographerId}` : (meta.photographer_id ? `摄影师#${meta.photographer_id}` : null);
                       }
                       if (!label) return null;
                       return (
@@ -1875,7 +2073,7 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
           </div>
         )}
 
-        {/* Inline viewer edit — replaced modal with inline editor under the photo */}
+        {/* Inline viewer edit 鈥?replaced modal with inline editor under the photo */}
 
       </div>
     </div>
@@ -1883,3 +2081,4 @@ function ProjectDetail({ projectId, initialProject, onBack }) {
 }
 
 export default ProjectDetail;
+

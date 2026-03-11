@@ -7,9 +7,26 @@
   box-sizing: border-box;
 }
 
+.scenery-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(4px);
+}
+
 /* Hide ProjectDetail header so only images are visible */
 .scenery-page .detail-header {
   display: none !important;
+}
+
+.scenery-page .detail-page {
+  height: calc(100% - 48px);
+  padding-top: 0;
+  padding-bottom: 0;
 }
 
 /* Let gallery fill available area under the top nav */

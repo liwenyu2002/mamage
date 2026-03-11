@@ -27,17 +27,36 @@ export default function ShareView({ share = {}, onBack }) {
     const photos = Array.isArray(share.photos) ? share.photos : (Array.isArray(share.images) ? share.images : []);
 
     const galleryRef = React.useRef(null);
-    const [colCount, setColCount] = React.useState(0);
+    const [colCount, setColCount] = React.useState(() => {
+        try {
+            if (typeof window === 'undefined') return 2;
+            if (window.innerWidth <= 768) return 2;
+            return Math.max(2, Math.floor(window.innerWidth / 260));
+        } catch (e) {
+            return 2;
+        }
+    });
+    const [isMobileLayout, setIsMobileLayout] = React.useState(() => {
+        try {
+            return typeof window !== 'undefined' ? window.innerWidth <= 768 : false;
+        } catch (e) {
+            return false;
+        }
+    });
 
     React.useEffect(() => {
-        const minColWidth = 300; // px
         function updateCols() {
             try {
                 const w = galleryRef.current ? galleryRef.current.clientWidth : window.innerWidth;
-                const cols = Math.max(1, Math.floor(w / minColWidth));
+                const viewportWidth = window.innerWidth || w;
+                const mobileLayout = viewportWidth <= 768;
+                setIsMobileLayout(mobileLayout);
+                const cols = mobileLayout ? 2 : Math.max(2, Math.floor(w / 260));
                 setColCount(cols);
             } catch (e) {
-                setColCount(1);
+                const mobileLayout = typeof window !== 'undefined' ? window.innerWidth <= 768 : false;
+                setIsMobileLayout(mobileLayout);
+                setColCount(mobileLayout ? 2 : 3);
             }
         }
         updateCols();
@@ -165,8 +184,12 @@ export default function ShareView({ share = {}, onBack }) {
         return `${days ? days + '天 ' : ''}${hrs ? hrs + '小时 ' : ''}${mins ? mins + '分 ' : ''}${secs}秒`;
     };
 
+    const pagePadding = isMobileLayout ? 12 : 24;
+    const galleryGap = isMobileLayout ? 8 : 12;
+    const gridColumns = isMobileLayout ? 'repeat(3, minmax(0, 1fr))' : 'repeat(auto-fill, minmax(220px, 1fr))';
+
     return (
-        <div style={{ padding: 24 }}>
+        <div style={{ padding: pagePadding }}>
             <div style={{ width: '100%', margin: 0 }}>
                 <Card title={title} bordered style={{ width: '100%' }}>
                     {!isExpired ? (
@@ -208,11 +231,11 @@ export default function ShareView({ share = {}, onBack }) {
 
                     {photos && photos.length ? (
                         viewMode === 'grid' ? (
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: gridColumns, gap: galleryGap }}>
                                 {photos.map((p, idx) => (
                                     <div key={idx} style={{ position: 'relative' }}>
-                                        <div className="detail-photo" style={{ cursor: 'pointer' }} onClick={() => { if (selectMode) toggleSelect(idx); else openViewer(idx); }}>
-                                            <img src={thumbFor(p)} alt={p && (p.title || p.description || `photo-${idx}`)} style={{ width: '100%', height: 200, objectFit: 'cover', display: 'block' }} />
+                                        <div className="detail-photo" style={{ cursor: 'pointer', aspectRatio: '1 / 1' }} onClick={() => { if (selectMode) toggleSelect(idx); else openViewer(idx); }}>
+                                            <img src={thumbFor(p)} alt={p && (p.title || p.description || `photo-${idx}`)} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                                         </div>
                                         {selectMode ? (
                                             <div style={{ position: 'absolute', left: 8, top: 8 }}>
@@ -223,9 +246,9 @@ export default function ShareView({ share = {}, onBack }) {
                                 ))}
                             </div>
                         ) : (
-                            <div ref={galleryRef} style={{ columnCount: colCount || undefined, columnGap: 12 }}>
+                            <div ref={galleryRef} style={{ columnCount: colCount || undefined, columnGap: galleryGap }}>
                                 {photos.map((p, idx) => (
-                                    <div key={idx} style={{ display: 'inline-block', width: '100%', marginBottom: 12, overflow: 'hidden', background: '#f6f6f6', WebkitColumnBreakInside: 'avoid', breakInside: 'avoid', position: 'relative' }}>
+                                    <div key={idx} style={{ display: 'inline-block', width: '100%', marginBottom: galleryGap, overflow: 'hidden', background: '#f6f6f6', WebkitColumnBreakInside: 'avoid', breakInside: 'avoid', position: 'relative' }}>
                                         <div className="detail-photo" style={{ cursor: 'pointer' }} onClick={() => { if (selectMode) toggleSelect(idx); else openViewer(idx); }}>
                                             <img src={thumbFor(p)} alt={p && (p.title || p.description || `photo-${idx}`)} style={{ width: '100%', display: 'block', height: 'auto' }} />
                                         </div>

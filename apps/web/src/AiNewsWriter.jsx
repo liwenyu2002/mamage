@@ -57,6 +57,7 @@ const AiNewsWriter = () => {
   const REFERENCE_MAX = 20000;
   const [showAdvancedEditor, setShowAdvancedEditor] = React.useState(false);
   const [advancedPrompt, setAdvancedPrompt] = React.useState('');
+  const [isMobile, setIsMobile] = React.useState(() => (typeof window !== 'undefined' ? window.innerWidth <= 768 : false));
 
   const clearAllDraft = React.useCallback(() => {
     try {
@@ -164,6 +165,18 @@ const AiNewsWriter = () => {
     generatedHtml,
     advancedPrompt,
   ]);
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const onResize = () => setIsMobile(window.innerWidth <= 768);
+    onResize();
+    window.addEventListener('resize', onResize);
+    window.addEventListener('orientationchange', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('orientationchange', onResize);
+    };
+  }, []);
   
 
   // 参考素材改为粘贴文章内容（referenceArticle）
@@ -864,9 +877,45 @@ const AiNewsWriter = () => {
             )}
             bordered
           >
-            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            <div
+              style={isMobile
+                ? {
+                  display: 'flex',
+                  gap: 10,
+                  flexWrap: 'nowrap',
+                  overflowX: 'auto',
+                  overflowY: 'hidden',
+                  WebkitOverflowScrolling: 'touch',
+                  paddingBottom: 4,
+                }
+                : {
+                  display: 'flex',
+                  gap: 12,
+                  flexWrap: 'wrap',
+                }}
+            >
               {selectedPhotos.map((p) => (
-                <div key={p.id} style={{ width: 160, borderRadius: 6, overflow: 'hidden', position: 'relative', background: '#fafafa' }}>
+                <div
+                  key={p.id}
+                  style={isMobile
+                    ? {
+                      width: 'calc(50vw - 20px)',
+                      minWidth: 150,
+                      maxWidth: 200,
+                      flex: '0 0 auto',
+                      borderRadius: 6,
+                      overflow: 'hidden',
+                      position: 'relative',
+                      background: '#fafafa',
+                    }
+                    : {
+                      width: 160,
+                      borderRadius: 6,
+                      overflow: 'hidden',
+                      position: 'relative',
+                      background: '#fafafa',
+                    }}
+                >
                   <img src={p.url} alt={p.description} style={{ width: '100%', height: 90, objectFit: 'cover', display: 'block' }} />
                   <div style={{ padding: 8 }}>
                     <div style={{ fontSize: 13, fontWeight: 600 }}>{p.description}</div>
