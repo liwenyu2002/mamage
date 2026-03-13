@@ -8,28 +8,42 @@ on:
 jobs:
   build-and-deploy:
     runs-on: self-hosted
+    defaults:
+      run:
+        shell: bash
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
+      - name: Update local repository
+        run: |
+          set -euo pipefail
+          cd /home/liwy/MaMage_Web
+          git fetch --depth=1 origin main
+          git reset --hard origin/main
 
       - name: Use Node.js 20
         uses: actions/setup-node@v5
         with:
           node-version: "20"
           cache: "npm"
+          cache-dependency-path: /home/liwy/MaMage_Web/package-lock.json
 
       - name: Install dependencies
-        run: npm ci || npm install
+        run: |
+          set -euo pipefail
+          cd /home/liwy/MaMage_Web
+          npm ci || npm install
 
       - name: Build frontend
-        run: npm run build
+        run: |
+          set -euo pipefail
+          cd /home/liwy/MaMage_Web
+          npm run build
 
-      - name: Prepare target directory
-        run: mkdir -p /home/liwy/MaMage_Web/dist
-
-      - name: Sync dist to target
-        run: rsync -az --delete dist/ /home/liwy/MaMage_Web/dist/
+      - name: Verify build output
+        run: |
+          set -euo pipefail
+          test -d /home/liwy/MaMage_Web/dist
+          test -f /home/liwy/MaMage_Web/dist/index.html
 
       - name: Reload nginx if passwordless sudo is available
         run: |
