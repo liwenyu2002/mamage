@@ -101,15 +101,9 @@
 }
 
 .detail-selection-btn--collapse.semi-button {
-  min-height: 40px;
-  min-width: 64px;
-  padding: 0 14px;
-  border-radius: 999px;
   background: rgba(255, 255, 255, 0.12);
   border-color: rgba(255, 255, 255, 0.32);
-  color: #f8fafc;
-  font-size: 12px;
-  font-weight: 600;
+  color: #eaf2ff;
 }
 
 .detail-selection-btn--download.semi-button {
@@ -127,6 +121,35 @@
 
 .detail-selection-btn--danger.semi-button {
   box-shadow: none;
+}
+
+.detail-select-fab {
+  position: relative;
+  flex: 0 0 auto;
+  height: 40px;
+  min-width: 64px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  background: rgba(255, 255, 255, 0.12);
+  color: #eaf2ff;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.28);
+  backdrop-filter: blur(6px);
+  transition: transform 140ms ease, background 140ms ease, border-color 140ms ease;
+}
+
+.detail-select-fab:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.detail-select-fab:focus-visible {
+  outline: 2px solid rgba(96, 165, 250, 0.7);
+  outline-offset: 2px;
 }
 
 .detail-photo-item {
@@ -905,5 +928,21 @@
   .detail-selection-actions {
     gap: 4px;
     overflow: visible;
+  }
+}
+
+@media (min-width: 769px) {
+  .detail-select-fab {
+    height: 40px;
+    min-width: 64px;
+    padding: 0 14px;
+    font-size: 12px;
+  }
+
+  .detail-selection-btn--collapse.semi-button {
+    min-height: 40px;
+    min-width: auto;
+    padding: 0 14px;
+    font-size: 12px;
   }
 }

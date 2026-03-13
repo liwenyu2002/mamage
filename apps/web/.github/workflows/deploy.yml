@@ -1,19 +1,23 @@
-name: Deploy mamage-web (frontend)
+﻿name: Deploy mamage-web (frontend)
 
 on:
   push:
-    branches: [ "main" ]   # 推到 main 时自动部署
+    branches: ["main"]
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Use Node.js 20
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: "20"
 
@@ -28,25 +32,51 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
 
-      # 在服务器上准备好前端目录（注意这里用 MaMage_Web，和服务器实际一致）
+      - name: Validate deploy config
+        run: |
+          set -euo pipefail
+          if [ -z "${DEPLOY_HOST:-}" ]; then
+            echo "DEPLOY_HOST is empty"
+            exit 1
+          fi
+          if [ -z "${DEPLOY_USER:-}" ]; then
+            echo "DEPLOY_USER is empty"
+            exit 1
+          fi
+          if [ -z "${DEPLOY_PORT:-}" ]; then
+            echo "DEPLOY_PORT is empty, fallback to 22"
+          fi
+
+      - name: Test SSH connectivity
+        run: |
+          set -euo pipefail
+          PORT="${DEPLOY_PORT:-22}"
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=8 -p "${PORT}" \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" "echo connected && whoami"
+
       - name: Prepare target directory on server
         run: |
-          ssh -o StrictHostKeyChecking=no -p ${{ secrets.DEPLOY_PORT }} \
-            ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} \
+          set -euo pipefail
+          PORT="${DEPLOY_PORT:-22}"
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=8 -p "${PORT}" \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" \
             "mkdir -p /home/liwy/MaMage_Web/dist"
 
-      # 上传 dist 到服务器
       - name: Upload dist/ to server via rsync
         run: |
+          set -euo pipefail
+          PORT="${DEPLOY_PORT:-22}"
           rsync -az --delete \
-            -e "ssh -p ${{ secrets.DEPLOY_PORT }} -o StrictHostKeyChecking=no" \
+            -e "ssh -p ${PORT} -o StrictHostKeyChecking=no -o ConnectTimeout=8" \
             dist/ \
-            ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/home/liwy/MaMage_Web/dist/
+            "${DEPLOY_USER}@${DEPLOY_HOST}:/home/liwy/MaMage_Web/dist/"
 
       - name: Reload nginx if passwordless sudo is available
         run: |
-          ssh -o StrictHostKeyChecking=no -p ${{ secrets.DEPLOY_PORT }} \
-            ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} <<'EOF'
+          set -euo pipefail
+          PORT="${DEPLOY_PORT:-22}"
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=8 -p "${PORT}" \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" <<'EOF'
           if sudo -n true 2>/dev/null; then
             sudo -n nginx -t
             sudo -n systemctl reload nginx
