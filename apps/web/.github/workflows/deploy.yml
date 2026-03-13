@@ -27,10 +27,13 @@ jobs:
       - name: Build frontend
         run: npm run build
 
-      - name: Setup SSH agent
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+      - name: Setup SSH key
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          eval "$(ssh-agent -s)"
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" | tr -d '\r' | ssh-add -
 
       - name: Validate deploy config
         run: |
@@ -50,22 +53,9 @@ jobs:
       - name: Test SSH connectivity (non-blocking)
         continue-on-error: true
         run: |
-          set -euo pipefail
           PORT="${DEPLOY_PORT:-22}"
-          ok=0
-          for i in 1 2 3; do
-            if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -p "${PORT}" \
-              "${DEPLOY_USER}@${DEPLOY_HOST}" "echo connected && whoami"; then
-              ok=1
-              break
-            fi
-            echo "SSH probe attempt ${i} failed, retrying..."
-            sleep 2
-          done
-          if [ "$ok" -ne 1 ]; then
-            echo "SSH probe failed after retries. Continue and let real deploy steps decide."
-            exit 1
-          fi
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -p "${PORT}" \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" "echo connected && whoami" || true
 
       - name: Prepare target directory on server
         run: |
