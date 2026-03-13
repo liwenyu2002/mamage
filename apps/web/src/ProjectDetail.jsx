@@ -1657,9 +1657,6 @@ function ProjectDetail({
               </Button>
             </div>
             {/* "鎴戣琛ュ厖鐓х墖" 宸茬Щ鑷抽《閮ㄨ繑鍥炴寜閽 */}
-            {(canDeletePhotos || canPackDownload) ? (
-              <Button className="detail-select-btn" onClick={toggleDeleteMode} type={deleteMode ? 'danger' : 'tertiary'} style={{ marginLeft: 'auto' }}>{deleteMode ? '取消选择' : '选择'}</Button>
-            ) : null}
           </div>
 
           <div className="detail-meta" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -1731,19 +1728,27 @@ function ProjectDetail({
             images.map((src, overallIndex) => renderPhotoItem(src, overallIndex))
           )
         )}
-        {/* 搴曢儴鎿嶄綔锛氬垹闄?/ 鍏ㄩ€?*/}
-        {deleteMode && (canDeletePhotos || canPackDownload) && (
-          <div style={{ position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: 24, zIndex: 1400, display: 'flex', gap: 12 }}>
-            <Button onClick={toggleSelectAll}>{allSelected ? '取消全选' : '全选'}</Button>
-            {canPackDownload ? <Button onClick={packDownloadSelected} type="tertiary">打包下载</Button> : null}
-            {canDeletePhotos ? (
-              <>
-                <PermButton perms={['photos.delete']} onClick={confirmDelete} type="danger" loading={deletingPhotos} disabled={deletingPhotos}>删除 ({selectedCount})</PermButton>
-              </>
+        {(canDeletePhotos || canPackDownload) ? (
+          <div className={`detail-selection-inline ${deleteMode ? 'is-expanded' : ''}`}>
+            <button
+              type="button"
+              className="detail-select-fab"
+              onClick={toggleDeleteMode}
+            >
+              {deleteMode ? '收起' : '选择'}
+            </button>
+
+            {deleteMode ? (
+              <div className="detail-selection-actions">
+                <Button className="detail-selection-btn detail-selection-btn--select" onClick={toggleSelectAll}>{allSelected ? '取消全选' : '全选'}</Button>
+                {canPackDownload ? <Button className="detail-selection-btn detail-selection-btn--download" onClick={packDownloadSelected} type="tertiary">打包下载</Button> : null}
+                {canDeletePhotos ? (
+                  <PermButton className="detail-selection-btn detail-selection-btn--danger" perms={['photos.delete']} onClick={confirmDelete} type="danger" loading={deletingPhotos} disabled={deletingPhotos}>删除 ({selectedCount})</PermButton>
+                ) : null}
+              </div>
             ) : null}
-            <Button onClick={toggleDeleteMode}>完成</Button>
           </div>
-        )}
+        ) : null}
 
         {/* 缂栬緫寮圭獥 */}
         <Modal
@@ -1936,7 +1941,7 @@ function ProjectDetail({
                       }
                       if (!label) return null;
                       return (
-                        <div style={{ position: 'absolute', left: 16, top: 16, background: 'rgba(0,0,0,0.55)', color: '#fff', padding: '6px 10px', borderRadius: 4, fontSize: '13px', pointerEvents: 'none', maxWidth: '60%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <div className="viewer-chip viewer-chip--left">
                           {label}
                         </div>
                       );
@@ -1947,7 +1952,7 @@ function ProjectDetail({
                       </button>
                     </div>
                     {showAILabels && photoAILabelMap[photoMetas[viewerIndex].id] && (
-                      <div style={{ position: 'absolute', right: 16, top: 16, background: photoAILabelMap[photoMetas[viewerIndex].id] === 'recommended' ? '#4caf50' : '#f44336', color: '#fff', padding: '6px 12px', borderRadius: '3px', fontSize: '13px', fontWeight: 'bold' }}>
+                      <div className={`viewer-chip ${photoAILabelMap[photoMetas[viewerIndex].id] === 'recommended' ? 'viewer-chip--good' : 'viewer-chip--bad'}`} style={{ right: 16, top: 16 }}>
                         {photoAILabelMap[photoMetas[viewerIndex].id] === 'recommended' ? 'AI推荐' : 'AI不推荐'}
                       </div>
                     )}
@@ -1958,7 +1963,7 @@ function ProjectDetail({
                       if (!hasRecommend) return null;
                       const hasAI = showAILabels && photoAILabelMap[pid];
                       return (
-                        <div style={{ position: 'absolute', right: 16, top: hasAI ? 48 : 16, background: '#2196f3', color: '#fff', padding: '6px 12px', borderRadius: '3px', fontSize: '13px', fontWeight: 'bold' }}>
+                        <div className="viewer-chip viewer-chip--recommend" style={{ right: 16, top: hasAI ? 52 : 16 }}>
                           推荐
                         </div>
                       );
@@ -1970,23 +1975,10 @@ function ProjectDetail({
                       if (!hasDesc && !hasTags && !viewerEditVisible) return null;
                       return (
                         <div
+                          className="viewer-info-card"
                           style={{
-                            position: 'absolute',
-                            // center horizontally relative to the image container
-                            left: '50%',
-                            transform: 'translateX(-50%)',
-                            bottom: 96,
-                            width: '80%',
-                            maxWidth: '900px',
-                            padding: '12px',
-                            borderRadius: '4px',
-                            fontSize: '14px',
-                            // when editing use opaque light background and dark text for readability
                             background: viewerEditVisible ? 'rgba(255,255,255,0.98)' : 'rgba(0,0,0,0.45)',
                             color: viewerEditVisible ? '#111' : '#fff',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'stretch',
                           }}
                           onClick={(e) => e.stopPropagation()}
                         >
@@ -2043,7 +2035,7 @@ function ProjectDetail({
                 ) : null}
               </div>
 
-              <div style={{ position: 'absolute', left: '50%', bottom: 16, transform: 'translateX(-50%)', zIndex: 2, display: 'flex', gap: 12, alignItems: 'center' }}>
+              <div className="viewer-action-bar">
                 <button
                   type="button"
                   className="viewer-original-btn"

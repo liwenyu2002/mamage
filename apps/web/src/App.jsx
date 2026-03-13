@@ -178,18 +178,18 @@ function App() {
                   if (data.project) {
                     setShareInitialProject(Object.assign({}, data.project, meta));
                   } else if (Array.isArray(data.photos) || Array.isArray(data.list) || Array.isArray(data.images)) {
-                    setShareInitialProject(Object.assign({ title: data.title || '鍒嗕韩', images: data.photos || data.list || data.images }, meta));
+                    setShareInitialProject(Object.assign({ title: data.title || '分享', images: data.photos || data.list || data.images }, meta));
                   } else if (Array.isArray(data)) {
-                    setShareInitialProject(Object.assign({ title: '鍒嗕韩', images: data }, meta));
+                    setShareInitialProject(Object.assign({ title: '分享', images: data }, meta));
                   } else if (data.items) {
-                    setShareInitialProject(Object.assign({ title: data.title || '鍒嗕韩', images: data.items }, meta));
+                    setShareInitialProject(Object.assign({ title: data.title || '分享', images: data.items }, meta));
                   } else {
                     // fallback: pass raw data as images if it contains urls
                     const arr = [];
                     if (data && typeof data === 'object') {
                       Object.keys(data).forEach(k => { if (Array.isArray(data[k])) arr.push(...data[k]); });
                     }
-                    if (arr.length) setShareInitialProject(Object.assign({ title: data.title || '鍒嗕韩', images: arr }, meta));
+                    if (arr.length) setShareInitialProject(Object.assign({ title: data.title || '分享', images: arr }, meta));
                   }
                   setShareMode(true);
                   return;
