@@ -24,44 +24,46 @@ jobs:
         timeout-minutes: 2
         run: |
           set -euo pipefail
-          echo "Checking github endpoints..."
+          echo "Checking mirror and github endpoints..."
+          timeout --foreground 20s curl -I https://gitee.com >/dev/null
+          timeout --foreground 20s git ls-remote --heads https://gitee.com/liwenyu2002/mamage-web.git >/dev/null
           timeout --foreground 20s curl -I https://github.com >/dev/null
-          timeout --foreground 20s curl -I https://api.github.com >/dev/null
-          timeout --foreground 20s curl -I https://codeload.github.com >/dev/null
-          timeout --foreground 20s git ls-remote --heads https://github.com/liwenyu2002/mamage-web.git >/dev/null
 
-      - name: Download source archive
+      - name: Fetch source (gitee first, github fallback)
         timeout-minutes: 3
         env:
           GH_TOKEN: ${{ github.token }}
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
           set -euo pipefail
           SRC_DIR="${RUNNER_TEMP}/mamage-web-src"
-          ARCHIVE="${RUNNER_TEMP}/mamage-web-src.tar.gz"
-          URL_FAST="https://codeload.github.com/${GITHUB_REPOSITORY}/tar.gz/${GITHUB_SHA}"
-          URL_PROXY="https://ghproxy.com/${URL_FAST}"
+          ARCHIVE="${RUNNER_TEMP}/mamage-web-src.tgz"
           URL_API="https://api.github.com/repos/${GITHUB_REPOSITORY}/tarball/${GITHUB_SHA}"
           rm -rf "${SRC_DIR}" "${ARCHIVE}"
           mkdir -p "${SRC_DIR}"
 
-          echo "Downloading source archive from codeload..."
-          if timeout --foreground 40s curl -fsSL --retry 1 --retry-delay 2 -o "${ARCHIVE}" "${URL_FAST}"; then
-            echo "Downloaded via codeload."
+          if [ -n "${GITEE_TOKEN:-}" ]; then
+            GITEE_URL="https://${GITEE_TOKEN}@gitee.com/liwenyu2002/mamage-web.git"
           else
-            echo "codeload failed, trying ghproxy..."
-            if timeout --foreground 40s curl -fsSL --retry 1 --retry-delay 2 -o "${ARCHIVE}" "${URL_PROXY}"; then
-              echo "Downloaded via ghproxy."
-            else
-              echo "ghproxy failed, fallback to GitHub API tarball..."
-              timeout --foreground 40s curl -fsSL \
-                -H "Authorization: Bearer ${GH_TOKEN}" \
-                -H "Accept: application/vnd.github+json" \
-                --retry 1 --retry-delay 2 \
-                -o "${ARCHIVE}" "${URL_API}"
-            fi
+            GITEE_URL="https://gitee.com/liwenyu2002/mamage-web.git"
           fi
-          tar -xzf "${ARCHIVE}" -C "${SRC_DIR}" --strip-components=1
-          rsync -a --delete "${SRC_DIR}/" "${GITHUB_WORKSPACE}/"
+
+          echo "Cloning from gitee mirror..."
+          if timeout --foreground 60s git clone --depth=1 -b main "${GITEE_URL}" "${SRC_DIR}"; then
+            echo "Fetched source from gitee."
+            rsync -a --delete --exclude ".git/" "${SRC_DIR}/" "${GITHUB_WORKSPACE}/"
+          else
+            echo "Gitee clone failed, fallback to GitHub API tarball..."
+            timeout --foreground 45s curl -fsSL \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              --retry 1 --retry-delay 2 \
+              -o "${ARCHIVE}" "${URL_API}"
+            rm -rf "${SRC_DIR}"
+            mkdir -p "${SRC_DIR}"
+            tar -xzf "${ARCHIVE}" -C "${SRC_DIR}" --strip-components=1
+            rsync -a --delete "${SRC_DIR}/" "${GITHUB_WORKSPACE}/"
+          fi
 
       - name: Sync workspace to deploy directory
         run: |
