@@ -13,26 +13,27 @@ jobs:
         shell: bash
 
     steps:
-      - name: Update local repository
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Sync workspace to deploy directory
         run: |
           set -euo pipefail
-          REPO_DIR="/home/liwy/MaMage_Web"
-          REPO_URL="https://github.com/liwenyu2002/mamage-web.git"
-          if [ ! -d "${REPO_DIR}/.git" ]; then
-            rm -rf "${REPO_DIR}"
-            git clone --depth=1 -b main "${REPO_URL}" "${REPO_DIR}"
-          else
-            cd "${REPO_DIR}"
-            git fetch --depth=1 origin main
-            git reset --hard origin/main
-          fi
+          DEPLOY_DIR="/home/liwy/MaMage_Web"
+          mkdir -p "${DEPLOY_DIR}"
+          rsync -a --delete \
+            --exclude ".git/" \
+            --exclude ".github/" \
+            "${GITHUB_WORKSPACE}/" "${DEPLOY_DIR}/"
 
       - name: Use Node.js 20
         uses: actions/setup-node@v5
         with:
           node-version: "20"
           cache: "npm"
-          cache-dependency-path: /home/liwy/MaMage_Web/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
         run: |
