@@ -47,12 +47,25 @@ jobs:
             echo "DEPLOY_PORT is empty, fallback to 22"
           fi
 
-      - name: Test SSH connectivity
+      - name: Test SSH connectivity (non-blocking)
+        continue-on-error: true
         run: |
           set -euo pipefail
           PORT="${DEPLOY_PORT:-22}"
-          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=8 -p "${PORT}" \
-            "${DEPLOY_USER}@${DEPLOY_HOST}" "echo connected && whoami"
+          ok=0
+          for i in 1 2 3; do
+            if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -p "${PORT}" \
+              "${DEPLOY_USER}@${DEPLOY_HOST}" "echo connected && whoami"; then
+              ok=1
+              break
+            fi
+            echo "SSH probe attempt ${i} failed, retrying..."
+            sleep 2
+          done
+          if [ "$ok" -ne 1 ]; then
+            echo "SSH probe failed after retries. Continue and let real deploy steps decide."
+            exit 1
+          fi
 
       - name: Prepare target directory on server
         run: |
