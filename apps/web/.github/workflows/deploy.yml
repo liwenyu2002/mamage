@@ -8,15 +8,33 @@ on:
 jobs:
   build-and-deploy:
     runs-on: self-hosted
+    env:
+      GIT_TERMINAL_PROMPT: "0"
+      GCM_INTERACTIVE: "Never"
+      GIT_ASKPASS: /bin/echo
     defaults:
       run:
         shell: bash
 
     steps:
+      - name: Network precheck
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          echo "Checking github endpoints..."
+          timeout --foreground 20s curl -I https://github.com >/dev/null
+          timeout --foreground 20s curl -I https://api.github.com >/dev/null
+          timeout --foreground 20s curl -I https://codeload.github.com >/dev/null
+          timeout --foreground 20s git ls-remote --heads https://github.com/liwenyu2002/mamage-web.git >/dev/null
+
       - name: Checkout code
         uses: actions/checkout@v4
+        timeout-minutes: 3
         with:
           fetch-depth: 1
+          lfs: false
+          submodules: false
+          persist-credentials: false
 
       - name: Sync workspace to deploy directory
         run: |
