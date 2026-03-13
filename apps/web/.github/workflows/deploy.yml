@@ -16,9 +16,16 @@ jobs:
       - name: Update local repository
         run: |
           set -euo pipefail
-          cd /home/liwy/MaMage_Web
-          git fetch --depth=1 origin main
-          git reset --hard origin/main
+          REPO_DIR="/home/liwy/MaMage_Web"
+          REPO_URL="https://github.com/liwenyu2002/mamage-web.git"
+          if [ ! -d "${REPO_DIR}/.git" ]; then
+            rm -rf "${REPO_DIR}"
+            git clone --depth=1 -b main "${REPO_URL}" "${REPO_DIR}"
+          else
+            cd "${REPO_DIR}"
+            git fetch --depth=1 origin main
+            git reset --hard origin/main
+          fi
 
       - name: Use Node.js 20
         uses: actions/setup-node@v5
