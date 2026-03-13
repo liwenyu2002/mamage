@@ -38,24 +38,28 @@ jobs:
           set -euo pipefail
           SRC_DIR="${RUNNER_TEMP}/mamage-web-src"
           ARCHIVE="${RUNNER_TEMP}/mamage-web-src.tar.gz"
-          URL="https://api.github.com/repos/${GITHUB_REPOSITORY}/tarball/${GITHUB_SHA}"
+          URL_FAST="https://codeload.github.com/${GITHUB_REPOSITORY}/tar.gz/${GITHUB_SHA}"
+          URL_PROXY="https://ghproxy.com/${URL_FAST}"
+          URL_API="https://api.github.com/repos/${GITHUB_REPOSITORY}/tarball/${GITHUB_SHA}"
           rm -rf "${SRC_DIR}" "${ARCHIVE}"
           mkdir -p "${SRC_DIR}"
-          for attempt in 1 2 3; do
-            echo "Downloading source archive (${attempt}/3)..."
-            if timeout --foreground 60s curl -fsSL \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              --retry 2 --retry-delay 2 \
-              -o "${ARCHIVE}" "${URL}"; then
-              break
+
+          echo "Downloading source archive from codeload..."
+          if timeout --foreground 40s curl -fsSL --retry 1 --retry-delay 2 -o "${ARCHIVE}" "${URL_FAST}"; then
+            echo "Downloaded via codeload."
+          else
+            echo "codeload failed, trying ghproxy..."
+            if timeout --foreground 40s curl -fsSL --retry 1 --retry-delay 2 -o "${ARCHIVE}" "${URL_PROXY}"; then
+              echo "Downloaded via ghproxy."
+            else
+              echo "ghproxy failed, fallback to GitHub API tarball..."
+              timeout --foreground 40s curl -fsSL \
+                -H "Authorization: Bearer ${GH_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                --retry 1 --retry-delay 2 \
+                -o "${ARCHIVE}" "${URL_API}"
             fi
-            if [ "${attempt}" -eq 3 ]; then
-              echo "Failed to download source archive after retries."
-              exit 1
-            fi
-            sleep 2
-          done
+          fi
           tar -xzf "${ARCHIVE}" -C "${SRC_DIR}" --strip-components=1
           rsync -a --delete "${SRC_DIR}/" "${GITHUB_WORKSPACE}/"
 
@@ -69,12 +73,11 @@ jobs:
             --exclude ".github/" \
             "${GITHUB_WORKSPACE}/" "${DEPLOY_DIR}/"
 
-      - name: Use Node.js 20
-        uses: actions/setup-node@v5
-        with:
-          node-version: "20"
-          cache: "npm"
-          cache-dependency-path: package-lock.json
+      - name: Verify local Node.js
+        run: |
+          set -euo pipefail
+          node -v
+          npm -v
 
       - name: Install dependencies
         run: |
