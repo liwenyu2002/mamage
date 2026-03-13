@@ -5,6 +5,9 @@ on:
     branches: ["main"]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build-and-deploy:
     runs-on: self-hosted
@@ -27,14 +30,34 @@ jobs:
           timeout --foreground 20s curl -I https://codeload.github.com >/dev/null
           timeout --foreground 20s git ls-remote --heads https://github.com/liwenyu2002/mamage-web.git >/dev/null
 
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: Download source archive
         timeout-minutes: 3
-        with:
-          fetch-depth: 1
-          lfs: false
-          submodules: false
-          persist-credentials: false
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          SRC_DIR="${RUNNER_TEMP}/mamage-web-src"
+          ARCHIVE="${RUNNER_TEMP}/mamage-web-src.tar.gz"
+          URL="https://api.github.com/repos/${GITHUB_REPOSITORY}/tarball/${GITHUB_SHA}"
+          rm -rf "${SRC_DIR}" "${ARCHIVE}"
+          mkdir -p "${SRC_DIR}"
+          for attempt in 1 2 3; do
+            echo "Downloading source archive (${attempt}/3)..."
+            if timeout --foreground 60s curl -fsSL \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              --retry 2 --retry-delay 2 \
+              -o "${ARCHIVE}" "${URL}"; then
+              break
+            fi
+            if [ "${attempt}" -eq 3 ]; then
+              echo "Failed to download source archive after retries."
+              exit 1
+            fi
+            sleep 2
+          done
+          tar -xzf "${ARCHIVE}" -C "${SRC_DIR}" --strip-components=1
+          rsync -a --delete "${SRC_DIR}/" "${GITHUB_WORKSPACE}/"
 
       - name: Sync workspace to deploy directory
         run: |
