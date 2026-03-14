@@ -56,6 +56,10 @@
   width: 100%;
 }
 
+.detail-gallery.is-preparing {
+  min-height: clamp(280px, 52vh, 760px);
+}
+
 .detail-gallery--grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -159,6 +163,10 @@
   will-change: transform;
 }
 
+.detail-photo-item--skeleton {
+  pointer-events: none;
+}
+
 .detail-masonry-columns {
   width: 100%;
   display: grid;
@@ -210,12 +218,40 @@
   transition: transform 0.38s cubic-bezier(0.2, 1.15, 0.25, 1), box-shadow 0.3s ease, filter 0.3s ease;
 }
 
+.detail-photo--skeleton {
+  position: relative;
+  background: linear-gradient(120deg, #e8edf5 0%, #dce4ef 40%, #e8edf5 80%);
+  background-size: 180% 180%;
+  animation: detail-skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+.detail-photo--skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.48) 50%, transparent 100%);
+  animation: detail-skeleton-shimmer 1.35s ease-in-out infinite;
+}
+
 .detail-photo img {
   display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
   transition: filter 0.25s ease;
+}
+
+.detail-photo img.detail-photo-img {
+  opacity: 0;
+  transform: scale(1.04);
+  transition: opacity 260ms ease, transform 460ms cubic-bezier(0.16, 0.84, 0.3, 1), filter 0.25s ease;
+  will-change: opacity, transform, filter;
+}
+
+.detail-photo img.detail-photo-img.is-ready {
+  opacity: 1;
+  transform: scale(1);
 }
 
 .detail-gallery.detail-gallery--grid .detail-photo img {
@@ -239,6 +275,31 @@
 
 .detail-photo-item:hover .detail-photo img {
   filter: brightness(1.05);
+}
+
+.detail-photo-item--skeleton:hover .detail-photo {
+  transform: none;
+  box-shadow: none;
+}
+
+@keyframes detail-skeleton-pulse {
+  0% {
+    background-position: 0% 50%;
+  }
+
+  100% {
+    background-position: 100% 50%;
+  }
+}
+
+@keyframes detail-skeleton-shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(100%);
+  }
 }
 
 /* Ripple offsets are driven by JS for both grid and masonry. */
@@ -742,6 +803,10 @@
 }
 
 .viewer-nav:focus {
+  outline: none;
+}
+
+.viewer-nav:active {
   outline: 2px solid rgba(115, 171, 255, 0.8);
   outline-offset: 2px;
 }

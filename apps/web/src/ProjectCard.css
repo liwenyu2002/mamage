@@ -66,6 +66,18 @@
   display: block;
 }
 
+.project-card__img {
+  opacity: 0;
+  transform: scale(1.045);
+  transition: opacity 260ms ease, transform 520ms cubic-bezier(0.16, 0.84, 0.3, 1);
+  will-change: opacity, transform;
+}
+
+.project-card__img.is-ready {
+  opacity: 1;
+  transform: scale(1);
+}
+
 /* 中间文字信息行 */
 .project-card__meta-row {
   display: flex;

@@ -80,6 +80,9 @@ function ProjectDetail({
   const galleryRef = React.useRef(null);
   const [galleryWidth, setGalleryWidth] = React.useState(0);
   const [imageRatios, setImageRatios] = React.useState({});
+  const ratioCacheRef = React.useRef({});
+  const [galleryPrepared, setGalleryPrepared] = React.useState(false);
+  const [detailImageReadyMap, setDetailImageReadyMap] = React.useState({});
   // image viewer
   const [viewerVisible, setViewerVisible] = React.useState(false);
   const [viewerIndex, setViewerIndex] = React.useState(0);
@@ -335,12 +338,12 @@ function ProjectDetail({
           }
           built = buildImagesAndMetas({ images: gallery, photo_ids: detail?.photo_ids, photoIds: detail?.photoIds });
         }
-        setImages(built.images);
-        setPhotoMetas(built.metas);
+        let nextImages = built.images;
+        let nextMetas = built.metas;
 
         // Use photos embedded in project detail (preferred) instead of calling /api/photos
         try {
-          const photoIds = built.metas.map((m) => m.id).filter(Boolean);
+          const photoIds = nextMetas.map((m) => m.id).filter(Boolean);
           if (photoIds.length > 0) {
             const photosArray = Array.isArray(detail.photos) ? detail.photos : (Array.isArray(detail.images) ? detail.images : []);
             const photoMap = {};
@@ -377,7 +380,7 @@ function ProjectDetail({
               const photoById = {};
               photosArray.forEach(p => { const id = p && (p.id || p.photoId || p.photo_id); if (id) photoById[id] = p; });
               if (Object.keys(photoById).length) {
-                const merged = (built.metas || []).map((m) => {
+                const merged = (nextMetas || []).map((m) => {
                   if (!m) return m;
                   const p = photoById[m.id];
                   if (!p) return m;
@@ -388,12 +391,8 @@ function ProjectDetail({
                   mergedMeta.originalSrc = resolveAssetUrl(origCandidate);
                   return mergedMeta;
                 });
-                setPhotoMetas(merged);
-                setImages((prev) => {
-                  const next = merged.map((m) => m.thumbSrc || m.src || resolveAssetUrl(m.url || m.fileUrl || m.imageUrl || ''));
-                  if (prev.length === next.length && prev.every((v, i) => v === next[i])) return prev;
-                  return next;
-                });
+                nextMetas = merged;
+                nextImages = merged.map((m) => m.thumbSrc || m.src || resolveAssetUrl(m.url || m.fileUrl || m.imageUrl || ''));
               }
             } catch (e) {
               console.warn('merge photo urls failed', e);
@@ -402,7 +401,7 @@ function ProjectDetail({
             // 濡傛灉閮ㄥ垎 photo meta 缂哄皯 photographerName锛屼絾鍖呭惈 photographerId锛?
             // 鍓嶇浠嶅彲鍥為€€鍘昏姹傜敤鎴蜂俊鎭苟琛ュ叏 name锛堝彲淇濈暀浠ユ彁鍗囦綋楠岋級銆?
             try {
-              const mergedList = (built.metas || []).map(m => m).map(m => ({ ...(m || {}) }));
+              const mergedList = (nextMetas || []).map(m => ({ ...(m || {}) }));
               const idsToFetch = Array.from(new Set((mergedList || [])
                 .filter(p => p && !p.photographerName && (p.photographerId || p.userId || p.ownerId))
                 .map(p => p.photographerId || p.userId || p.ownerId)
@@ -434,7 +433,7 @@ function ProjectDetail({
                     }
                     return m;
                   });
-                  setPhotoMetas(updated);
+                  nextMetas = updated;
                 }
               }
             } catch (e) {
@@ -443,6 +442,10 @@ function ProjectDetail({
           }
         } catch (e) {
           console.warn('Failed to process photos from project detail:', e);
+        }
+        if (!canceled) {
+          setPhotoMetas(nextMetas);
+          setImages(nextImages);
         }
       } catch (err) {
         if (canceled) return;
@@ -982,6 +985,8 @@ function ProjectDetail({
     return Math.max(1, Math.floor((w + gap) / (minColWidth + gap)));
   }, [galleryWidth]);
 
+  const isGalleryPreparing = !loading && !error && images.length > 0 && !galleryPrepared;
+
   if (!projectId) {
     return null;
   }
@@ -1033,9 +1038,122 @@ function ProjectDetail({
     if (!naturalWidth || !naturalHeight) return;
     setImageRatios((prev) => {
       if (prev[src]) return prev;
-      return { ...prev, [src]: naturalWidth / naturalHeight };
+      const nextRatio = naturalWidth / naturalHeight;
+      ratioCacheRef.current[src] = nextRatio;
+      return { ...prev, [src]: nextRatio };
     });
   }, []);
+
+  React.useEffect(() => {
+    const list = Array.isArray(images) ? images.filter(Boolean) : [];
+    if (!list.length) {
+      setGalleryPrepared(true);
+      return undefined;
+    }
+
+    let cancelled = false;
+    setGalleryPrepared(false);
+
+    const readMetaRatio = (meta) => {
+      if (!meta || typeof meta !== 'object') return null;
+      const width = Number(
+        meta.width
+        ?? meta.w
+        ?? meta.imageWidth
+        ?? meta.naturalWidth
+        ?? meta.pixelWidth
+      );
+      const height = Number(
+        meta.height
+        ?? meta.h
+        ?? meta.imageHeight
+        ?? meta.naturalHeight
+        ?? meta.pixelHeight
+      );
+      if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+        return null;
+      }
+      return width / height;
+    };
+
+    const nextRatios = {};
+    const pending = [];
+    const seen = new Set();
+
+    list.forEach((src, idx) => {
+      const cachedRatio = imageRatios[src] || ratioCacheRef.current[src] || readMetaRatio(photoMetas?.[idx]);
+      if (cachedRatio && Number.isFinite(cachedRatio) && cachedRatio > 0) {
+        nextRatios[src] = cachedRatio;
+        ratioCacheRef.current[src] = cachedRatio;
+        return;
+      }
+      if (seen.has(src)) return;
+      seen.add(src);
+      pending.push(src);
+    });
+
+    const applyPreparedRatios = () => {
+      if (cancelled) return;
+      setImageRatios((prev) => {
+        let changed = false;
+        const merged = { ...prev };
+        Object.keys(nextRatios).forEach((src) => {
+          const ratio = nextRatios[src];
+          if (!ratio || !Number.isFinite(ratio) || ratio <= 0) return;
+          if (merged[src] !== ratio) {
+            merged[src] = ratio;
+            changed = true;
+          }
+        });
+        return changed ? merged : prev;
+      });
+      setGalleryPrepared(true);
+    };
+
+    if (!pending.length) {
+      applyPreparedRatios();
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    let remaining = pending.length;
+    pending.forEach((src) => {
+      const img = new Image();
+      const done = (ratio) => {
+        if (cancelled) return;
+        const safeRatio = Number.isFinite(ratio) && ratio > 0 ? ratio : 1.5;
+        nextRatios[src] = safeRatio;
+        ratioCacheRef.current[src] = safeRatio;
+        remaining -= 1;
+        if (remaining <= 0) {
+          applyPreparedRatios();
+        }
+      };
+
+      img.onload = () => {
+        const ratio = img.naturalWidth && img.naturalHeight ? img.naturalWidth / img.naturalHeight : null;
+        done(ratio);
+      };
+      img.onerror = () => done(null);
+      img.src = src;
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [images, photoMetas]);
+
+  React.useEffect(() => {
+    setDetailImageReadyMap((prev) => {
+      const next = {};
+      (images || []).forEach((src, idx) => {
+        const key = `${idx}|${src}`;
+        if (prev[key]) next[key] = true;
+      });
+      return next;
+    });
+  }, [images]);
 
   React.useEffect(() => {
     if (!galleryRef.current) return undefined;
@@ -1602,7 +1720,11 @@ function ProjectDetail({
     }
   }, []);
 
-  const renderPhotoItem = React.useCallback((src, overallIndex) => (
+  const renderPhotoItem = React.useCallback((src, overallIndex) => {
+    const readyKey = `${overallIndex}|${src}`;
+    const isReady = !!detailImageReadyMap[readyKey];
+    const ratio = imageRatios[src] || 1.5;
+    return (
     <div className="detail-photo-item" key={overallIndex} style={getRippleStyle(overallIndex)}>
       <div className="detail-photo">
         <div style={{ position: 'relative' }}>
@@ -1611,11 +1733,15 @@ function ProjectDetail({
             alt={`${title}-${overallIndex}`}
             loading="lazy"
             decoding="async"
+            className={`detail-photo-img${isReady ? ' is-ready' : ''}`}
             draggable
             onDragStart={(e) => handlePhotoDragStart(e, overallIndex)}
             onDragEnd={handlePhotoDragEnd}
-            onLoad={(event) => handleImageLoad(src, event)}
-            style={{ display: 'block', cursor: deleteMode ? 'pointer' : 'zoom-in' }}
+            onLoad={(event) => {
+              handleImageLoad(src, event);
+              setDetailImageReadyMap((prev) => (prev[readyKey] ? prev : { ...prev, [readyKey]: true }));
+            }}
+            style={{ display: 'block', cursor: deleteMode ? 'pointer' : 'zoom-in', aspectRatio: galleryMode === 'masonry' ? `${ratio}` : undefined }}
             data-original={photoMetas && photoMetas[overallIndex] ? (photoMetas[overallIndex].originalSrc || images[overallIndex]) : images[overallIndex]}
             data-tried="0"
             onError={(e) => {
@@ -1702,7 +1828,8 @@ function ProjectDetail({
         </div>
       </div>
     </div>
-  ), [title, handlePhotoDragStart, handleImageLoad, deleteMode, photoMetas, images, hoveredPhotoIdx, photoTagsMap, showAILabels, photoAILabelMap, selectedMap, toggleSelect, project, initialProject, getRippleStyle, openViewerAt]);
+    );
+  }, [title, handlePhotoDragStart, handleImageLoad, deleteMode, photoMetas, images, hoveredPhotoIdx, photoTagsMap, showAILabels, photoAILabelMap, selectedMap, toggleSelect, project, initialProject, getRippleStyle, openViewerAt, detailImageReadyMap, imageRatios, galleryMode]);
 
   return (
     <div className="detail-page">
@@ -1852,7 +1979,7 @@ function ProjectDetail({
       </div>
 
       <div
-        className={`detail-gallery ${galleryMode === 'masonry' ? 'detail-gallery--masonry' : 'detail-gallery--grid'}`}
+        className={`detail-gallery ${galleryMode === 'masonry' ? 'detail-gallery--masonry' : 'detail-gallery--grid'} ${isGalleryPreparing ? 'is-preparing' : ''}`}
         ref={galleryRef}
       >
         {loading && (
@@ -1873,7 +2000,29 @@ function ProjectDetail({
           </div>
         )}
 
-        {!loading && !error && (
+        {isGalleryPreparing && (
+          galleryMode === 'masonry' ? (
+            <div className="detail-masonry-columns detail-masonry-columns--placeholder" style={{ '--masonry-cols': masonryColumns }}>
+              {masonryBuckets.map((bucket, colIdx) => (
+                <div className="detail-masonry-column" key={`masonry-placeholder-col-${colIdx}`}>
+                  {bucket.map(({ src, idx }) => (
+                    <div className="detail-photo-item detail-photo-item--skeleton" key={`masonry-placeholder-${idx}`}>
+                      <div className="detail-photo detail-photo--skeleton" style={{ aspectRatio: `${imageRatios[src] || 1.5}` }} />
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          ) : (
+            images.map((src, idx) => (
+              <div className="detail-photo-item detail-photo-item--skeleton" key={`grid-placeholder-${idx}`}>
+                <div className="detail-photo detail-photo--skeleton" />
+              </div>
+            ))
+          )
+        )}
+
+        {!loading && !error && galleryPrepared && (
           galleryMode === 'masonry' ? (
             <div className="detail-masonry-columns" style={{ '--masonry-cols': masonryColumns }}>
               {masonryBuckets.map((bucket, colIdx) => (
@@ -2068,6 +2217,14 @@ function ProjectDetail({
         {viewerVisible ? (
         <div className="viewer-overlay is-open" onClick={closeViewer} aria-hidden="false">
             <div className="viewer-wrap">
+              <button
+                type="button"
+                className="viewer-close-btn"
+                aria-label="关闭"
+                onClick={(e) => { e.stopPropagation(); closeViewer(); }}
+              >
+                ×
+              </button>
               <button
                 className="viewer-nav viewer-nav-left"
                 onClick={(e) => { e.stopPropagation(); navigateViewer(-1); }}

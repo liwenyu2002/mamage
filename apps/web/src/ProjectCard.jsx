@@ -59,6 +59,7 @@ function ProjectCard({
 
   const [fallbackThumbs, setFallbackThumbs] = React.useState([]);
   const [coverOverride, setCoverOverride] = React.useState(null);
+  const [loadedMap, setLoadedMap] = React.useState({});
 
   React.useEffect(() => {
     let canceled = false;
@@ -161,17 +162,39 @@ function ProjectCard({
     ? truncateText(description, 40)
     : '暂无描述';
 
+  const desktopCoverSrc = coverDisplayed || resolvedMain || '';
+  const markLoaded = (src) => {
+    if (!src) return;
+    setLoadedMap((prev) => (prev[src] ? prev : { ...prev, [src]: true }));
+  };
+
   return (
     <div className="project-card" onClick={onClick}>
       <div className="project-card__mobile-layout">
         <div className="project-card__mobile-main">
-          {mobileMain ? <img src={mobileMain} alt={title} /> : null}
+          {mobileMain ? (
+            <img
+              src={mobileMain}
+              alt={title}
+              loading="lazy"
+              decoding="async"
+              className={`project-card__img ${loadedMap[mobileMain] ? 'is-ready' : ''}`}
+              onLoad={() => markLoaded(mobileMain)}
+            />
+          ) : null}
         </div>
         <div className="project-card__mobile-side">
           <div className="project-card__mobile-small-row">
             {mobileSmalls.map((src, idx) => (
               <div className="project-card__mobile-small" key={`mobile-small-${idx}`}>
-                <img src={src} alt="" />
+                <img
+                  src={src}
+                  alt=""
+                  loading="lazy"
+                  decoding="async"
+                  className={`project-card__img ${loadedMap[src] ? 'is-ready' : ''}`}
+                  onLoad={() => markLoaded(src)}
+                />
               </div>
             ))}
           </div>
@@ -194,7 +217,16 @@ function ProjectCard({
 
       <div className="project-card__desktop-layout">
         <div className="project-card__cover-image">
-          {coverDisplayed ? (<img src={coverDisplayed} alt={title} />) : (resolvedMain && <img src={resolvedMain} alt={title} />)}
+          {desktopCoverSrc ? (
+            <img
+              src={desktopCoverSrc}
+              alt={title}
+              loading="lazy"
+              decoding="async"
+              className={`project-card__img ${loadedMap[desktopCoverSrc] ? 'is-ready' : ''}`}
+              onLoad={() => markLoaded(desktopCoverSrc)}
+            />
+          ) : null}
         </div>
 
         <div className="project-card__meta-row">
@@ -245,7 +277,14 @@ function ProjectCard({
         <div className="project-card__thumb-grid">
           {others.map((src, idx) => (
             <div className="project-card__thumb" key={idx}>
-              <img src={src} alt="" />
+              <img
+                src={src}
+                alt=""
+                loading="lazy"
+                decoding="async"
+                className={`project-card__img ${loadedMap[src] ? 'is-ready' : ''}`}
+                onLoad={() => markLoaded(src)}
+              />
             </div>
           ))}
         </div>
