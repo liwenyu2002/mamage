@@ -28,10 +28,15 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
 
   React.useEffect(() => {
     if (!visible) {
-      setName(''); setDescription(''); setTagInput(''); setTags([]); setStartDate(null); setSubmitting(false);
-      // cleanup staging previews
+      setName('');
+      setDescription('');
+      setTagInput('');
+      setTags([]);
+      setStartDate(null);
+      setSubmitting(false);
       stagingPreviews.forEach((u) => { try { URL.revokeObjectURL(u); } catch (e) {} });
-      setStagingFiles([]); setStagingPreviews([]);
+      setStagingFiles([]);
+      setStagingPreviews([]);
     }
   }, [visible]);
 
@@ -41,7 +46,6 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
       try {
         const u = await fetchMe();
         if (cancelled) return;
-        // u.permissions is array from backend RBAC
         const perms = Array.isArray(u && u.permissions) ? u.permissions : [];
         setUserPermissions(perms);
       } catch (e) {
@@ -59,7 +63,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
     setTags((s) => [...s, val]);
   }, [tags]);
 
-  const removeTag = React.useCallback((t) => setTags((s) => s.filter(x => x !== t)), []);
+  const removeTag = React.useCallback((t) => setTags((s) => s.filter((x) => x !== t)), []);
 
   const onTagKeyDown = React.useCallback((e) => {
     if (e.key === 'Enter' || e.key === ',') {
@@ -76,7 +80,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
     if (!incoming.length) return;
 
     setStagingFiles((prevFiles) => {
-      const prevSigs = new Set(prevFiles.map(f => `${f.name}::${f.size}::${f.lastModified}`));
+      const prevSigs = new Set(prevFiles.map((f) => `${f.name}::${f.size}::${f.lastModified}`));
       const toAdd = [];
       let dupCount = 0;
       for (const f of incoming) {
@@ -96,13 +100,12 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
 
       const combined = [...prevFiles, ...toAdd].slice(0, MAX);
 
-      // update previews for newly added files
       setStagingPreviews((prevPreviews) => {
-        const newPreviews = toAdd.map(f => URL.createObjectURL(f));
+        const newPreviews = toAdd.map((f) => URL.createObjectURL(f));
         const combinedPreviews = [...prevPreviews, ...newPreviews];
         if (combinedPreviews.length > MAX) {
           const removed = combinedPreviews.splice(MAX);
-          removed.forEach(u => { try { URL.revokeObjectURL(u); } catch (e) {} });
+          removed.forEach((u) => { try { URL.revokeObjectURL(u); } catch (e) {} });
         }
         return combinedPreviews.slice(0, MAX);
       });
@@ -124,7 +127,6 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
     setStagingPreviews((prev) => {
       const next = [...prev];
       const removed = next.splice(index, 1);
-      // revoke the removed objectURL
       if (removed && removed[0]) {
         try { URL.revokeObjectURL(removed[0]); } catch (e) {}
       }
@@ -132,34 +134,37 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
     });
   }, []);
 
-
   const handleSubmit = React.useCallback(async () => {
-    if (!name.trim()) return Toast.warning('项目名称为必填');
+    if (!name.trim()) return Toast.warning('项目名称为必填项');
     setSubmitting(true);
     try {
       const payload = {
         title: name.trim(),
         description: description.trim() || undefined,
-        // only include tags when current user has permission
         ...(userPermissions.includes('projects.create') && tags && tags.length ? { tags } : {}),
-        eventDate: startDate ? (startDate instanceof Date ? `${startDate.getFullYear()}-${String(startDate.getMonth()+1).padStart(2,'0')}-${String(startDate.getDate()).padStart(2,'0')}` : String(startDate).slice(0,10)) : undefined
+        eventDate: startDate
+          ? (startDate instanceof Date
+            ? `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`
+            : String(startDate).slice(0, 10))
+          : undefined,
       };
+
       let result;
       if (typeof createProject === 'function') {
         result = await createProject(payload);
       } else if (typeof onCreated === 'function') {
-        // caller handles creation and may return created object
         result = await onCreated(payload);
       }
+
       Toast.success('已创建项目');
-      // 如果用户在新建时选择了照片，且服务器返回了新项目 id，则上传照片到该项目
+
       try {
         const MAX_FILES = 15;
         const filesToUpload = (stagingFiles && stagingFiles.length) ? stagingFiles.slice(0, MAX_FILES) : [];
         console.debug('[CreateAlbumModal] filesToUpload count', filesToUpload.length, 'stagingFiles count', (stagingFiles && stagingFiles.length) || 0);
         const projectId = result && (result.id || result._id || result.projectId || (result.id === 0 ? result.id : null)) || null;
+
         if (filesToUpload.length === 0) {
-          // no files selected: notify parent immediately so UI/list can refresh
           if (typeof onCreated === 'function') {
             try { await onCreated(result); } catch (e) { /* ignore */ }
           }
@@ -169,8 +174,6 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
           if (!projectId) {
             Toast.warning('已创建项目，但未能获取项目 ID，照片未自动上传');
           } else {
-            // upload one file at a time (same logic as ProjectDetail)
-            // log token and projectId to help diagnose intermittent failures
             try {
               const token = (typeof window !== 'undefined') ? (localStorage.getItem('mamage_jwt_token') || '') : '';
               console.debug('[CreateAlbumModal] starting uploads', { projectId, tokenPresent: !!token, files: filesToUpload.length });
@@ -179,7 +182,6 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
               }
             } catch (e) {}
 
-            // 并行上传所有选中照片（同时发起多个请求），收集失败项以便提示
             try {
               const uploadPromises = filesToUpload.map((f) =>
                 uploadPhotos({ file: f, projectId }).then(() => ({ status: 'fulfilled', fileName: f.name }))
@@ -187,7 +189,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
               );
 
               const results = await Promise.all(uploadPromises);
-              const rejected = results.filter(r => r.status === 'rejected');
+              const rejected = results.filter((r) => r.status === 'rejected');
               if (rejected.length > 0) {
                 console.error('[CreateAlbumModal] some uploads failed', rejected);
                 try { Toast.error(`部分图片上传失败：${rejected.length} 张`); } catch (e) {}
@@ -199,16 +201,13 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
               try { Toast.error('图片上传失败'); } catch (ee) {}
             }
 
-            // refresh created project to include uploaded photos and return full object
             try {
               const full = await getProjectById(projectId);
-              // call onCreated with the refreshed project so caller can update UI
               if (typeof onCreated === 'function') {
                 try { await onCreated(full); } catch (e) { /* ignore caller errors */ }
               }
             } catch (e) {
               console.warn('Failed to reload project after uploads', e);
-              // still call onCreated with original result if available
               if (typeof onCreated === 'function') {
                 try { await onCreated(result); } catch (err) { /* ignore */ }
               }
@@ -218,7 +217,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
       } catch (e) {
         console.error('post-create upload failed', e);
       }
-      // close modal after all operations complete
+
       if (onClose) onClose();
     } catch (e) {
       console.error('create project failed', e);
@@ -296,7 +295,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
         ) : null}
 
         <div style={{ marginTop: 12 }}>
-          <DatePicker value={startDate} onChange={(v) => setStartDate(v)} format="yyyy-MM-dd" placeholder="开展日期（可选）" style={{ width: '100%' }} />
+          <DatePicker value={startDate} onChange={(v) => setStartDate(v)} format="yyyy-MM-dd" placeholder="开始日期（可选）" style={{ width: '100%' }} />
         </div>
       </div>
     </Modal>

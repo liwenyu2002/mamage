@@ -85,7 +85,23 @@ jobs:
         run: |
           set -euo pipefail
           cd /home/liwy/MaMage_Web
-          npm ci || npm install
+          echo "Node: $(node -v)"
+          echo "NPM:  $(npm -v)"
+          npm config set registry https://registry.npmmirror.com
+          npm config set fetch-retries 2
+          npm config set fetch-retry-factor 2
+          npm config set fetch-retry-mintimeout 5000
+          npm config set fetch-retry-maxtimeout 20000
+          npm config set progress true
+          npm config set fund false
+          npm config set audit false
+          npm ping
+
+          echo "Installing with npm ci (timeout 8m)..."
+          if ! timeout --foreground 8m npm ci --prefer-online --no-audit --no-fund --loglevel=verbose; then
+            echo "npm ci failed, fallback to npm install (timeout 8m)..."
+            timeout --foreground 8m npm install --prefer-online --no-audit --no-fund --loglevel=verbose
+          fi
 
       - name: Build frontend
         run: |

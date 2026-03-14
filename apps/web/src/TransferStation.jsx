@@ -474,8 +474,17 @@ export default function TransferStation() {
       return;
     }
 
-    const ok = add(payload);
-    if (ok) Toast.success('已拖入中转站');
+    const list = Array.isArray(payload) ? payload : [payload];
+    let added = 0;
+    let skipped = 0;
+    list.forEach((item) => {
+      const ok = add(item);
+      if (ok) added += 1;
+      else skipped += 1;
+    });
+
+    if (added > 0 && skipped > 0) Toast.success(`已拖入 ${added} 张，重复或超限 ${skipped} 张`);
+    else if (added > 0) Toast.success(added > 1 ? `已拖入 ${added} 张` : '已拖入中转站');
     else Toast.warning('中转站已满或该照片已存在');
   }, []);
 

@@ -21,9 +21,9 @@ const { Header, Content } = Layout;
 
 // Mock photos
 const mockPhotos = [
-  { id: 1, url: 'https://via.placeholder.com/320x180?text=图1', description: '大会开幕式', tags: ['开幕','大合照'] },
+  { id: 1, url: 'https://via.placeholder.com/320x180?text=图1', description: '大会开幕式', tags: ['开幕', '大合照'] },
   { id: 2, url: 'https://via.placeholder.com/320x180?text=图2', description: '领导致辞', tags: ['致辞'] },
-  { id: 3, url: 'https://via.placeholder.com/320x180?text=图3', description: '展台现场', tags: ['展台','互动'] },
+  { id: 3, url: 'https://via.placeholder.com/320x180?text=图3', description: '展台现场', tags: ['展台', '互动'] },
 ];
 
 const AiNewsWriter = () => {
@@ -54,6 +54,10 @@ const AiNewsWriter = () => {
   const [markdownText, setMarkdownText] = React.useState('');
   const [generatedHtml, setGeneratedHtml] = React.useState('');
   const [isGenerating, setIsGenerating] = React.useState(false);
+  const [generationProgress, setGenerationProgress] = React.useState(0);
+  const generationProgressTimerRef = React.useRef(null);
+  const generationRunIdRef = React.useRef(0);
+  const generationRunningRef = React.useRef(false);
   const REFERENCE_MAX = 20000;
   const [showAdvancedEditor, setShowAdvancedEditor] = React.useState(false);
   const [advancedPrompt, setAdvancedPrompt] = React.useState('');
@@ -128,7 +132,7 @@ const AiNewsWriter = () => {
   React.useEffect(() => {
     if (skipNextAutoSaveRef.current) {
       skipNextAutoSaveRef.current = false;
-      try { window.localStorage.removeItem(DRAFT_STORAGE_KEY); } catch (e) {}
+      try { window.localStorage.removeItem(DRAFT_STORAGE_KEY); } catch (e) { }
       return;
     }
     const t = setTimeout(() => {
@@ -177,7 +181,71 @@ const AiNewsWriter = () => {
       window.removeEventListener('orientationchange', onResize);
     };
   }, []);
-  
+
+  React.useEffect(() => () => {
+    if (generationProgressTimerRef.current) {
+      cancelAnimationFrame(generationProgressTimerRef.current);
+      generationProgressTimerRef.current = null;
+    }
+  }, []);
+
+  const startPseudoProgress = React.useCallback(() => {
+    generationRunIdRef.current += 1;
+    const runId = generationRunIdRef.current;
+    if (generationProgressTimerRef.current) {
+      cancelAnimationFrame(generationProgressTimerRef.current);
+      generationProgressTimerRef.current = null;
+    }
+    const startedAt = performance.now();
+    const durationMs = 25000; // 25s 到 99%
+    const phaseA = Math.random() * Math.PI * 2;
+    const phaseB = Math.random() * Math.PI * 2;
+    setGenerationProgress(2);
+
+    const tick = (now) => {
+      if (runId !== generationRunIdRef.current) return;
+      const elapsed = now - startedAt;
+      const t = Math.min(elapsed / durationMs, 1);
+      // 基础曲线：非线性平滑推进
+      const eased = 1 - Math.pow(1 - t, 2.25);
+      // 轻微“随机”速度变化：两段不同频率正弦扰动（连续，不跳变）
+      const wiggle = (
+        0.015 * Math.sin((elapsed / 1000) * 1.25 + phaseA) +
+        0.010 * Math.sin((elapsed / 1000) * 2.35 + phaseB)
+      ) * (1 - t);
+      const ratio = Math.max(0, Math.min(1, eased + wiggle));
+      const target = 2 + ratio * 97; // 2 -> 99
+
+      setGenerationProgress((prev) => Math.min(99, Math.max(prev, target)));
+      if (t >= 1) {
+        generationProgressTimerRef.current = null;
+        return;
+      }
+      generationProgressTimerRef.current = requestAnimationFrame(tick);
+    };
+
+    generationProgressTimerRef.current = requestAnimationFrame(tick);
+    return runId;
+  }, []);
+
+  const stopPseudoProgress = React.useCallback((done, runId) => {
+    if (runId !== generationRunIdRef.current) return;
+    if (generationProgressTimerRef.current) {
+      cancelAnimationFrame(generationProgressTimerRef.current);
+      generationProgressTimerRef.current = null;
+    }
+    if (done) {
+      setGenerationProgress(100);
+      setTimeout(() => {
+        setGenerationProgress(0);
+        setIsGenerating(false);
+      }, 280);
+      return;
+    }
+    setGenerationProgress(0);
+    setIsGenerating(false);
+  }, []);
+
 
   // 参考素材改为粘贴文章内容（referenceArticle）
 
@@ -197,7 +265,7 @@ const AiNewsWriter = () => {
     if ((selectedPhotos || []).length) {
       parts.push('已选照片：');
       (selectedPhotos || []).forEach((p, i) => {
-        parts.push(`  图${i + 1}：${p.description || ''} ${((p.tags || []) .join(', '))}`);
+        parts.push(`  图${i + 1}：${p.description || ''} ${((p.tags || []).join(', '))}`);
       });
     }
     if (referenceArticle) parts.push(`参考文章内容：\n${referenceArticle}`);
@@ -206,306 +274,306 @@ const AiNewsWriter = () => {
     return parts.join('\n\n');
   };
 
-  
-    // Helper: check absolute URL
-    const isAbsoluteUrl = (u) => /^https?:\/\//i.test(String(u || ''));
 
-    const sanitizeHtml = (dirty) => {
-      try {
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(dirty || '', 'text/html');
-        // remove script/style
-        doc.querySelectorAll('script,style').forEach(n => n.remove());
-        // remove event handlers and javascript: href/src
-        doc.querySelectorAll('*').forEach((el) => {
-          for (const attr of Array.from(el.attributes)) {
-            if (/^on/i.test(attr.name)) el.removeAttribute(attr.name);
-            if ((attr.name === 'href' || attr.name === 'src') && String(attr.value).trim().toLowerCase().startsWith('javascript:')) el.removeAttribute(attr.name);
-          }
-        });
-        return doc.body.innerHTML;
-      } catch (e) {
-        console.error('sanitizeHtml error', e);
-        return '';
-      }
-    };
+  // Helper: check absolute URL
+  const isAbsoluteUrl = (u) => /^https?:\/\//i.test(String(u || ''));
 
-      // small helper to escape HTML in inserted captions
-      const escapeHtml = (str) => {
-        if (!str) return '';
-        return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-      };
-
-    // Use marked for robust markdown -> HTML rendering
-    const renderMarkdownToHtml = (md) => {
-      if (!md) return '';
-      try {
-        // configure marked for safer output
-        marked.setOptions({
-          mangle: false,
-          headerIds: false,
-          // disable raw HTML to avoid server-provided malicious html; we will sanitize later
-          gfm: true,
-        });
-        return marked.parse(String(md || ''));
-      } catch (e) {
-        console.error('[AiNewsWriter] renderMarkdownToHtml error', e);
-        return '';
-      }
-    };
-
-    // Count visible characters in markdown while excluding image URLs
-    // Keep image alt text (if present) but do not count the image src URLs.
-    const countVisibleChars = (md) => {
-      try {
-        if (!md) return 0;
-        let s = String(md);
-        // Replace markdown image syntax ![alt](url) with the alt text only
-        s = s.replace(/!\[([^\]]*?)\]\([^\)]*?\)/g, (m, alt) => (alt || ''));
-        // Replace HTML <img ... alt="..." ...> with its alt text when available
-        s = s.replace(/<img\b[^>]*alt=(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>/gi, (m, a, b, c) => (a || b || c || ''));
-        // Remove any remaining http(s) URLs
-        s = s.replace(/https?:\/\/[^\s)"']+/g, '');
-        // Collapse whitespace and return length
-        return s.replace(/\r\n/g, '\n').length;
-      } catch (e) {
-        return String(md || '').length;
-      }
-    };
-
-    // Normalize markdown for rendering: remove BOM, convert fullwidth '#' to '#',
-    // ensure headings like '#标题' become '# 标题' so the markdown parser recognizes them.
-    const normalizeMarkdownForRendering = (md) => {
-      try {
-        if (!md) return md;
-        let s = String(md || '');
-        // remove BOM and common zero-width / directionality chars at start
-        s = s.replace(/^[\uFEFF\u200B\u200C\u200D\u200E\u200F]+/, '');
-        // normalize non-breaking / fullwidth spaces
-        s = s.replace(/\u00A0/g, ' ').replace(/\u3000/g, ' ');
-        // replace fullwidth hash with ascii hash
-        s = s.replace(/＃/g, '#');
-        // remove leading invisible chars on each line (helps when copy-paste introduces ZWSP)
-        s = s.split('\n').map(line => line.replace(/^[\uFEFF\u200B\u200C\u200D\u200E\u200F\s]+/, '')).join('\n');
-        // ensure headings have a space after the hashes (e.g. '#标题' -> '# 标题')
-        s = s.replace(/^(#{1,6})([^\s#])/gm, (m, hashes, rest) => `${hashes} ${rest}`);
-        return s;
-      } catch (e) {
-        return md;
-      }
-    };
-
-    // Remove consecutive duplicate <img> tags with the same src to avoid double-inserted images
-    const dedupeConsecutiveImages = (htmlStr) => {
-      try {
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(htmlStr || '', 'text/html');
-        const imgs = Array.from(doc.querySelectorAll('img'));
-        imgs.forEach((img) => {
-          const prev = img.previousElementSibling;
-          if (prev && prev.tagName && prev.tagName.toLowerCase() === 'img') {
-            try {
-              const prevSrc = prev.getAttribute('src') || '';
-              const curSrc = img.getAttribute('src') || '';
-              if (prevSrc && curSrc && prevSrc === curSrc) {
-                img.remove();
-              }
-            } catch (e) {
-              // ignore
-            }
-          }
-        });
-        return doc.body.innerHTML;
-      } catch (e) {
-        return htmlStr;
-      }
-    };
-
-      // Clean stray markdown fragments that may surround <img> tags in server HTML
-      const cleanImageSurroundingText = (htmlStr) => {
-        try {
-          const parser = new DOMParser();
-          const doc = parser.parseFromString(htmlStr || '', 'text/html');
-          const imgs = Array.from(doc.querySelectorAll('img'));
-          imgs.forEach((img) => {
-            // previous sibling text cleanup (remove trailing '![' or similar)
-            const prev = img.previousSibling;
-            if (prev && prev.nodeType === Node.TEXT_NODE) {
-              prev.nodeValue = prev.nodeValue.replace(/!\[\s*$/g, '').replace(/\s+$/g, '');
-              if (!prev.nodeValue.trim()) prev.remove();
-            }
-            // next sibling text cleanup (remove leading ')', numbering, or ')(...' fragments)
-            const next = img.nextSibling;
-            if (next && next.nodeType === Node.TEXT_NODE) {
-              next.nodeValue = next.nodeValue.replace(/^\s*\)\s*\d*/g, '').replace(/^\s*\)\s*/g, '');
-              if (!next.nodeValue.trim()) next.remove();
-            }
-          });
-          return doc.body.innerHTML;
-        } catch (e) {
-          return htmlStr;
+  const sanitizeHtml = (dirty) => {
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(dirty || '', 'text/html');
+      // remove script/style
+      doc.querySelectorAll('script,style').forEach(n => n.remove());
+      // remove event handlers and javascript: href/src
+      doc.querySelectorAll('*').forEach((el) => {
+        for (const attr of Array.from(el.attributes)) {
+          if (/^on/i.test(attr.name)) el.removeAttribute(attr.name);
+          if ((attr.name === 'href' || attr.name === 'src') && String(attr.value).trim().toLowerCase().startsWith('javascript:')) el.removeAttribute(attr.name);
         }
-      };
+      });
+      return doc.body.innerHTML;
+    } catch (e) {
+      console.error('sanitizeHtml error', e);
+      return '';
+    }
+  };
 
-      // Fix cases where an <img> tag's src attribute accidentally contains markdown
-      // like "![alt](https://...)" or a URL-encoded version of that. Decode and
-      // extract the real URL and alt text when found.
-      const fixImgSrcMarkdownInAttributes = (htmlStr) => {
-        try {
-          // First pass: direct string-level replacement to catch encoded markdown inside src
+  // small helper to escape HTML in inserted captions
+  const escapeHtml = (str) => {
+    if (!str) return '';
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  };
+
+  // Use marked for robust markdown -> HTML rendering
+  const renderMarkdownToHtml = (md) => {
+    if (!md) return '';
+    try {
+      // configure marked for safer output
+      marked.setOptions({
+        mangle: false,
+        headerIds: false,
+        // disable raw HTML to avoid server-provided malicious html; we will sanitize later
+        gfm: true,
+      });
+      return marked.parse(String(md || ''));
+    } catch (e) {
+      console.error('[AiNewsWriter] renderMarkdownToHtml error', e);
+      return '';
+    }
+  };
+
+  // Count visible characters in markdown while excluding image URLs
+  // Keep image alt text (if present) but do not count the image src URLs.
+  const countVisibleChars = (md) => {
+    try {
+      if (!md) return 0;
+      let s = String(md);
+      // Replace markdown image syntax ![alt](url) with the alt text only
+      s = s.replace(/!\[([^\]]*?)\]\([^\)]*?\)/g, (m, alt) => (alt || ''));
+      // Replace HTML <img ... alt="..." ...> with its alt text when available
+      s = s.replace(/<img\b[^>]*alt=(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>/gi, (m, a, b, c) => (a || b || c || ''));
+      // Remove any remaining http(s) URLs
+      s = s.replace(/https?:\/\/[^\s)"']+/g, '');
+      // Collapse whitespace and return length
+      return s.replace(/\r\n/g, '\n').length;
+    } catch (e) {
+      return String(md || '').length;
+    }
+  };
+
+  // Normalize markdown for rendering: remove BOM, convert fullwidth '#' to '#',
+  // ensure headings like '#标题' become '# 标题' so the markdown parser recognizes them.
+  const normalizeMarkdownForRendering = (md) => {
+    try {
+      if (!md) return md;
+      let s = String(md || '');
+      // remove BOM and common zero-width / directionality chars at start
+      s = s.replace(/^[\uFEFF\u200B\u200C\u200D\u200E\u200F]+/, '');
+      // normalize non-breaking / fullwidth spaces
+      s = s.replace(/\u00A0/g, ' ').replace(/\u3000/g, ' ');
+      // replace fullwidth hash with ascii hash
+      s = s.replace(/＃/g, '#');
+      // remove leading invisible chars on each line (helps when copy-paste introduces ZWSP)
+      s = s.split('\n').map(line => line.replace(/^[\uFEFF\u200B\u200C\u200D\u200E\u200F\s]+/, '')).join('\n');
+      // ensure headings have a space after the hashes (e.g. '#标题' -> '# 标题')
+      s = s.replace(/^(#{1,6})([^\s#])/gm, (m, hashes, rest) => `${hashes} ${rest}`);
+      return s;
+    } catch (e) {
+      return md;
+    }
+  };
+
+  // Remove consecutive duplicate <img> tags with the same src to avoid double-inserted images
+  const dedupeConsecutiveImages = (htmlStr) => {
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(htmlStr || '', 'text/html');
+      const imgs = Array.from(doc.querySelectorAll('img'));
+      imgs.forEach((img) => {
+        const prev = img.previousElementSibling;
+        if (prev && prev.tagName && prev.tagName.toLowerCase() === 'img') {
           try {
-            htmlStr = htmlStr.replace(/(<img\b[^>]*\bsrc=)(["'])(.*?)\2/gi, (full, prefix, quote, val) => {
-              let decoded = val;
-              try { decoded = decodeURIComponent(val); } catch (e) { /* ignore */ }
-              // if decoded contains markdown like [alt](http...)
-              const urlMatch = decoded.match(/https?:\/\/(?:[\w\-@:%._\+~#=]{1,256})(?:\/[\w\-@:%_+.~#?&//=]*)?/i);
-              if (urlMatch && urlMatch[0]) {
-                const url = urlMatch[0];
-                return `${prefix}${quote}${url}${quote}`;
-              }
-              return full;
-            });
+            const prevSrc = prev.getAttribute('src') || '';
+            const curSrc = img.getAttribute('src') || '';
+            if (prevSrc && curSrc && prevSrc === curSrc) {
+              img.remove();
+            }
           } catch (e) {
-            // ignore string-level failures
+            // ignore
           }
-
-          // Second pass: DOM-level robust cleanup
-          const parser = new DOMParser();
-          const doc = parser.parseFromString(htmlStr || '', 'text/html');
-          const imgs = Array.from(doc.querySelectorAll('img'));
-          imgs.forEach((img) => {
-            let raw = img.getAttribute('src') || '';
-            try {
-              const dec = decodeURIComponent(raw);
-              if (dec && dec !== raw) raw = dec;
-            } catch (e) {
-              // ignore decode errors
-            }
-
-            const urlMatch = raw.match(/https?:\/\/(?:[\w\-@:%._\+~#=]{1,256})(?:\/[\w\-@:%_+.~#?&//=]*)?/i);
-            if (urlMatch && urlMatch[0]) {
-              const url = urlMatch[0];
-              let alt = img.getAttribute('alt') || '';
-              const altMatch = raw.match(/\[([^\]]+)\]\s*\(/);
-              if (altMatch && altMatch[1]) alt = altMatch[1];
-              img.setAttribute('src', url);
-              if (alt && (!img.getAttribute('alt') || img.getAttribute('alt') === '')) img.setAttribute('alt', alt);
-            }
-          });
-          return doc.body.innerHTML;
-        } catch (e) {
-          return htmlStr;
         }
-      };
+      });
+      return doc.body.innerHTML;
+    } catch (e) {
+      return htmlStr;
+    }
+  };
 
-    // Replace PHOTO:<id> placeholders using provided photoMap (id -> fullUrl) or by fetching
-    const replacePhotoPlaceholders = async (result) => {
-      // result may contain markdown and/or html plus optionally photos info
-      const photoMap = {};
-      if (result.photos && Array.isArray(result.photos)) {
-        result.photos.forEach(p => {
-          if (p.id && p.url) photoMap[String(p.id)] = p.url;
-        });
-      }
-      // fallback: use selectedPhotos currently in client state as an id->url map
+  // Clean stray markdown fragments that may surround <img> tags in server HTML
+  const cleanImageSurroundingText = (htmlStr) => {
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(htmlStr || '', 'text/html');
+      const imgs = Array.from(doc.querySelectorAll('img'));
+      imgs.forEach((img) => {
+        // previous sibling text cleanup (remove trailing '![' or similar)
+        const prev = img.previousSibling;
+        if (prev && prev.nodeType === Node.TEXT_NODE) {
+          prev.nodeValue = prev.nodeValue.replace(/!\[\s*$/g, '').replace(/\s+$/g, '');
+          if (!prev.nodeValue.trim()) prev.remove();
+        }
+        // next sibling text cleanup (remove leading ')', numbering, or ')(...' fragments)
+        const next = img.nextSibling;
+        if (next && next.nodeType === Node.TEXT_NODE) {
+          next.nodeValue = next.nodeValue.replace(/^\s*\)\s*\d*/g, '').replace(/^\s*\)\s*/g, '');
+          if (!next.nodeValue.trim()) next.remove();
+        }
+      });
+      return doc.body.innerHTML;
+    } catch (e) {
+      return htmlStr;
+    }
+  };
+
+  // Fix cases where an <img> tag's src attribute accidentally contains markdown
+  // like "![alt](https://...)" or a URL-encoded version of that. Decode and
+  // extract the real URL and alt text when found.
+  const fixImgSrcMarkdownInAttributes = (htmlStr) => {
+    try {
+      // First pass: direct string-level replacement to catch encoded markdown inside src
       try {
-        if ((selectedPhotos || []).length) {
-          (selectedPhotos || []).forEach((p) => {
-            const sid = String(p.id || p.url || '');
-            if (sid && !photoMap[sid]) {
-              // prefer the canonical thumbUrl we now send from client
-              const cand = p.thumbUrl || p.thumbSrc || p.thumb || p.url || null;
-              if (cand) photoMap[sid] = cand;
-            }
-          });
-        }
+        htmlStr = htmlStr.replace(/(<img\b[^>]*\bsrc=)(["'])(.*?)\2/gi, (full, prefix, quote, val) => {
+          let decoded = val;
+          try { decoded = decodeURIComponent(val); } catch (e) { /* ignore */ }
+          // if decoded contains markdown like [alt](http...)
+          const urlMatch = decoded.match(/https?:\/\/(?:[\w\-@:%._\+~#=]{1,256})(?:\/[\w\-@:%_+.~#?&//=]*)?/i);
+          if (urlMatch && urlMatch[0]) {
+            const url = urlMatch[0];
+            return `${prefix}${quote}${url}${quote}`;
+          }
+          return full;
+        });
       } catch (e) {
-        // ignore
+        // ignore string-level failures
       }
 
-      // helper to resolve a photo id to a usable URL (absolute COS url)
-      const resolvePhotoUrl = async (photoId) => {
-        const sid = String(photoId);
-        if (photoMap[sid]) {
-          return isAbsoluteUrl(photoMap[sid]) ? photoMap[sid] : null;
-        }
-        // attempt to fetch from /api/photos/:id
+      // Second pass: DOM-level robust cleanup
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(htmlStr || '', 'text/html');
+      const imgs = Array.from(doc.querySelectorAll('img'));
+      imgs.forEach((img) => {
+        let raw = img.getAttribute('src') || '';
         try {
-          const resp = await request(`/api/photos/${encodeURIComponent(sid)}`, { method: 'GET' });
-          // look for common fields
-          const cand = resp.url || resp.fullUrl || resp.cosUrl || resp.src || resp.thumbSrc;
-          if (cand && isAbsoluteUrl(cand)) return cand;
-          // if resp contains nested object
-          if (resp.data) {
-            const cand2 = resp.data.url || resp.data.fullUrl || resp.data.cosUrl || resp.data.src;
-            if (cand2 && isAbsoluteUrl(cand2)) return cand2;
-          }
-          return null;
+          const dec = decodeURIComponent(raw);
+          if (dec && dec !== raw) raw = dec;
         } catch (e) {
-          console.error('[AiNewsWriter] fetch photo failed for', photoId, e);
-          return null;
+          // ignore decode errors
         }
-      };
 
-      const missingIds = new Set();
-
-      // process markdown
-      let md = result.markdown || '';
-      if (md) {
-        // find PHOTO:xxxx tokens
-        const mdReplaced = md.replace(/PHOTO:([\w-]+)/g, (match, id) => {
-          missingIds.add(id);
-          return `__MAMAGE_PHOTO_PLACEHOLDER_${id}__`;
-        });
-        md = mdReplaced;
-        // Now iterate missingIds to resolve urls
-        for (const id of Array.from(missingIds)) {
-          const url = await resolvePhotoUrl(id);
-          const alt = `图${id}`;
-          const insert = url ? `![${alt}](${url})` : `![图片缺失](data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="100%" height="100%" fill="#eee"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#888">图片缺失</text></svg>')})`;
-          md = md.replace(new RegExp(`__MAMAGE_PHOTO_PLACEHOLDER_${id}__`, 'g'), insert);
-          if (!url) console.error('[AiNewsWriter] photo missing for id', id);
+        const urlMatch = raw.match(/https?:\/\/(?:[\w\-@:%._\+~#=]{1,256})(?:\/[\w\-@:%_+.~#?&//=]*)?/i);
+        if (urlMatch && urlMatch[0]) {
+          const url = urlMatch[0];
+          let alt = img.getAttribute('alt') || '';
+          const altMatch = raw.match(/\[([^\]]+)\]\s*\(/);
+          if (altMatch && altMatch[1]) alt = altMatch[1];
+          img.setAttribute('src', url);
+          if (alt && (!img.getAttribute('alt') || img.getAttribute('alt') === '')) img.setAttribute('alt', alt);
         }
-        result.markdown = md;
-      }
+      });
+      return doc.body.innerHTML;
+    } catch (e) {
+      return htmlStr;
+    }
+  };
 
-      // process html (if provided)
-      let html = result.html || '';
-      if (html) {
-        // replace PHOTO:id occurrences similarly
-        const ids = [];
-        html = html.replace(/PHOTO:([\w-]+)/g, (match, id) => {
-          ids.push(id);
-          return `__MAMAGE_PHOTO_PLACEHOLDER_${id}__`;
-        });
-        for (const id of ids) {
-          const url = await resolvePhotoUrl(id);
-          const ph = photoMap[String(id)];
-          const name = ph && (ph.photographerName || ph.photographer_name || null);
-          if (url) {
-            if (name) {
-              const fig = `<figure><img src="${url}" alt="图${id}" loading="lazy"/><figcaption>摄影：${escapeHtml(String(name))}</figcaption></figure>`;
-              html = html.replace(new RegExp(`__MAMAGE_PHOTO_PLACEHOLDER_${id}__`, 'g'), fig);
-            } else {
-              const insert = `<img src="${url}" alt="图${id}" loading="lazy"/>`;
-              html = html.replace(new RegExp(`__MAMAGE_PHOTO_PLACEHOLDER_${id}__`, 'g'), insert);
-            }
-          } else {
-            const missing = `<img src="data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="100%" height="100%" fill="#eee"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#888">图片缺失</text></svg>')}" alt="图片缺失"/>`;
-            html = html.replace(new RegExp(`__MAMAGE_PHOTO_PLACEHOLDER_${id}__`, 'g'), missing);
-            console.error('[AiNewsWriter] photo missing for id', id);
+  // Replace PHOTO:<id> placeholders using provided photoMap (id -> fullUrl) or by fetching
+  const replacePhotoPlaceholders = async (result) => {
+    // result may contain markdown and/or html plus optionally photos info
+    const photoMap = {};
+    if (result.photos && Array.isArray(result.photos)) {
+      result.photos.forEach(p => {
+        if (p.id && p.url) photoMap[String(p.id)] = p.url;
+      });
+    }
+    // fallback: use selectedPhotos currently in client state as an id->url map
+    try {
+      if ((selectedPhotos || []).length) {
+        (selectedPhotos || []).forEach((p) => {
+          const sid = String(p.id || p.url || '');
+          if (sid && !photoMap[sid]) {
+            // prefer the canonical thumbUrl we now send from client
+            const cand = p.thumbUrl || p.thumbSrc || p.thumb || p.url || null;
+            if (cand) photoMap[sid] = cand;
           }
-        }
-        // attempt to fix img[src] that accidentally contain markdown or encoded markdown
-        html = fixImgSrcMarkdownInAttributes(html);
-        // clean stray surrounding markdown fragments
-        html = cleanImageSurroundingText(html);
-        // dedupe consecutive identical images that may have been inserted twice
-        result.html = dedupeConsecutiveImages(html);
+        });
       }
+    } catch (e) {
+      // ignore
+    }
 
-      return result;
+    // helper to resolve a photo id to a usable URL (absolute COS url)
+    const resolvePhotoUrl = async (photoId) => {
+      const sid = String(photoId);
+      if (photoMap[sid]) {
+        return isAbsoluteUrl(photoMap[sid]) ? photoMap[sid] : null;
+      }
+      // attempt to fetch from /api/photos/:id
+      try {
+        const resp = await request(`/api/photos/${encodeURIComponent(sid)}`, { method: 'GET' });
+        // look for common fields
+        const cand = resp.url || resp.fullUrl || resp.cosUrl || resp.src || resp.thumbSrc;
+        if (cand && isAbsoluteUrl(cand)) return cand;
+        // if resp contains nested object
+        if (resp.data) {
+          const cand2 = resp.data.url || resp.data.fullUrl || resp.data.cosUrl || resp.data.src;
+          if (cand2 && isAbsoluteUrl(cand2)) return cand2;
+        }
+        return null;
+      } catch (e) {
+        console.error('[AiNewsWriter] fetch photo failed for', photoId, e);
+        return null;
+      }
     };
+
+    const missingIds = new Set();
+
+    // process markdown
+    let md = result.markdown || '';
+    if (md) {
+      // find PHOTO:xxxx tokens
+      const mdReplaced = md.replace(/PHOTO:([\w-]+)/g, (match, id) => {
+        missingIds.add(id);
+        return `__MAMAGE_PHOTO_PLACEHOLDER_${id}__`;
+      });
+      md = mdReplaced;
+      // Now iterate missingIds to resolve urls
+      for (const id of Array.from(missingIds)) {
+        const url = await resolvePhotoUrl(id);
+        const alt = `图${id}`;
+        const insert = url ? `![${alt}](${url})` : `![图片缺失](data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="100%" height="100%" fill="#eee"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#888">图片缺失</text></svg>')})`;
+        md = md.replace(new RegExp(`__MAMAGE_PHOTO_PLACEHOLDER_${id}__`, 'g'), insert);
+        if (!url) console.error('[AiNewsWriter] photo missing for id', id);
+      }
+      result.markdown = md;
+    }
+
+    // process html (if provided)
+    let html = result.html || '';
+    if (html) {
+      // replace PHOTO:id occurrences similarly
+      const ids = [];
+      html = html.replace(/PHOTO:([\w-]+)/g, (match, id) => {
+        ids.push(id);
+        return `__MAMAGE_PHOTO_PLACEHOLDER_${id}__`;
+      });
+      for (const id of ids) {
+        const url = await resolvePhotoUrl(id);
+        const ph = photoMap[String(id)];
+        const name = ph && (ph.photographerName || ph.photographer_name || null);
+        if (url) {
+          if (name) {
+            const fig = `<figure><img src="${url}" alt="图${id}" loading="lazy"/><figcaption>摄影：${escapeHtml(String(name))}</figcaption></figure>`;
+            html = html.replace(new RegExp(`__MAMAGE_PHOTO_PLACEHOLDER_${id}__`, 'g'), fig);
+          } else {
+            const insert = `<img src="${url}" alt="图${id}" loading="lazy"/>`;
+            html = html.replace(new RegExp(`__MAMAGE_PHOTO_PLACEHOLDER_${id}__`, 'g'), insert);
+          }
+        } else {
+          const missing = `<img src="data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="100%" height="100%" fill="#eee"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#888">图片缺失</text></svg>')}" alt="图片缺失"/>`;
+          html = html.replace(new RegExp(`__MAMAGE_PHOTO_PLACEHOLDER_${id}__`, 'g'), missing);
+          console.error('[AiNewsWriter] photo missing for id', id);
+        }
+      }
+      // attempt to fix img[src] that accidentally contain markdown or encoded markdown
+      html = fixImgSrcMarkdownInAttributes(html);
+      // clean stray surrounding markdown fragments
+      html = cleanImageSurroundingText(html);
+      // dedupe consecutive identical images that may have been inserted twice
+      result.html = dedupeConsecutiveImages(html);
+    }
+
+    return result;
+  };
 
   // Normalize preview HTML: make images responsive and fix heading spacing
   const normalizePreviewHtml = (htmlStr) => {
@@ -673,145 +741,152 @@ const AiNewsWriter = () => {
     }
   };
 
-    // Injector: replace markdown placeholders of form ![alt](PHOTO:id)
-    // using the provided photos array (selectedPhotosArg). This follows the
-    // backend contract: markdown uses PHOTO:id placeholders and real URLs are
-    // provided by `photos` (or selectedPhotos). If no usable url is found,
-    // fallback to a placeholder image.
-    const injectPhotoUrls = (markdown, selectedPhotosArg) => {
+  // Injector: replace markdown placeholders of form ![alt](PHOTO:id)
+  // using the provided photos array (selectedPhotosArg). This follows the
+  // backend contract: markdown uses PHOTO:id placeholders and real URLs are
+  // provided by `photos` (or selectedPhotos). If no usable url is found,
+  // fallback to a placeholder image.
+  const injectPhotoUrls = (markdown, selectedPhotosArg) => {
+    try {
+      if (!markdown) return markdown;
+      const photos = Array.isArray(selectedPhotosArg) ? selectedPhotosArg : [];
+      const map = Object.fromEntries(photos.map(p => [String(p.id), p]));
+      const placeholder = (typeof resolveAssetUrl === 'function') ? resolveAssetUrl('/static/img/placeholder.png') : '/static/img/placeholder.png';
+      return String(markdown).replace(/!\[([^\]]*?)\]\(PHOTO:([^\)]+)\)/g, (m, alt, id) => {
+        const ph = map[String(id)];
+        const cand = ph && (ph.url || ph.thumbUrl || ph.thumbSrc || ph.thumb || ph.src);
+        // Prefer backend-provided photographerName. If missing, fall back to photographerId.
+        const name = ph && (ph.photographerName || ph.photographer_name || null);
+        const fallbackId = ph && (ph.photographerId || ph.photographer_id || ph.photographer || null);
+        const displayName = name ? name : (fallbackId ? `摄影师 #${fallbackId}` : '未知摄影师');
+        const imgMd = (cand && cand.length) ? `![${alt}](${cand})` : `![${alt}](${placeholder})`;
+        if (displayName) return `${imgMd}\n\n*摄影：${displayName}*`;
+        return imgMd;
+      });
+    } catch (e) {
+      console.error('[AiNewsWriter] injectPhotoUrls error', e);
+      return markdown;
+    }
+  };
+
+  // Note: photographer names are expected to be returned by backend in
+  // result.photos[].photographerName. Do not fetch from /api/users here; we
+  // instead prefer showing photographerName when present.
+
+  const pollJob = (jobId, onUpdate) => {
+    let stopped = false;
+    const poll = async () => {
       try {
-        if (!markdown) return markdown;
-        const photos = Array.isArray(selectedPhotosArg) ? selectedPhotosArg : [];
-        const map = Object.fromEntries(photos.map(p => [String(p.id), p]));
-        const placeholder = (typeof resolveAssetUrl === 'function') ? resolveAssetUrl('/static/img/placeholder.png') : '/static/img/placeholder.png';
-        return String(markdown).replace(/!\[([^\]]*?)\]\(PHOTO:([^\)]+)\)/g, (m, alt, id) => {
-          const ph = map[String(id)];
-          const cand = ph && (ph.url || ph.thumbUrl || ph.thumbSrc || ph.thumb || ph.src);
-          // Prefer backend-provided photographerName. If missing, fall back to photographerId.
-          const name = ph && (ph.photographerName || ph.photographer_name || null);
-          const fallbackId = ph && (ph.photographerId || ph.photographer_id || ph.photographer || null);
-          const displayName = name ? name : (fallbackId ? `摄影师 #${fallbackId}` : '未知摄影师');
-          const imgMd = (cand && cand.length) ? `![${alt}](${cand})` : `![${alt}](${placeholder})`;
-          if (displayName) return `${imgMd}\n\n*摄影：${displayName}*`;
-          return imgMd;
-        });
+        const resp = await request(`/api/ai/news/jobs/${encodeURIComponent(jobId)}`, { method: 'GET' });
+        if (onUpdate) onUpdate(resp);
+        if (resp.status === 'succeeded' || resp.status === 'failed' || resp.status === 'cancelled') {
+          stopped = true;
+          return resp;
+        }
       } catch (e) {
-        console.error('[AiNewsWriter] injectPhotoUrls error', e);
-        return markdown;
+        console.error('[AiNewsWriter] poll job failed', e);
       }
+      if (!stopped) setTimeout(poll, 2500);
     };
+    // start
+    poll();
+    return () => { stopped = true; };
+  };
 
-    // Note: photographer names are expected to be returned by backend in
-    // result.photos[].photographerName. Do not fetch from /api/users here; we
-    // instead prefer showing photographerName when present.
-
-    const pollJob = (jobId, onUpdate) => {
-      let stopped = false;
-      const poll = async () => {
-        try {
-          const resp = await request(`/api/ai/news/jobs/${encodeURIComponent(jobId)}`, { method: 'GET' });
-          if (onUpdate) onUpdate(resp);
-          if (resp.status === 'succeeded' || resp.status === 'failed' || resp.status === 'cancelled') {
-            stopped = true;
-            return resp;
-          }
-        } catch (e) {
-          console.error('[AiNewsWriter] poll job failed', e);
-        }
-        if (!stopped) setTimeout(poll, 2500);
-      };
-      // start
-      poll();
-      return () => { stopped = true; };
-    };
-
-    const handleGenerate = async (prompt) => {
-      setIsGenerating(true);
-      try {
-        const payload = {};
-        if (prompt) payload.fullPrompt = prompt;
-        else payload.form = formValues;
-        if (referenceArticle) payload.referenceArticle = referenceArticle;
-        if (interviewText) payload.interviewText = interviewText;
-        if (selectedPhotos && selectedPhotos.length) {
-          // Per backend request: only send a single thumbnail field (thumbUrl) and projectTitle
-          payload.selectedPhotos = selectedPhotos.map((p, idx) => ({
-            id: p.id || p.url || `transfer-${idx}`,
-            // use a single canonical thumbnail field
-            thumbUrl: p.thumbUrl || p.thumbSrc || p.thumb || (p.url || null),
-            // metadata
-            description: p.description || '',
-            tags: Array.isArray(p.tags) ? p.tags : (p.tagList || []),
-            projectTitle: p.projectTitle || '',
-            // photographer id required by backend
-            photographerId: p.photographerId || p.photographer_id || p.photographer || null,
-          }));
-          // clientPhotoMap should map id -> thumbnail url
-          payload.clientPhotoMap = (selectedPhotos || []).reduce((acc, p, idx) => {
-            const id = String(p.id || p.url || `transfer-${idx}`);
-            const thumb = p.thumbUrl || p.thumbSrc || p.thumb || p.url || null;
-            if (thumb) acc[id] = thumb;
-            return acc;
-          }, {});
-        }
-        // default async
-        const resp = await request('/api/ai/news/generate', { method: 'POST', data: payload });
-        // resp may be { jobId } or { status, result }
-        if (resp.jobId && resp.status !== 'succeeded') {
-          const jobId = resp.jobId;
-          Toast.info('生成已提交，正在处理中');
-          // poll until succeeded
-          await new Promise((resolve) => {
-            const stop = pollJob(jobId, async (update) => {
-              if (update.status === 'succeeded') {
-                stop();
-                resolve(update);
-              }
-              if (update.status === 'failed') {
-                stop();
-                resolve(update);
-              }
-            });
-          }).then(async (final) => {
-            if (!final) return;
-              if (final.status === 'succeeded' && final.result) {
-              let processed = await replacePhotoPlaceholders(final.result);
-              if (processed.markdown) {
-                const injected = injectPhotoUrls(processed.markdown, processed.photos || selectedPhotos);
-                // Cleanup AI output to remove BOM/ZWSP and normalize headings before putting into textarea
-                const cleaned = normalizeMarkdownForRendering(fixNestedMarkdownImages(injected));
-                setMarkdownText(cleaned);
-              }
-              if (processed.html) setGeneratedHtml(processed.html);
-              setTitle(processed.title || formValues.eventName || '');
-              setSubtitle(processed.subtitle || '');
-              Toast.success('生成完成');
-            } else {
-              Toast.error('生成失败，请重试');
+  const handleGenerate = async (prompt) => {
+    if (generationRunningRef.current) return;
+    generationRunningRef.current = true;
+    setIsGenerating(true);
+    const runId = startPseudoProgress();
+    let succeed = false;
+    try {
+      const payload = {};
+      if (prompt) payload.fullPrompt = prompt;
+      else payload.form = formValues;
+      if (referenceArticle) payload.referenceArticle = referenceArticle;
+      if (interviewText) payload.interviewText = interviewText;
+      if (selectedPhotos && selectedPhotos.length) {
+        // Per backend request: only send a single thumbnail field (thumbUrl) and projectTitle
+        payload.selectedPhotos = selectedPhotos.map((p, idx) => ({
+          id: p.id || p.url || `transfer-${idx}`,
+          // use a single canonical thumbnail field
+          thumbUrl: p.thumbUrl || p.thumbSrc || p.thumb || (p.url || null),
+          // metadata
+          description: p.description || '',
+          tags: Array.isArray(p.tags) ? p.tags : (p.tagList || []),
+          projectTitle: p.projectTitle || '',
+          // photographer id required by backend
+          photographerId: p.photographerId || p.photographer_id || p.photographer || null,
+        }));
+        // clientPhotoMap should map id -> thumbnail url
+        payload.clientPhotoMap = (selectedPhotos || []).reduce((acc, p, idx) => {
+          const id = String(p.id || p.url || `transfer-${idx}`);
+          const thumb = p.thumbUrl || p.thumbSrc || p.thumb || p.url || null;
+          if (thumb) acc[id] = thumb;
+          return acc;
+        }, {});
+      }
+      // default async
+      const resp = await request('/api/ai/news/generate', { method: 'POST', data: payload });
+      // resp may be { jobId } or { status, result }
+      if (resp.jobId && resp.status !== 'succeeded') {
+        const jobId = resp.jobId;
+        Toast.info('生成已提交，正在处理中');
+        // poll until succeeded
+        await new Promise((resolve) => {
+          const stop = pollJob(jobId, async (update) => {
+            if (update.status === 'succeeded') {
+              stop();
+              resolve(update);
+            }
+            if (update.status === 'failed') {
+              stop();
+              resolve(update);
             }
           });
-        } else if (resp.status === 'succeeded' && resp.result) {
-          let processed = await replacePhotoPlaceholders(resp.result);
-          if (processed.markdown) {
-            const injected = injectPhotoUrls(processed.markdown, processed.photos || selectedPhotos);
-            const cleaned = normalizeMarkdownForRendering(fixNestedMarkdownImages(injected));
-            setMarkdownText(cleaned);
+        }).then(async (final) => {
+          if (!final) return;
+          if (final.status === 'succeeded' && final.result) {
+            let processed = await replacePhotoPlaceholders(final.result);
+            if (processed.markdown) {
+              const injected = injectPhotoUrls(processed.markdown, processed.photos || selectedPhotos);
+              // Cleanup AI output to remove BOM/ZWSP and normalize headings before putting into textarea
+              const cleaned = normalizeMarkdownForRendering(fixNestedMarkdownImages(injected));
+              setMarkdownText(cleaned);
+            }
+            if (processed.html) setGeneratedHtml(processed.html);
+            setTitle(processed.title || formValues.eventName || '');
+            setSubtitle(processed.subtitle || '');
+            succeed = true;
+            Toast.success('生成完成');
+          } else {
+            Toast.error('生成失败，请重试');
           }
-          if (processed.html) setGeneratedHtml(processed.html);
-          setTitle(processed.title || formValues.eventName || '');
-          setSubtitle(processed.subtitle || '');
-          Toast.success('生成完成（同步返回）');
-        } else {
-          // unexpected shape
-          Toast.error('生成接口返回格式异常');
+        });
+      } else if (resp.status === 'succeeded' && resp.result) {
+        let processed = await replacePhotoPlaceholders(resp.result);
+        if (processed.markdown) {
+          const injected = injectPhotoUrls(processed.markdown, processed.photos || selectedPhotos);
+          const cleaned = normalizeMarkdownForRendering(fixNestedMarkdownImages(injected));
+          setMarkdownText(cleaned);
         }
-      } catch (e) {
-        console.error('[AiNewsWriter] generate failed', e);
-        Toast.error('生成请求失败');
-      } finally {
-        setIsGenerating(false);
+        if (processed.html) setGeneratedHtml(processed.html);
+        setTitle(processed.title || formValues.eventName || '');
+        setSubtitle(processed.subtitle || '');
+        succeed = true;
+        Toast.success('生成完成（同步返回）');
+      } else {
+        // unexpected shape
+        Toast.error('生成接口返回格式异常');
       }
-    };
+    } catch (e) {
+      console.error('[AiNewsWriter] generate failed', e);
+      Toast.error('生成请求失败');
+    } finally {
+      stopPseudoProgress(succeed, runId);
+      generationRunningRef.current = false;
+    }
+  };
 
   const copyMarkdown = async () => {
     try {
@@ -834,9 +909,9 @@ const AiNewsWriter = () => {
   };
 
   return (
-    <Layout style={{ padding: 16 }}>
+    <Layout style={{ padding: isMobile ? 10 : 16, overflowX: 'hidden' }}>
       <Header style={{ background: 'transparent', padding: 0, marginBottom: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: isMobile ? 'flex-start' : 'center', justifyContent: 'space-between', gap: 12, flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
           <h2 style={{ margin: 0 }}>AI 写稿助手</h2>
           <Button type="danger" theme="borderless" size="small" onClick={clearAllDraft}>
             清空缓存
@@ -849,7 +924,7 @@ const AiNewsWriter = () => {
           {/* Selected photos panel */}
           <Card
             title={(
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+              <div style={{ display: 'flex', alignItems: isMobile ? 'flex-start' : 'center', justifyContent: 'space-between', gap: 12, flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
                 <div>已选照片（来自中转站）</div>
                 <div>
                   <Button size="small" onClick={() => {
@@ -900,7 +975,7 @@ const AiNewsWriter = () => {
                   style={isMobile
                     ? {
                       width: 'calc(50vw - 20px)',
-                      minWidth: 150,
+                      minWidth: 130,
                       maxWidth: 200,
                       flex: '0 0 auto',
                       borderRadius: 6,
@@ -938,9 +1013,9 @@ const AiNewsWriter = () => {
             </div>
           </Card>
 
-          <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: isMobile ? 10 : 12, alignItems: 'flex-start', flexWrap: 'wrap', flexDirection: isMobile ? 'column' : 'row' }}>
             {/* Left: form + reference */}
-            <div style={{ flex: '1 1 420px', minWidth: 320 }}>
+            <div style={{ flex: isMobile ? '1 1 auto' : '1 1 420px', minWidth: isMobile ? 0 : 320, width: '100%' }}>
               <Card title="活动信息 & 参考素材" bordered>
                 <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <div>
@@ -948,7 +1023,7 @@ const AiNewsWriter = () => {
                     <Input value={formValues.eventName} onChange={(v) => setFormValues((s) => ({ ...s, eventName: v }))} placeholder="请输入活动名称" />
                   </div>
 
-                  <div style={{ display: 'flex', gap: 12 }}>
+                  <div style={{ display: 'flex', gap: 12, flexDirection: isMobile ? 'column' : 'row' }}>
                     <div style={{ flex: 1 }}>
                       <div style={{ marginBottom: 6, fontSize: 12, color: '#444' }}>活动日期</div>
                       <DatePicker value={formValues.eventDate} onChange={(v) => setFormValues((s) => ({ ...s, eventDate: v }))} style={{ width: '100%' }} placeholder="活动日期（必填）" />
@@ -981,7 +1056,7 @@ const AiNewsWriter = () => {
                       value={formValues.targetWords}
                       onChange={(v) => setFormValues((s) => ({ ...s, targetWords: v }))}
                       placeholder="目标字数（例如：500-800）"
-                      style={{ width: 200 }}
+                      style={{ width: isMobile ? '100%' : 200 }}
                     />
                     <div style={{ fontSize: 12, color: '#666', marginTop: 6 }}>目标字数说明：AI 会尽量控制生成字数范围以满足你的发布需求。</div>
                   </div>
@@ -998,18 +1073,19 @@ const AiNewsWriter = () => {
                   <div style={{ fontSize: 12, color: '#666', marginTop: 6 }}>{referenceArticle.length}/{REFERENCE_MAX} 字（上限 20000 字）</div>
                 </div>
 
-                  {/* 组织已有风格预设已隐藏，后端未就绪 */}
+                {/* 组织已有风格预设已隐藏，后端未就绪 */}
 
-                  <div style={{ marginTop: 12 }}>
-                    <h4 style={{ margin: '0 0 8px 0' }}>采访内容/原话（可选）</h4>
-                    <TextArea value={interviewText} onChange={(v) => setInterviewText(v)} rows={4} placeholder="可以粘贴采访录音转写稿的文本，AI 会适当引用其中的内容" />
-                  </div>
+                <div style={{ marginTop: 12 }}>
+                  <h4 style={{ margin: '0 0 8px 0' }}>采访内容/原话（可选）</h4>
+                  <TextArea value={interviewText} onChange={(v) => setInterviewText(v)} rows={4} placeholder="可以粘贴采访录音转写稿的文本，AI 会适当引用其中的内容" />
+                </div>
 
-                  <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-start', gap: 8 }}>
+                <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 8 }}>
+                  <div style={{ display: 'flex', justifyContent: 'flex-start', gap: 8, flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
                     <Button onClick={async () => {
                       // ask backend for assembled prompt preview, fallback to local assemble
                       try {
-                        const payload = { form: formValues, referenceArticle, interviewText, selectedPhotos: (selectedPhotos||[]).map(p=>({id:p.id,description:p.description,tags:p.tags})) };
+                        const payload = { form: formValues, referenceArticle, interviewText, selectedPhotos: (selectedPhotos || []).map((p) => ({ id: p.id, description: p.description, tags: p.tags })) };
                         const resp = await request('/api/ai/news/preview', { method: 'POST', data: payload });
                         if (resp && resp.assembledPrompt) setAdvancedPrompt(resp.assembledPrompt);
                         else setAdvancedPrompt(assemblePrompt());
@@ -1019,8 +1095,27 @@ const AiNewsWriter = () => {
                       }
                       setShowAdvancedEditor(true);
                     }}>高级编辑</Button>
-                    <Button type="primary" onClick={() => handleGenerate()} loading={isGenerating}>生成初稿</Button>
+                    <Button type="primary" onClick={() => handleGenerate()} disabled={isGenerating}>
+                      {isGenerating ? `生成中 ${Math.max(1, Math.min(99, Math.round(generationProgress)))}%` : '生成初稿'}
+                    </Button>
                   </div>
+                  {isGenerating && (
+                    <div style={{ width: isMobile ? '100%' : 320, maxWidth: '100%' }}>
+                      <div style={{ width: '100%', height: 8, borderRadius: 999, background: '#e5e7eb', overflow: 'hidden' }}>
+                        <div
+                          style={{
+                              width: `${Math.max(2, Math.min(99, generationProgress))}%`,
+                            height: '100%',
+                            borderRadius: 999,
+                            background: 'linear-gradient(90deg, #2563eb, #3b82f6)',
+                            transition: 'width 280ms linear',
+                          }}
+                        />
+                      </div>
+                        <div style={{ marginTop: 6, fontSize: 12, color: '#64748b' }}>约 25 秒到 99%，随后等待完成</div>
+                    </div>
+                  )}
+                </div>
               </Card>
             </div>
 
@@ -1043,7 +1138,7 @@ const AiNewsWriter = () => {
             </Modal>
 
             {/* Right: editor */}
-            <div style={{ flex: '1 1 600px', minWidth: 360 }}>
+            <div style={{ flex: isMobile ? '1 1 auto' : '1 1 600px', minWidth: isMobile ? 0 : 360, width: '100%' }}>
               <Card title="AI 生成结果编辑区" bordered>
                 {/* 标题、副标题改为不在编辑区单独输入，保持单一 Markdown 编辑区 */}
 
@@ -1054,7 +1149,7 @@ const AiNewsWriter = () => {
                     <TextArea value={markdownText} onChange={(v) => setMarkdownText(v)} rows={14} placeholder="生成内容将在这里显示" />
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
                       <div>当前字数：{countVisibleChars(markdownText)}</div>
-                      <div style={{ display: 'flex', gap: 8 }}>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: isMobile ? 'wrap' : 'nowrap', justifyContent: isMobile ? 'flex-end' : 'flex-start' }}>
                         <Button onClick={copyMarkdown}>复制为 Markdown</Button>
                         <Button onClick={copyHtml}>复制为 HTML</Button>
                       </div>
@@ -1065,7 +1160,7 @@ const AiNewsWriter = () => {
                       {markdownText ? (
                         // Prefer client-side Markdown in preview. Server-provided HTML can
                         // contain oddities that break the preview; use it only as fallback.
-                        <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(normalizePreviewHtml(fixImgSrcMarkdownInAttributes(renderMarkdownToHtml(injectPhotoUrls(fixNestedMarkdownImages(normalizeMarkdownForRendering(markdownText)), selectedPhotos)))) ) }} />
+                        <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(normalizePreviewHtml(fixImgSrcMarkdownInAttributes(renderMarkdownToHtml(injectPhotoUrls(fixNestedMarkdownImages(normalizeMarkdownForRendering(markdownText)), selectedPhotos))))) }} />
                       ) : (generatedHtml ? (
                         <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(normalizePreviewHtml(fixImgSrcMarkdownInAttributes(generatedHtml))) }} />
                       ) : <div style={{ color: '#999' }}>暂无内容</div>)}

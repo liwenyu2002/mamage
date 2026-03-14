@@ -586,8 +586,9 @@ function App() {
         <div className="project-page">
           {currentProjectId ? (
             <ProjectDetail
+              key={`project-${currentProjectId}`}
               projectId={currentProjectId}
-              initialProject={currentProject}
+              initialProject={currentProject ? { ...currentProject, images: [] } : null}
               onBack={handleBackToList}
             />
           ) : (

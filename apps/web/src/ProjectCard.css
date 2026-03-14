@@ -243,3 +243,131 @@
 .project-card__spacer {
   flex: 1 1 auto;
 }
+
+.project-card__desktop-layout {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+}
+
+.project-card__mobile-layout {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .project-grid {
+    gap: 10px;
+  }
+
+  .project-card {
+    max-width: none;
+    width: 100%;
+    padding: 12px;
+    border-radius: 12px;
+  }
+
+  .project-card__desktop-layout {
+    display: none;
+  }
+
+  .project-card__mobile-layout {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    width: 100%;
+  }
+
+  .project-card__mobile-main {
+    flex: 0 0 44%;
+    aspect-ratio: 1 / 1;
+    overflow: hidden;
+    border-radius: 6px;
+    background: #e5e7eb;
+  }
+
+  .project-card__mobile-main img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  .project-card__mobile-side {
+    flex: 1 1 auto;
+    width: 56%;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .project-card__mobile-small-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    align-items: start;
+  }
+
+  .project-card__mobile-small {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    overflow: hidden;
+    border-radius: 6px;
+    background: #e5e7eb;
+  }
+
+  .project-card__mobile-small img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  .project-card__mobile-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .project-card__mobile-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .project-card__mobile-date,
+  .project-card__mobile-count {
+    font-size: 11px;
+    line-height: 1.25;
+    color: #4b5563;
+    white-space: nowrap;
+  }
+
+  .project-card__mobile-date {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .project-card__mobile-title {
+    font-size: 14px;
+    line-height: 1.3;
+    color: #111827;
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .project-card__mobile-description {
+    font-size: 12px;
+    line-height: 1.3;
+    color: #6b7280;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+}

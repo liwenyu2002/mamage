@@ -23,6 +23,18 @@ function safeParseTags(tags) {
   }
 }
 
+function getPhotoThumbCandidate(item) {
+  if (!item) return '';
+  if (typeof item === 'string') return item;
+  return item.thumbSrc || item.thumbUrl || item.thumbnail || item.thumb || item.url || item.imageUrl || item.src || item.fileUrl || item.originalSrc || item.originalUrl || item.original || item.full || item.large || '';
+}
+
+function getPhotoOriginalCandidate(item) {
+  if (!item) return '';
+  if (typeof item === 'string') return item;
+  return item.originalSrc || item.originalUrl || item.original || item.full || item.large || item.url || item.imageUrl || item.src || item.fileUrl || item.thumbSrc || item.thumbUrl || item.thumbnail || item.thumb || '';
+}
+
 function ProjectDetail({
   projectId,
   initialProject,
@@ -31,9 +43,9 @@ function ProjectDetail({
   onGalleryModeChange,
 }) {
   const [project, setProject] = React.useState(initialProject || null);
-  const [images, setImages] = React.useState(() => (initialProject?.images ? initialProject.images.map((it) => (typeof it === 'string' ? resolveAssetUrl(it) : resolveAssetUrl(it.url || it.imageUrl || it.src || it.fileUrl || ''))) : []));
-  const [photoMetas, setPhotoMetas] = React.useState(() => (initialProject?.images ? initialProject.images.map((it) => (typeof it === 'string' ? { url: it } : it)) : []));
-  const [loading, setLoading] = React.useState(false);
+  const [images, setImages] = React.useState(() => (initialProject?.images ? initialProject.images.map((it) => resolveAssetUrl(getPhotoThumbCandidate(it))) : []));
+  const [photoMetas, setPhotoMetas] = React.useState(() => (initialProject?.images ? initialProject.images.map((it) => (typeof it === 'string' ? { url: it } : { ...it, thumbSrc: resolveAssetUrl(getPhotoThumbCandidate(it)), originalSrc: resolveAssetUrl(getPhotoOriginalCandidate(it)) })) : []));
+  const [loading, setLoading] = React.useState(() => !!projectId);
   const [error, setError] = React.useState(null);
 
   // upload / staging
@@ -71,6 +83,7 @@ function ProjectDetail({
   // image viewer
   const [viewerVisible, setViewerVisible] = React.useState(false);
   const [viewerIndex, setViewerIndex] = React.useState(0);
+  const [viewerEnableOpenZoom, setViewerEnableOpenZoom] = React.useState(false);
   // whether viewer currently shows the original image (toggle per viewer open/index)
   const [viewerShowOriginal, setViewerShowOriginal] = React.useState(false);
   // parsed photo tags and descriptions indexed by photo ID
@@ -103,6 +116,7 @@ function ProjectDetail({
   const [simSelectedCount, setSimSelectedCount] = React.useState(0);
   const [simDeleting, setSimDeleting] = React.useState(false);
   const [isMobile, setIsMobile] = React.useState(() => (typeof window !== 'undefined' ? window.innerWidth <= 768 : false));
+  const viewerPointerRef = React.useRef({ active: false, pointerId: null, startX: 0, startY: 0 });
 
   React.useEffect(() => {
     if (typeof window === 'undefined') return undefined;
@@ -125,8 +139,8 @@ function ProjectDetail({
         return prev;
       });
       if (initialProject.images && initialProject.images.length) {
-        setImages((prev) => (prev.length ? prev : initialProject.images.map((it) => (typeof it === 'string' ? resolveAssetUrl(it) : resolveAssetUrl(it.url || it.imageUrl || it.src || it.fileUrl || '')))));
-        setPhotoMetas((prev) => (prev.length ? prev : initialProject.images.map((it) => (typeof it === 'string' ? { url: it } : it))));
+        setImages((prev) => (prev.length ? prev : initialProject.images.map((it) => resolveAssetUrl(getPhotoThumbCandidate(it)))));
+        setPhotoMetas((prev) => (prev.length ? prev : initialProject.images.map((it) => (typeof it === 'string' ? { url: it } : { ...it, thumbSrc: resolveAssetUrl(getPhotoThumbCandidate(it)), originalSrc: resolveAssetUrl(getPhotoOriginalCandidate(it)) }))));
       }
     }
   }, [initialProject]);
@@ -303,25 +317,24 @@ function ProjectDetail({
 
         setProject(detail);
 
-        const detailImages = mergeUnique(
-          extractImageUrls(detail?.images ?? detail?.photos ?? detail?.gallery),
-          extractImageUrls(detail?.previewImages)
-        );
+        const detailItems = Array.isArray(detail?.images) ? detail.images : (Array.isArray(detail?.photos) ? detail.photos : (Array.isArray(detail?.gallery) ? detail.gallery : []));
+        const previewItems = Array.isArray(detail?.previewImages) ? detail.previewImages : [];
+        let built = buildImagesAndMetas({ images: detailItems.length ? detailItems : previewItems, photo_ids: detail?.photo_ids, photoIds: detail?.photoIds });
 
-        let gallery = detailImages;
-        if (!gallery.length) {
+        if (!built.images.length) {
+          let gallery = mergeUnique(
+            extractImageUrls(detail?.images ?? detail?.photos ?? detail?.gallery),
+            extractImageUrls(detail?.previewImages)
+          );
           const random = await fetchRandomByProject(projectId, 30);
           if (canceled) return;
           const randomList = Array.isArray(random?.list) ? random.list : Array.isArray(random) ? random : [];
-          gallery = mergeUnique(detailImages, extractImageUrls(randomList).map(resolveAssetUrl));
+          gallery = mergeUnique(gallery, extractImageUrls(randomList).map(resolveAssetUrl));
+          if (!gallery.length && initialProject?.images?.length) {
+            gallery = mergeUnique(gallery, initialProject.images.map((it) => resolveAssetUrl(getPhotoThumbCandidate(it))));
+          }
+          built = buildImagesAndMetas({ images: gallery, photo_ids: detail?.photo_ids, photoIds: detail?.photoIds });
         }
-
-        if (!gallery.length && initialProject?.images?.length) {
-          gallery = mergeUnique(gallery, initialProject.images.map(resolveAssetUrl));
-        }
-
-        // use helper to include photo_ids if available
-        const built = buildImagesAndMetas({ images: gallery, photo_ids: detail?.photo_ids, photoIds: detail?.photoIds });
         setImages(built.images);
         setPhotoMetas(built.metas);
 
@@ -376,7 +389,11 @@ function ProjectDetail({
                   return mergedMeta;
                 });
                 setPhotoMetas(merged);
-                setImages(merged.map((m) => m.thumbSrc || m.src || resolveAssetUrl(m.url || m.fileUrl || m.imageUrl || '')));
+                setImages((prev) => {
+                  const next = merged.map((m) => m.thumbSrc || m.src || resolveAssetUrl(m.url || m.fileUrl || m.imageUrl || ''));
+                  if (prev.length === next.length && prev.every((v, i) => v === next[i])) return prev;
+                  return next;
+                });
               }
             } catch (e) {
               console.warn('merge photo urls failed', e);
@@ -431,8 +448,8 @@ function ProjectDetail({
         if (canceled) return;
         setError(err?.message || '鑾峰彇椤圭洰璇︽儏澶辫触');
         if (initialProject?.images?.length) {
-          setImages(initialProject.images.map((it) => (typeof it === 'string' ? resolveAssetUrl(it) : resolveAssetUrl(it.url || it.imageUrl || it.src || it.fileUrl || ''))));
-          setPhotoMetas(initialProject.images.map((it) => (typeof it === 'string' ? { url: it } : it)));
+          setImages(initialProject.images.map((it) => resolveAssetUrl(getPhotoThumbCandidate(it))));
+          setPhotoMetas(initialProject.images.map((it) => (typeof it === 'string' ? { url: it } : { ...it, thumbSrc: resolveAssetUrl(getPhotoThumbCandidate(it)), originalSrc: resolveAssetUrl(getPhotoOriginalCandidate(it)) })));
         }
       } finally {
         if (!canceled) setLoading(false);
@@ -515,7 +532,7 @@ function ProjectDetail({
         // pass file and projectId to uploadPhotos; it will construct FormData
         await uploadPhotos({ file: f, projectId });
       }
-      Toast.success('涓婁紶鎴愬姛');
+      Toast.success('上传成功');
       cancelUpload();
       // reload images
       try {
@@ -527,7 +544,7 @@ function ProjectDetail({
       } catch (e) { /* ignore */ }
     } catch (err) {
       console.error('upload error', err);
-      Toast.error('涓婁紶澶辫触');
+      Toast.error('上传失败');
     } finally {
       setUploading(false);
     }
@@ -1036,22 +1053,6 @@ function ProjectDetail({
     };
   }, []);
 
-  // viewer keyboard navigation
-  React.useEffect(() => {
-    if (!viewerVisible) return undefined;
-    const onKey = (e) => {
-      if (e.key === 'ArrowRight') {
-        setViewerIndex((i) => (images.length ? (i + 1) % images.length : i));
-      } else if (e.key === 'ArrowLeft') {
-        setViewerIndex((i) => (images.length ? (i - 1 + images.length) % images.length : i));
-      } else if (e.key === 'Escape') {
-        setViewerVisible(false);
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [viewerVisible, images]);
-
   // While dragging project photos, keep copy cursor globally and avoid forbidden icon.
   React.useEffect(() => {
     const onDragOver = (e) => {
@@ -1087,6 +1088,124 @@ function ProjectDetail({
   React.useEffect(() => {
     if (viewerVisible) setViewerShowOriginal(false);
   }, [viewerVisible, viewerIndex]);
+
+  const getViewerTargetSrc = React.useCallback((index, showOriginal = false) => {
+    const meta = photoMetas?.[index] || {};
+    if (showOriginal) return meta.originalSrc || meta.url || meta.thumbSrc || images[index] || '';
+    return meta.thumbSrc || images[index] || meta.originalSrc || meta.url || '';
+  }, [photoMetas, images]);
+
+  const viewerCount = images.length || 0;
+  const normalizeViewerIndex = React.useCallback((idx) => {
+    if (!viewerCount) return 0;
+    return (idx + viewerCount) % viewerCount;
+  }, [viewerCount]);
+  const prevViewerIndex = normalizeViewerIndex(viewerIndex - 1);
+  const nextViewerIndex = normalizeViewerIndex(viewerIndex + 1);
+  const viewerTrackStyle = React.useMemo(() => {
+    if (!viewerCount) return { width: '100%', transform: 'translate3d(0, 0, 0)' };
+    return {
+      width: `${viewerCount * 100}%`,
+      transform: `translate3d(-${(viewerIndex * 100) / viewerCount}%, 0, 0)`,
+    };
+  }, [viewerCount, viewerIndex]);
+  const viewerSlideStyle = React.useMemo(() => (
+    viewerCount ? { width: `${100 / viewerCount}%` } : { width: '100%' }
+  ), [viewerCount]);
+
+  React.useEffect(() => {
+    if (!viewerVisible || !viewerCount || viewerIndex < 0) return undefined;
+    const currentThumb = getViewerTargetSrc(viewerIndex, false);
+    const prevThumb = getViewerTargetSrc(prevViewerIndex, false);
+    const nextThumb = getViewerTargetSrc(nextViewerIndex, false);
+    const currentOriginal = viewerShowOriginal ? getViewerTargetSrc(viewerIndex, true) : '';
+    const candidates = [currentThumb, prevThumb, nextThumb, currentOriginal].filter(Boolean);
+    const preloads = [];
+    candidates.forEach((src) => {
+      const img = new Image();
+      img.src = src;
+      if (!img.complete) {
+        if (typeof img.decode === 'function') {
+          img.decode().catch(() => { /* ignore */ });
+        }
+      }
+      preloads.push(img);
+    });
+    return () => {
+      preloads.forEach((img) => {
+        img.onload = null;
+        img.onerror = null;
+      });
+    };
+  }, [viewerVisible, viewerCount, viewerIndex, prevViewerIndex, nextViewerIndex, getViewerTargetSrc, viewerShowOriginal]);
+
+  const navigateViewer = React.useCallback((step) => {
+    if (!viewerVisible || viewerCount <= 1) return;
+    setViewerEnableOpenZoom(false);
+    const direction = step > 0 ? 1 : -1;
+    const nextIndex = normalizeViewerIndex(viewerIndex + direction);
+    if (nextIndex === viewerIndex) return;
+    setViewerIndex(nextIndex);
+  }, [viewerVisible, viewerCount, normalizeViewerIndex, viewerIndex]);
+
+  const openViewerAt = React.useCallback((index, immediateSrc = '') => {
+    if (index < 0) return;
+    const warmSrc = immediateSrc || getViewerTargetSrc(index, false);
+    setViewerEnableOpenZoom(true);
+    if (warmSrc) {
+      const img = new Image();
+      img.src = warmSrc;
+    }
+    setViewerIndex(index);
+    setViewerShowOriginal(false);
+    setViewerVisible(true);
+  }, [getViewerTargetSrc]);
+
+  const closeViewer = React.useCallback(() => {
+    setViewerVisible(false);
+    setViewerEnableOpenZoom(false);
+    setViewerShowOriginal(false);
+  }, []);
+
+  // viewer keyboard navigation
+  React.useEffect(() => {
+    if (!viewerVisible) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'ArrowRight') {
+        navigateViewer(1);
+      } else if (e.key === 'ArrowLeft') {
+        navigateViewer(-1);
+      } else if (e.key === 'Escape') {
+        closeViewer();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [viewerVisible, closeViewer, navigateViewer]);
+
+  const handleViewerPointerDown = React.useCallback((e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    viewerPointerRef.current = {
+      active: true,
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+    };
+  }, []);
+
+  const handleViewerPointerUp = React.useCallback((e) => {
+    const state = viewerPointerRef.current;
+    if (!state.active) return;
+    const dx = e.clientX - state.startX;
+    const dy = e.clientY - state.startY;
+    viewerPointerRef.current = { active: false, pointerId: null, startX: 0, startY: 0 };
+    if (Math.abs(dx) < 48 || Math.abs(dx) <= Math.abs(dy)) return;
+    navigateViewer(dx < 0 ? 1 : -1);
+  }, [navigateViewer]);
+
+  const handleViewerPointerCancel = React.useCallback(() => {
+    viewerPointerRef.current = { active: false, pointerId: null, startX: 0, startY: 0 };
+  }, []);
 
   const hasPerm = React.useCallback((key) => userPermissions.includes(key) || canAny(key), [userPermissions]);
   const canUpdateProject = hasPerm('projects.update');
@@ -1388,13 +1507,28 @@ function ProjectDetail({
     };
   }, [photoMetas, images, photoDescMap, photoTagsMap, title]);
 
+  const getDragSelectionIndexes = React.useCallback((index) => {
+    const key = String(index);
+    const isDraggedPhotoSelected = !!(selectedMap && selectedMap[key]);
+    if (!isDraggedPhotoSelected) return [index];
+    return Object.keys(selectedMap || {})
+      .map((k) => Number(k))
+      .filter((i) => Number.isInteger(i) && i >= 0 && i < images.length && !!selectedMap[String(i)])
+      .sort((a, b) => a - b);
+  }, [selectedMap, images.length]);
+
   const handlePhotoDragStart = React.useCallback((e, index) => {
     try {
-      const payload = buildTransferItem(index);
+      const dragIndexes = getDragSelectionIndexes(index);
+      const items = dragIndexes.map((i) => buildTransferItem(i)).filter((it) => !!it && !!it.url);
+      const payload = items.length <= 1 ? (items[0] || buildTransferItem(index)) : items;
+      const lead = Array.isArray(payload) ? payload[0] : payload;
+      const count = Array.isArray(payload) ? payload.length : 1;
+
       e.dataTransfer.effectAllowed = 'copy';
       e.dataTransfer.setData('application/x-mamage-photo', JSON.stringify(payload));
       e.dataTransfer.setData('application/json', JSON.stringify(payload));
-      e.dataTransfer.setData('text/plain', payload.url || '');
+      e.dataTransfer.setData('text/plain', Array.isArray(payload) ? payload.map((it) => it.url || '').filter(Boolean).join('\n') : (payload.url || ''));
 
       // Create a "real photo card" drag preview.
       const preview = document.createElement('div');
@@ -1408,14 +1542,37 @@ function ProjectDetail({
       preview.style.left = '-9999px';
       preview.style.top = '-9999px';
       preview.style.pointerEvents = 'none';
+      preview.style.position = 'relative';
 
       const img = document.createElement('img');
-      img.src = payload.thumbSrc || payload.url || '';
+      img.src = lead.thumbSrc || lead.url || '';
       img.style.width = '100%';
       img.style.height = '100%';
       img.style.objectFit = 'cover';
       img.draggable = false;
       preview.appendChild(img);
+
+      if (count > 1) {
+        const badge = document.createElement('div');
+        badge.textContent = `${count}`;
+        badge.style.position = 'absolute';
+        badge.style.right = '8px';
+        badge.style.bottom = '8px';
+        badge.style.minWidth = '28px';
+        badge.style.height = '28px';
+        badge.style.padding = '0 8px';
+        badge.style.borderRadius = '14px';
+        badge.style.display = 'flex';
+        badge.style.alignItems = 'center';
+        badge.style.justifyContent = 'center';
+        badge.style.background = 'rgba(15, 23, 42, 0.9)';
+        badge.style.color = '#fff';
+        badge.style.fontSize = '12px';
+        badge.style.fontWeight = '700';
+        badge.style.boxShadow = '0 4px 10px rgba(0,0,0,0.3)';
+        preview.appendChild(badge);
+      }
+
       document.body.appendChild(preview);
       dragPreviewRef.current = preview;
       e.dataTransfer.setDragImage(preview, 24, 20);
@@ -1427,7 +1584,7 @@ function ProjectDetail({
     } catch (err) {
       console.warn('photo dragstart failed', err);
     }
-  }, [buildTransferItem]);
+  }, [buildTransferItem, getDragSelectionIndexes]);
 
   const handlePhotoDragEnd = React.useCallback(() => {
     try {
@@ -1452,6 +1609,8 @@ function ProjectDetail({
           <img
             src={src}
             alt={`${title}-${overallIndex}`}
+            loading="lazy"
+            decoding="async"
             draggable
             onDragStart={(e) => handlePhotoDragStart(e, overallIndex)}
             onDragEnd={handlePhotoDragEnd}
@@ -1472,12 +1631,11 @@ function ProjectDetail({
             }}
             onMouseEnter={() => setHoveredPhotoIdx(overallIndex)}
             onMouseLeave={() => setHoveredPhotoIdx(-1)}
-            onClick={() => {
+            onClick={(e) => {
               if (deleteMode) {
                 toggleSelect(overallIndex);
               } else if (overallIndex >= 0) {
-                setViewerIndex(overallIndex);
-                setViewerVisible(true);
+                openViewerAt(overallIndex, e.currentTarget.currentSrc || e.currentTarget.src || images[overallIndex] || '');
               }
             }}
           />
@@ -1544,7 +1702,7 @@ function ProjectDetail({
         </div>
       </div>
     </div>
-  ), [title, handlePhotoDragStart, handleImageLoad, deleteMode, photoMetas, images, hoveredPhotoIdx, photoTagsMap, showAILabels, photoAILabelMap, selectedMap, toggleSelect, project, initialProject, getRippleStyle]);
+  ), [title, handlePhotoDragStart, handleImageLoad, deleteMode, photoMetas, images, hoveredPhotoIdx, photoTagsMap, showAILabels, photoAILabelMap, selectedMap, toggleSelect, project, initialProject, getRippleStyle, openViewerAt]);
 
   return (
     <div className="detail-page">
@@ -1856,8 +2014,7 @@ function ProjectDetail({
                                 if (findIdx >= 0) {
                                   closeSimilarityModal();
                                   setTimeout(() => {
-                                    setViewerIndex(findIdx);
-                                    setViewerVisible(true);
+                                    openViewerAt(findIdx, thumb || url);
                                   }, 0);
                                 } else {
                                   window.open(url, '_blank');
@@ -1894,10 +2051,13 @@ function ProjectDetail({
           okButtonProps={{ loading: uploading }}
           okText="确认上传"
           cancelText="取消"
+          width={isMobile ? 'calc(100vw - 12px)' : 720}
+          bodyStyle={isMobile ? { maxHeight: '68vh', overflowY: 'auto', padding: '10px 0 0' } : undefined}
+          className="detail-upload-modal"
         >
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+          <div className="detail-upload-preview-grid">
             {stagingPreviews.map((p, i) => (
-              <div key={i} style={{ width: 120, height: 120, overflow: 'hidden', borderRadius: 0 }}>
+              <div key={i} className="detail-upload-preview-item">
                 <img src={p} alt={`preview-${i}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
               </div>
             ))}
@@ -1905,24 +2065,42 @@ function ProjectDetail({
         </Modal>
 
         {/* Image viewer overlay (no container) */}
-        {viewerVisible && (
-          <div className="viewer-overlay" onClick={() => setViewerVisible(false)}>
+        {viewerVisible ? (
+        <div className="viewer-overlay is-open" onClick={closeViewer} aria-hidden="false">
             <div className="viewer-wrap">
               <button
                 className="viewer-nav viewer-nav-left"
-                onClick={(e) => { e.stopPropagation(); setViewerIndex((i) => (images.length ? (i - 1 + images.length) % images.length : i)); }}
+                onClick={(e) => { e.stopPropagation(); navigateViewer(-1); }}
                 aria-label="上一张"
               />
 
-              <div className="viewer-img-wrap" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+              <div
+                className="viewer-img-wrap"
+                style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}
+                onPointerDown={handleViewerPointerDown}
+                onPointerUp={handleViewerPointerUp}
+                onPointerCancel={handleViewerPointerCancel}
+              >
                 {photoMetas && photoMetas[viewerIndex] ? (
                   <>
-                    <img
-                      src={viewerShowOriginal ? (photoMetas[viewerIndex].originalSrc || images[viewerIndex]) : (photoMetas[viewerIndex].thumbSrc || images[viewerIndex])}
-                      alt={`viewer-${viewerIndex}`}
-                      className="viewer-img"
-                      onClick={(e) => e.stopPropagation()}
-                    />
+                    <div className="viewer-img-stage" onClick={(e) => e.stopPropagation()}>
+                      <div className="viewer-carousel" style={viewerTrackStyle}>
+                        {images.map((_, idx) => {
+                          const slideSrc = idx === viewerIndex && viewerShowOriginal
+                            ? getViewerTargetSrc(idx, true)
+                            : getViewerTargetSrc(idx, false);
+                          return (
+                            <div className={`viewer-slide${idx === viewerIndex ? ' is-active' : ''}`} style={viewerSlideStyle} key={`viewer-slide-${idx}`}>
+                              <img
+                                src={slideSrc}
+                                alt={`viewer-${idx}`}
+                                className={`viewer-carousel-img${idx === viewerIndex && viewerEnableOpenZoom ? ' viewer-img--open-zoom' : ''}`}
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
                     {(() => {
                       const meta = photoMetas[viewerIndex] || {};
                       const rawName = meta.photographerName || meta.photographer_name || meta.photographer || (meta.photographerId ? String(meta.photographerId) : null) || (meta.photographer_id ? String(meta.photographer_id) : null);
@@ -1947,7 +2125,7 @@ function ProjectDetail({
                       );
                     })()}
                     <div style={{ position: 'absolute', right: 16, bottom: 16 }}>
-                      <button type="button" className="viewer-original-btn" onClick={(e) => { e.stopPropagation(); setViewerShowOriginal((v) => !v); }}>
+                      <button type="button" className="viewer-original-btn" onClick={(e) => { e.stopPropagation(); setViewerEnableOpenZoom(false); setViewerShowOriginal((v) => !v); }}>
                         {viewerShowOriginal ? '查看缩略图' : '查看原图'}
                       </button>
                     </div>
@@ -2026,12 +2204,19 @@ function ProjectDetail({
                     })()}
                   </>
                 ) : images[viewerIndex] ? (
-                  <img
-                    src={images[viewerIndex]}
-                    alt={`viewer-${viewerIndex}`}
-                    className="viewer-img"
-                    onClick={(e) => e.stopPropagation()}
-                  />
+                    <div className="viewer-img-stage" onClick={(e) => e.stopPropagation()}>
+                      <div className="viewer-carousel" style={viewerTrackStyle}>
+                        {images.map((src, idx) => (
+                          <div className={`viewer-slide${idx === viewerIndex ? ' is-active' : ''}`} style={viewerSlideStyle} key={`viewer-fallback-slide-${idx}`}>
+                            <img
+                              src={src}
+                              alt={`viewer-${idx}`}
+                              className={`viewer-carousel-img${idx === viewerIndex && viewerEnableOpenZoom ? ' viewer-img--open-zoom' : ''}`}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                 ) : null}
               </div>
 
@@ -2077,12 +2262,12 @@ function ProjectDetail({
 
               <button
                 className="viewer-nav viewer-nav-right"
-                onClick={(e) => { e.stopPropagation(); setViewerIndex((i) => (images.length ? (i + 1) % images.length : i)); }}
+                onClick={(e) => { e.stopPropagation(); navigateViewer(1); }}
                 aria-label="下一张"
               />
             </div>
           </div>
-        )}
+        ) : null}
 
         {/* Inline viewer edit 鈥?replaced modal with inline editor under the photo */}
 
