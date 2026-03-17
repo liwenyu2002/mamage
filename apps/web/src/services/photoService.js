@@ -17,6 +17,161 @@ function fetchRandomByProject(projectId, limit = 4) {
   });
 }
 
+function searchPhotos({ q = '', projectId, page = 1, pageSize = 20, sort = 'relevance' } = {}) {
+  const data = { q, page, pageSize, sort };
+  if (projectId !== undefined && projectId !== null && String(projectId).trim() !== '') {
+    data.projectId = projectId;
+  }
+  return request('/api/photos/search', {
+    method: 'GET',
+    data
+  });
+}
+
+async function detectPhotoFaces(photoId, { force = false, projectId } = {}) {
+  if (photoId === undefined || photoId === null || String(photoId).trim() === '') {
+    throw new Error('detectPhotoFaces: photoId is required');
+  }
+  const sid = String(photoId).trim();
+  const encodedId = encodeURIComponent(sid);
+  const baseData = {};
+  if (force) baseData.force = 1;
+  if (projectId !== undefined && projectId !== null && String(projectId).trim() !== '') {
+    baseData.projectId = String(projectId).trim();
+  }
+  const candidates = [
+    { url: `/api/photos/${encodedId}/faces/detect`, method: 'POST', data: { ...baseData } },
+    { url: `/api/photos/${encodedId}/faces`, method: 'POST', data: { detect: 1, ...baseData } },
+    { url: `/api/photos/${encodedId}/faces`, method: 'GET', data: { detect: 1, ...baseData } },
+    { url: '/api/faces/detect', method: 'POST', data: { photoId: sid, ...baseData } },
+    { url: '/api/faces', method: 'GET', data: { photoId: sid, ...baseData } },
+  ];
+
+  let lastErr = null;
+  for (const c of candidates) {
+    try {
+      return await request(c.url, { method: c.method, data: c.data });
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error('detectPhotoFaces failed');
+}
+
+async function getFacePersonInfo({ faceId, personId, projectId } = {}) {
+  const sid = faceId !== undefined && faceId !== null ? String(faceId).trim() : '';
+  const pid = personId !== undefined && personId !== null ? String(personId).trim() : '';
+  if (!sid && !pid) {
+    throw new Error('getFacePersonInfo: faceId or personId is required');
+  }
+
+  const q = {};
+  if (sid) q.faceId = sid;
+  if (pid) q.personId = pid;
+  if (projectId !== undefined && projectId !== null && String(projectId).trim() !== '') {
+    q.projectId = String(projectId).trim();
+  }
+
+  const candidates = [];
+  if (sid) {
+    const encodedFaceId = encodeURIComponent(sid);
+    candidates.push({ url: `/api/faces/${encodedFaceId}/person`, method: 'GET' });
+    candidates.push({ url: `/api/faces/${encodedFaceId}`, method: 'GET' });
+  }
+  if (pid) {
+    const encodedPersonId = encodeURIComponent(pid);
+    candidates.push({ url: `/api/persons/${encodedPersonId}`, method: 'GET' });
+    candidates.push({ url: `/api/persons/${encodedPersonId}/photos`, method: 'GET' });
+  }
+  candidates.push({ url: '/api/faces/person', method: 'GET', data: { ...q } });
+  candidates.push({ url: '/api/faces/profile', method: 'GET', data: { ...q } });
+
+  let lastErr = null;
+  for (const c of candidates) {
+    try {
+      return await request(c.url, { method: c.method, data: c.data });
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error('getFacePersonInfo failed');
+}
+
+async function labelFacePerson({ faceId, personId, personName } = {}) {
+  const sid = faceId !== undefined && faceId !== null ? String(faceId).trim() : '';
+  const pid = personId !== undefined && personId !== null ? String(personId).trim() : '';
+  const pname = personName !== undefined && personName !== null ? String(personName).trim() : '';
+  if (!sid) throw new Error('labelFacePerson: faceId is required');
+  if (!pid && !pname) throw new Error('labelFacePerson: personId or personName is required');
+  return request('/api/faces/label', {
+    method: 'POST',
+    data: {
+      faceId: sid,
+      personId: pid || undefined,
+      personName: pname || undefined,
+    },
+  });
+}
+
+async function renameFacePerson({ personId, personName } = {}) {
+  const pid = personId !== undefined && personId !== null ? String(personId).trim() : '';
+  const pname = personName !== undefined && personName !== null ? String(personName).trim() : '';
+  if (!pid) throw new Error('renameFacePerson: personId is required');
+  if (!pname) throw new Error('renameFacePerson: personName is required');
+  return request(`/api/persons/${encodeURIComponent(pid)}`, {
+    method: 'PATCH',
+    data: { personName: pname },
+  });
+}
+
+async function listFacePersons({ q = '', page = 1, pageSize = 20 } = {}) {
+  return request('/api/persons', {
+    method: 'GET',
+    data: {
+      q: String(q || '').trim(),
+      page,
+      pageSize,
+    },
+  });
+}
+
+async function mergeFacePersons({ targetPersonId, sourcePersonIds } = {}) {
+  const target = Number(targetPersonId);
+  const sources = Array.isArray(sourcePersonIds)
+    ? sourcePersonIds.map((x) => Number(x)).filter((x) => Number.isFinite(x) && x > 0)
+    : [];
+  if (!Number.isFinite(target) || target <= 0) {
+    throw new Error('mergeFacePersons: targetPersonId is required');
+  }
+  if (!sources.length) {
+    throw new Error('mergeFacePersons: sourcePersonIds is required');
+  }
+  return request('/api/persons/merge', {
+    method: 'POST',
+    data: {
+      targetPersonId: target,
+      sourcePersonIds: sources,
+    },
+  });
+}
+
+async function getFaceClusterConfig() {
+  return request('/api/faces/cluster/config', {
+    method: 'GET',
+  });
+}
+
+async function updateFaceClusterConfig(matchThreshold) {
+  const threshold = Number(matchThreshold);
+  if (!Number.isFinite(threshold)) {
+    throw new Error('updateFaceClusterConfig: matchThreshold must be a number');
+  }
+  return request('/api/faces/cluster/config', {
+    method: 'POST',
+    data: { matchThreshold: threshold },
+  });
+}
+
 // 上传图片，参数为 FormData 或者一个包含 { file, projectId, title, type, tags } 的对象
 // 如果 tags 为数组，会自动转为 JSON 字符串
 async function uploadPhotos(formDataOrObj) {
@@ -159,4 +314,18 @@ async function deletePhotos(photoIds) {
   throw finalErr;
 }
 
-export { fetchLatestByType, fetchRandomByProject, uploadPhotos, deletePhotos };
+export {
+  fetchLatestByType,
+  fetchRandomByProject,
+  searchPhotos,
+  detectPhotoFaces,
+  getFacePersonInfo,
+  labelFacePerson,
+  renameFacePerson,
+  listFacePersons,
+  mergeFacePersons,
+  getFaceClusterConfig,
+  updateFaceClusterConfig,
+  uploadPhotos,
+  deletePhotos,
+};

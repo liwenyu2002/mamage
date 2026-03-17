@@ -4,7 +4,7 @@ import { Typography, Button, Tag, Spin, Empty, Modal, Input, DatePicker, TextAre
 import './ProjectDetail.css';
 import { getProjectById, updateProject, deleteProject } from './services/projectService';
 import { me as fetchMe, getToken } from './services/authService';
-import { fetchRandomByProject, uploadPhotos, deletePhotos } from './services/photoService';
+import { fetchRandomByProject, searchPhotos, detectPhotoFaces, getFacePersonInfo, labelFacePerson, renameFacePerson, uploadPhotos, deletePhotos } from './services/photoService';
 import { resolveAssetUrl, BASE_URL } from './services/request';
 import IfCan from './permissions/IfCan';
 import PermButton from './permissions/PermButton';
@@ -33,6 +33,142 @@ function getPhotoOriginalCandidate(item) {
   if (!item) return '';
   if (typeof item === 'string') return item;
   return item.originalSrc || item.originalUrl || item.original || item.full || item.large || item.url || item.imageUrl || item.src || item.fileUrl || item.thumbSrc || item.thumbUrl || item.thumbnail || item.thumb || '';
+}
+
+function toFiniteNumber(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function normalizeRelatedFacePhotos(input) {
+  if (!Array.isArray(input)) return [];
+  return input.map((item, idx) => {
+    if (!item) return null;
+    if (typeof item === 'string') {
+      const url = resolveAssetUrl(item);
+      return { id: `photo-${idx + 1}`, url, thumbUrl: url, title: `照片 ${idx + 1}` };
+    }
+    const id = item.id || item.photoId || item.photo_id || item.imageId || item.image_id || `photo-${idx + 1}`;
+    const thumb = item.thumbUrl || item.thumbSrc || item.thumbnail || item.thumb || item.url || item.src || '';
+    const full = item.url || item.originalUrl || item.originalSrc || item.src || thumb;
+    return {
+      id: String(id),
+      photoId: String(id),
+      projectId: item.projectId || item.project_id || null,
+      projectName: item.projectName || item.project_name || '',
+      url: full ? resolveAssetUrl(full) : '',
+      thumbUrl: thumb ? resolveAssetUrl(thumb) : (full ? resolveAssetUrl(full) : ''),
+      title: item.title || item.description || item.name || `照片 ${idx + 1}`,
+      description: item.description || '',
+    };
+  }).filter(Boolean);
+}
+
+function normalizeFaceDetections(payload) {
+  const root = (payload && typeof payload === 'object') ? payload : {};
+  const data = (root.data && typeof root.data === 'object') ? root.data : root;
+  const list = Array.isArray(root)
+    ? root
+    : Array.isArray(data.faces)
+      ? data.faces
+      : Array.isArray(data.list)
+        ? data.list
+        : Array.isArray(data.items)
+          ? data.items
+          : Array.isArray(data.results)
+            ? data.results
+            : Array.isArray(data.boxes)
+              ? data.boxes
+              : [];
+
+  const defaultImgW = toFiniteNumber(data.imageWidth ?? data.image_width ?? root.imageWidth ?? root.image_width);
+  const defaultImgH = toFiniteNumber(data.imageHeight ?? data.image_height ?? root.imageHeight ?? root.image_height);
+
+  return list.map((item, idx) => {
+    const face = (item && typeof item === 'object') ? item : null;
+    if (!face) return null;
+    const rect = face.bbox || face.box || face.rect || face.region || face.faceBox || face.location || {};
+
+    let left = toFiniteNumber(rect.left ?? rect.x ?? rect.x1 ?? rect.minX ?? face.left ?? face.x ?? face.x1 ?? face.minX);
+    let top = toFiniteNumber(rect.top ?? rect.y ?? rect.y1 ?? rect.minY ?? face.top ?? face.y ?? face.y1 ?? face.minY);
+    let width = toFiniteNumber(rect.width ?? rect.w ?? face.width ?? face.w);
+    let height = toFiniteNumber(rect.height ?? rect.h ?? face.height ?? face.h);
+    const right = toFiniteNumber(rect.right ?? rect.x2 ?? rect.maxX ?? face.right ?? face.x2 ?? face.maxX);
+    const bottom = toFiniteNumber(rect.bottom ?? rect.y2 ?? rect.maxY ?? face.bottom ?? face.y2 ?? face.maxY);
+
+    if ((left === null || top === null || width === null || height === null) && Array.isArray(rect) && rect.length >= 4) {
+      left = left ?? toFiniteNumber(rect[0]);
+      top = top ?? toFiniteNumber(rect[1]);
+      width = width ?? toFiniteNumber(rect[2]);
+      height = height ?? toFiniteNumber(rect[3]);
+    }
+    if (width === null && left !== null && right !== null) width = right - left;
+    if (height === null && top !== null && bottom !== null) height = bottom - top;
+    if (left === null || top === null || width === null || height === null || width <= 0 || height <= 0) return null;
+
+    const normalizedHint = Boolean(face.normalized ?? rect.normalized ?? data.normalized ?? root.normalized);
+    const looksNormalized = Math.abs(left) <= 1.05 && Math.abs(top) <= 1.05 && Math.abs(width) <= 1.2 && Math.abs(height) <= 1.2;
+    const unit = (normalizedHint || looksNormalized) ? 'ratio' : 'pixel';
+    const faceNo = face.faceNo || face.faceNumber || face.no || (idx + 1);
+    const faceId = String(face.faceId || face.face_id || face.id || face.trackId || `face-${faceNo}`);
+    const rawPhotoId = face.photoId || face.photo_id || face.imageId || face.image_id || '';
+    const photoId = rawPhotoId ? String(rawPhotoId) : '';
+    const personIdRaw = face.personId || face.person_id || face.identityId || face.identity_id || face.clusterId || face.cluster_id || null;
+    const personId = (personIdRaw !== null && personIdRaw !== undefined && String(personIdRaw).trim() !== '') ? String(personIdRaw) : '';
+    const personNameRaw = face.personName || face.person_name || face.name || face.label || '';
+    const personName = String(personNameRaw || '').trim();
+
+    return {
+      faceId,
+      photoId,
+      faceNo,
+      personId,
+      personName,
+      label: personName || (personId ? `人物#${personId}` : `人脸#${faceNo}`),
+      left,
+      top,
+      width,
+      height,
+      unit,
+      imageWidth: toFiniteNumber(face.imageWidth ?? face.image_width ?? rect.imageWidth ?? defaultImgW),
+      imageHeight: toFiniteNumber(face.imageHeight ?? face.image_height ?? rect.imageHeight ?? defaultImgH),
+      score: toFiniteNumber(face.score ?? face.confidence ?? face.similarity),
+      relatedPhotos: normalizeRelatedFacePhotos(face.relatedPhotos || face.photos || face.matches || []),
+      raw: face,
+    };
+  }).filter(Boolean);
+}
+
+function normalizeFacePerson(payload, sourceFace) {
+  const root = (payload && typeof payload === 'object') ? payload : {};
+  const data = (root.data && typeof root.data === 'object') ? root.data : root;
+  const person = (data.person && typeof data.person === 'object')
+    ? data.person
+    : (data.profile && typeof data.profile === 'object')
+      ? data.profile
+      : (data.face && typeof data.face === 'object')
+        ? data.face
+        : data;
+
+  const rawPersonId = person.personId || person.person_id || person.id || sourceFace?.personId || '';
+  const personId = rawPersonId ? String(rawPersonId) : '';
+  const faceId = sourceFace?.faceId ? String(sourceFace.faceId) : '';
+  const personNameRaw = person.name || person.personName || person.person_name || person.label || sourceFace?.personName || '';
+  const personName = String(personNameRaw || '').trim();
+  const relatedPhotos = normalizeRelatedFacePhotos(
+    data.relatedPhotos || data.photos || person.relatedPhotos || person.photos || sourceFace?.relatedPhotos || []
+  );
+
+  return {
+    personId,
+    faceId,
+    personName,
+    displayName: personName || (personId ? `人物#${personId}` : (sourceFace?.faceNo ? `人脸#${sourceFace.faceNo}` : '未标注人物')),
+    description: String(person.description || person.bio || person.summary || '').trim(),
+    relatedPhotos,
+    sourceFace: sourceFace || null,
+    raw: data,
+  };
 }
 
 function ProjectDetail({
@@ -89,6 +225,19 @@ function ProjectDetail({
   const [viewerEnableOpenZoom, setViewerEnableOpenZoom] = React.useState(false);
   // whether viewer currently shows the original image (toggle per viewer open/index)
   const [viewerShowOriginal, setViewerShowOriginal] = React.useState(false);
+  const [viewerFaceOverlayVisible, setViewerFaceOverlayVisible] = React.useState(false);
+  const [viewerFaceMap, setViewerFaceMap] = React.useState({});
+  const [viewerFaceLoadingMap, setViewerFaceLoadingMap] = React.useState({});
+  const [viewerFaceErrorMap, setViewerFaceErrorMap] = React.useState({});
+  const [viewerImageNaturalMap, setViewerImageNaturalMap] = React.useState({});
+  const [facePersonVisible, setFacePersonVisible] = React.useState(false);
+  const [facePersonLoading, setFacePersonLoading] = React.useState(false);
+  const [facePersonError, setFacePersonError] = React.useState('');
+  const [facePersonData, setFacePersonData] = React.useState(null);
+  const [facePersonHeroPhoto, setFacePersonHeroPhoto] = React.useState(null);
+  const [facePersonEditName, setFacePersonEditName] = React.useState('');
+  const [facePersonSaving, setFacePersonSaving] = React.useState(false);
+  const [viewerFromPersonProfile, setViewerFromPersonProfile] = React.useState(false);
   // parsed photo tags and descriptions indexed by photo ID
   const [photoTagsMap, setPhotoTagsMap] = React.useState({});
   const [photoDescMap, setPhotoDescMap] = React.useState({});
@@ -120,6 +269,11 @@ function ProjectDetail({
   const [simDeleting, setSimDeleting] = React.useState(false);
   const [isMobile, setIsMobile] = React.useState(() => (typeof window !== 'undefined' ? window.innerWidth <= 768 : false));
   const viewerPointerRef = React.useRef({ active: false, pointerId: null, startX: 0, startY: 0 });
+  const [searchKeyword, setSearchKeyword] = React.useState('');
+  const [searching, setSearching] = React.useState(false);
+  const [searchError, setSearchError] = React.useState('');
+  const searchReqSeqRef = React.useRef(0);
+  const hasSearchedRef = React.useRef(false);
 
   React.useEffect(() => {
     if (typeof window === 'undefined') return undefined;
@@ -465,6 +619,99 @@ function ProjectDetail({
       canceled = true;
     };
   }, [projectId, initialProject]);
+
+  const reloadGalleryFromServer = React.useCallback(async () => {
+    if (!projectId) return;
+    const detail = await getProjectById(projectId);
+    setProject(detail);
+    const built = buildImagesAndMetas(detail);
+    setImages(built.images);
+    setPhotoMetas(built.metas);
+  }, [projectId, buildImagesAndMetas]);
+
+  React.useEffect(() => {
+    setSearchKeyword('');
+    setSearchError('');
+    setSearching(false);
+    searchReqSeqRef.current = 0;
+    hasSearchedRef.current = false;
+  }, [projectId]);
+
+  React.useEffect(() => {
+    const timer = setTimeout(async () => {
+      const q = String(searchKeyword || '').trim();
+      const seq = searchReqSeqRef.current + 1;
+      searchReqSeqRef.current = seq;
+
+      if (!q) {
+        setSearchError('');
+        if (!hasSearchedRef.current) return;
+        setSearching(true);
+        try {
+          await reloadGalleryFromServer();
+          if (searchReqSeqRef.current === seq) {
+            hasSearchedRef.current = false;
+          }
+        } catch (err) {
+          if (searchReqSeqRef.current !== seq) return;
+          setSearchError('恢复全部照片失败，请重试');
+        } finally {
+          if (searchReqSeqRef.current === seq) setSearching(false);
+        }
+        return;
+      }
+
+      if (!projectId) return;
+      setSearching(true);
+      setSearchError('');
+      try {
+        const resp = await searchPhotos({
+          q,
+          projectId,
+          page: 1,
+          pageSize: 200,
+          sort: 'relevance',
+        });
+        if (searchReqSeqRef.current !== seq) return;
+        const list = Array.isArray(resp?.list) ? resp.list : [];
+        const nextMetas = list.map((it) => {
+          const thumbSrc = resolveAssetUrl(getPhotoThumbCandidate(it));
+          const originalSrc = resolveAssetUrl(getPhotoOriginalCandidate(it));
+          return { ...it, thumbSrc, originalSrc };
+        });
+        const nextImages = nextMetas.map((m) => m.thumbSrc || resolveAssetUrl(getPhotoThumbCandidate(m))).filter(Boolean);
+
+        const tagsPatch = {};
+        const descPatch = {};
+        nextMetas.forEach((m) => {
+          if (!m || !m.id) return;
+          tagsPatch[m.id] = safeParseTags(m.tags);
+          descPatch[m.id] = m.description || '';
+        });
+        if (Object.keys(tagsPatch).length) {
+          setPhotoTagsMap((prev) => ({ ...(prev || {}), ...tagsPatch }));
+        }
+        if (Object.keys(descPatch).length) {
+          setPhotoDescMap((prev) => ({ ...(prev || {}), ...descPatch }));
+        }
+
+        setDeleteMode(false);
+        setSelectedMap({});
+        setSelectedCount(0);
+        setAllSelected(false);
+        setImages(nextImages);
+        setPhotoMetas(nextMetas);
+        hasSearchedRef.current = true;
+      } catch (err) {
+        if (searchReqSeqRef.current !== seq) return;
+        setSearchError(err?.body || err?.message || '搜索失败');
+      } finally {
+        if (searchReqSeqRef.current === seq) setSearching(false);
+      }
+    }, 260);
+
+    return () => clearTimeout(timer);
+  }, [searchKeyword, projectId, reloadGalleryFromServer]);
 
   // fetch current user to get permissions from backend
   React.useEffect(() => {
@@ -1202,7 +1449,7 @@ function ProjectDetail({
     };
   }, []);
 
-  // reset viewer original flag when opening viewer or when index changes
+  // reset viewer original flag when opening viewer or switching slides
   React.useEffect(() => {
     if (viewerVisible) setViewerShowOriginal(false);
   }, [viewerVisible, viewerIndex]);
@@ -1212,6 +1459,321 @@ function ProjectDetail({
     if (showOriginal) return meta.originalSrc || meta.url || meta.thumbSrc || images[index] || '';
     return meta.thumbSrc || images[index] || meta.originalSrc || meta.url || '';
   }, [photoMetas, images]);
+
+  const getMetaPhotoId = React.useCallback((meta) => {
+    if (!meta) return null;
+    const raw = meta.id || meta.photoId || meta.photo_id || null;
+    if (raw === null || raw === undefined) return null;
+    const sid = String(raw).trim();
+    return sid || null;
+  }, []);
+
+  const currentViewerPhotoId = React.useMemo(() => getMetaPhotoId(photoMetas?.[viewerIndex]), [photoMetas, viewerIndex, getMetaPhotoId]);
+  const currentViewerFaces = React.useMemo(() => (currentViewerPhotoId ? (viewerFaceMap[currentViewerPhotoId] || []) : []), [currentViewerPhotoId, viewerFaceMap]);
+  const currentViewerFaceLoading = Boolean(currentViewerPhotoId && viewerFaceLoadingMap[currentViewerPhotoId]);
+  const currentViewerFaceError = currentViewerPhotoId ? (viewerFaceErrorMap[currentViewerPhotoId] || '') : '';
+
+  const handleViewerImageLoad = React.useCallback((photoId, e) => {
+    if (!photoId || !e?.target) return;
+    const width = toFiniteNumber(e.target.naturalWidth);
+    const height = toFiniteNumber(e.target.naturalHeight);
+    if (!width || !height) return;
+    setViewerImageNaturalMap((prev) => {
+      const old = prev[photoId];
+      if (old && old.width === width && old.height === height) return prev;
+      return { ...(prev || {}), [photoId]: { width, height } };
+    });
+  }, []);
+
+  const getViewerFaceBoxStyle = React.useCallback((face, photoId) => {
+    if (!face) return { display: 'none' };
+    let left = toFiniteNumber(face.left);
+    let top = toFiniteNumber(face.top);
+    let width = toFiniteNumber(face.width);
+    let height = toFiniteNumber(face.height);
+    if (left === null || top === null || width === null || height === null) return { display: 'none' };
+
+    if (face.unit !== 'ratio') {
+      const fallback = viewerImageNaturalMap && photoId ? viewerImageNaturalMap[photoId] : null;
+      const baseW = toFiniteNumber(face.imageWidth) || toFiniteNumber(fallback?.width);
+      const baseH = toFiniteNumber(face.imageHeight) || toFiniteNumber(fallback?.height);
+      if (baseW && baseH) {
+        left = left / baseW;
+        top = top / baseH;
+        width = width / baseW;
+        height = height / baseH;
+      } else if (!(Math.abs(left) <= 1.05 && Math.abs(top) <= 1.05 && Math.abs(width) <= 1.2 && Math.abs(height) <= 1.2)) {
+        return { display: 'none' };
+      }
+    }
+
+    const l = Math.max(0, Math.min(1, left));
+    const t = Math.max(0, Math.min(1, top));
+    const w = Math.max(0.03, Math.min(1 - l, width));
+    const h = Math.max(0.03, Math.min(1 - t, height));
+    return {
+      left: `${l * 100}%`,
+      top: `${t * 100}%`,
+      width: `${w * 100}%`,
+      height: `${h * 100}%`,
+    };
+  }, [viewerImageNaturalMap]);
+
+  const pickFacePersonHeroPhoto = React.useCallback((data) => {
+    const related = Array.isArray(data?.relatedPhotos) ? data.relatedPhotos.filter(Boolean) : [];
+    if (!related.length) return null;
+    const sourceFacePhotoId = String(data?.sourceFace?.photoId || data?.sourceFace?.raw?.photoId || '').trim();
+    if (sourceFacePhotoId) {
+      const exact = related.find((p) => String(p?.photoId || p?.id || '').trim() === sourceFacePhotoId);
+      if (exact) return exact;
+    }
+    const idx = Math.floor(Math.random() * related.length);
+    return related[idx] || related[0] || null;
+  }, []);
+
+  const getFaceHeroImageStyle = React.useCallback((data, heroPhoto) => {
+    const base = { width: '100%', height: '100%', objectFit: 'cover' };
+    if (!data || !heroPhoto) return base;
+    const sourceFace = data.sourceFace || null;
+    if (!sourceFace) return base;
+    const sourceFacePhotoId = String(sourceFace.photoId || sourceFace.raw?.photoId || '').trim();
+    const heroPhotoId = String(heroPhoto.photoId || heroPhoto.id || '').trim();
+    if (!sourceFacePhotoId || !heroPhotoId || sourceFacePhotoId !== heroPhotoId) return base;
+
+    let left = toFiniteNumber(sourceFace.left);
+    let top = toFiniteNumber(sourceFace.top);
+    let width = toFiniteNumber(sourceFace.width);
+    let height = toFiniteNumber(sourceFace.height);
+    if (left === null || top === null || width === null || height === null) return base;
+
+    if (sourceFace.unit !== 'ratio') {
+      const iw = toFiniteNumber(sourceFace.imageWidth);
+      const ih = toFiniteNumber(sourceFace.imageHeight);
+      if (iw && ih) {
+        left /= iw;
+        top /= ih;
+        width /= iw;
+        height /= ih;
+      } else {
+        return base;
+      }
+    }
+
+    const cx = Math.max(0, Math.min(1, left + (width / 2)));
+    const cy = Math.max(0, Math.min(1, top + (height / 2)));
+    // Push horizontal framing slightly outward from center:
+    // right-side faces move a bit more right, left-side faces a bit more left.
+    const biasedCx = Math.max(0.04, Math.min(0.96, 0.5 + ((cx - 0.5) * 1.18)));
+    const faceSize = Math.max(width, height);
+    // Make avatar a face close-up: smaller face box => stronger zoom.
+    const targetFaceSizeInAvatar = 0.62;
+    const rawScale = faceSize > 0 ? (targetFaceSizeInAvatar / faceSize) : 1;
+    const zoom = Math.max(1, Math.min(3.4, rawScale));
+    return {
+      ...base,
+      objectPosition: `${(biasedCx * 100).toFixed(2)}% ${(cy * 100).toFixed(2)}%`,
+      transformOrigin: `${(biasedCx * 100).toFixed(2)}% ${(cy * 100).toFixed(2)}%`,
+      transform: `scale(${zoom.toFixed(3)})`,
+    };
+  }, []);
+
+  const closeFacePersonModal = React.useCallback(() => {
+    setFacePersonVisible(false);
+    setFacePersonLoading(false);
+    setFacePersonSaving(false);
+    setFacePersonError('');
+    setFacePersonEditName('');
+    setFacePersonHeroPhoto(null);
+  }, []);
+
+  const openFacePersonModal = React.useCallback(async (face) => {
+    if (!face) return;
+    const seedData = normalizeFacePerson({}, face);
+    setFacePersonError('');
+    setFacePersonVisible(true);
+    setFacePersonData(seedData);
+    setFacePersonEditName(seedData.personName || '');
+    setFacePersonHeroPhoto(pickFacePersonHeroPhoto(seedData));
+
+    if (!face.faceId && !face.personId) return;
+
+    setFacePersonLoading(true);
+    try {
+      const data = await getFacePersonInfo({
+        faceId: face.faceId || undefined,
+        personId: face.personId || undefined,
+        projectId: projectId || undefined,
+      });
+      const normalized = normalizeFacePerson(data, face);
+      setFacePersonData(normalized);
+      setFacePersonEditName(normalized.personName || '');
+      setFacePersonHeroPhoto(pickFacePersonHeroPhoto(normalized));
+    } catch (err) {
+      console.error('getFacePersonInfo failed', err);
+      setFacePersonError(err?.body || err?.message || '获取人物信息失败');
+    } finally {
+      setFacePersonLoading(false);
+    }
+  }, [pickFacePersonHeroPhoto, projectId]);
+
+  const saveFacePersonName = React.useCallback(async () => {
+    if (!facePersonData) return;
+    const nextName = String(facePersonEditName || '').trim();
+    if (!nextName) {
+      Toast.warning('请输入人物姓名');
+      return;
+    }
+
+    if (!facePersonData.personId && !facePersonData.faceId) {
+      Toast.warning('缺少人物或人脸标识，无法保存');
+      return;
+    }
+
+    setFacePersonSaving(true);
+    setFacePersonError('');
+    try {
+      let data;
+      if (facePersonData.personId) {
+        data = await renameFacePerson({
+          personId: facePersonData.personId,
+          personName: nextName,
+        });
+      } else {
+        data = await labelFacePerson({
+          faceId: facePersonData.faceId,
+          personName: nextName,
+        });
+      }
+
+      const normalized = normalizeFacePerson(data, {
+        faceId: facePersonData.faceId || '',
+        personId: facePersonData.personId || '',
+        personName: nextName,
+      });
+      const patched = {
+        ...facePersonData,
+        ...normalized,
+        personName: nextName,
+        displayName: nextName,
+      };
+      setFacePersonData(patched);
+      setFacePersonEditName(nextName);
+
+      setViewerFaceMap((prev) => {
+        const targetFaceId = patched.faceId ? String(patched.faceId) : '';
+        const targetPersonId = patched.personId ? String(patched.personId) : '';
+        let changed = false;
+        const nextMap = {};
+        Object.keys(prev || {}).forEach((photoIdKey) => {
+          const list = prev[photoIdKey];
+          if (!Array.isArray(list)) {
+            nextMap[photoIdKey] = list;
+            return;
+          }
+          let listChanged = false;
+          const nextList = list.map((face) => {
+            const row = (face && typeof face === 'object') ? face : {};
+            const rowFaceId = row.faceId || row.face_id ? String(row.faceId || row.face_id) : '';
+            const rowPersonId = row.personId || row.person_id ? String(row.personId || row.person_id) : '';
+            const matchedByFace = targetFaceId && rowFaceId && rowFaceId === targetFaceId;
+            const matchedByPerson = !matchedByFace && targetPersonId && rowPersonId && rowPersonId === targetPersonId;
+            if (!matchedByFace && !matchedByPerson) return row;
+            listChanged = true;
+            changed = true;
+            const nextPersonId = targetPersonId || rowPersonId || '';
+            return {
+              ...row,
+              personId: nextPersonId,
+              personName: nextName,
+              label: nextName || (nextPersonId ? `人物#${nextPersonId}` : row.label),
+            };
+          });
+          nextMap[photoIdKey] = listChanged ? nextList : list;
+        });
+        return changed ? nextMap : prev;
+      });
+
+      Toast.success('人物姓名已更新');
+    } catch (err) {
+      console.error('saveFacePersonName failed', err);
+      let msg = err?.message || '更新人物姓名失败';
+      if (err?.body) {
+        try {
+          const parsed = typeof err.body === 'string' ? JSON.parse(err.body) : err.body;
+          msg = parsed?.message || parsed?.error || msg;
+        } catch (e) {
+          msg = typeof err.body === 'string' ? err.body : msg;
+        }
+      }
+      setFacePersonError(msg);
+      Toast.error(msg);
+    } finally {
+      setFacePersonSaving(false);
+    }
+  }, [facePersonData, facePersonEditName]);
+
+  const openRelatedFacePhoto = React.useCallback((photo) => {
+    if (!photo) return;
+    const targetIdRaw = photo.id || photo.photoId || photo.photo_id || '';
+    const targetId = targetIdRaw ? String(targetIdRaw) : '';
+    const hitIdx = targetId ? (photoMetas || []).findIndex((m) => String(getMetaPhotoId(m) || '') === targetId) : -1;
+    if (hitIdx >= 0) {
+      closeFacePersonModal();
+      setViewerEnableOpenZoom(false);
+      setViewerShowOriginal(false);
+      setViewerFromPersonProfile(true);
+      setViewerFaceOverlayVisible(false);
+      setViewerIndex(hitIdx);
+      return;
+    }
+    const url = photo.url || photo.thumbUrl || '';
+    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+  }, [photoMetas, getMetaPhotoId, closeFacePersonModal]);
+
+  const handleDetectViewerFaces = React.useCallback(async () => {
+    const meta = photoMetas?.[viewerIndex] || null;
+    const photoId = getMetaPhotoId(meta);
+    if (!photoId) {
+      Toast.warning('当前照片缺少ID，无法执行人脸识别');
+      return;
+    }
+
+    if (Array.isArray(viewerFaceMap[photoId])) {
+      setViewerFaceOverlayVisible((prev) => !prev);
+      return;
+    }
+
+    setViewerFaceOverlayVisible(true);
+    setViewerFaceLoadingMap((prev) => ({ ...(prev || {}), [photoId]: true }));
+    setViewerFaceErrorMap((prev) => ({ ...(prev || {}), [photoId]: '' }));
+    try {
+      const data = await detectPhotoFaces(photoId, { projectId: projectId || undefined });
+      const faces = normalizeFaceDetections(data);
+      setViewerFaceMap((prev) => ({ ...(prev || {}), [photoId]: faces }));
+      if (!faces.length) {
+        Toast.info('未检测到人脸');
+      }
+    } catch (err) {
+      console.error('detectPhotoFaces failed', err);
+      const msg = err?.body || err?.message || '人脸识别失败';
+      setViewerFaceErrorMap((prev) => ({ ...(prev || {}), [photoId]: msg }));
+      setViewerFaceOverlayVisible(false);
+      Toast.error(msg);
+    } finally {
+      setViewerFaceLoadingMap((prev) => ({ ...(prev || {}), [photoId]: false }));
+    }
+  }, [photoMetas, viewerIndex, getMetaPhotoId, viewerFaceMap, projectId]);
+
+  React.useEffect(() => {
+    if (viewerVisible) return;
+    setViewerFaceOverlayVisible(false);
+    closeFacePersonModal();
+  }, [viewerVisible, closeFacePersonModal]);
+
+  React.useEffect(() => {
+    setViewerFaceOverlayVisible(false);
+    closeFacePersonModal();
+  }, [viewerIndex, closeFacePersonModal]);
 
   const viewerCount = images.length || 0;
   const normalizeViewerIndex = React.useCallback((idx) => {
@@ -1276,6 +1838,7 @@ function ProjectDetail({
     }
     setViewerIndex(index);
     setViewerShowOriginal(false);
+    setViewerFromPersonProfile(false);
     setViewerVisible(true);
   }, [getViewerTargetSrc]);
 
@@ -1283,6 +1846,7 @@ function ProjectDetail({
     setViewerVisible(false);
     setViewerEnableOpenZoom(false);
     setViewerShowOriginal(false);
+    setViewerFromPersonProfile(false);
   }, []);
 
   // viewer keyboard navigation
@@ -1332,6 +1896,7 @@ function ProjectDetail({
   const canDeleteProject = hasPerm('projects.delete');
   const canEditTags = hasPerm('tags.edit');
   const canPackDownload = hasPerm('photos.zip');
+  const canEditFacePersonName = hasPerm('faces.label');
 
   // ========== Photo Editing Handlers ==========
   const openPhotoEditModal = React.useCallback(() => {
@@ -1944,6 +2509,23 @@ function ProjectDetail({
             {/* "鎴戣琛ュ厖鐓х墖" 宸茬Щ鑷抽《閮ㄨ繑鍥炴寜閽 */}
           </div>
 
+          <div className="detail-search-row">
+            <Input
+              className="detail-search-input"
+              value={searchKeyword}
+              onChange={(v) => setSearchKeyword(v)}
+              placeholder="搜索照片：标题 / 描述 / 标签 / 摄影师"
+              showClear
+            />
+            {searching ? <Text type="tertiary">搜索中...</Text> : null}
+            {String(searchKeyword || '').trim() ? (
+              <Text type="tertiary">{`结果 ${images.length} 张`}</Text>
+            ) : null}
+          </div>
+          {searchError ? (
+            <Text type="danger" style={{ marginTop: 6, display: 'block' }}>{searchError}</Text>
+          ) : null}
+
           <div className="detail-meta" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div className="detail-meta-dates" style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
               {startText && <Text type="tertiary">{`开始于 ${startText}`}</Text>}
@@ -2213,6 +2795,142 @@ function ProjectDetail({
           </div>
         </Modal>
 
+        <Modal
+          title="人物信息"
+          visible={facePersonVisible}
+          onCancel={closeFacePersonModal}
+          footer={null}
+          zIndex={10050}
+          width={isMobile ? 'calc(100vw - 12px)' : 760}
+          bodyStyle={{ maxHeight: isMobile ? '72vh' : '70vh', overflowY: 'auto' }}
+        >
+          {facePersonLoading ? (
+            <div style={{ display: 'flex', justifyContent: 'center', padding: '24px 0' }}>
+              <Spin size="large" tip="加载人物信息中..." />
+            </div>
+          ) : null}
+
+          {facePersonError ? (
+            <div style={{ marginBottom: 12 }}>
+              <Text type="danger">{facePersonError}</Text>
+            </div>
+          ) : null}
+
+          {facePersonData ? (
+            (() => {
+              const relatedPhotos = Array.isArray(facePersonData.relatedPhotos) ? facePersonData.relatedPhotos : [];
+              const heroPhoto = facePersonHeroPhoto || relatedPhotos[0] || null;
+              const heroSrc = heroPhoto ? (heroPhoto.url || heroPhoto.thumbUrl || '') : '';
+              const heroImgStyle = getFaceHeroImageStyle(facePersonData, heroPhoto);
+
+              return (
+                <div className="person-sheet">
+                  <div className="person-sheet-hero">
+                    <div className="person-sheet-avatar">
+                      {heroSrc ? (
+                        <img src={heroSrc} alt={facePersonData.displayName} style={heroImgStyle} />
+                      ) : (
+                        <div className="person-sheet-avatar-empty">无头像</div>
+                      )}
+                    </div>
+                    <div className="person-sheet-meta">
+                      <div className="person-sheet-name-row">
+                        <Tag size="large" type="solid" color="blue">
+                          {facePersonData.displayName}
+                        </Tag>
+                        {facePersonData.personId ? (
+                          <Tag size="small" type="light" color="grey">人物ID: {facePersonData.personId}</Tag>
+                        ) : null}
+                        {facePersonData.faceId ? (
+                          <Tag size="small" type="light" color="grey">人脸ID: {facePersonData.faceId}</Tag>
+                        ) : null}
+                      </div>
+
+                      {facePersonData.description ? (
+                        <div className="person-sheet-desc">{facePersonData.description}</div>
+                      ) : null}
+
+                      <div className="person-sheet-stats">该组织下该人物照片：{relatedPhotos.length}</div>
+
+                      <div className="person-sheet-edit-row">
+                        <Input
+                          value={facePersonEditName}
+                          onChange={(v) => setFacePersonEditName(v)}
+                          placeholder={facePersonData.personId ? '输入人物姓名' : '输入姓名并绑定到该人脸'}
+                          disabled={!canEditFacePersonName || facePersonSaving}
+                          maxLength={80}
+                          style={{ flex: 1 }}
+                        />
+                        <Button
+                          theme="solid"
+                          type="primary"
+                          onClick={saveFacePersonName}
+                          loading={facePersonSaving}
+                          disabled={!canEditFacePersonName || facePersonSaving}
+                        >
+                          保存姓名
+                        </Button>
+                      </div>
+                      {!canEditFacePersonName ? (
+                        <Text type="tertiary" size="small">你没有人物标注权限（faces.label）</Text>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  {relatedPhotos.length > 0 ? (
+                    <div className="person-sheet-grid">
+                      {relatedPhotos.map((item, idx) => {
+                        const thumb = item.thumbUrl || item.url || '';
+                        const titleText = item.title || `照片 ${idx + 1}`;
+                        const albumLabel = item.projectName || (item.projectId ? `相册 #${item.projectId}` : '原图');
+                        return (
+                          <article className="person-sheet-card" key={`${item.id || 'face-photo'}-${idx}`}>
+                            <button
+                              type="button"
+                              className="person-sheet-thumb-btn"
+                              onClick={() => openRelatedFacePhoto(item)}
+                              title="点击预览照片"
+                            >
+                              {thumb ? (
+                                <img
+                                  src={thumb}
+                                  alt={titleText}
+                                  className="person-sheet-thumb"
+                                />
+                              ) : (
+                                <div className="person-sheet-thumb person-sheet-thumb-empty">无图</div>
+                              )}
+                            </button>
+
+                            <div className="person-sheet-card-body">
+                              <div className="person-sheet-card-title" title={titleText}>{titleText}</div>
+                              <button
+                                type="button"
+                                className="person-sheet-album-link"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (!item.projectId || typeof window === 'undefined') return;
+                                  const target = `/?projectId=${encodeURIComponent(String(item.projectId))}`;
+                                  window.open(target, '_blank', 'noopener,noreferrer');
+                                }}
+                                title="跳转相册"
+                              >
+                                {albumLabel}
+                              </button>
+                            </div>
+                          </article>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <Empty description="暂无关联照片" />
+                  )}
+                </div>
+              );
+            })()
+          ) : null}
+        </Modal>
+
         {/* Image viewer overlay (no container) */}
         {viewerVisible ? (
         <div className="viewer-overlay is-open" onClick={closeViewer} aria-hidden="false">
@@ -2246,13 +2964,41 @@ function ProjectDetail({
                           const slideSrc = idx === viewerIndex && viewerShowOriginal
                             ? getViewerTargetSrc(idx, true)
                             : getViewerTargetSrc(idx, false);
+                          const slideMeta = photoMetas?.[idx] || null;
+                          const slidePhotoId = getMetaPhotoId(slideMeta);
+                          const slideFaces = slidePhotoId ? (viewerFaceMap[slidePhotoId] || []) : [];
+                          const showFaceBoxes = idx === viewerIndex && viewerFaceOverlayVisible && slideFaces.length > 0;
                           return (
                             <div className={`viewer-slide${idx === viewerIndex ? ' is-active' : ''}`} style={viewerSlideStyle} key={`viewer-slide-${idx}`}>
-                              <img
-                                src={slideSrc}
-                                alt={`viewer-${idx}`}
-                                className={`viewer-carousel-img${idx === viewerIndex && viewerEnableOpenZoom ? ' viewer-img--open-zoom' : ''}`}
-                              />
+                              <div className="viewer-face-image-surface">
+                                <img
+                                  src={slideSrc}
+                                  alt={`viewer-${idx}`}
+                                  className={`viewer-carousel-img${idx === viewerIndex && viewerEnableOpenZoom ? ' viewer-img--open-zoom' : ''}`}
+                                  onLoad={(e) => handleViewerImageLoad(slidePhotoId, e)}
+                                />
+                                {showFaceBoxes ? (
+                                  <div className="viewer-face-layer">
+                                    {slideFaces.map((face, fidx) => (
+                                      <button
+                                        key={`${face.faceId || 'face'}-${fidx}`}
+                                        type="button"
+                                        className="viewer-face-box"
+                                        style={getViewerFaceBoxStyle(face, slidePhotoId)}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          openFacePersonModal(face);
+                                        }}
+                                        title={face.label || `人脸#${face.faceNo || (fidx + 1)}`}
+                                      >
+                                        <span className="viewer-face-box-label">
+                                          {face.label || `人脸#${face.faceNo || (fidx + 1)}`}
+                                        </span>
+                                      </button>
+                                    ))}
+                                  </div>
+                                ) : null}
+                              </div>
                             </div>
                           );
                         })}
@@ -2365,11 +3111,13 @@ function ProjectDetail({
                       <div className="viewer-carousel" style={viewerTrackStyle}>
                         {images.map((src, idx) => (
                           <div className={`viewer-slide${idx === viewerIndex ? ' is-active' : ''}`} style={viewerSlideStyle} key={`viewer-fallback-slide-${idx}`}>
-                            <img
-                              src={src}
-                              alt={`viewer-${idx}`}
-                              className={`viewer-carousel-img${idx === viewerIndex && viewerEnableOpenZoom ? ' viewer-img--open-zoom' : ''}`}
-                            />
+                            <div className="viewer-face-image-surface">
+                              <img
+                                src={src}
+                                alt={`viewer-${idx}`}
+                                className={`viewer-carousel-img${idx === viewerIndex && viewerEnableOpenZoom ? ' viewer-img--open-zoom' : ''}`}
+                              />
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -2386,6 +3134,22 @@ function ProjectDetail({
                 >
                   下载该照片
                 </button>
+
+                {(photoMetas && photoMetas[viewerIndex]) && !viewerFromPersonProfile && (
+                  <button
+                    type="button"
+                    className="viewer-original-btn"
+                    onClick={(e) => { e.stopPropagation(); handleDetectViewerFaces(); }}
+                    style={{ padding: '10px 16px', minWidth: 120, background: '#0f766e', color: '#fff' }}
+                    disabled={currentViewerFaceLoading}
+                  >
+                    {currentViewerFaceLoading
+                      ? '识别中...'
+                      : (Array.isArray(currentViewerFaces)
+                        ? (viewerFaceOverlayVisible ? '隐藏人脸框' : '显示人脸框')
+                        : '人脸识别')}
+                  </button>
+                )}
 
                 {(photoMetas && photoMetas[viewerIndex]) && (
                   <button
@@ -2415,6 +3179,12 @@ function ProjectDetail({
                     </button>
                   );
                 })()}
+
+                {currentViewerFaceError ? (
+                  <span style={{ color: '#fecaca', fontSize: 12, maxWidth: 220, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={currentViewerFaceError}>
+                    {currentViewerFaceError}
+                  </span>
+                ) : null}
               </div>
 
               <button

@@ -11,11 +11,13 @@ import AuthPage from './AuthPage';
 import AccountPage from './AccountPage';
 import * as authService from './services/authService';
 import { fetchProjectList, createProject } from './services/projectService';
+import { searchPhotos } from './services/photoService';
 import CreateAlbumModal from './CreateAlbumModal';
 import { resolveAssetUrl } from './services/request';
 import TransferStation from './TransferStation';
 import IfCan from './permissions/IfCan';
 import AiNewsWriter from './AiNewsWriter.jsx';
+import PhotoPreviewOverlay from './PhotoPreviewOverlay.jsx';
 
 const { Header, Content, Footer } = Layout;
 const { Text } = Typography;
@@ -35,6 +37,19 @@ function App() {
   const [mobileNavVisible, setMobileNavVisible] = React.useState(false);
   const [shareMode, setShareMode] = React.useState(false);
   const [shareInitialProject, setShareInitialProject] = React.useState(null);
+  const [photoSearchMode, setPhotoSearchMode] = React.useState(false);
+  const [photoSearchResults, setPhotoSearchResults] = React.useState([]);
+  const [photoSearchLoading, setPhotoSearchLoading] = React.useState(false);
+  const [photoSearchError, setPhotoSearchError] = React.useState(null);
+  const [photoSearchHasMore, setPhotoSearchHasMore] = React.useState(false);
+  const [photoSearchPage, setPhotoSearchPage] = React.useState(1);
+  const [photoSearchTotal, setPhotoSearchTotal] = React.useState(0);
+  const [hoverPhotoSearchIdx, setHoverPhotoSearchIdx] = React.useState(-1);
+  const [photoPreviewVisible, setPhotoPreviewVisible] = React.useState(false);
+  const [photoPreviewSrc, setPhotoPreviewSrc] = React.useState('');
+  const [photoPreviewTitle, setPhotoPreviewTitle] = React.useState('');
+  const [photoPreviewDescription, setPhotoPreviewDescription] = React.useState('');
+  const [photoPreviewTags, setPhotoPreviewTags] = React.useState([]);
   const isSharePath = (() => {
     try {
       return typeof window !== 'undefined' && window.location && window.location.pathname && window.location.pathname.startsWith('/share/');
@@ -45,6 +60,7 @@ function App() {
 
 
   const latestRequestRef = React.useRef(0);
+  const latestPhotoSearchReqRef = React.useRef(0);
 
   const loadProjects = React.useCallback(async (kw = '', page = 1, pageSize = 6) => {
     const currentToken = latestRequestRef.current + 1;
@@ -71,6 +87,62 @@ function App() {
       }
     }
   }, []);
+
+  const clearPhotoSearchState = React.useCallback(() => {
+    setPhotoSearchMode(false);
+    setPhotoSearchResults([]);
+    setPhotoSearchLoading(false);
+    setPhotoSearchError(null);
+    setPhotoSearchHasMore(false);
+    setPhotoSearchPage(1);
+    setPhotoSearchTotal(0);
+    setHoverPhotoSearchIdx(-1);
+  }, []);
+
+  const loadPhotoSearchResults = React.useCallback(async ({ kw = '', page = 1, append = false } = {}) => {
+    const trimmed = String(kw || '').trim();
+    if (!trimmed) {
+      clearPhotoSearchState();
+      return;
+    }
+
+    const currentToken = latestPhotoSearchReqRef.current + 1;
+    latestPhotoSearchReqRef.current = currentToken;
+    setPhotoSearchLoading(true);
+    setPhotoSearchError(null);
+    try {
+      const response = await searchPhotos({
+        q: trimmed,
+        page,
+        pageSize: 24,
+        sort: 'relevance',
+      });
+      if (latestPhotoSearchReqRef.current !== currentToken) return;
+
+      const list = Array.isArray(response?.list) ? response.list : [];
+      const mapped = list.map((item) => ({
+        ...item,
+        url: item?.url ? resolveAssetUrl(item.url) : null,
+        thumbUrl: item?.thumbUrl ? resolveAssetUrl(item.thumbUrl) : (item?.url ? resolveAssetUrl(item.url) : null),
+      }));
+
+      setPhotoSearchResults((prev) => (append ? [...prev, ...mapped] : mapped));
+      setPhotoSearchMode(true);
+      setPhotoSearchPage(page);
+      setPhotoSearchTotal(Number(response?.total) || 0);
+      setPhotoSearchHasMore(Boolean(response?.hasMore));
+    } catch (err) {
+      if (latestPhotoSearchReqRef.current !== currentToken) return;
+      const message = err?.body || err?.message || '搜索照片失败';
+      setPhotoSearchError(message);
+      if (!append) setPhotoSearchResults([]);
+      setPhotoSearchHasMore(false);
+    } finally {
+      if (latestPhotoSearchReqRef.current === currentToken) {
+        setPhotoSearchLoading(false);
+      }
+    }
+  }, [clearPhotoSearchState]);
 
   React.useEffect(() => {
     loadProjects();
@@ -115,8 +187,69 @@ function App() {
   }, []);
 
   const handleSearchSubmit = React.useCallback(() => {
-    loadProjects(keyword);
-  }, [keyword, loadProjects]);
+    const trimmed = String(keyword || '').trim();
+    setSelectedNav('projects');
+    setCurrentProjectId(null);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('projectId');
+      const base = url.pathname && url.pathname !== '/' ? '/' : url.pathname || '/';
+      window.history.pushState({}, '', base + (url.search ? url.search : ''));
+    } catch (e) {
+      // ignore
+    }
+    if (!trimmed) {
+      clearPhotoSearchState();
+      loadProjects('');
+      return;
+    }
+    setPhotoSearchMode(true);
+    setPhotoSearchResults([]);
+    setPhotoSearchError(null);
+    setPhotoSearchHasMore(false);
+    setPhotoSearchPage(1);
+    setPhotoSearchTotal(0);
+    loadProjects(trimmed);
+    loadPhotoSearchResults({ kw: trimmed, page: 1, append: false });
+  }, [keyword, loadPhotoSearchResults, clearPhotoSearchState, loadProjects]);
+
+  const handlePhotoSearchLoadMore = React.useCallback(() => {
+    if (photoSearchLoading || !photoSearchHasMore) return;
+    loadPhotoSearchResults({ kw: keyword, page: photoSearchPage + 1, append: true });
+  }, [photoSearchLoading, photoSearchHasMore, loadPhotoSearchResults, keyword, photoSearchPage]);
+
+  const openPhotoPreview = React.useCallback((photo) => {
+    const src = photo?.thumbUrl || photo?.url || '';
+    if (!src) return;
+    let tags = [];
+    if (Array.isArray(photo?.tags)) {
+      tags = photo.tags.map((t) => String(t).trim()).filter(Boolean);
+    } else if (typeof photo?.tags === 'string') {
+      const raw = photo.tags.trim();
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            tags = parsed.map((t) => String(t).trim()).filter(Boolean);
+          } else {
+            tags = raw.split(',').map((t) => t.trim()).filter(Boolean);
+          }
+        } catch (e) {
+          tags = raw.split(',').map((t) => t.trim()).filter(Boolean);
+        }
+      }
+    }
+
+    setPhotoPreviewSrc(src);
+    setPhotoPreviewTitle(photo?.title || photo?.projectName || '照片预览');
+    setPhotoPreviewDescription(photo?.description ? String(photo.description) : '');
+    setPhotoPreviewTags(tags.slice(0, 20));
+    setPhotoPreviewVisible(true);
+  }, []);
+
+  const closePhotoPreview = React.useCallback(() => {
+    setPhotoPreviewVisible(false);
+  }, []);
 
   const handleSelectProject = React.useCallback((projectId) => {
     setCurrentProjectId(projectId);
@@ -133,6 +266,9 @@ function App() {
   const handleBackToList = React.useCallback(() => {
     setCurrentProjectId(null);
     setSelectedNav('projects');
+    setKeyword('');
+    clearPhotoSearchState();
+    loadProjects('');
     try {
       const url = new URL(window.location.href);
       url.searchParams.delete('projectId');
@@ -142,7 +278,7 @@ function App() {
     } catch (e) {
       // ignore
     }
-  }, []);
+  }, [clearPhotoSearchState, loadProjects]);
 
   // On mount: read projectId from URL and listen to popstate for back/forward navigation
   React.useEffect(() => {
@@ -490,7 +626,7 @@ function App() {
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <Input
-                placeholder="搜索项目"
+                placeholder="搜索项目/照片"
                 prefix={<IconSearch />}
                 showClear
                 size="small"
@@ -531,13 +667,30 @@ function App() {
                 { itemKey: 'about', text: '关于', onClick: () => { setSelectedNav('about'); setCurrentProjectId(null); try { window.history.pushState({}, '', '/about'); } catch (e) { } } },
               ]}
               header={{
-                text: 'MaMage 图库',
+                text: (
+                  <button
+                    type="button"
+                    onClick={handleBackToList}
+                    style={{
+                      border: 'none',
+                      background: 'transparent',
+                      padding: 0,
+                      margin: 0,
+                      fontSize: 18,
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      color: '#111827',
+                    }}
+                  >
+                    MaMage 图库
+                  </button>
+                ),
               }}
               footer={(
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', justifyContent: 'space-between' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: '1 1 auto', minWidth: 0 }}>
                     <Input
-                      placeholder="搜索项目 / 标签"
+                      placeholder="搜索项目 / 照片 / 标签 / 摄影师"
                       prefix={<IconSearch />}
                       showClear
                       style={{ width: 'clamp(120px, 30vw, 260px)' }}
@@ -593,34 +746,213 @@ function App() {
             />
           ) : (
             selectedNav === 'projects' ? (
-              <div className="project-grid">
-                {loading && (
-                  <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '80px 0' }}>
-                    <Spin size="large" tip="Loading projects..." />
+              photoSearchMode ? (
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+                    <Text>{`关键词“${String(keyword || '').trim()}”的搜索结果`}</Text>
+                    <Button
+                      size="small"
+                      onClick={handleBackToList}
+                    >
+                      清空搜索
+                    </Button>
                   </div>
-                )}
 
-                {!loading && error && (
-                  <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '80px 0' }}>
-                    <Text type="danger">{error}</Text>
+                  <div style={{ marginBottom: 20 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                      <Text strong>项目结果</Text>
+                    </div>
+
+                    <div className="project-grid">
+                      {loading && (
+                        <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
+                          <Spin size="large" tip="搜索项目中..." />
+                        </div>
+                      )}
+
+                      {!loading && error && (
+                        <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
+                          <Text type="danger">{error}</Text>
+                        </div>
+                      )}
+
+                      {!loading && !error && normalizedProjects.length === 0 && (
+                        <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
+                          <Empty description="没有匹配的项目" />
+                        </div>
+                      )}
+
+                      {!loading && !error &&
+                        normalizedProjects.map((project) => (
+                          <ProjectCard
+                            key={project.id}
+                            {...project}
+                            onClick={() => handleSelectProject(project.id)}
+                          />
+                        ))}
+                    </div>
                   </div>
-                )}
 
-                {!loading && !error && normalizedProjects.length === 0 && (
-                  <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '80px 0' }}>
-                    <Empty description="暂无项目" />
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                      <Text strong>{`照片结果${Number(photoSearchTotal) > 0 ? `（${photoSearchTotal}）` : ''}`}</Text>
+                    </div>
+
+                    {photoSearchLoading && photoSearchResults.length === 0 && (
+                      <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
+                        <Spin size="large" tip="搜索照片中..." />
+                      </div>
+                    )}
+
+                    {!photoSearchLoading && photoSearchError && (
+                      <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '40px 0' }}>
+                        <Text type="danger">{photoSearchError}</Text>
+                      </div>
+                    )}
+
+                    {!photoSearchLoading && !photoSearchError && photoSearchResults.length === 0 && (
+                      <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
+                        <Empty description="没有匹配的照片" />
+                      </div>
+                    )}
+
+                    {photoSearchResults.length > 0 && (
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 14 }}>
+                        {photoSearchResults.map((photo, idx) => (
+                          <div
+                            key={`${photo.id || 'p'}-${idx}`}
+                            style={{
+                              border: '1px solid rgba(148,163,184,0.2)',
+                              background: '#fff',
+                              borderRadius: 10,
+                              overflow: 'hidden',
+                              padding: 0,
+                              textAlign: 'left'
+                            }}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => openPhotoPreview(photo)}
+                              title={(photo.thumbUrl || photo.url) ? '点击预览大图' : ''}
+                              style={{
+                                width: '100%',
+                                border: 'none',
+                                padding: 0,
+                                background: 'transparent',
+                                cursor: (photo.thumbUrl || photo.url) ? 'zoom-in' : 'default',
+                                display: 'block'
+                              }}
+                            >
+                              <div className="detail-photo-item" style={{ width: '100%', overflow: 'hidden', transform: 'none' }}>
+                                <div className="detail-photo" style={{ overflow: 'hidden', background: '#e5e7eb', transform: 'none' }}>
+                                  {photo.thumbUrl || photo.url ? (
+                                    <img
+                                      src={photo.thumbUrl || photo.url}
+                                      alt={photo.title || 'photo'}
+                                      loading="lazy"
+                                      decoding="async"
+                                      className="detail-photo-img is-ready"
+                                      style={{ width: '100%', height: 'auto', objectFit: 'cover', cursor: (photo.thumbUrl || photo.url) ? 'zoom-in' : 'default' }}
+                                    />
+                                  ) : null}
+                                </div>
+                              </div>
+                            </button>
+
+                            <button
+                              type="button"
+                              onMouseEnter={() => setHoverPhotoSearchIdx(idx)}
+                              onMouseLeave={() => setHoverPhotoSearchIdx((prev) => (prev === idx ? -1 : prev))}
+                              onClick={() => {
+                                if (photo.projectId) handleSelectProject(String(photo.projectId));
+                              }}
+                              title={photo.projectId ? '点击进入对应相册' : ''}
+                              style={{
+                                width: '100%',
+                                border: 'none',
+                                borderTop: '1px solid rgba(148,163,184,0.2)',
+                                background: '#fff',
+                                padding: '10px 12px',
+                                textAlign: 'left',
+                                cursor: photo.projectId ? 'pointer' : 'default',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: 4,
+                                position: 'relative',
+                                overflow: 'hidden',
+                              }}
+                            >
+                              <Text size="small" style={{ color: '#0f172a' }}>
+                                {photo.projectName || `项目 #${photo.projectId || '-'}`}
+                              </Text>
+                              <Text size="small" type="tertiary" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {photo.photographerName ? `摄影师：${photo.photographerName}` : '摄影师：-'}
+                              </Text>
+                              <div
+                                style={{
+                                  position: 'absolute',
+                                  inset: 0,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  color: '#1d4ed8',
+                                  fontSize: 12,
+                                  fontWeight: 600,
+                                  background: 'rgba(241,245,249,0.72)',
+                                  backdropFilter: 'blur(6px)',
+                                  WebkitBackdropFilter: 'blur(6px)',
+                                  opacity: hoverPhotoSearchIdx === idx ? 1 : 0,
+                                  transition: 'opacity 160ms ease',
+                                  pointerEvents: 'none',
+                                }}
+                              >
+                                点击进入对应相册
+                              </div>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '16px 0 8px' }}>
+                      {photoSearchHasMore ? (
+                        <Button loading={photoSearchLoading} onClick={handlePhotoSearchLoadMore}>加载更多</Button>
+                      ) : (
+                        photoSearchResults.length > 0 ? <Text type="tertiary">已显示全部结果</Text> : null
+                      )}
+                    </div>
                   </div>
-                )}
+                </div>
+              ) : (
+                <div className="project-grid">
+                  {loading && (
+                    <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '80px 0' }}>
+                      <Spin size="large" tip="Loading projects..." />
+                    </div>
+                  )}
 
-                {!loading && !error &&
-                  normalizedProjects.map((project) => (
-                    <ProjectCard
-                      key={project.id}
-                      {...project}
-                      onClick={() => handleSelectProject(project.id)}
-                    />
-                  ))}
-              </div>
+                  {!loading && error && (
+                    <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '80px 0' }}>
+                      <Text type="danger">{error}</Text>
+                    </div>
+                  )}
+
+                  {!loading && !error && normalizedProjects.length === 0 && (
+                    <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '80px 0' }}>
+                      <Empty description="暂无项目" />
+                    </div>
+                  )}
+
+                  {!loading && !error &&
+                    normalizedProjects.map((project) => (
+                      <ProjectCard
+                        key={project.id}
+                        {...project}
+                        onClick={() => handleSelectProject(project.id)}
+                      />
+                    ))}
+                </div>
+              )
             ) : selectedNav === 'scenery' ? (
               <Scenery />
             ) : selectedNav === 'account' ? (
@@ -646,6 +978,15 @@ function App() {
           )}
         </div>
       </Content>
+
+      <PhotoPreviewOverlay
+        visible={photoPreviewVisible}
+        src={photoPreviewSrc}
+        title={photoPreviewTitle}
+        description={photoPreviewDescription}
+        tags={photoPreviewTags}
+        onClose={closePhotoPreview}
+      />
 
       <Footer style={{ textAlign: 'center' }}>
         MaMage 校园图库 © {new Date().getFullYear()}

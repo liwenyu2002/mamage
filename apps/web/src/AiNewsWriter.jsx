@@ -1100,15 +1100,18 @@ const AiNewsWriter = () => {
                     </Button>
                   </div>
                   {isGenerating && (
-                    <div style={{ width: isMobile ? '100%' : 320, maxWidth: '100%' }}>
+                    <div style={{ width: isMobile ? '100%' : 320, maxWidth: '100%', height: 8, overflow: 'hidden' }}>
                       <div style={{ width: '100%', height: 8, borderRadius: 999, background: '#e5e7eb', overflow: 'hidden' }}>
                         <div
                           style={{
-                              width: `${Math.max(2, Math.min(99, generationProgress))}%`,
+                              width: '100%',
                             height: '100%',
                             borderRadius: 999,
                             background: 'linear-gradient(90deg, #2563eb, #3b82f6)',
-                            transition: 'width 280ms linear',
+                            transformOrigin: 'left center',
+                            transform: `scaleX(${Math.max(0.02, Math.min(0.99, generationProgress / 100))})`,
+                            transition: 'transform 180ms linear',
+                            willChange: 'transform',
                           }}
                         />
                       </div>
