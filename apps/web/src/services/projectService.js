@@ -26,7 +26,7 @@ async function fetchProjectList({ page = 1, pageSize = 6, keyword = '' } = {}) {
 }
 
 async function getProjectById(id) {
-  return request(`/api/projects/${id}`, { method: 'GET' });
+  return request(`/api/projects/${id}`, { method: 'GET', data: { includeFaces: 1 } });
 }
 
 async function updateProject(id, data) {

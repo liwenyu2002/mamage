@@ -33,7 +33,13 @@ function App() {
   const [showCreateModal, setShowCreateModal] = React.useState(false);
   const [functionPage, setFunctionPage] = React.useState(null);
   const [currentUser, setCurrentUser] = React.useState(null);
-  const [authLoading, setAuthLoading] = React.useState(true);
+  const [authLoading, setAuthLoading] = React.useState(() => {
+    try {
+      return Boolean(authService.getToken && authService.getToken());
+    } catch (e) {
+      return false;
+    }
+  });
   const [isMobileHeader, setIsMobileHeader] = React.useState(() => (typeof window !== 'undefined' ? window.innerWidth <= 768 : false));
   const [mobileNavVisible, setMobileNavVisible] = React.useState(false);
   const [shareMode, setShareMode] = React.useState(false);
@@ -166,6 +172,13 @@ function App() {
     // If this is a public share page, skip the global auth check to avoid
     // redirecting/showing the login UI before share content is loaded.
     if (isSharePath) {
+      setAuthLoading(false);
+      return;
+    }
+
+    const token = (typeof authService.getToken === 'function') ? authService.getToken() : null;
+    if (!token) {
+      setCurrentUser(null);
       setAuthLoading(false);
       return;
     }

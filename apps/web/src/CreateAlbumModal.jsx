@@ -1,9 +1,9 @@
 import React from 'react';
 import { Modal, Input, TextArea, DatePicker, Toast } from '@douyinfe/semi-ui';
 import './CreateAlbumModal.css';
-import { me as fetchMe } from './services/authService';
 import { uploadPhotos } from './services/photoService';
 import { getProjectById } from './services/projectService';
+import { getPermissions } from './permissions/permissionStore';
 
 function TagChip({ tag, onRemove }) {
   const [hover, setHover] = React.useState(false);
@@ -22,7 +22,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
   const [tags, setTags] = React.useState([]);
   const [startDate, setStartDate] = React.useState(null);
   const [submitting, setSubmitting] = React.useState(false);
-  const [userPermissions, setUserPermissions] = React.useState([]);
+  const [userPermissions, setUserPermissions] = React.useState(() => getPermissions());
   const [stagingFiles, setStagingFiles] = React.useState([]);
   const [stagingPreviews, setStagingPreviews] = React.useState([]);
 
@@ -41,19 +41,9 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
   }, [visible]);
 
   React.useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const u = await fetchMe();
-        if (cancelled) return;
-        const perms = Array.isArray(u && u.permissions) ? u.permissions : [];
-        setUserPermissions(perms);
-      } catch (e) {
-        // ignore
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
+    if (!visible) return;
+    setUserPermissions(getPermissions());
+  }, [visible]);
 
   const addTag = React.useCallback((t) => {
     const val = (t || '').trim();

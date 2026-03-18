@@ -58,6 +58,33 @@ async function detectPhotoFaces(photoId, { force = false, projectId } = {}) {
   throw lastErr || new Error('detectPhotoFaces failed');
 }
 
+async function getPhotoFaces(photoId, { projectId } = {}) {
+  if (photoId === undefined || photoId === null || String(photoId).trim() === '') {
+    throw new Error('getPhotoFaces: photoId is required');
+  }
+  const sid = String(photoId).trim();
+  const encodedId = encodeURIComponent(sid);
+  const baseData = {};
+  if (projectId !== undefined && projectId !== null && String(projectId).trim() !== '') {
+    baseData.projectId = String(projectId).trim();
+  }
+
+  const candidates = [
+    { url: `/api/photos/${encodedId}/faces`, method: 'GET', data: { ...baseData } },
+    { url: '/api/faces', method: 'GET', data: { photoId: sid, ...baseData } },
+  ];
+
+  let lastErr = null;
+  for (const c of candidates) {
+    try {
+      return await request(c.url, { method: c.method, data: c.data });
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error('getPhotoFaces failed');
+}
+
 async function getFacePersonInfo({ faceId, personId, projectId } = {}) {
   const sid = faceId !== undefined && faceId !== null ? String(faceId).trim() : '';
   const pid = personId !== undefined && personId !== null ? String(personId).trim() : '';
@@ -319,6 +346,7 @@ export {
   fetchRandomByProject,
   searchPhotos,
   detectPhotoFaces,
+  getPhotoFaces,
   getFacePersonInfo,
   labelFacePerson,
   renameFacePerson,

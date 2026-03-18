@@ -3,9 +3,10 @@
     "@douyinfe/semi-icons": "^2.88.3",
     "@douyinfe/semi-ui": "^2.88.3",
     "@semi-bot/semi-theme-mamage_day": "^1.0.0",
+    "html-to-image": "^1.11.13",
+    "marked": "^5.0.2",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "marked": "^5.0.2"
+    "react-dom": "^18.2.0"
   },
   "dependenciesMeta": {},
   "optionalDependencies": {},

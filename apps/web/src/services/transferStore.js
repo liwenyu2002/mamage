@@ -6,6 +6,44 @@ const MAX_COUNT = 100;
 
 let selection = [];
 
+function toNameList(input) {
+  if (!input) return [];
+  const arr = Array.isArray(input) ? input : String(input).split(/[;,，、|]/);
+  const out = [];
+  arr.forEach((v) => {
+    const s = String(v || '').trim();
+    if (!s) return;
+    if (out.includes(s)) return;
+    out.push(s);
+  });
+  return out;
+}
+
+function extractFaceNames(photo) {
+  const fromDirect = toNameList(
+    photo.faceNames
+    || photo.personNames
+    || photo.personNameList
+    || photo.face_name_list
+    || photo.person_name_list
+    || photo.people
+  );
+  if (fromDirect.length) return fromDirect;
+
+  const faces = Array.isArray(photo.faces) ? photo.faces : [];
+  const names = [];
+  faces.forEach((f) => {
+    const n = String(
+      (f && (f.personName || f.person_name || f.name || f.label)) || ''
+    ).trim();
+    if (!n) return;
+    if (/^人脸#?\d+$/i.test(n)) return;
+    if (/^face#?\d+$/i.test(n)) return;
+    if (!names.includes(n)) names.push(n);
+  });
+  return names;
+}
+
 function load() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -65,13 +103,16 @@ function add(photo) {
   if (!photo) return false;
   if (selection.length >= MAX_COUNT) return false;
   // normalize stored shape to ensure downstream consumers always have these fields
+  const faceNames = extractFaceNames(photo);
   const normalized = {
     id: photo.id || photo.url || null,
     url: photo.url || photo.fullUrl || photo.cosUrl || photo.src || photo.original || null,
     thumbSrc: photo.thumbSrc || photo.thumb || photo.thumbUrl || photo.url || null,
     description: photo.description || photo.caption || photo.alt || photo.title || '',
     tags: Array.isArray(photo.tags) ? photo.tags : (photo.tagList || []),
-    projectTitle: photo.projectTitle || photo.source || ''
+    projectTitle: photo.projectTitle || photo.source || '',
+    faceNames,
+    personNames: faceNames,
   };
   const key = normalized.id || normalized.url;
   if (!key) return false;

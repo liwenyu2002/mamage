@@ -15,7 +15,9 @@ import {
 } from '@douyinfe/semi-ui';
 import { getAll as getTransferAll } from './services/transferStore';
 import { request, resolveAssetUrl } from './services/request';
+import { getToken } from './services/authService';
 import { marked } from 'marked';
+import { toPng } from 'html-to-image';
 
 const { Header, Content } = Layout;
 
@@ -25,6 +27,40 @@ const mockPhotos = [
   { id: 2, url: 'https://via.placeholder.com/320x180?text=图2', description: '领导致辞', tags: ['致辞'] },
   { id: 3, url: 'https://via.placeholder.com/320x180?text=图3', description: '展台现场', tags: ['展台', '互动'] },
 ];
+
+function toNameList(input) {
+  if (!input) return [];
+  const arr = Array.isArray(input) ? input : String(input).split(/[;,，、|]/);
+  const out = [];
+  arr.forEach((v) => {
+    const s = String(v || '').trim();
+    if (!s) return;
+    if (out.includes(s)) return;
+    out.push(s);
+  });
+  return out;
+}
+
+function extractFaceNames(photo) {
+  const direct = toNameList(
+    photo?.faceNames
+    || photo?.personNames
+    || photo?.personNameList
+    || photo?.face_name_list
+    || photo?.person_name_list
+    || photo?.people
+  );
+  if (direct.length) return direct;
+  const faces = Array.isArray(photo?.faces) ? photo.faces : [];
+  const names = [];
+  faces.forEach((f) => {
+    const n = String((f && (f.personName || f.person_name || f.name || f.label)) || '').trim();
+    if (!n) return;
+    if (/^人脸#?\d+$/i.test(n) || /^face#?\d+$/i.test(n)) return;
+    if (!names.includes(n)) names.push(n);
+  });
+  return names;
+}
 
 const AiNewsWriter = () => {
   const DRAFT_STORAGE_KEY = 'mamage.aiNewsWriter.draft.v1';
@@ -62,6 +98,25 @@ const AiNewsWriter = () => {
   const [showAdvancedEditor, setShowAdvancedEditor] = React.useState(false);
   const [advancedPrompt, setAdvancedPrompt] = React.useState('');
   const [isMobile, setIsMobile] = React.useState(() => (typeof window !== 'undefined' ? window.innerWidth <= 768 : false));
+  const previewContentRef = React.useRef(null);
+  const [previewImageUrl, setPreviewImageUrl] = React.useState('');
+  const [showPreviewImage, setShowPreviewImage] = React.useState(false);
+  const [isGeneratingPreviewImage, setIsGeneratingPreviewImage] = React.useState(false);
+
+  const updatePreviewImageUrl = React.useCallback((nextUrl) => {
+    setPreviewImageUrl((prev) => {
+      if (prev && prev !== nextUrl && /^blob:/i.test(String(prev))) {
+        try { URL.revokeObjectURL(prev); } catch (e) { /* ignore */ }
+      }
+      return nextUrl;
+    });
+  }, []);
+
+  React.useEffect(() => () => {
+    if (previewImageUrl && /^blob:/i.test(String(previewImageUrl))) {
+      try { URL.revokeObjectURL(previewImageUrl); } catch (e) { /* ignore */ }
+    }
+  }, [previewImageUrl]);
 
   const clearAllDraft = React.useCallback(() => {
     try {
@@ -265,7 +320,9 @@ const AiNewsWriter = () => {
     if ((selectedPhotos || []).length) {
       parts.push('已选照片：');
       (selectedPhotos || []).forEach((p, i) => {
-        parts.push(`  图${i + 1}：${p.description || ''} ${((p.tags || []).join(', '))}`);
+        const faceNames = extractFaceNames(p);
+        const facePart = faceNames.length ? ` 人物：${faceNames.join('、')}` : '';
+        parts.push(`  图${i + 1}：${p.description || ''} ${(p.tags || []).join(', ')}${facePart}`);
       });
     }
     if (referenceArticle) parts.push(`参考文章内容：\n${referenceArticle}`);
@@ -584,7 +641,8 @@ const AiNewsWriter = () => {
       // Images: responsive, block, centered, limit width
       Array.from(doc.querySelectorAll('img')).forEach((img) => {
         // preserve existing width/height if explicitly set to numeric values
-        img.style.maxWidth = '100%';
+        img.style.maxWidth = isMobile ? '92%' : '70%';
+        img.style.width = 'auto';
         img.style.height = 'auto';
         img.style.display = 'block';
         if (!img.style.margin) img.style.margin = '12px auto';
@@ -705,6 +763,8 @@ const AiNewsWriter = () => {
       Array.from(doc.querySelectorAll('p')).forEach((p) => {
         if (!p.style.marginTop) p.style.marginTop = '6px';
         if (!p.style.marginBottom) p.style.marginBottom = '10px';
+        if (!p.style.fontSize) p.style.fontSize = isMobile ? '17px' : '19px';
+        if (!p.style.lineHeight) p.style.lineHeight = '1.9';
       });
 
       return doc.body.innerHTML;
@@ -751,15 +811,27 @@ const AiNewsWriter = () => {
       if (!markdown) return markdown;
       const photos = Array.isArray(selectedPhotosArg) ? selectedPhotosArg : [];
       const map = Object.fromEntries(photos.map(p => [String(p.id), p]));
+      const fallbackMap = Object.fromEntries((selectedPhotos || []).map((p) => [String(p.id), p]));
       const placeholder = (typeof resolveAssetUrl === 'function') ? resolveAssetUrl('/static/img/placeholder.png') : '/static/img/placeholder.png';
       return String(markdown).replace(/!\[([^\]]*?)\]\(PHOTO:([^\)]+)\)/g, (m, alt, id) => {
-        const ph = map[String(id)];
+        const pid = String(id);
+        const ph = {
+          ...(fallbackMap[pid] || {}),
+          ...(map[pid] || {}),
+        };
         const cand = ph && (ph.url || ph.thumbUrl || ph.thumbSrc || ph.thumb || ph.src);
+        let finalAlt = String(alt || '').trim();
+        const names = extractFaceNames(ph);
+        if (names.length) {
+          const joined = names.slice(0, 2).join('、');
+          if (!finalAlt) finalAlt = `${joined}在活动现场`;
+          else if (!names.some((n) => finalAlt.includes(String(n)))) finalAlt = `${joined}：${finalAlt}`;
+        }
         // Prefer backend-provided photographerName. If missing, fall back to photographerId.
         const name = ph && (ph.photographerName || ph.photographer_name || null);
         const fallbackId = ph && (ph.photographerId || ph.photographer_id || ph.photographer || null);
         const displayName = name ? name : (fallbackId ? `摄影师 #${fallbackId}` : '未知摄影师');
-        const imgMd = (cand && cand.length) ? `![${alt}](${cand})` : `![${alt}](${placeholder})`;
+        const imgMd = (cand && cand.length) ? `![${finalAlt}](${cand})` : `![${finalAlt || '图片'}](${placeholder})`;
         if (displayName) return `${imgMd}\n\n*摄影：${displayName}*`;
         return imgMd;
       });
@@ -808,6 +880,7 @@ const AiNewsWriter = () => {
       if (selectedPhotos && selectedPhotos.length) {
         // Per backend request: only send a single thumbnail field (thumbUrl) and projectTitle
         payload.selectedPhotos = selectedPhotos.map((p, idx) => ({
+          // core id/url
           id: p.id || p.url || `transfer-${idx}`,
           // use a single canonical thumbnail field
           thumbUrl: p.thumbUrl || p.thumbSrc || p.thumb || (p.url || null),
@@ -815,6 +888,8 @@ const AiNewsWriter = () => {
           description: p.description || '',
           tags: Array.isArray(p.tags) ? p.tags : (p.tagList || []),
           projectTitle: p.projectTitle || '',
+          faceNames: extractFaceNames(p),
+          personNames: extractFaceNames(p),
           // photographer id required by backend
           photographerId: p.photographerId || p.photographer_id || p.photographer || null,
         }));
@@ -908,6 +983,288 @@ const AiNewsWriter = () => {
     }
   };
 
+  const getFinalPreviewHtml = () => {
+    if (markdownText) {
+      return sanitizeHtml(
+        normalizePreviewHtml(
+          fixImgSrcMarkdownInAttributes(
+            renderMarkdownToHtml(
+              injectPhotoUrls(
+                fixNestedMarkdownImages(normalizeMarkdownForRendering(markdownText)),
+                selectedPhotos
+              )
+            )
+          )
+        )
+      );
+    }
+    if (generatedHtml) return sanitizeHtml(normalizePreviewHtml(fixImgSrcMarkdownInAttributes(generatedHtml)));
+    return '';
+  };
+
+  const escapeSvgText = (input) => String(input || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+  const blobToDataUrl = (blob) => new Promise((resolve, reject) => {
+    try {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    } catch (e) {
+      reject(e);
+    }
+  });
+
+  const buildExportPlaceholder = (altText) => (
+    `data:image/svg+xml;utf8,${encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360">
+        <rect width="100%" height="100%" fill="#f1f5f9"/>
+        <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#64748b" font-size="20">
+          ${escapeSvgText(altText || '图片')}
+        </text>
+      </svg>`
+    )}`
+  );
+
+  const inlineCrossOriginImagesForExport = async (root) => {
+    const imgs = Array.from((root && root.querySelectorAll) ? root.querySelectorAll('img') : []);
+    let inlinedCount = 0;
+    let unresolvedCount = 0;
+    for (const img of imgs) {
+      const rawSrc = String(img.getAttribute('src') || '').trim();
+      if (!rawSrc) continue;
+      if (/^data:/i.test(rawSrc)) continue;
+      if (/^blob:/i.test(rawSrc)) {
+        img.removeAttribute('srcset');
+        img.removeAttribute('data-export-unresolved');
+        inlinedCount += 1;
+        continue;
+      }
+
+      let targetUrl = null;
+      try {
+        targetUrl = new URL(rawSrc, window.location.href);
+      } catch (e) {
+        continue;
+      }
+      if (!targetUrl) continue;
+      if (targetUrl.origin === window.location.origin) {
+        img.removeAttribute('srcset');
+        img.removeAttribute('data-export-unresolved');
+        inlinedCount += 1;
+        continue;
+      }
+
+      try {
+        let resp = await fetch(targetUrl.toString(), { method: 'GET', mode: 'cors', credentials: 'include' });
+        if (!resp.ok) {
+          resp = await fetch(targetUrl.toString(), { method: 'GET', mode: 'cors', credentials: 'omit' });
+        }
+        if (!resp.ok) throw new Error(`fetch ${resp.status}`);
+        const blob = await resp.blob();
+        const dataUrl = await blobToDataUrl(blob);
+        if (!dataUrl) throw new Error('empty dataUrl');
+        img.setAttribute('src', dataUrl);
+        img.removeAttribute('srcset');
+        img.removeAttribute('data-export-unresolved');
+        inlinedCount += 1;
+      } catch (e) {
+        unresolvedCount += 1;
+        img.setAttribute('data-export-unresolved', '1');
+        img.removeAttribute('srcset');
+      }
+    }
+    return { inlinedCount, unresolvedCount };
+  };
+
+  const replaceUnresolvedImagesWithPlaceholdersForExport = (root) => {
+    const imgs = Array.from((root && root.querySelectorAll) ? root.querySelectorAll('img[data-export-unresolved="1"]') : []);
+    imgs.forEach((img) => {
+      img.setAttribute('src', buildExportPlaceholder(img.getAttribute('alt') || '图片'));
+      img.removeAttribute('srcset');
+      img.removeAttribute('data-export-unresolved');
+    });
+    return imgs.length;
+  };
+
+  const replaceAllImagesWithPlaceholdersForExport = (root) => {
+    const imgs = Array.from((root && root.querySelectorAll) ? root.querySelectorAll('img') : []);
+    imgs.forEach((img) => {
+      img.setAttribute('src', buildExportPlaceholder(img.getAttribute('alt') || '图片'));
+      img.removeAttribute('srcset');
+    });
+    return imgs.length;
+  };
+
+  const exportWrapperToDataUrl = async (wrapper, width, height) => {
+    const scale = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
+    return toPng(wrapper, {
+      cacheBust: true,
+      pixelRatio: scale,
+      backgroundColor: '#ffffff',
+      width,
+      height,
+      imagePlaceholder: buildExportPlaceholder('图片'),
+      fetchRequestInit: {
+        method: 'GET',
+        mode: 'cors',
+        credentials: 'include',
+      },
+    });
+  };
+
+  const renderPreviewImageByServer = async ({ html, width, height }) => {
+    const token = typeof getToken === 'function' ? getToken() : '';
+    const resp = await fetch('/api/ai/news/render-preview', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({
+        html: String(html || ''),
+        width,
+        height,
+        baseHref: (typeof window !== 'undefined' && window.location && window.location.origin)
+          ? `${window.location.origin}/`
+          : '',
+      }),
+    });
+
+    if (!resp.ok) {
+      const contentType = String(resp.headers.get('content-type') || '');
+      let msg = `server render failed (${resp.status})`;
+      try {
+        if (contentType.includes('application/json')) {
+          const data = await resp.json();
+          msg = String(data?.message || data?.error || msg);
+        } else {
+          const text = await resp.text();
+          if (text) msg = text.slice(0, 300);
+        }
+      } catch (e) {
+        // ignore parse error
+      }
+      throw new Error(msg);
+    }
+
+    const blob = await resp.blob();
+    if (!blob || !blob.size) {
+      throw new Error('server render empty image');
+    }
+    return URL.createObjectURL(blob);
+  };
+
+  const generatePreviewImage = async () => {
+    const node = previewContentRef.current;
+    if (!node) {
+      Toast.warning('暂无可导出的预览内容');
+      return;
+    }
+
+    setIsGeneratingPreviewImage(true);
+    try {
+      const width = Math.max(720, Math.ceil(node.scrollWidth));
+      const height = Math.max(420, Math.ceil(node.scrollHeight));
+      const serverHtml = finalPreviewHtml || node.innerHTML || '';
+      if (serverHtml) {
+        try {
+          const serverBlobUrl = await renderPreviewImageByServer({ html: serverHtml, width, height });
+          updatePreviewImageUrl(serverBlobUrl);
+          setShowPreviewImage(true);
+          Toast.success('预览图已生成');
+          return;
+        } catch (serverErr) {
+          console.warn('[AiNewsWriter] server preview render failed, fallback to client', serverErr);
+          Toast.warning('后端截图不可用，已回退浏览器导出');
+        }
+      }
+
+      const clone = node.cloneNode(true);
+      const wrapper = document.createElement('div');
+      wrapper.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
+      wrapper.style.width = `${width}px`;
+      wrapper.style.minHeight = `${height}px`;
+      wrapper.style.padding = '20px 24px';
+      wrapper.style.boxSizing = 'border-box';
+      wrapper.style.background = '#fff';
+      wrapper.style.color = '#111827';
+      wrapper.style.fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft Yahei", sans-serif';
+      wrapper.appendChild(clone);
+      const mount = document.createElement('div');
+      mount.style.position = 'fixed';
+      mount.style.left = '-99999px';
+      mount.style.top = '0';
+      mount.style.width = `${width}px`;
+      mount.style.height = `${height}px`;
+      mount.style.overflow = 'hidden';
+      mount.style.opacity = '0';
+      mount.style.pointerEvents = 'none';
+      mount.style.zIndex = '-1';
+      mount.appendChild(wrapper);
+      document.body.appendChild(mount);
+      const imgFixResult = await inlineCrossOriginImagesForExport(wrapper);
+      let fallbackPlaceholderCount = 0;
+      let fullFallbackPlaceholderCount = 0;
+      let dataUrl = '';
+      try {
+        dataUrl = await exportWrapperToDataUrl(wrapper, width, height);
+      } catch (firstErr) {
+        let nextErr = firstErr;
+        fallbackPlaceholderCount = replaceUnresolvedImagesWithPlaceholdersForExport(wrapper);
+        if (fallbackPlaceholderCount > 0) {
+          try {
+            dataUrl = await exportWrapperToDataUrl(wrapper, width, height);
+          } catch (secondErr) {
+            nextErr = secondErr;
+          }
+        }
+        if (!dataUrl) {
+          const msg = String((nextErr && (nextErr.message || nextErr.name)) || '');
+          const isSecurityError = (nextErr && nextErr.name === 'SecurityError') || /tainted canvas/i.test(msg);
+          if (!isSecurityError && fallbackPlaceholderCount <= 0) throw nextErr;
+          fullFallbackPlaceholderCount = replaceAllImagesWithPlaceholdersForExport(wrapper);
+          dataUrl = await exportWrapperToDataUrl(wrapper, width, height);
+        }
+      } finally {
+        if (mount && mount.parentNode) {
+          mount.parentNode.removeChild(mount);
+        }
+      }
+
+      updatePreviewImageUrl(dataUrl);
+      setShowPreviewImage(true);
+      if (imgFixResult && imgFixResult.unresolvedCount > 0 && fallbackPlaceholderCount > 0) {
+        Toast.warning(`已替换 ${fallbackPlaceholderCount} 张跨域图片占位后导出`);
+      }
+      if (fullFallbackPlaceholderCount > 0) {
+        Toast.warning(`浏览器限制已触发，已用 ${fullFallbackPlaceholderCount} 张占位图重试导出`);
+      }
+      Toast.success('预览图已生成');
+    } catch (e) {
+      console.error('[AiNewsWriter] generate preview image failed', e);
+      Toast.error('生成预览图失败，请稍后重试');
+    } finally {
+      setIsGeneratingPreviewImage(false);
+    }
+  };
+
+  const downloadPreviewImage = () => {
+    if (!previewImageUrl) return;
+    const link = document.createElement('a');
+    link.href = previewImageUrl;
+    link.download = `ai-news-preview-${Date.now()}.png`;
+    link.click();
+  };
+
+  const finalPreviewHtml = getFinalPreviewHtml();
+
   return (
     <Layout style={{ padding: isMobile ? 10 : 16, overflowX: 'hidden' }}>
       <Header style={{ background: 'transparent', padding: 0, marginBottom: 12 }}>
@@ -931,15 +1288,20 @@ const AiNewsWriter = () => {
                     try {
                       const items = getTransferAll() || [];
                       if (!items.length) { Toast.info('中转站为空或无可用照片'); return; }
-                      const mapped = items.map((p, idx) => ({
-                        id: p.id || p.url || `transfer-${idx}`,
-                        thumbUrl: p.thumbUrl || p.thumbSrc || p.thumb || p.url || '',
-                        url: p.thumbUrl || p.thumbSrc || p.url || '',
-                        description: p.description || p.caption || '',
-                        tags: p.tags || p.tagList || [],
-                        projectTitle: p.projectTitle || p.source || '',
-                        photographerId: p.photographerId || p.photographer_id || p.photographer || null,
-                      }));
+                      const mapped = items.map((p, idx) => {
+                        const faceNames = extractFaceNames(p);
+                        return {
+                          id: p.id || p.url || `transfer-${idx}`,
+                          thumbUrl: p.thumbUrl || p.thumbSrc || p.thumb || p.url || '',
+                          url: p.thumbUrl || p.thumbSrc || p.url || '',
+                          description: p.description || p.caption || '',
+                          tags: p.tags || p.tagList || [],
+                          projectTitle: p.projectTitle || p.source || '',
+                          photographerId: p.photographerId || p.photographer_id || p.photographer || null,
+                          faceNames,
+                          personNames: faceNames,
+                        };
+                      });
                       setSelectedPhotos(mapped);
                       Toast.success(`已从中转站填充 ${mapped.length} 张到已选照片`);
                     } catch (e) {
@@ -997,6 +1359,11 @@ const AiNewsWriter = () => {
                     <div style={{ marginTop: 6, fontSize: 12, color: '#666' }}>
                       {p.photographerName ? `摄影：${p.photographerName}` : (p.photographerId ? `摄影师 #${p.photographerId}` : null)}
                     </div>
+                    {extractFaceNames(p).length > 0 ? (
+                      <div style={{ marginTop: 6, fontSize: 12, color: '#334155' }}>
+                        人物：{extractFaceNames(p).join('、')}
+                      </div>
+                    ) : null}
                     <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                       {(p.tags || []).map((t) => <Tag key={t} size="small" type="light">{t}</Tag>)}
                     </div>
@@ -1085,7 +1452,18 @@ const AiNewsWriter = () => {
                     <Button onClick={async () => {
                       // ask backend for assembled prompt preview, fallback to local assemble
                       try {
-                        const payload = { form: formValues, referenceArticle, interviewText, selectedPhotos: (selectedPhotos || []).map((p) => ({ id: p.id, description: p.description, tags: p.tags })) };
+                        const payload = {
+                          form: formValues,
+                          referenceArticle,
+                          interviewText,
+                          selectedPhotos: (selectedPhotos || []).map((p) => ({
+                            id: p.id,
+                            description: p.description,
+                            tags: p.tags,
+                            faceNames: extractFaceNames(p),
+                            personNames: extractFaceNames(p),
+                          })),
+                        };
                         const resp = await request('/api/ai/news/preview', { method: 'POST', data: payload });
                         if (resp && resp.assembledPrompt) setAdvancedPrompt(resp.assembledPrompt);
                         else setAdvancedPrompt(assemblePrompt());
@@ -1140,6 +1518,29 @@ const AiNewsWriter = () => {
               </div>
             </Modal>
 
+            <Modal
+              title="预览图"
+              visible={showPreviewImage}
+              footer={null}
+              width={isMobile ? '96vw' : 920}
+              onCancel={() => setShowPreviewImage(false)}
+            >
+              <div style={{ maxHeight: isMobile ? '68vh' : '72vh', overflow: 'auto', background: '#f8fafc', borderRadius: 8, padding: 10 }}>
+                {previewImageUrl ? (
+                  <img
+                    src={previewImageUrl}
+                    alt="preview"
+                    style={{ width: '100%', height: 'auto', display: 'block', borderRadius: 6, background: '#fff' }}
+                  />
+                ) : (
+                  <div style={{ color: '#64748b' }}>No preview image</div>
+                )}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
+                <Button onClick={downloadPreviewImage} disabled={!previewImageUrl}>下载图片</Button>
+              </div>
+            </Modal>
+
             {/* Right: editor */}
             <div style={{ flex: isMobile ? '1 1 auto' : '1 1 600px', minWidth: isMobile ? 0 : 360, width: '100%' }}>
               <Card title="AI 生成结果编辑区" bordered>
@@ -1159,14 +1560,31 @@ const AiNewsWriter = () => {
                     </div>
                   </Tabs.TabPane>
                   <Tabs.TabPane itemKey="preview" tab="预览">
-                    <div style={{ border: '1px solid #eee', padding: 12, borderRadius: 4, minHeight: 240 }}>
-                      {markdownText ? (
-                        // Prefer client-side Markdown in preview. Server-provided HTML can
-                        // contain oddities that break the preview; use it only as fallback.
-                        <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(normalizePreviewHtml(fixImgSrcMarkdownInAttributes(renderMarkdownToHtml(injectPhotoUrls(fixNestedMarkdownImages(normalizeMarkdownForRendering(markdownText)), selectedPhotos))))) }} />
-                      ) : (generatedHtml ? (
-                        <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(normalizePreviewHtml(fixImgSrcMarkdownInAttributes(generatedHtml))) }} />
-                      ) : <div style={{ color: '#999' }}>暂无内容</div>)}
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+                      <Button
+                        onClick={generatePreviewImage}
+                        loading={isGeneratingPreviewImage}
+                        disabled={!finalPreviewHtml}
+                      >
+                        生成预览图
+                      </Button>
+                    </div>
+                    <div
+                      ref={previewContentRef}
+                      style={{
+                        border: '1px solid #eee',
+                        padding: isMobile ? 14 : 18,
+                        borderRadius: 4,
+                        minHeight: 240,
+                        fontSize: isMobile ? 17 : 19,
+                        lineHeight: 1.9,
+                      }}
+                    >
+                      {finalPreviewHtml ? (
+                        <div dangerouslySetInnerHTML={{ __html: finalPreviewHtml }} />
+                      ) : (
+                        <div style={{ color: '#999' }}>暂无内容</div>
+                      )}
                     </div>
                   </Tabs.TabPane>
                 </Tabs>

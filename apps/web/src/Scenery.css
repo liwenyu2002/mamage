@@ -1,7 +1,6 @@
 /* Scenery page: present projectId=1 images only. */
 .scenery-page {
   width: 100%;
-  height: calc(100vh - 64px); /* leave space for top Nav (approx 64px) */
   margin: 0;
   padding: 0;
   box-sizing: border-box;
@@ -24,27 +23,7 @@
 }
 
 .scenery-page .detail-page {
-  height: calc(100% - 48px);
   padding-top: 0;
-  padding-bottom: 0;
-}
-
-/* Let gallery fill available area under the top nav */
-.scenery-page .detail-gallery {
-  height: 100% !important;
-  padding: 0 12px !important;
-  overflow: auto;
-}
-
-/* Adjust rows so they take full width with tighter gaps for scenic layout */
-.scenery-page .detail-gallery-row {
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-/* Remove extra paddings around images */
-.scenery-page .detail-photo {
-  padding: 0 !important;
 }
 
 /* Viewer overlay should still work */
