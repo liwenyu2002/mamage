@@ -20,16 +20,23 @@ jobs:
         shell: bash
 
     steps:
-      - name: Network precheck
+      - name: Network precheck (non-blocking)
         timeout-minutes: 2
         run: |
-          set -euo pipefail
+          set -u
           echo "Checking mirror and github endpoints..."
-          timeout --foreground 20s curl -I https://gitee.com >/dev/null
-          timeout --foreground 20s git ls-remote --heads https://gitee.com/liwenyu2002/mamage-web.git >/dev/null
-          timeout --foreground 20s curl -I https://github.com >/dev/null
+          if ! timeout --foreground 20s curl -I https://gitee.com >/dev/null; then
+            echo "WARN: gitee.com precheck failed (will continue)."
+          fi
+          if ! timeout --foreground 20s git ls-remote --heads https://gitee.com/liwenyu2002/mamage-web.git >/dev/null; then
+            echo "WARN: gitee repo precheck failed (will continue)."
+          fi
+          if ! timeout --foreground 20s curl -I https://github.com >/dev/null; then
+            echo "WARN: github.com precheck failed (will continue)."
+          fi
 
       - name: Wait for current commit mirrored to Gitee
+        continue-on-error: true
         timeout-minutes: 5
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
