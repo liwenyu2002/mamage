@@ -28,6 +28,7 @@ function App() {
   const [error, setError] = React.useState(null);
   const [keyword, setKeyword] = React.useState('');
   const [currentProjectId, setCurrentProjectId] = React.useState(null);
+  const [pendingOpenPhotoId, setPendingOpenPhotoId] = React.useState(null);
   const [selectedNav, setSelectedNav] = React.useState('projects');
   const [showCreateModal, setShowCreateModal] = React.useState(false);
   const [functionPage, setFunctionPage] = React.useState(null);
@@ -253,10 +254,12 @@ function App() {
 
   const handleSelectProject = React.useCallback((projectId) => {
     setCurrentProjectId(projectId);
+    setPendingOpenPhotoId(null);
     setSelectedNav('projects');
     try {
       const url = new URL(window.location.href);
       url.searchParams.set('projectId', projectId);
+      url.searchParams.delete('photoId');
       window.history.pushState({}, '', url);
     } catch (e) {
       // ignore
@@ -272,6 +275,7 @@ function App() {
     try {
       const url = new URL(window.location.href);
       url.searchParams.delete('projectId');
+      url.searchParams.delete('photoId');
       // navigate back to root list view
       const base = url.pathname && url.pathname !== '/' ? '/' : url.pathname || '/';
       window.history.pushState({}, '', base + (url.search ? url.search : ''));
@@ -285,6 +289,7 @@ function App() {
     try {
       const params = new URLSearchParams(window.location.search);
       const pid = params.get('projectId');
+      const openPhotoId = params.get('photoId');
       const path = window.location.pathname;
       // handle public share links served by SPA: /share/:code
       if (path && path.startsWith('/share/')) {
@@ -372,9 +377,11 @@ function App() {
       } else if (pid) {
         setSelectedNav('projects');
         setCurrentProjectId(pid);
+        setPendingOpenPhotoId(openPhotoId ? String(openPhotoId) : null);
       } else {
         setSelectedNav('projects');
         setCurrentProjectId(null);
+        setPendingOpenPhotoId(null);
       }
     } catch (e) {
       // ignore
@@ -383,7 +390,9 @@ function App() {
     const onPop = () => {
       try {
         const path = window.location.pathname;
-        const p = new URLSearchParams(window.location.search).get('projectId');
+        const params = new URLSearchParams(window.location.search);
+        const p = params.get('projectId');
+        const openPhotoId = params.get('photoId');
         if (path && path.startsWith('/share/')) {
           // reload to allow share handling effect to fetch fresh data
           try { window.location.reload(); } catch (e) { window.location.href = path; }
@@ -406,13 +415,16 @@ function App() {
         } else if (p) {
           setSelectedNav('projects');
           setCurrentProjectId(p);
+          setPendingOpenPhotoId(openPhotoId ? String(openPhotoId) : null);
         } else {
           setSelectedNav('projects');
           setCurrentProjectId(null);
+          setPendingOpenPhotoId(null);
         }
       } catch (err) {
         setCurrentProjectId(null);
         setSelectedNav('projects');
+        setPendingOpenPhotoId(null);
       }
     };
 
@@ -479,6 +491,21 @@ function App() {
     if (!currentProjectId) return null;
     return normalizedProjects.find((project) => project.id === currentProjectId) || null;
   }, [normalizedProjects, currentProjectId]);
+
+  const handleInitialPhotoOpened = React.useCallback((photoId) => {
+    const sid = photoId === null || photoId === undefined ? '' : String(photoId).trim();
+    if (!sid) return;
+    setPendingOpenPhotoId((prev) => (prev && String(prev).trim() === sid ? null : prev));
+    try {
+      const url = new URL(window.location.href);
+      if (String(url.searchParams.get('photoId') || '').trim() === sid) {
+        url.searchParams.delete('photoId');
+        window.history.replaceState({}, '', url);
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, []);
 
 
   if (isSharePath) {
@@ -743,6 +770,8 @@ function App() {
               projectId={currentProjectId}
               initialProject={currentProject ? { ...currentProject, images: [] } : null}
               onBack={handleBackToList}
+              initialOpenPhotoId={pendingOpenPhotoId}
+              onInitialOpenPhotoHandled={handleInitialPhotoOpened}
             />
           ) : (
             selectedNav === 'projects' ? (

@@ -175,6 +175,8 @@ function ProjectDetail({
   projectId,
   initialProject,
   onBack,
+  initialOpenPhotoId,
+  onInitialOpenPhotoHandled,
   galleryMode: controlledGalleryMode,
   onGalleryModeChange,
 }) {
@@ -237,7 +239,6 @@ function ProjectDetail({
   const [facePersonHeroPhoto, setFacePersonHeroPhoto] = React.useState(null);
   const [facePersonEditName, setFacePersonEditName] = React.useState('');
   const [facePersonSaving, setFacePersonSaving] = React.useState(false);
-  const [viewerFromPersonProfile, setViewerFromPersonProfile] = React.useState(false);
   // parsed photo tags and descriptions indexed by photo ID
   const [photoTagsMap, setPhotoTagsMap] = React.useState({});
   const [photoDescMap, setPhotoDescMap] = React.useState({});
@@ -1470,6 +1471,10 @@ function ProjectDetail({
 
   const currentViewerPhotoId = React.useMemo(() => getMetaPhotoId(photoMetas?.[viewerIndex]), [photoMetas, viewerIndex, getMetaPhotoId]);
   const currentViewerFaces = React.useMemo(() => (currentViewerPhotoId ? (viewerFaceMap[currentViewerPhotoId] || []) : []), [currentViewerPhotoId, viewerFaceMap]);
+  const currentViewerFaceLoaded = React.useMemo(
+    () => Boolean(currentViewerPhotoId && Object.prototype.hasOwnProperty.call(viewerFaceMap || {}, currentViewerPhotoId)),
+    [currentViewerPhotoId, viewerFaceMap]
+  );
   const currentViewerFaceLoading = Boolean(currentViewerPhotoId && viewerFaceLoadingMap[currentViewerPhotoId]);
   const currentViewerFaceError = currentViewerPhotoId ? (viewerFaceErrorMap[currentViewerPhotoId] || '') : '';
 
@@ -1716,19 +1721,64 @@ function ProjectDetail({
     if (!photo) return;
     const targetIdRaw = photo.id || photo.photoId || photo.photo_id || '';
     const targetId = targetIdRaw ? String(targetIdRaw) : '';
+    const targetProjectIdRaw = photo.projectId || photo.project_id || '';
+    const targetProjectId = targetProjectIdRaw ? String(targetProjectIdRaw).trim() : '';
     const hitIdx = targetId ? (photoMetas || []).findIndex((m) => String(getMetaPhotoId(m) || '') === targetId) : -1;
     if (hitIdx >= 0) {
       closeFacePersonModal();
       setViewerEnableOpenZoom(false);
       setViewerShowOriginal(false);
-      setViewerFromPersonProfile(true);
-      setViewerFaceOverlayVisible(false);
       setViewerIndex(hitIdx);
       return;
+    }
+    if (targetProjectId && typeof window !== 'undefined') {
+      closeFacePersonModal();
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.set('projectId', targetProjectId);
+        if (targetId) {
+          url.searchParams.set('photoId', targetId);
+        } else {
+          url.searchParams.delete('photoId');
+        }
+        window.history.pushState({}, '', url);
+        try {
+          window.dispatchEvent(new PopStateEvent('popstate'));
+        } catch (evtErr) {
+          window.dispatchEvent(new Event('popstate'));
+        }
+        return;
+      } catch (e) {
+        // fallback below
+      }
     }
     const url = photo.url || photo.thumbUrl || '';
     if (url) window.open(url, '_blank', 'noopener,noreferrer');
   }, [photoMetas, getMetaPhotoId, closeFacePersonModal]);
+
+  const loadViewerFacesForPhoto = React.useCallback(async (photoId, opts = {}) => {
+    if (!photoId) return;
+    const silent = Boolean(opts && opts.silent);
+    if (viewerFaceLoadingMap[photoId]) return;
+    setViewerFaceLoadingMap((prev) => ({ ...(prev || {}), [photoId]: true }));
+    setViewerFaceErrorMap((prev) => ({ ...(prev || {}), [photoId]: '' }));
+    try {
+      const data = await detectPhotoFaces(photoId, { projectId: projectId || undefined });
+      const faces = normalizeFaceDetections(data);
+      setViewerFaceMap((prev) => ({ ...(prev || {}), [photoId]: faces }));
+      if (!faces.length && !silent) {
+        Toast.info('未检测到人脸');
+      }
+    } catch (err) {
+      console.error('detectPhotoFaces failed', err);
+      const msg = err?.body || err?.message || '人脸识别失败';
+      setViewerFaceErrorMap((prev) => ({ ...(prev || {}), [photoId]: msg }));
+      setViewerFaceOverlayVisible(false);
+      if (!silent) Toast.error(msg);
+    } finally {
+      setViewerFaceLoadingMap((prev) => ({ ...(prev || {}), [photoId]: false }));
+    }
+  }, [viewerFaceLoadingMap, projectId]);
 
   const handleDetectViewerFaces = React.useCallback(async () => {
     const meta = photoMetas?.[viewerIndex] || null;
@@ -1744,25 +1794,16 @@ function ProjectDetail({
     }
 
     setViewerFaceOverlayVisible(true);
-    setViewerFaceLoadingMap((prev) => ({ ...(prev || {}), [photoId]: true }));
-    setViewerFaceErrorMap((prev) => ({ ...(prev || {}), [photoId]: '' }));
-    try {
-      const data = await detectPhotoFaces(photoId, { projectId: projectId || undefined });
-      const faces = normalizeFaceDetections(data);
-      setViewerFaceMap((prev) => ({ ...(prev || {}), [photoId]: faces }));
-      if (!faces.length) {
-        Toast.info('未检测到人脸');
-      }
-    } catch (err) {
-      console.error('detectPhotoFaces failed', err);
-      const msg = err?.body || err?.message || '人脸识别失败';
-      setViewerFaceErrorMap((prev) => ({ ...(prev || {}), [photoId]: msg }));
-      setViewerFaceOverlayVisible(false);
-      Toast.error(msg);
-    } finally {
-      setViewerFaceLoadingMap((prev) => ({ ...(prev || {}), [photoId]: false }));
-    }
-  }, [photoMetas, viewerIndex, getMetaPhotoId, viewerFaceMap, projectId]);
+    await loadViewerFacesForPhoto(photoId);
+  }, [photoMetas, viewerIndex, getMetaPhotoId, viewerFaceMap, loadViewerFacesForPhoto]);
+
+  React.useEffect(() => {
+    if (!viewerVisible || !viewerFaceOverlayVisible) return;
+    if (!currentViewerPhotoId) return;
+    if (Array.isArray(viewerFaceMap[currentViewerPhotoId])) return;
+    if (viewerFaceLoadingMap[currentViewerPhotoId]) return;
+    loadViewerFacesForPhoto(currentViewerPhotoId, { silent: true });
+  }, [viewerVisible, viewerFaceOverlayVisible, currentViewerPhotoId, viewerFaceMap, viewerFaceLoadingMap, loadViewerFacesForPhoto]);
 
   React.useEffect(() => {
     if (viewerVisible) return;
@@ -1771,7 +1812,6 @@ function ProjectDetail({
   }, [viewerVisible, closeFacePersonModal]);
 
   React.useEffect(() => {
-    setViewerFaceOverlayVisible(false);
     closeFacePersonModal();
   }, [viewerIndex, closeFacePersonModal]);
 
@@ -1838,15 +1878,30 @@ function ProjectDetail({
     }
     setViewerIndex(index);
     setViewerShowOriginal(false);
-    setViewerFromPersonProfile(false);
     setViewerVisible(true);
   }, [getViewerTargetSrc]);
+
+  const lastAutoOpenedPhotoKeyRef = React.useRef('');
+  React.useEffect(() => {
+    if (!initialOpenPhotoId) return;
+    if (!Array.isArray(photoMetas) || !photoMetas.length) return;
+    const targetPhotoId = String(initialOpenPhotoId).trim();
+    if (!targetPhotoId) return;
+    const key = `${String(projectId || '')}:${targetPhotoId}`;
+    if (lastAutoOpenedPhotoKeyRef.current === key) return;
+    const idx = photoMetas.findIndex((m) => String(getMetaPhotoId(m) || '') === targetPhotoId);
+    if (idx < 0) return;
+    lastAutoOpenedPhotoKeyRef.current = key;
+    openViewerAt(idx, getViewerTargetSrc(idx, false));
+    if (typeof onInitialOpenPhotoHandled === 'function') {
+      onInitialOpenPhotoHandled(targetPhotoId);
+    }
+  }, [initialOpenPhotoId, photoMetas, projectId, getMetaPhotoId, openViewerAt, getViewerTargetSrc, onInitialOpenPhotoHandled]);
 
   const closeViewer = React.useCallback(() => {
     setViewerVisible(false);
     setViewerEnableOpenZoom(false);
     setViewerShowOriginal(false);
-    setViewerFromPersonProfile(false);
   }, []);
 
   // viewer keyboard navigation
@@ -3135,7 +3190,7 @@ function ProjectDetail({
                   下载该照片
                 </button>
 
-                {(photoMetas && photoMetas[viewerIndex]) && !viewerFromPersonProfile && (
+                {(photoMetas && photoMetas[viewerIndex]) && (
                   <button
                     type="button"
                     className="viewer-original-btn"
@@ -3145,7 +3200,7 @@ function ProjectDetail({
                   >
                     {currentViewerFaceLoading
                       ? '识别中...'
-                      : (Array.isArray(currentViewerFaces)
+                      : (currentViewerFaceLoaded
                         ? (viewerFaceOverlayVisible ? '隐藏人脸框' : '显示人脸框')
                         : '人脸识别')}
                   </button>
