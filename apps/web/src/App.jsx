@@ -64,6 +64,15 @@ function App() {
       return false;
     }
   })();
+  const isDemoPath = (() => {
+    try {
+      if (typeof window === 'undefined' || !window.location) return false;
+      const p = String(window.location.pathname || '').toLowerCase();
+      return p === '/demo' || p === '/demo/';
+    } catch (e) {
+      return false;
+    }
+  })();
 
 
   const latestRequestRef = React.useRef(0);
@@ -76,7 +85,7 @@ function App() {
     setError(null);
     try {
       // 鍚庣鍒嗛〉鎺ュ彛锛欸ET /api/projects/list?page=1&pageSize=6&keyword=xxx
-      const response = await fetchProjectList({ page, pageSize, keyword: kw?.trim() || undefined });
+      const response = await fetchProjectList({ page, pageSize, keyword: kw?.trim() || undefined, demo: isDemoPath });
       if (latestRequestRef.current !== currentToken) return;
 
       const list = Array.isArray(response?.list) ? response.list : [];
@@ -93,7 +102,7 @@ function App() {
         setLoading(false);
       }
     }
-  }, []);
+  }, [isDemoPath]);
 
   const clearPhotoSearchState = React.useCallback(() => {
     setPhotoSearchMode(false);
@@ -207,7 +216,7 @@ function App() {
     try {
       const url = new URL(window.location.href);
       url.searchParams.delete('projectId');
-      const base = url.pathname && url.pathname !== '/' ? '/' : url.pathname || '/';
+      const base = isDemoPath ? '/demo' : (url.pathname && url.pathname !== '/' ? '/' : url.pathname || '/');
       window.history.pushState({}, '', base + (url.search ? url.search : ''));
     } catch (e) {
       // ignore
@@ -225,7 +234,7 @@ function App() {
     setPhotoSearchTotal(0);
     loadProjects(trimmed);
     loadPhotoSearchResults({ kw: trimmed, page: 1, append: false });
-  }, [keyword, loadPhotoSearchResults, clearPhotoSearchState, loadProjects]);
+  }, [keyword, loadPhotoSearchResults, clearPhotoSearchState, loadProjects, isDemoPath]);
 
   const handlePhotoSearchLoadMore = React.useCallback(() => {
     if (photoSearchLoading || !photoSearchHasMore) return;
@@ -290,12 +299,12 @@ function App() {
       url.searchParams.delete('projectId');
       url.searchParams.delete('photoId');
       // navigate back to root list view
-      const base = url.pathname && url.pathname !== '/' ? '/' : url.pathname || '/';
+      const base = isDemoPath ? '/demo' : (url.pathname && url.pathname !== '/' ? '/' : url.pathname || '/');
       window.history.pushState({}, '', base + (url.search ? url.search : ''));
     } catch (e) {
       // ignore
     }
-  }, [clearPhotoSearchState, loadProjects]);
+  }, [clearPhotoSearchState, loadProjects, isDemoPath]);
 
   // On mount: read projectId from URL and listen to popstate for back/forward navigation
   React.useEffect(() => {
@@ -547,7 +556,7 @@ function App() {
     );
   }
 
-  if (!currentUser) {
+  if (!currentUser && !isDemoPath) {
     return <AuthPage onAuthenticated={(u) => { setCurrentUser(u); loadProjects(); }} />;
   }
 
@@ -593,20 +602,26 @@ function App() {
                   MaMage 图库
                 </button>
               </div>
-              <Popover
-                content={(
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 140 }}>
-                    <Button type="tertiary" onClick={() => { try { window.history.pushState({}, '', '/account'); } catch (e) { } setSelectedNav('account'); }}>账户信息</Button>
-                    <Button type="tertiary" theme="borderless" onClick={async () => { try { await authService.logout(); setCurrentUser(null); try { window.history.pushState({}, '', '/login'); } catch (e) { } } catch (e) { console.error(e); } }}>退出登录</Button>
-                  </div>
-                )}
-                trigger="click"
-                position="bottomRight"
-              >
-                <Avatar size="small" alt={currentUser?.name || ''} style={{ backgroundColor: '#d9d9d9', cursor: 'pointer' }}>
-                  {(currentUser?.name || currentUser?.displayName || currentUser?.email || 'U')[0]}
-                </Avatar>
-              </Popover>
+              {currentUser ? (
+                <Popover
+                  content={(
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 140 }}>
+                      <Button type="tertiary" onClick={() => { try { window.history.pushState({}, '', '/account'); } catch (e) { } setSelectedNav('account'); }}>账户信息</Button>
+                      <Button type="tertiary" theme="borderless" onClick={async () => { try { await authService.logout(); setCurrentUser(null); try { window.history.pushState({}, '', '/login'); } catch (e) { } } catch (e) { console.error(e); } }}>退出登录</Button>
+                    </div>
+                  )}
+                  trigger="click"
+                  position="bottomRight"
+                >
+                  <Avatar size="small" alt={currentUser?.name || ''} style={{ backgroundColor: '#d9d9d9', cursor: 'pointer' }}>
+                    {(currentUser?.name || currentUser?.displayName || currentUser?.email || 'U')[0]}
+                  </Avatar>
+                </Popover>
+              ) : (
+                <Button size="small" type="primary" onClick={() => { try { window.history.pushState({}, '', '/login'); window.location.reload(); } catch (e) { window.location.href = '/login'; } }}>
+                  管理员登录
+                </Button>
+              )}
             </div>
             <SideSheet
               title="导航"
@@ -676,9 +691,11 @@ function App() {
                 onEnterPress={handleSearchSubmit}
               />
               <Button size="small" theme="solid" type="primary" onClick={handleSearchSubmit}>搜索</Button>
-              <IfCan perms={['projects.create']}>
-                <Button size="small" onClick={() => setShowCreateModal(true)}>新建</Button>
-              </IfCan>
+              {!isDemoPath ? (
+                <IfCan perms={['projects.create']}>
+                  <Button size="small" onClick={() => setShowCreateModal(true)}>新建</Button>
+                </IfCan>
+              ) : null}
             </div>
           </div>
         ) : (
@@ -742,11 +759,13 @@ function App() {
                       搜索
                     </Button>
 
-                    <IfCan perms={['projects.create']}>
-                      <Button onClick={() => setShowCreateModal(true)}>
-                        新建相册
-                      </Button>
-                    </IfCan>
+                    {!isDemoPath ? (
+                      <IfCan perms={['projects.create']}>
+                        <Button onClick={() => setShowCreateModal(true)}>
+                          新建相册
+                        </Button>
+                      </IfCan>
+                    ) : null}
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '0 0 auto', minWidth: 0 }}>
@@ -783,6 +802,7 @@ function App() {
               projectId={currentProjectId}
               initialProject={currentProject ? { ...currentProject, images: [] } : null}
               onBack={handleBackToList}
+              readOnly={isDemoPath}
               initialOpenPhotoId={pendingOpenPhotoId}
               onInitialOpenPhotoHandled={handleInitialPhotoOpened}
             />

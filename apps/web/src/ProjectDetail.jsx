@@ -214,9 +214,13 @@ function ProjectDetail({
   onBack,
   initialOpenPhotoId,
   onInitialOpenPhotoHandled,
+  readOnly = false,
   galleryMode: controlledGalleryMode,
   onGalleryModeChange,
 }) {
+  const DISABLE_UPLOAD_FEATURE = !!readOnly;
+  const DISABLE_DELETE_FEATURE = !!readOnly;
+
   const [project, setProject] = React.useState(initialProject || null);
   const [images, setImages] = React.useState(() => (initialProject?.images ? initialProject.images.map((it) => resolveAssetUrl(getPhotoThumbCandidate(it))) : []));
   const [photoMetas, setPhotoMetas] = React.useState(() => (initialProject?.images ? initialProject.images.map((it) => (typeof it === 'string' ? { url: it } : { ...it, thumbSrc: resolveAssetUrl(getPhotoThumbCandidate(it)), originalSrc: resolveAssetUrl(getPhotoOriginalCandidate(it)) })) : []));
@@ -507,7 +511,7 @@ function ProjectDetail({
       setLoading(true);
       setError(null);
       try {
-        const detail = await getProjectById(projectId);
+        const detail = await getProjectById(projectId, { demo: readOnly });
         if (canceled) return;
 
         setProject(detail);
@@ -656,16 +660,16 @@ function ProjectDetail({
     return () => {
       canceled = true;
     };
-  }, [projectId, initialProject]);
+  }, [projectId, initialProject, readOnly]);
 
   const reloadGalleryFromServer = React.useCallback(async () => {
     if (!projectId) return;
-    const detail = await getProjectById(projectId);
+    const detail = await getProjectById(projectId, { demo: readOnly });
     setProject(detail);
     const built = buildImagesAndMetas(detail);
     setImages(built.images);
     setPhotoMetas(built.metas);
-  }, [projectId, buildImagesAndMetas]);
+  }, [projectId, buildImagesAndMetas, readOnly]);
 
   React.useEffect(() => {
     setSearchKeyword('');
@@ -757,10 +761,18 @@ function ProjectDetail({
 
   // ========== Upload / Edit / Selection handlers ==========
   const openUploadPicker = React.useCallback(() => {
+    if (DISABLE_UPLOAD_FEATURE) {
+      Toast.warning('上传功能已禁用');
+      return;
+    }
     if (fileInputRef.current) fileInputRef.current.click();
-  }, []);
+  }, [DISABLE_UPLOAD_FEATURE]);
 
   const handleFilesSelected = React.useCallback((files) => {
+    if (DISABLE_UPLOAD_FEATURE) {
+      Toast.warning('上传功能已禁用');
+      return;
+    }
     const MAX_FILES = 15;
     let list = Array.from(files || []);
     if (list.length > MAX_FILES) {
@@ -771,7 +783,7 @@ function ProjectDetail({
     setStagingFiles(list);
     setStagingPreviews(previews);
     setUploadMode(true);
-  }, []);
+  }, [DISABLE_UPLOAD_FEATURE]);
 
   const cancelUpload = React.useCallback(() => {
     stagingPreviews.forEach((u) => { try { URL.revokeObjectURL(u); } catch (e) { } });
@@ -782,6 +794,10 @@ function ProjectDetail({
   }, [stagingPreviews]);
 
   const confirmUpload = React.useCallback(async () => {
+    if (DISABLE_UPLOAD_FEATURE) {
+      Toast.warning('上传功能已禁用');
+      return;
+    }
     if (!stagingFiles.length || !projectId) return;
     const MAX_FILES = 15;
     let filesToUpload = stagingFiles;
@@ -825,7 +841,7 @@ function ProjectDetail({
       if (succeeded.length > 0) {
         cancelUpload();
         try {
-          const detail = await getProjectById(projectId);
+          const detail = await getProjectById(projectId, { demo: readOnly });
           setProject(detail);
           const built = buildImagesAndMetas(detail);
           setImages(built.images);
@@ -838,7 +854,7 @@ function ProjectDetail({
     } finally {
       setUploading(false);
     }
-  }, [stagingFiles, projectId, cancelUpload]);
+  }, [stagingFiles, projectId, cancelUpload, DISABLE_UPLOAD_FEATURE]);
 
   const openEdit = React.useCallback(() => {
     const p = project || {};
@@ -877,7 +893,7 @@ function ProjectDetail({
       Toast.success('已保存');
       setEditVisible(false);
       // reload
-      const detail = await getProjectById(projectId);
+      const detail = await getProjectById(projectId, { demo: readOnly });
       setProject(detail);
       const built = buildImagesAndMetas(detail);
       setImages(built.images);
@@ -898,9 +914,13 @@ function ProjectDetail({
         Toast.error('淇濆瓨澶辫触');
       }
     }
-  }, [projectId, editTitle, editDescription, editEventDate]);
+  }, [projectId, editTitle, editDescription, editEventDate, readOnly]);
 
   const handleDeleteProject = React.useCallback(() => {
+    if (DISABLE_DELETE_FEATURE) {
+      Toast.warning('删除功能已禁用');
+      return;
+    }
     if (!projectId) return Toast.warning('鏃犳晥鐨勯」鐩甀D');
     Modal.confirm({
       title: '纭鍒犻櫎鐩稿唽',
@@ -934,9 +954,13 @@ function ProjectDetail({
         }
       }
     });
-  }, [projectId, onBack]);
+  }, [projectId, onBack, DISABLE_DELETE_FEATURE]);
 
   const toggleDeleteMode = React.useCallback(() => {
+    if (DISABLE_DELETE_FEATURE) {
+      Toast.warning('删除功能已禁用');
+      return;
+    }
     const turningOff = !!deleteMode;
     setDeleteMode(!deleteMode);
     if (turningOff) {
@@ -944,7 +968,7 @@ function ProjectDetail({
       setSelectedCount(0);
       setAllSelected(false);
     }
-  }, [deleteMode]);
+  }, [deleteMode, DISABLE_DELETE_FEATURE]);
 
   const toggleSelect = React.useCallback((index) => {
     const key = String(index);
@@ -968,6 +992,10 @@ function ProjectDetail({
   }, [images, allSelected]);
 
   const confirmDelete = React.useCallback(() => {
+    if (DISABLE_DELETE_FEATURE) {
+      Toast.warning('删除功能已禁用');
+      return;
+    }
     const indexes = Object.keys(selectedMap || {}).map(k => Number(k));
     if (!indexes.length) return Toast.warning('鏈€夋嫨鐓х墖');
     const ids = indexes.map(i => {
@@ -997,7 +1025,7 @@ function ProjectDetail({
           }
           // reload project detail
           try {
-            const detail = await getProjectById(projectId);
+            const detail = await getProjectById(projectId, { demo: readOnly });
             setProject(detail);
             const built = buildImagesAndMetas(detail);
             setImages(built.images);
@@ -1026,7 +1054,7 @@ function ProjectDetail({
         }
       }
     });
-  }, [selectedMap, images, projectId]);
+  }, [selectedMap, images, projectId, DISABLE_DELETE_FEATURE]);
 
   // ========== Download helpers ==========
   const getSelectedIndexes = React.useCallback(() => Object.keys(selectedMap || {}).map((k) => Number(k)).sort((a, b) => a - b), [selectedMap]);
@@ -2039,9 +2067,9 @@ function ProjectDetail({
 
   const hasPerm = React.useCallback((key) => userPermissions.includes(key) || canAny(key), [userPermissions]);
   const canUpdateProject = hasPerm('projects.update');
-  const canUploadPhotos = hasPerm('photos.upload') || hasPerm('upload.photo');
-  const canDeletePhotos = hasPerm('photos.delete');
-  const canDeleteProject = hasPerm('projects.delete');
+  const canUploadPhotos = !DISABLE_UPLOAD_FEATURE && (hasPerm('photos.upload') || hasPerm('upload.photo'));
+  const canDeletePhotos = !DISABLE_DELETE_FEATURE && hasPerm('photos.delete');
+  const canDeleteProject = !DISABLE_DELETE_FEATURE && hasPerm('projects.delete');
   const canEditTags = hasPerm('tags.edit');
   const canPackDownload = hasPerm('photos.zip');
   const canEditFacePersonName = hasPerm('faces.label');
@@ -2072,14 +2100,14 @@ function ProjectDetail({
       setPhotoDescMap(prev => ({ ...prev, [photoId]: newDesc }));
 
       // 鍒锋柊椤圭洰鏁版嵁浠ヤ繚鎸佸悓姝?
-      getProjectById(projectId).then(detail => {
+      getProjectById(projectId, { demo: readOnly }).then(detail => {
         setProject(detail);
         const built = buildImagesAndMetas(detail);
         setImages(built.images);
         setPhotoMetas(built.metas);
       }).catch(err => console.error('reload after photo edit failed', err));
     }
-  }, [projectId, photoMetas]);
+  }, [projectId, photoMetas, readOnly]);
 
   const saveViewerPhotoEdit = React.useCallback(async () => {
     const idx = viewerIndex;
@@ -2118,7 +2146,7 @@ function ProjectDetail({
       setViewerEditVisible(false);
       // reload project detail to sync metas
       try {
-        const detail = await getProjectById(projectId);
+        const detail = await getProjectById(projectId, { demo: readOnly });
         setProject(detail);
         const built = buildImagesAndMetas(detail);
         setImages(built.images);
@@ -2130,7 +2158,7 @@ function ProjectDetail({
       console.error('saveViewerPhotoEdit error', err);
       Toast.error('淇濆瓨澶辫触');
     }
-  }, [viewerIndex, viewerEditTags, viewerEditDescription, projectId, photoMetas]);
+  }, [viewerIndex, viewerEditTags, viewerEditDescription, projectId, photoMetas, readOnly]);
 
   // 鎵撳紑 / 鍏抽棴 鐩镐技鍒嗙粍寮圭獥骞跺姞杞芥暟鎹?
   const openSimilarityModal = React.useCallback(async () => {
@@ -2178,6 +2206,10 @@ function ProjectDetail({
   }, []);
 
   const confirmSimDelete = React.useCallback(() => {
+    if (DISABLE_DELETE_FEATURE) {
+      Toast.warning('删除功能已禁用');
+      return;
+    }
     const ids = Object.keys(simSelectedMap || {}).filter(Boolean);
     if (!ids.length) return Toast.warning('璇峰厛閫夋嫨瑕佸垹闄ょ殑鐓х墖');
     Modal.confirm({
@@ -2205,7 +2237,7 @@ function ProjectDetail({
         }
       }
     });
-  }, [simSelectedMap, deletePhotos, photoMetas, setPhotoMetas]);
+  }, [simSelectedMap, deletePhotos, photoMetas, setPhotoMetas, DISABLE_DELETE_FEATURE]);
 
   // 鎺ㄨ崘鏍囪锛氭坊鍔?鎺ㄨ崘"鏍囩
   const addRecommendationTag = React.useCallback(async () => {
@@ -2840,9 +2872,9 @@ function ProjectDetail({
               clearable
             />
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 6 }}>
-              <IfCan perms={['projects.delete']}>
+              {canDeleteProject ? (
                 <Button className="detail-edit-delete-btn" type="danger" onClick={handleDeleteProject} loading={deletingProject} disabled={deletingProject}>删除项目</Button>
-              </IfCan>
+              ) : null}
             </div>
           </div>
         </Modal>
@@ -2859,16 +2891,18 @@ function ProjectDetail({
           bodyStyle={isMobile ? { maxHeight: '72vh', overflowY: 'auto', padding: '10px 12px 12px' } : undefined}
         >
           <div style={{ minHeight: 160 }}>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 8 }}>
-              {!simDeleteMode ? (
-                <Button onClick={() => setSimDeleteMode(true)} type="tertiary">选择</Button>
-              ) : (
-                <>
-                  <Button onClick={() => { setSimDeleteMode(false); setSimSelectedMap({}); setSimSelectedCount(0); }} type="tertiary">取消选择</Button>
-                  <PermButton perms={['photos.delete']} onClick={confirmSimDelete} type="danger" loading={simDeleting} disabled={simDeleting}>删除 ({simSelectedCount})</PermButton>
-                </>
-              )}
-            </div>
+            {canDeletePhotos ? (
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 8 }}>
+                {!simDeleteMode ? (
+                  <Button onClick={() => setSimDeleteMode(true)} type="tertiary">选择</Button>
+                ) : (
+                  <>
+                    <Button onClick={() => { setSimDeleteMode(false); setSimSelectedMap({}); setSimSelectedCount(0); }} type="tertiary">取消选择</Button>
+                    <PermButton perms={['photos.delete']} onClick={confirmSimDelete} type="danger" loading={simDeleting} disabled={simDeleting}>删除 ({simSelectedCount})</PermButton>
+                  </>
+                )}
+              </div>
+            ) : null}
             {simLoading ? (
               <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '40px 0' }}>
                 <Spin tip="正在分析相似照片" />
@@ -2911,7 +2945,7 @@ function ProjectDetail({
                             ) : (
                               <div style={{ width: '100%', height: 120, background: '#eee' }} />
                             )}
-                            {simDeleteMode && (
+                            {canDeletePhotos && simDeleteMode && (
                               <div onClick={(e) => { e.stopPropagation(); toggleSimSelect(String(id)); }} style={{ position: 'absolute', right: 8, top: 8, width: 28, height: 28, borderRadius: 14, background: selected ? '#ff5252' : 'rgba(0,0,0,0.45)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>{selected ? '✓' : ''}</div>
                             )}
                             <div style={{ fontSize: 12, marginTop: 6 }}>{titleText}</div>

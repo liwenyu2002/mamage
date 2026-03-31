@@ -8,10 +8,10 @@ async function fetchLatestProjects(limit = 4) {
   });
 }
 
-async function fetchProjectList({ page = 1, pageSize = 6, keyword = '' } = {}) {
+async function fetchProjectList({ page = 1, pageSize = 6, keyword = '', demo = false } = {}) {
   const res = await request('/api/projects/list', {
     method: 'GET',
-    data: { page, pageSize, keyword }
+    data: { page, pageSize, keyword, demo: demo ? 1 : undefined }
   });
 
   const list = Array.isArray(res.list) ? res.list : [];
@@ -25,8 +25,8 @@ async function fetchProjectList({ page = 1, pageSize = 6, keyword = '' } = {}) {
   };
 }
 
-async function getProjectById(id) {
-  return request(`/api/projects/${id}`, { method: 'GET', data: { includeFaces: 1 } });
+async function getProjectById(id, { demo = false } = {}) {
+  return request(`/api/projects/${id}`, { method: 'GET', data: { includeFaces: 1, demo: demo ? 1 : undefined } });
 }
 
 async function updateProject(id, data) {
