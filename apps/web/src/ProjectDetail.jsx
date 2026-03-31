@@ -773,12 +773,7 @@ function ProjectDetail({
       Toast.warning('上传功能已禁用');
       return;
     }
-    const MAX_FILES = 15;
-    let list = Array.from(files || []);
-    if (list.length > MAX_FILES) {
-      try { Toast.warning(`一次最多上传 ${MAX_FILES} 张照片，已选择前 ${MAX_FILES} 张`); } catch (e) { }
-      list = list.slice(0, MAX_FILES);
-    }
+    const list = Array.from(files || []);
     const previews = list.map((f) => URL.createObjectURL(f));
     setStagingFiles(list);
     setStagingPreviews(previews);
@@ -799,15 +794,10 @@ function ProjectDetail({
       return;
     }
     if (!stagingFiles.length || !projectId) return;
-    const MAX_FILES = 15;
-    let filesToUpload = stagingFiles;
-    if (stagingFiles.length > MAX_FILES) {
-      try { Toast.warning(`一次最多上传 ${MAX_FILES} 张照片，已按前 ${MAX_FILES} 张上传`); } catch (e) { }
-      filesToUpload = stagingFiles.slice(0, MAX_FILES);
-    }
+    const filesToUpload = stagingFiles;
     setUploading(true);
     try {
-      const CONCURRENCY = 4;
+      const CONCURRENCY = 8;
       const queue = filesToUpload.slice();
       let cursor = 0;
       const results = new Array(queue.length);
@@ -840,13 +830,15 @@ function ProjectDetail({
 
       if (succeeded.length > 0) {
         cancelUpload();
-        try {
-          const detail = await getProjectById(projectId, { demo: readOnly });
-          setProject(detail);
-          const built = buildImagesAndMetas(detail);
-          setImages(built.images);
-          setPhotoMetas(built.metas);
-        } catch (e) { /* ignore */ }
+        // Refresh in background; don't block upload completion feedback.
+        getProjectById(projectId, { demo: readOnly, includeFaces: false })
+          .then((detail) => {
+            setProject(detail);
+            const built = buildImagesAndMetas(detail);
+            setImages(built.images);
+            setPhotoMetas(built.metas);
+          })
+          .catch(() => { /* ignore */ });
       }
     } catch (err) {
       console.error('upload error', err);
@@ -957,10 +949,6 @@ function ProjectDetail({
   }, [projectId, onBack, DISABLE_DELETE_FEATURE]);
 
   const toggleDeleteMode = React.useCallback(() => {
-    if (DISABLE_DELETE_FEATURE) {
-      Toast.warning('删除功能已禁用');
-      return;
-    }
     const turningOff = !!deleteMode;
     setDeleteMode(!deleteMode);
     if (turningOff) {
@@ -968,7 +956,7 @@ function ProjectDetail({
       setSelectedCount(0);
       setAllSelected(false);
     }
-  }, [deleteMode, DISABLE_DELETE_FEATURE]);
+  }, [deleteMode]);
 
   const toggleSelect = React.useCallback((index) => {
     const key = String(index);
@@ -1150,6 +1138,48 @@ function ProjectDetail({
     return null;
   };
 
+  const downloadSelectedIndividually = React.useCallback(async () => {
+    const idxs = getSelectedIndexes();
+    if (!idxs.length) return Toast.warning('未选择照片');
+    let success = 0;
+    for (const i of idxs) {
+      const meta = (photoMetas && photoMetas[i]) || {};
+      const url = meta.originalSrc || meta.url || meta.thumbSrc || images[i];
+      if (!url) continue;
+      const baseName = String(meta.title || meta.name || `photo-${meta.id || i + 1}`).replace(/[\\/:*?"<>|]/g, '_').slice(0, 64) || `photo-${i + 1}`;
+      try {
+        const resp = await fetch(url, { credentials: 'same-origin' });
+        if (resp.ok) {
+          const blob = await resp.blob();
+          await downloadBlob(blob, `${baseName}.jpg`);
+          success += 1;
+          continue;
+        }
+      } catch (e) {
+        // ignore and fallback
+      }
+      try {
+        const a = document.createElement('a');
+        a.href = url;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        a.download = `${baseName}.jpg`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        success += 1;
+      } catch (e) {
+        // ignore
+      }
+      await new Promise((resolve) => setTimeout(resolve, 80));
+    }
+    if (success > 0) {
+      Toast.success(`已开始下载 ${success} 张`);
+    } else {
+      Toast.error('下载失败');
+    }
+  }, [getSelectedIndexes, photoMetas, images]);
+
 
 
 
@@ -1167,6 +1197,10 @@ function ProjectDetail({
     try {
       const token = typeof getToken === 'function' ? getToken() : (localStorage.getItem ? localStorage.getItem('mamage_jwt_token') : '');
       if (!token) {
+        if (readOnly) {
+          await downloadSelectedIndividually();
+          return;
+        }
         Toast.warning('鎵撳寘涓嬭浇闇€瑕佺櫥褰曪紝璇峰厛鐧诲綍');
         return;
       }
@@ -1187,6 +1221,10 @@ function ProjectDetail({
       return;
     } catch (err) {
       console.warn('packDownloadSelected: server zip failed', err);
+      if (readOnly) {
+        await downloadSelectedIndividually();
+        return;
+      }
       // 灏濊瘯浠庨敊璇俊鎭腑鎻愬彇鏈嶅姟鍣ㄨ繑鍥炵殑璇︾粏鏂囨湰骞跺睍绀虹粰鐢ㄦ埛
       let msg = '鎵撳寘涓嬭浇澶辫触';
       try {
@@ -1214,7 +1252,7 @@ function ProjectDetail({
       Toast.error(msg);
       return;
     }
-  }, [getSelectedIndexes, photoMetas, images, projectId]);
+  }, [getSelectedIndexes, photoMetas, images, projectId, readOnly, downloadSelectedIndividually]);
 
   const resolvedProject = project || initialProject;
 
@@ -2071,7 +2109,7 @@ function ProjectDetail({
   const canDeletePhotos = !DISABLE_DELETE_FEATURE && hasPerm('photos.delete');
   const canDeleteProject = !DISABLE_DELETE_FEATURE && hasPerm('projects.delete');
   const canEditTags = hasPerm('tags.edit');
-  const canPackDownload = hasPerm('photos.zip');
+  const canPackDownload = readOnly || hasPerm('photos.zip');
   const canEditFacePersonName = hasPerm('faces.label');
 
   // ========== Photo Editing Handlers ==========
@@ -2170,17 +2208,36 @@ function ProjectDetail({
     try {
       const token = getToken && typeof getToken === 'function' ? getToken() : null;
       const headers = token ? { Authorization: 'Bearer ' + token } : {};
-      const url = `/api/similarity/groups/simple?projectId=${projectId}`;
+      const url = `/api/similarity/groups/simple?projectId=${projectId}${readOnly ? '&demo=1' : ''}`;
       const r = await fetch(url, { headers });
       const data = await r.json().catch(() => ({}));
       const groups = data && Array.isArray(data.groups) ? data.groups : [];
       setSimGroups(groups);
       const ids = Array.from(new Set((groups || []).flat()));
       if (ids.length) {
-        const metas = await Promise.all(ids.map(id => fetch(`/api/photos/${id}`, { headers }).then(rr => rr.ok ? rr.json() : null).catch(() => null)));
-        const map = {};
-        ids.forEach((id, i) => { if (metas[i]) map[id] = metas[i]; });
-        setSimPhotos(map);
+        if (readOnly) {
+          const wanted = new Set(ids.map((x) => String(x)));
+          const map = {};
+          (photoMetas || []).forEach((m) => {
+            if (!m) return;
+            const pid = m.id || m.photoId || m.photo_id;
+            const sid = pid !== undefined && pid !== null ? String(pid) : '';
+            if (!sid || !wanted.has(sid)) return;
+            map[sid] = {
+              id: sid,
+              title: m.title || m.name || `#${sid}`,
+              thumbUrl: m.thumbSrc || m.thumbUrl || m.thumbnail || m.thumb || m.url || '',
+              url: m.originalSrc || m.url || m.thumbSrc || '',
+              projectId,
+            };
+          });
+          setSimPhotos(map);
+        } else {
+          const metas = await Promise.all(ids.map(id => fetch(`/api/photos/${id}`, { headers }).then(rr => rr.ok ? rr.json() : null).catch(() => null)));
+          const map = {};
+          ids.forEach((id, i) => { if (metas[i]) map[id] = metas[i]; });
+          setSimPhotos(map);
+        }
       } else {
         setSimPhotos({});
       }
@@ -2191,7 +2248,7 @@ function ProjectDetail({
     } finally {
       setSimLoading(false);
     }
-  }, [projectId, simGroups]);
+  }, [projectId, simGroups, readOnly, photoMetas]);
 
   const closeSimilarityModal = React.useCallback(() => setSimModalVisible(false), []);
 
@@ -2629,7 +2686,7 @@ function ProjectDetail({
                         <span style={{ fontWeight: 400, color: '#111', marginBottom: 6 }}>补充照片</span>
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
                           <span style={{ fontSize: 12, color: '#6b6b6b', opacity: 0.95, fontWeight: 400, textAlign: 'left' }}>支持拖拽到按钮或点击上传</span>
-                          <span style={{ fontSize: 12, color: '#6b6b6b', opacity: 0.95, fontWeight: 400, textAlign: 'left' }}>一次最多上传 15 张</span>
+                          <span style={{ fontSize: 12, color: '#6b6b6b', opacity: 0.95, fontWeight: 400, textAlign: 'left' }}>上传数量不限（建议分批）</span>
                         </div>
                       </div>
                       {stagingFiles && stagingFiles.length > 0 ? (
@@ -3326,7 +3383,7 @@ function ProjectDetail({
                   下载该照片
                 </button>
 
-                {(photoMetas && photoMetas[viewerIndex]) && (
+                {!readOnly && (photoMetas && photoMetas[viewerIndex]) && (
                   <button
                     type="button"
                     className="viewer-original-btn"
