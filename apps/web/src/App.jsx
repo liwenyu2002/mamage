@@ -495,11 +495,11 @@ function App() {
       const toSrc = (it) => {
         if (!it) return null;
         if (typeof it === 'string') return it;
-        return it.url || it.fullUrl || it.fullThumbUrl || it.thumbUrl || it.coverUrl || null;
+        return it.thumbUrl || it.fullThumbUrl || it.thumbnail || it.thumb || it.coverThumbUrl || it.url || it.fullUrl || it.coverUrl || null;
       };
 
       const baseList = baseImages.map(toSrc).filter(Boolean);
-      const cover = (project?.coverUrl ?? project?.cover) || baseList[0] || null;
+      const cover = (project?.coverThumbUrl ?? project?.coverUrl ?? project?.cover) || baseList[0] || null;
       // start thumbnails from any explicit coverThumbUrl (common in this backend)
       const thumbsFromCoverThumb = project?.coverThumbUrl ? [project.coverThumbUrl] : [];
       // other thumbnails from baseList excluding the cover
