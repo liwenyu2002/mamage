@@ -713,6 +713,7 @@ function ProjectDetail({
           page: 1,
           pageSize: 200,
           sort: 'relevance',
+          demo: readOnly,
         });
         if (searchReqSeqRef.current !== seq) return;
         const list = Array.isArray(resp?.list) ? resp.list : [];
@@ -753,7 +754,7 @@ function ProjectDetail({
     }, 260);
 
     return () => clearTimeout(timer);
-  }, [searchKeyword, projectId, reloadGalleryFromServer]);
+  }, [searchKeyword, projectId, reloadGalleryFromServer, readOnly]);
 
   React.useEffect(() => {
     setUserPermissions(getPermissions());
@@ -1121,23 +1122,6 @@ function ProjectDetail({
     setTimeout(() => URL.revokeObjectURL(url), 5000);
   };
 
-  const getFilenameFromContentDisposition = (resp) => {
-    try {
-      const cd = resp.headers.get('content-disposition') || '';
-      if (!cd) return null;
-      // RFC 6266 parsing: try filename*=UTF-8''..., then filename="..." then filename=...
-      const mStar = cd.match(/filename\*=(?:UTF-8'')?([^;\n]+)/i);
-      if (mStar && mStar[1]) return decodeURIComponent(mStar[1].trim().replace(/^"|"$/g, ''));
-      const mQuoted = cd.match(/filename="([^"\n]+)"/i);
-      if (mQuoted && mQuoted[1]) return mQuoted[1];
-      const m = cd.match(/filename=([^;\n]+)/i);
-      if (m && m[1]) return m[1].trim().replace(/^"|"$/g, '');
-    } catch (e) {
-      // ignore
-    }
-    return null;
-  };
-
   const downloadSelectedIndividually = React.useCallback(async () => {
     const idxs = getSelectedIndexes();
     if (!idxs.length) return Toast.warning('未选择照片');
@@ -1183,76 +1167,9 @@ function ProjectDetail({
 
 
 
-  // Try backend-pack endpoint first; fallback to individual downloads if unavailable.
   const packDownloadSelected = React.useCallback(async () => {
-    const idxs = getSelectedIndexes();
-    if (!idxs.length) return Toast.warning('鏈€夋嫨鐓х墖');
-    const ids = idxs.map((i) => {
-      const meta = (photoMetas && photoMetas[i]) || {};
-      return meta.id || null;
-    }).filter(Boolean);
-    if (!ids.length) return Toast.warning('鎵€閫夌収鐗囨棤鍙笅杞界殑 ID');
-
-    const zipName = `photos_${projectId || 'pkg'}`;
-    try {
-      const token = typeof getToken === 'function' ? getToken() : (localStorage.getItem ? localStorage.getItem('mamage_jwt_token') : '');
-      if (!token) {
-        if (readOnly) {
-          await downloadSelectedIndividually();
-          return;
-        }
-        Toast.warning('鎵撳寘涓嬭浇闇€瑕佺櫥褰曪紝璇峰厛鐧诲綍');
-        return;
-      }
-      const resp = await fetch('/api/photos/zip', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        credentials: 'same-origin',
-        body: JSON.stringify({ photoIds: ids, zipName }),
-      });
-      if (!resp.ok) {
-        const txt = await resp.text();
-        throw new Error('download failed: ' + txt);
-      }
-      const blob = await resp.blob();
-      const serverFilename = getFilenameFromContentDisposition(resp) || `${zipName}.zip`;
-      await downloadBlob(blob, serverFilename);
-      Toast.success('鎵撳寘涓嬭浇鍑嗗瀹屾垚');
-      return;
-    } catch (err) {
-      console.warn('packDownloadSelected: server zip failed', err);
-      if (readOnly) {
-        await downloadSelectedIndividually();
-        return;
-      }
-      // 灏濊瘯浠庨敊璇俊鎭腑鎻愬彇鏈嶅姟鍣ㄨ繑鍥炵殑璇︾粏鏂囨湰骞跺睍绀虹粰鐢ㄦ埛
-      let msg = '鎵撳寘涓嬭浇澶辫触';
-      try {
-        if (err && err.message) {
-          const m = err.message.match(/download failed:\s*(.*)$/s);
-          if (m && m[1]) {
-            // 濡傛灉鏈嶅姟鍣ㄨ繑鍥炵殑鏄?JSON 瀛楃涓诧紝灏濊瘯瑙ｆ瀽骞跺睍绀?error 瀛楁鎴栨憳瑕?
-            let detail = m[1].trim();
-            try {
-              const j = JSON.parse(detail);
-              if (j && (j.error || j.message)) {
-                detail = j.error || j.message;
-              }
-            } catch (e) {
-              // not json, keep as-is
-            }
-            msg = `鎵撳寘涓嬭浇澶辫触: ${detail}`;
-          } else {
-            msg = `鎵撳寘涓嬭浇澶辫触: ${err.message}`;
-          }
-        }
-      } catch (e) {
-        // ignore parsing errors
-      }
-      Toast.error(msg);
-      return;
-    }
-  }, [getSelectedIndexes, photoMetas, images, projectId, readOnly, downloadSelectedIndividually]);
+    await downloadSelectedIndividually();
+  }, [downloadSelectedIndividually]);
 
   const resolvedProject = project || initialProject;
 
@@ -2876,7 +2793,7 @@ function ProjectDetail({
             {deleteMode ? (
               <div className="detail-selection-actions">
                 <Button className="detail-selection-btn detail-selection-btn--select" onClick={toggleSelectAll}>{allSelected ? '取消全选' : '全选'}</Button>
-                {canPackDownload ? <Button className="detail-selection-btn detail-selection-btn--download" onClick={packDownloadSelected} type="tertiary">打包下载</Button> : null}
+                {canPackDownload ? <Button className="detail-selection-btn detail-selection-btn--download" onClick={packDownloadSelected} type="tertiary">直接下载</Button> : null}
                 {canDeletePhotos ? (
                   <PermButton className="detail-selection-btn detail-selection-btn--danger" perms={['photos.delete']} onClick={confirmDelete} type="danger" loading={deletingPhotos} disabled={deletingPhotos}>删除 ({selectedCount})</PermButton>
                 ) : null}

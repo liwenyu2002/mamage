@@ -17,11 +17,12 @@ function fetchRandomByProject(projectId, limit = 4) {
   });
 }
 
-function searchPhotos({ q = '', projectId, page = 1, pageSize = 20, sort = 'relevance' } = {}) {
+function searchPhotos({ q = '', projectId, page = 1, pageSize = 20, sort = 'relevance', demo = false } = {}) {
   const data = { q, page, pageSize, sort };
   if (projectId !== undefined && projectId !== null && String(projectId).trim() !== '') {
     data.projectId = projectId;
   }
+  if (demo) data.demo = 1;
   return request('/api/photos/search', {
     method: 'GET',
     data

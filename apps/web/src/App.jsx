@@ -146,6 +146,7 @@ function App() {
         page,
         pageSize: 24,
         sort: 'relevance',
+        demo: isDemoPath,
       });
       if (latestPhotoSearchReqRef.current !== currentToken) return;
 
@@ -172,7 +173,7 @@ function App() {
         setPhotoSearchLoading(false);
       }
     }
-  }, [clearPhotoSearchState]);
+  }, [clearPhotoSearchState, isDemoPath]);
 
   React.useEffect(() => {
     loadProjects();
