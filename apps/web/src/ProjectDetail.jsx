@@ -1111,54 +1111,68 @@ function ProjectDetail({
     };
   }, [getSelectedIndexes, photoMetas, images, project, initialProject, photoDescMap, photoTagsMap, viewerFaceMap]);
 
-  const downloadBlob = async (blob, filename) => {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename || 'file';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 5000);
-  };
-
-  const downloadSelectedIndividually = React.useCallback(async () => {
+  const downloadSelectedIndividually = React.useCallback(() => {
     const idxs = getSelectedIndexes();
     if (!idxs.length) return Toast.warning('未选择照片');
-    let success = 0;
+    const anchors = [];
+    let prepared = 0;
+    const isSameOrigin = (rawUrl) => {
+      try {
+        const u = new URL(String(rawUrl || ''), window.location.origin);
+        return u.origin === window.location.origin;
+      } catch (e) {
+        return false;
+      }
+    };
+    const inferExt = (rawUrl) => {
+      try {
+        const u = new URL(String(rawUrl || ''), window.location.origin);
+        const m = String(u.pathname || '').match(/\.([a-zA-Z0-9]{2,6})$/);
+        const ext = m && m[1] ? `.${String(m[1]).toLowerCase()}` : '.jpg';
+        return ext;
+      } catch (e) {
+        return '.jpg';
+      }
+    };
+
     for (const i of idxs) {
       const meta = (photoMetas && photoMetas[i]) || {};
       const url = meta.originalSrc || meta.url || meta.thumbSrc || images[i];
       if (!url) continue;
       const baseName = String(meta.title || meta.name || `photo-${meta.id || i + 1}`).replace(/[\\/:*?"<>|]/g, '_').slice(0, 64) || `photo-${i + 1}`;
       try {
-        const resp = await fetch(url, { credentials: 'same-origin' });
-        if (resp.ok) {
-          const blob = await resp.blob();
-          await downloadBlob(blob, `${baseName}.jpg`);
-          success += 1;
-          continue;
-        }
-      } catch (e) {
-        // ignore and fallback
-      }
-      try {
         const a = document.createElement('a');
         a.href = url;
-        a.target = '_blank';
-        a.rel = 'noopener';
-        a.download = `${baseName}.jpg`;
+        if (!isSameOrigin(url)) {
+          // Cross-origin URLs may ignore `download`; open in new tab as fallback.
+          a.target = '_blank';
+          a.rel = 'noopener';
+        }
+        a.download = `${baseName}${inferExt(url)}`;
         document.body.appendChild(a);
-        a.click();
-        a.remove();
-        success += 1;
+        anchors.push(a);
+        prepared += 1;
       } catch (e) {
         // ignore
       }
-      await new Promise((resolve) => setTimeout(resolve, 80));
     }
-    if (success > 0) {
-      Toast.success(`已开始下载 ${success} 张`);
+
+    for (const a of anchors) {
+      try { a.click(); } catch (e) { }
+    }
+    for (const a of anchors) {
+      try { a.remove(); } catch (e) { }
+    }
+
+    if (prepared > 0) {
+      if (prepared < idxs.length) {
+        Toast.warning(`已触发 ${prepared}/${idxs.length} 张下载`);
+      } else {
+        Toast.success(`已开始下载 ${prepared} 张`);
+      }
+      if (prepared > 1) {
+        Toast.info('若浏览器仅下载 1 张，请在浏览器设置里允许该站点“多文件下载”');
+      }
     } else {
       Toast.error('下载失败');
     }
@@ -1167,9 +1181,21 @@ function ProjectDetail({
 
 
 
-  const packDownloadSelected = React.useCallback(async () => {
-    await downloadSelectedIndividually();
-  }, [downloadSelectedIndividually]);
+  const packDownloadSelected = React.useCallback(() => {
+    const count = getSelectedIndexes().length;
+    if (!count) return Toast.warning('未选择照片');
+    Modal.confirm({
+      title: '确认直接下载',
+      content: count > 1
+        ? `将直接下载 ${count} 张照片（不打包）。若浏览器拦截多文件下载，请在浏览器里允许该站点“多文件下载”。`
+        : '将直接下载当前选中照片。',
+      okText: '开始下载',
+      cancelText: '取消',
+      onOk: () => {
+        downloadSelectedIndividually();
+      },
+    });
+  }, [getSelectedIndexes, downloadSelectedIndividually]);
 
   const resolvedProject = project || initialProject;
 
