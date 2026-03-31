@@ -8,7 +8,7 @@ async function fetchLatestProjects(limit = 4) {
   });
 }
 
-async function fetchProjectList({ page = 1, pageSize = 6, keyword = '', demo = false } = {}) {
+async function fetchProjectList({ page = 1, pageSize = 24, keyword = '', demo = false } = {}) {
   const res = await request('/api/projects/list', {
     method: 'GET',
     data: { page, pageSize, keyword, demo: demo ? 1 : undefined }

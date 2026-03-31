@@ -21,9 +21,14 @@ import PhotoPreviewOverlay from './PhotoPreviewOverlay.jsx';
 
 const { Header, Content, Footer } = Layout;
 const { Text } = Typography;
+const PROJECT_PAGE_SIZE = 24;
 
 function App() {
   const [projects, setProjects] = React.useState([]);
+  const [projectPage, setProjectPage] = React.useState(1);
+  const [projectHasMore, setProjectHasMore] = React.useState(false);
+  const [projectTotal, setProjectTotal] = React.useState(0);
+  const [projectQuery, setProjectQuery] = React.useState('');
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState(null);
   const [keyword, setKeyword] = React.useState('');
@@ -78,18 +83,25 @@ function App() {
   const latestRequestRef = React.useRef(0);
   const latestPhotoSearchReqRef = React.useRef(0);
 
-  const loadProjects = React.useCallback(async (kw = '', page = 1, pageSize = 6) => {
+  const loadProjects = React.useCallback(async (kw = '', page = 1, pageSize = PROJECT_PAGE_SIZE) => {
     const currentToken = latestRequestRef.current + 1;
     latestRequestRef.current = currentToken;
+    const normalizedKw = String(kw || '').trim();
+    const normalizedPage = Number.isFinite(Number(page)) && Number(page) > 0 ? Math.floor(Number(page)) : 1;
+    const normalizedPageSize = Number.isFinite(Number(pageSize)) && Number(pageSize) > 0 ? Math.floor(Number(pageSize)) : PROJECT_PAGE_SIZE;
+    setProjectQuery(normalizedKw);
     setLoading(true);
     setError(null);
     try {
-      // 鍚庣鍒嗛〉鎺ュ彛锛欸ET /api/projects/list?page=1&pageSize=6&keyword=xxx
-      const response = await fetchProjectList({ page, pageSize, keyword: kw?.trim() || undefined, demo: isDemoPath });
+      // 后端分页接口：GET /api/projects/list?page=1&pageSize=24&keyword=xxx
+      const response = await fetchProjectList({ page: normalizedPage, pageSize: normalizedPageSize, keyword: normalizedKw || undefined, demo: isDemoPath });
       if (latestRequestRef.current !== currentToken) return;
 
       const list = Array.isArray(response?.list) ? response.list : [];
       setProjects(list);
+      setProjectPage(Number(response?.page) > 0 ? Number(response.page) : normalizedPage);
+      setProjectHasMore(Boolean(response?.hasMore));
+      setProjectTotal(Number(response?.total) || 0);
     } catch (err) {
       if (latestRequestRef.current !== currentToken) return;
       // 灞曠ず鏇磋缁嗙殑閿欒淇℃伅锛堝悗绔彲鑳芥惡甯?body锛?
@@ -97,6 +109,8 @@ function App() {
       console.error('loadProjects error:', err);
       setError(message);
       setProjects([]);
+      setProjectHasMore(false);
+      setProjectTotal(0);
     } finally {
       if (latestRequestRef.current === currentToken) {
         setLoading(false);
@@ -223,7 +237,7 @@ function App() {
     }
     if (!trimmed) {
       clearPhotoSearchState();
-      loadProjects('');
+      loadProjects('', 1, PROJECT_PAGE_SIZE);
       return;
     }
     setPhotoSearchMode(true);
@@ -232,7 +246,7 @@ function App() {
     setPhotoSearchHasMore(false);
     setPhotoSearchPage(1);
     setPhotoSearchTotal(0);
-    loadProjects(trimmed);
+    loadProjects(trimmed, 1, PROJECT_PAGE_SIZE);
     loadPhotoSearchResults({ kw: trimmed, page: 1, append: false });
   }, [keyword, loadPhotoSearchResults, clearPhotoSearchState, loadProjects, isDemoPath]);
 
@@ -293,7 +307,7 @@ function App() {
     setSelectedNav('projects');
     setKeyword('');
     clearPhotoSearchState();
-    loadProjects('');
+    loadProjects('', 1, PROJECT_PAGE_SIZE);
     try {
       const url = new URL(window.location.href);
       url.searchParams.delete('projectId');
@@ -305,6 +319,16 @@ function App() {
       // ignore
     }
   }, [clearPhotoSearchState, loadProjects, isDemoPath]);
+
+  const handleProjectPrevPage = React.useCallback(() => {
+    if (loading || projectPage <= 1) return;
+    loadProjects(projectQuery, projectPage - 1, PROJECT_PAGE_SIZE);
+  }, [loading, projectPage, projectQuery, loadProjects]);
+
+  const handleProjectNextPage = React.useCallback(() => {
+    if (loading || !projectHasMore) return;
+    loadProjects(projectQuery, projectPage + 1, PROJECT_PAGE_SIZE);
+  }, [loading, projectHasMore, projectPage, projectQuery, loadProjects]);
 
   // On mount: read projectId from URL and listen to popstate for back/forward navigation
   React.useEffect(() => {
@@ -513,6 +537,11 @@ function App() {
     if (!currentProjectId) return null;
     return normalizedProjects.find((project) => project.id === currentProjectId) || null;
   }, [normalizedProjects, currentProjectId]);
+
+  const showProjectPager = (projectPage > 1) || projectHasMore;
+  const projectPageText = projectTotal > 0
+    ? `第 ${projectPage} 页 / 共 ${Math.max(1, Math.ceil(projectTotal / PROJECT_PAGE_SIZE))} 页（共 ${projectTotal} 个相册）`
+    : `第 ${projectPage} 页`;
 
   const handleInitialPhotoOpened = React.useCallback((photoId) => {
     const sid = photoId === null || photoId === undefined ? '' : String(photoId).trim();
@@ -853,6 +882,13 @@ function App() {
                           />
                         ))}
                     </div>
+                    {!loading && !error && showProjectPager && (
+                      <div style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 10, marginTop: 12 }}>
+                        <Button size="small" disabled={projectPage <= 1 || loading} onClick={handleProjectPrevPage}>上一页</Button>
+                        <Text type="tertiary">{projectPageText}</Text>
+                        <Button size="small" disabled={!projectHasMore || loading} onClick={handleProjectNextPage}>下一页</Button>
+                      </div>
+                    )}
                   </div>
 
                   <div>
@@ -986,34 +1022,43 @@ function App() {
                   </div>
                 </div>
               ) : (
-                <div className="project-grid">
-                  {loading && (
-                    <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '80px 0' }}>
-                      <Spin size="large" tip="Loading projects..." />
+                <>
+                  <div className="project-grid">
+                    {loading && (
+                      <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '80px 0' }}>
+                        <Spin size="large" tip="Loading projects..." />
+                      </div>
+                    )}
+
+                    {!loading && error && (
+                      <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '80px 0' }}>
+                        <Text type="danger">{error}</Text>
+                      </div>
+                    )}
+
+                    {!loading && !error && normalizedProjects.length === 0 && (
+                      <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '80px 0' }}>
+                        <Empty description="暂无项目" />
+                      </div>
+                    )}
+
+                    {!loading && !error &&
+                      normalizedProjects.map((project) => (
+                        <ProjectCard
+                          key={project.id}
+                          {...project}
+                          onClick={() => handleSelectProject(project.id)}
+                        />
+                      ))}
+                  </div>
+                  {!loading && !error && showProjectPager && (
+                    <div style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 10, marginTop: 12 }}>
+                      <Button size="small" disabled={projectPage <= 1 || loading} onClick={handleProjectPrevPage}>上一页</Button>
+                      <Text type="tertiary">{projectPageText}</Text>
+                      <Button size="small" disabled={!projectHasMore || loading} onClick={handleProjectNextPage}>下一页</Button>
                     </div>
                   )}
-
-                  {!loading && error && (
-                    <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '80px 0' }}>
-                      <Text type="danger">{error}</Text>
-                    </div>
-                  )}
-
-                  {!loading && !error && normalizedProjects.length === 0 && (
-                    <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '80px 0' }}>
-                      <Empty description="暂无项目" />
-                    </div>
-                  )}
-
-                  {!loading && !error &&
-                    normalizedProjects.map((project) => (
-                      <ProjectCard
-                        key={project.id}
-                        {...project}
-                        onClick={() => handleSelectProject(project.id)}
-                      />
-                    ))}
-                </div>
+                </>
               )
             ) : selectedNav === 'scenery' ? (
               <Scenery />
@@ -1060,7 +1105,7 @@ function App() {
         createProject={createProject}
         onCreated={() => {
           setShowCreateModal(false);
-          loadProjects();
+          loadProjects(projectQuery, 1, PROJECT_PAGE_SIZE);
         }}
       />
     </Layout>
