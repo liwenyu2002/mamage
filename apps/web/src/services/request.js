@@ -46,6 +46,14 @@ async function request(path, options = {}) {
 
   const fetchOpts = { method, headers, credentials: options.credentials || 'same-origin' };
 
+  const sanitizeHeadersForLog = (input) => {
+    const out = Object.assign({}, input || {});
+    Object.keys(out).forEach((key) => {
+      if (String(key).toLowerCase() === 'authorization') out[key] = '[redacted]';
+    });
+    return out;
+  };
+
   // GET 参数拼接
   if (method === 'GET' && options.data && Object.keys(options.data).length) {
     const qs = new URLSearchParams(options.data).toString();
@@ -76,7 +84,7 @@ async function request(path, options = {}) {
       } else if (fetchOpts.body) {
         try { bodyPreview = JSON.parse(fetchOpts.body); } catch (e) { bodyPreview = String(fetchOpts.body).slice(0, 2000); }
       }
-      const entry = { time: Date.now(), method, url, headers: Object.assign({}, headers), body: bodyPreview };
+      const entry = { time: Date.now(), method, url, headers: sanitizeHeadersForLog(headers), body: bodyPreview };
       // don't await push to avoid blocking
       pushRequestLog(entry);
       // also print a compact debug line

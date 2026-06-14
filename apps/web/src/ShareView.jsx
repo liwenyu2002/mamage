@@ -128,30 +128,35 @@ export default function ShareView({ share = {}, onBack }) {
     if (!idxs.length) return;
 
     let failed = 0;
-    for (const idx of idxs) {
+    const inferExt = (rawUrl) => {
+      try {
+        const u = new URL(String(rawUrl || ''), window.location.origin);
+        const m = String(u.pathname || '').match(/\.([a-zA-Z0-9]{2,6})$/);
+        return m && m[1] ? `.${String(m[1]).toLowerCase()}` : '.jpg';
+      } catch (e) {
+        return '.jpg';
+      }
+    };
+
+    for (let n = 0; n < idxs.length; n += 1) {
+      const idx = idxs[n];
       const p = photos[idx];
       const url = originalFor(p) || thumbFor(p);
       if (!url) continue;
       try {
-        const resp = await fetch(url, { mode: 'cors' });
-        if (resp.ok) {
-          const blob = await resp.blob();
-          const ext = (url.split('.').pop().split('?')[0] || 'jpg').slice(0, 5);
-          const name = `photo_${idx}.${ext}`;
-          const href = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = href;
-          a.download = name;
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
-          URL.revokeObjectURL(href);
-          continue;
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `photo_${idx}${inferExt(url)}`;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        if (n < idxs.length - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 80));
         }
-        window.open(url, '_blank');
-        failed += 1;
       } catch (err) {
-        console.warn('downloadSelected fetch failed, fallback to open new tab', err);
+        console.warn('downloadSelected failed, fallback to open new tab', err);
         try { window.open(url, '_blank'); } catch (e) { }
         failed += 1;
       }
@@ -159,7 +164,7 @@ export default function ShareView({ share = {}, onBack }) {
 
     if (failed > 0) {
       try {
-        alert(`有 ${failed} 张图片无法自动下载（可能被存储服务 CORS 限制）。已在新标签页打开，可右键另存为。`);
+        alert(`有 ${failed} 张图片无法自动下载。已尝试在新标签页打开，可右键另存为。`);
       } catch (e) { }
     }
   };

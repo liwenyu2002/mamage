@@ -4,7 +4,7 @@ import { Typography, Button, Tag, Spin, Empty, Modal, Input, DatePicker, TextAre
 import './ProjectDetail.css';
 import { getProjectById, updateProject, deleteProject } from './services/projectService';
 import { getToken } from './services/authService';
-import { fetchRandomByProject, searchPhotos, getFacePersonInfo, labelFacePerson, renameFacePerson, uploadPhotos, deletePhotos, getPhotoFaces } from './services/photoService';
+import { fetchRandomByProject, searchPhotos, getFacePersonInfo, labelFacePerson, renameFacePerson, uploadPhotoFiles, deletePhotos, getPhotoFaces } from './services/photoService';
 import { resolveAssetUrl, BASE_URL } from './services/request';
 import IfCan from './permissions/IfCan';
 import PermButton from './permissions/PermButton';
@@ -798,35 +798,17 @@ function ProjectDetail({
     const filesToUpload = stagingFiles;
     setUploading(true);
     try {
-      const CONCURRENCY = 8;
-      const queue = filesToUpload.slice();
-      let cursor = 0;
-      const results = new Array(queue.length);
-      const workerCount = Math.min(CONCURRENCY, queue.length);
-      const workers = Array.from({ length: workerCount }, async () => {
-        while (cursor < queue.length) {
-          const idx = cursor;
-          cursor += 1;
-          const f = queue[idx];
-          try {
-            await uploadPhotos({ file: f, projectId });
-            results[idx] = { ok: true, name: f?.name || '' };
-          } catch (err) {
-            results[idx] = { ok: false, name: f?.name || '', err };
-          }
-        }
-      });
-      await Promise.all(workers);
+      const results = await uploadPhotoFiles(filesToUpload, { projectId });
 
-      const failed = results.filter((r) => r && !r.ok);
-      const succeeded = results.filter((r) => r && r.ok);
+      const failed = results.filter((r) => r && r.status === 'rejected');
+      const succeeded = results.filter((r) => r && r.status === 'fulfilled');
 
       if (succeeded.length > 0 && failed.length === 0) {
         Toast.success('上传成功');
       } else if (succeeded.length > 0 && failed.length > 0) {
         Toast.warning(`上传完成：成功 ${succeeded.length} 张，失败 ${failed.length} 张`);
       } else {
-        throw (failed[0] && failed[0].err) || new Error('上传失败');
+        throw (failed[0] && failed[0].error) || new Error('上传失败');
       }
 
       if (succeeded.length > 0) {
@@ -1111,7 +1093,7 @@ function ProjectDetail({
     };
   }, [getSelectedIndexes, photoMetas, images, project, initialProject, photoDescMap, photoTagsMap, viewerFaceMap]);
 
-  const downloadSelectedIndividually = React.useCallback(() => {
+  const downloadSelectedIndividually = React.useCallback(async () => {
     const idxs = getSelectedIndexes();
     if (!idxs.length) return Toast.warning('未选择照片');
     const anchors = [];
@@ -1157,8 +1139,12 @@ function ProjectDetail({
       }
     }
 
-    for (const a of anchors) {
+    for (let i = 0; i < anchors.length; i += 1) {
+      const a = anchors[i];
       try { a.click(); } catch (e) { }
+      if (i < anchors.length - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 80));
+      }
     }
     for (const a of anchors) {
       try { a.remove(); } catch (e) { }
@@ -3390,4 +3376,3 @@ function ProjectDetail({
 }
 
 export default ProjectDetail;
-

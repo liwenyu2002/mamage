@@ -1,7 +1,7 @@
 ﻿import React from 'react';
 import { Modal, Input, TextArea, DatePicker, Toast } from '@douyinfe/semi-ui';
 import './CreateAlbumModal.css';
-import { uploadPhotos } from './services/photoService';
+import { uploadPhotoFiles } from './services/photoService';
 import { getProjectById } from './services/projectService';
 import { getPermissions } from './permissions/permissionStore';
 
@@ -161,12 +161,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
             } catch (e) {}
 
             try {
-              const uploadPromises = filesToUpload.map((f) =>
-                uploadPhotos({ file: f, projectId }).then(() => ({ status: 'fulfilled', fileName: f.name }))
-                  .catch((err) => ({ status: 'rejected', fileName: f.name, error: err }))
-              );
-
-              const results = await Promise.all(uploadPromises);
+              const results = await uploadPhotoFiles(filesToUpload, { projectId });
               const rejected = results.filter((r) => r.status === 'rejected');
               if (rejected.length > 0) {
                 console.error('[CreateAlbumModal] some uploads failed', rejected);
@@ -279,5 +274,4 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
     </Modal>
   );
 }
-
 

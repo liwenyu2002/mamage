@@ -1,6 +1,15 @@
 // src/services/photoService.js
 import { request, BASE_URL } from './request';
 
+const DEFAULT_UPLOAD_CONCURRENCY = Math.max(1, Number(
+  (typeof window !== 'undefined' && window.__MAMAGE_UPLOAD_CONCURRENCY__) || 4
+));
+
+function getAuthHeaders(extra = {}) {
+  const token = (typeof window !== 'undefined') ? (localStorage.getItem('mamage_jwt_token') || '') : '';
+  return Object.assign({}, extra, token ? { Authorization: `Bearer ${token}` } : {});
+}
+
 function fetchLatestByType(type, limit = 10) {
   const data = { limit };
   if (type) data.type = type;
@@ -200,64 +209,264 @@ async function updateFaceClusterConfig(matchThreshold) {
   });
 }
 
+function normalizeUploadPayload(formDataOrObj) {
+  if (formDataOrObj instanceof FormData) {
+    const file = formDataOrObj.get('file');
+    const fields = {};
+    ['projectId', 'title', 'description', 'type', 'tags'].forEach((key) => {
+      const val = formDataOrObj.get(key);
+      if (val !== null && val !== undefined) fields[key] = val;
+    });
+    return { file, fields, formData: formDataOrObj };
+  }
+  if (formDataOrObj && typeof formDataOrObj === 'object') {
+    const { file, projectId, title, description, type, tags } = formDataOrObj;
+    const fd = new FormData();
+    if (file) fd.append('file', file);
+    if (projectId !== undefined) fd.append('projectId', String(projectId));
+    if (title !== undefined) fd.append('title', String(title));
+    if (description !== undefined) fd.append('description', String(description));
+    if (type !== undefined) fd.append('type', String(type));
+    if (tags !== undefined) fd.append('tags', Array.isArray(tags) ? JSON.stringify(tags) : String(tags));
+    return {
+      file,
+      fields: { projectId, title, description, type, tags },
+      formData: fd,
+    };
+  }
+  throw new Error('uploadPhotos: expected FormData or { file, projectId, title, type, tags }');
+}
+
+function parseMaybeJsonTags(tags) {
+  if (tags === undefined || tags === null || tags === '') return undefined;
+  if (Array.isArray(tags)) return tags;
+  if (typeof tags === 'string') {
+    try {
+      const parsed = JSON.parse(tags);
+      return Array.isArray(parsed) ? parsed : tags;
+    } catch (e) {
+      return tags;
+    }
+  }
+  return tags;
+}
+
+function getFileExt(name) {
+  const m = String(name || '').match(/\.([a-zA-Z0-9]{2,8})$/);
+  return m && m[1] ? `.${m[1].toLowerCase()}` : '';
+}
+
+function canTryDirectUpload(file) {
+  if (!file || typeof File === 'undefined' || !(file instanceof File)) return false;
+  if (typeof window !== 'undefined' && window.__MAMAGE_DISABLE_DIRECT_UPLOAD__) return false;
+  const mime = String(file.type || '').toLowerCase();
+  const ext = getFileExt(file.name);
+  return mime.startsWith('image/') || ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.heic', '.heif'].includes(ext);
+}
+
+async function imageToElement(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image();
+    img.decoding = 'async';
+    img.src = url;
+    await new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = () => reject(new Error('thumbnail decode failed'));
+    });
+    return { image: img, revoke: () => URL.revokeObjectURL(url) };
+  } catch (e) {
+    URL.revokeObjectURL(url);
+    throw e;
+  }
+}
+
+async function createThumbnailBlob(file, maxWidth = 800, quality = 0.8) {
+  let image;
+  let cleanup = () => {};
+  if (typeof createImageBitmap === 'function') {
+    try {
+      image = await createImageBitmap(file, { imageOrientation: 'from-image' });
+      cleanup = () => { try { image.close(); } catch (e) {} };
+    } catch (e) {
+      const fallback = await imageToElement(file);
+      image = fallback.image;
+      cleanup = fallback.revoke;
+    }
+  } else {
+    const fallback = await imageToElement(file);
+    image = fallback.image;
+    cleanup = fallback.revoke;
+  }
+
+  try {
+    const width = image.width || image.naturalWidth;
+    const height = image.height || image.naturalHeight;
+    if (!width || !height) throw new Error('thumbnail image has no dimensions');
+    const scale = Math.min(1, maxWidth / width);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(width * scale));
+    canvas.height = Math.max(1, Math.round(height * scale));
+    const ctx = canvas.getContext('2d', { alpha: false });
+    if (!ctx) throw new Error('canvas unavailable');
+    ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+    return await new Promise((resolve, reject) => {
+      canvas.toBlob((blob) => {
+        if (!blob) reject(new Error('thumbnail encode failed'));
+        else resolve(blob);
+      }, 'image/jpeg', quality);
+    });
+  } finally {
+    cleanup();
+  }
+}
+
+async function putSignedObject(uploadTarget, body) {
+  const resp = await fetch(uploadTarget.uploadUrl, {
+    method: 'PUT',
+    mode: 'cors',
+    headers: uploadTarget.headers || {},
+    body,
+  });
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '');
+    const err = new Error(`direct upload PUT failed ${resp.status}`);
+    err.status = resp.status;
+    err.body = text;
+    throw err;
+  }
+}
+
+async function abortDirectUpload(initData) {
+  if (!initData || (!initData.original && !initData.thumb)) return;
+  try {
+    await request('/api/upload/photo/direct/abort', {
+      method: 'POST',
+      data: {
+        originalKey: initData.original && initData.original.key,
+        thumbKey: initData.thumb && initData.thumb.key,
+      },
+    });
+  } catch (e) {
+    // cleanup is best-effort
+  }
+}
+
+async function uploadViaDirectCos(file, fields) {
+  const initPayload = {
+    projectId: fields.projectId,
+    title: fields.title,
+    description: fields.description,
+    type: fields.type,
+    tags: parseMaybeJsonTags(fields.tags),
+    fileName: file.name || 'photo.jpg',
+    fileSize: file.size,
+    mimeType: file.type || '',
+  };
+  const initData = await request('/api/upload/photo/direct/init', {
+    method: 'POST',
+    data: initPayload,
+  });
+
+  try {
+    const thumbBlob = await createThumbnailBlob(file);
+    await Promise.all([
+      putSignedObject(initData.original, file),
+      putSignedObject(initData.thumb, thumbBlob),
+    ]);
+
+    return await request('/api/upload/photo/direct/complete', {
+      method: 'POST',
+      data: Object.assign({}, initPayload, {
+        originalKey: initData.original && initData.original.key,
+        thumbKey: initData.thumb && initData.thumb.key,
+      }),
+    });
+  } catch (err) {
+    await abortDirectUpload(initData);
+    err.directUploadFailed = true;
+    throw err;
+  }
+}
+
+async function uploadViaApi(formData) {
+  const uploadUrl = '/api/upload/photo';
+  // eslint-disable-next-line no-console
+  console.debug('[photoService] uploading to', uploadUrl);
+  const resp = await fetch(uploadUrl, {
+    method: 'POST',
+    body: formData,
+    credentials: 'same-origin',
+    headers: getAuthHeaders(),
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    const err = new Error(`upload failed ${resp.status} for ${uploadUrl}`);
+    err.status = resp.status;
+    err.body = text;
+    // eslint-disable-next-line no-console
+    console.warn('[photoService] upload endpoint returned', resp.status, 'for', uploadUrl, 'response:', text);
+    throw err;
+  }
+  const ct = resp.headers.get('content-type') || '';
+  if (ct.includes('application/json')) return resp.json();
+  return { data: await resp.text() };
+}
+
+function shouldFallbackToApi(err) {
+  if (!err) return true;
+  if (err.status === 413 || err.status === 415) return false;
+  if (err.status === 401 || err.status === 403) return false;
+  return true;
+}
+
 // 上传图片，参数为 FormData 或者一个包含 { file, projectId, title, type, tags } 的对象
 // 如果 tags 为数组，会自动转为 JSON 字符串
 async function uploadPhotos(formDataOrObj) {
-  // normalize to FormData
-  let fd;
-  if (formDataOrObj instanceof FormData) {
-    fd = formDataOrObj;
-  } else if (formDataOrObj && typeof formDataOrObj === 'object') {
-    fd = new FormData();
-    const { file, projectId, title, type, tags } = formDataOrObj;
-    // append file (required)
-    if (file) {
-      fd.append('file', file);
-    }
-    // append optional fields
-    if (projectId !== undefined) fd.append('projectId', String(projectId));
-    if (title !== undefined) fd.append('title', String(title));
-    if (type !== undefined) fd.append('type', String(type));
-    // if tags is array, convert to JSON string
-    if (tags !== undefined) {
-      const tagsStr = Array.isArray(tags) ? JSON.stringify(tags) : String(tags);
-      fd.append('tags', tagsStr);
-    }
-  } else {
-    throw new Error('uploadPhotos: expected FormData or { file, projectId, title, type, tags }');
-  }
-
-  // Correct endpoint: POST /api/upload/photo
-  const uploadUrl = '/api/upload/photo';
+  const { file, fields, formData } = normalizeUploadPayload(formDataOrObj);
   try {
-    // eslint-disable-next-line no-console
-    console.debug('[photoService] uploading to', uploadUrl);
-    // Get JWT token for Authorization header
-    const token = (typeof window !== 'undefined') ? (localStorage.getItem('mamage_jwt_token') || '') : '';
-    const headers = token ? { Authorization: `Bearer ${token}` } : {};
-    // send FormData as-is; do not set Content-Type so browser can add multipart boundary
-    const resp = await fetch(uploadUrl, { 
-      method: 'POST', 
-      body: fd, 
-      credentials: 'same-origin',
-      headers 
-    });
-    if (!resp.ok) {
-      const text = await resp.text();
-      const err = new Error(`upload failed ${resp.status} for ${uploadUrl}`);
-      err.status = resp.status; err.body = text;
-      // eslint-disable-next-line no-console
-      console.warn('[photoService] upload endpoint returned', resp.status, 'for', uploadUrl, 'response:', text);
-      throw err;
+    if (canTryDirectUpload(file)) {
+      try {
+        return await uploadViaDirectCos(file, fields);
+      } catch (directErr) {
+        // eslint-disable-next-line no-console
+        console.warn('[photoService] direct upload failed, fallback to API upload:', directErr);
+        if (!shouldFallbackToApi(directErr)) throw directErr;
+      }
     }
-    const ct = resp.headers.get('content-type') || '';
-    if (ct.includes('application/json')) return resp.json();
-    return { data: await resp.text() };
+    return await uploadViaApi(formData);
   } catch (e) {
     // eslint-disable-next-line no-console
-    console.error('[photoService] upload attempt failed for', uploadUrl, e);
+    console.error('[photoService] upload attempt failed', e);
     throw e;
   }
+}
+
+async function runLimited(items, limit, worker) {
+  const queue = Array.from(items || []);
+  const results = new Array(queue.length);
+  let cursor = 0;
+  const workerCount = Math.min(Math.max(1, Number(limit) || DEFAULT_UPLOAD_CONCURRENCY), queue.length);
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (cursor < queue.length) {
+      const idx = cursor;
+      cursor += 1;
+      try {
+        results[idx] = await worker(queue[idx], idx);
+      } catch (err) {
+        results[idx] = { status: 'rejected', fileName: queue[idx] && queue[idx].name, error: err };
+      }
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+async function uploadPhotoFiles(files, { projectId, title, type, tags, concurrency = DEFAULT_UPLOAD_CONCURRENCY } = {}) {
+  return runLimited(files, concurrency, async (file) => {
+    await uploadPhotos({ file, projectId, title, type, tags });
+    return { status: 'fulfilled', fileName: file && file.name };
+  });
 }
 
 // 删除照片，photoIds: Array<number|string>
@@ -356,5 +565,6 @@ export {
   getFaceClusterConfig,
   updateFaceClusterConfig,
   uploadPhotos,
+  uploadPhotoFiles,
   deletePhotos,
 };

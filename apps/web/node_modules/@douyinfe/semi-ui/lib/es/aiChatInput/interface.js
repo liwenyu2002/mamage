@@ -1,1 +1,0 @@
-export * from '@douyinfe/semi-foundation/lib/es/aiChatInput/interface';

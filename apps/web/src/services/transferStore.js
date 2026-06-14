@@ -1,8 +1,8 @@
 // src/services/transferStore.js
-// 全局“中转站”选择仓库：最多 30 张，跨页面、跨会话（localStorage）
+// 全局“中转站”选择仓库：最多 50 张，跨页面、跨会话（localStorage）
 
 const STORAGE_KEY = 'photo-transfer-selection';
-const MAX_COUNT = 100;
+const MAX_COUNT = 50;
 
 let selection = [];
 

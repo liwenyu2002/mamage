@@ -15,6 +15,23 @@ function downloadBlob(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
+async function downloadResponse(resp, filename) {
+  if (typeof window !== 'undefined' && window.showSaveFilePicker && resp.body) {
+    const handle = await window.showSaveFilePicker({
+      suggestedName: filename || 'files.zip',
+      types: [{
+        description: 'ZIP archive',
+        accept: { 'application/zip': ['.zip'] },
+      }],
+    });
+    const writable = await handle.createWritable();
+    await resp.body.pipeTo(writable);
+    return;
+  }
+  const blob = await resp.blob();
+  downloadBlob(blob, filename);
+}
+
 function getFilenameFromContentDisposition(resp) {
   try {
     const cd = resp.headers.get('content-disposition') || '';
@@ -208,9 +225,8 @@ export default function TransferStation() {
         const txt = await resp.text();
         throw new Error(txt || `server responded ${resp.status}`);
       }
-      const blob = await resp.blob();
       const serverFilename = getFilenameFromContentDisposition(resp) || `${zipName}.zip`;
-      downloadBlob(blob, serverFilename);
+      await downloadResponse(resp, serverFilename);
       Toast.success('已开始打包下载');
     } catch (e) {
       console.error('transfer pack download failed', e);
@@ -1061,4 +1077,3 @@ export default function TransferStation() {
     </div>
   );
 }
-
