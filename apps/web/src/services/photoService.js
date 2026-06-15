@@ -281,7 +281,7 @@ async function imageToElement(file) {
   }
 }
 
-async function createThumbnailBlob(file, maxWidth = 800, quality = 0.8) {
+async function createThumbnailBlob(file, maxDimension = 800, quality = 0.8) {
   let image;
   let cleanup = () => {};
   if (typeof createImageBitmap === 'function') {
@@ -303,7 +303,7 @@ async function createThumbnailBlob(file, maxWidth = 800, quality = 0.8) {
     const width = image.width || image.naturalWidth;
     const height = image.height || image.naturalHeight;
     if (!width || !height) throw new Error('thumbnail image has no dimensions');
-    const scale = Math.min(1, maxWidth / width);
+    const scale = Math.min(1, maxDimension / Math.max(width, height));
     const canvas = document.createElement('canvas');
     canvas.width = Math.max(1, Math.round(width * scale));
     canvas.height = Math.max(1, Math.round(height * scale));
