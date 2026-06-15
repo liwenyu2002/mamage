@@ -1185,6 +1185,11 @@
   border-color: rgba(74, 222, 128, 0.6);
 }
 
+.viewer-chip--medium {
+  background: rgba(245, 158, 11, 0.26);
+  border-color: rgba(251, 191, 36, 0.68);
+}
+
 .viewer-chip--bad {
   background: rgba(239, 68, 68, 0.24);
   border-color: rgba(248, 113, 113, 0.6);

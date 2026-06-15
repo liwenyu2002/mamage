@@ -14,6 +14,28 @@ const { Title, Text } = Typography;
 const ANALYSIS_POLL_INITIAL_DELAY_MS = 900;
 const ANALYSIS_POLL_INTERVAL_MS = 1800;
 const ANALYSIS_POLL_MAX_ATTEMPTS = 45;
+const AI_QUALITY_TAGS = ['AI recommended', 'AI medium', 'AI rejected'];
+
+function getAISelectionLabel(label) {
+  if (label === 'recommended') return 'AI推荐';
+  if (label === 'medium') return 'AI中等';
+  if (label === 'rejected') return 'AI不推荐';
+  return '';
+}
+
+function getAISelectionColor(label) {
+  if (label === 'recommended') return '#16a34a';
+  if (label === 'medium') return '#f59e0b';
+  if (label === 'rejected') return '#dc2626';
+  return '#64748b';
+}
+
+function getAISelectionChipClass(label) {
+  if (label === 'recommended') return 'viewer-chip--good';
+  if (label === 'medium') return 'viewer-chip--medium';
+  if (label === 'rejected') return 'viewer-chip--bad';
+  return '';
+}
 
 function safeParseTags(tags) {
   try {
@@ -50,8 +72,9 @@ function extractPhotoSemantic(photo) {
   const allTags = safeParseTags(photo && photo.tags);
   let aiLabel = null;
   if (allTags.includes('AI recommended')) aiLabel = 'recommended';
+  else if (allTags.includes('AI medium')) aiLabel = 'medium';
   else if (allTags.includes('AI rejected')) aiLabel = 'rejected';
-  const tags = allTags.filter((tag) => tag !== 'AI recommended' && tag !== 'AI rejected');
+  const tags = allTags.filter((tag) => !AI_QUALITY_TAGS.includes(tag));
   const description = String((photo && (photo.description || photo.desc)) || '').trim();
   return {
     tags,
@@ -332,7 +355,7 @@ function ProjectDetail({
   const analysisPollTimersRef = React.useRef({});
   // AI selection mode toggle
   const [showAILabels, setShowAILabels] = React.useState(false);
-  // AI recommendation labels (recommended/rejected) indexed by photo ID
+  // AI quality labels (recommended/medium/rejected) indexed by photo ID
   const [photoAILabelMap, setPhotoAILabelMap] = React.useState({});
   // viewer-based photo edit (tags & description)
   const [viewerEditVisible, setViewerEditVisible] = React.useState(false);
@@ -1420,7 +1443,7 @@ function ProjectDetail({
   }, [rawTags]);
 
   const aiSelectionStats = React.useMemo(() => {
-    const stats = { recommended: 0, rejected: 0, total: 0 };
+    const stats = { recommended: 0, medium: 0, rejected: 0, total: 0 };
     (photoMetas || []).forEach((meta) => {
       const photoId = getPhotoRecordId(meta);
       if (!photoId) return;
@@ -1428,11 +1451,13 @@ function ProjectDetail({
       const currentTags = Array.isArray(photoTagsMap[photoId]) ? photoTagsMap[photoId] : safeParseTags(meta.tags);
       if (label === 'recommended' || currentTags.includes('推荐')) {
         stats.recommended += 1;
+      } else if (label === 'medium') {
+        stats.medium += 1;
       } else if (label === 'rejected') {
         stats.rejected += 1;
       }
     });
-    stats.total = stats.recommended + stats.rejected;
+    stats.total = stats.recommended + stats.medium + stats.rejected;
     return stats;
   }, [photoMetas, photoAILabelMap, photoTagsMap]);
 
@@ -1444,7 +1469,7 @@ function ProjectDetail({
       Toast.info('当前相册暂无 AI 选片结果，照片分析完成后会显示推荐/不推荐标记');
       return;
     }
-    Toast.info(`AI 选片：推荐 ${aiSelectionStats.recommended} 张，不推荐 ${aiSelectionStats.rejected} 张`);
+    Toast.info(`AI 选片：推荐 ${aiSelectionStats.recommended} 张，中等 ${aiSelectionStats.medium} 张，不推荐 ${aiSelectionStats.rejected} 张`);
   }, [showAILabels, aiSelectionStats]);
 
   // expose resolved project and tags for easy debugging in browser console
@@ -2739,11 +2764,14 @@ function ProjectDetail({
               })()}
             </div>
           )}
-          {showAILabels && photoAILabelMap[photoMetas?.[overallIndex]?.id] && (
-            <div style={{ position: 'absolute', right: 8, top: 8, background: photoAILabelMap[photoMetas?.[overallIndex]?.id] === 'recommended' ? '#4caf50' : '#f44336', color: '#fff', padding: '4px 8px', borderRadius: '3px', fontSize: '12px', fontWeight: 'bold', pointerEvents: 'none' }}>
-              {photoAILabelMap[photoMetas?.[overallIndex]?.id] === 'recommended' ? 'AI推荐' : 'AI不推荐'}
-            </div>
-          )}
+          {showAILabels && photoAILabelMap[photoMetas?.[overallIndex]?.id] && (() => {
+            const label = photoAILabelMap[photoMetas?.[overallIndex]?.id];
+            return (
+              <div style={{ position: 'absolute', right: 8, top: 8, background: getAISelectionColor(label), color: '#fff', padding: '4px 8px', borderRadius: '3px', fontSize: '12px', fontWeight: 'bold', pointerEvents: 'none' }}>
+                {getAISelectionLabel(label)}
+              </div>
+            );
+          })()}
           {(() => {
             const pid = photoMetas?.[overallIndex]?.id;
             if (!pid) return null;
@@ -3401,11 +3429,14 @@ function ProjectDetail({
                         {viewerShowOriginal ? '查看缩略图' : '查看原图'}
                       </button>
                     </div>
-                    {showAILabels && photoAILabelMap[photoMetas[viewerIndex].id] && (
-                      <div className={`viewer-chip ${photoAILabelMap[photoMetas[viewerIndex].id] === 'recommended' ? 'viewer-chip--good' : 'viewer-chip--bad'}`} style={{ right: 16, top: 16 }}>
-                        {photoAILabelMap[photoMetas[viewerIndex].id] === 'recommended' ? 'AI推荐' : 'AI不推荐'}
-                      </div>
-                    )}
+                    {showAILabels && photoAILabelMap[photoMetas[viewerIndex].id] && (() => {
+                      const label = photoAILabelMap[photoMetas[viewerIndex].id];
+                      return (
+                        <div className={`viewer-chip ${getAISelectionChipClass(label)}`} style={{ right: 16, top: 16 }}>
+                          {getAISelectionLabel(label)}
+                        </div>
+                      );
+                    })()}
                     {(() => {
                       const pid = photoMetas[viewerIndex]?.id;
                       if (!pid) return null;
