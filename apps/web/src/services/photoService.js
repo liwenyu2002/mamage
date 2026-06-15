@@ -38,6 +38,15 @@ function searchPhotos({ q = '', projectId, page = 1, pageSize = 20, sort = 'rele
   });
 }
 
+async function getPhotoById(photoId) {
+  if (photoId === undefined || photoId === null || String(photoId).trim() === '') {
+    throw new Error('getPhotoById: photoId is required');
+  }
+  return request(`/api/photos/${encodeURIComponent(String(photoId).trim())}`, {
+    method: 'GET'
+  });
+}
+
 async function detectPhotoFaces(photoId, { force = false, projectId } = {}) {
   if (photoId === undefined || photoId === null || String(photoId).trim() === '') {
     throw new Error('detectPhotoFaces: photoId is required');
@@ -464,8 +473,14 @@ async function runLimited(items, limit, worker) {
 
 async function uploadPhotoFiles(files, { projectId, title, type, tags, concurrency = DEFAULT_UPLOAD_CONCURRENCY } = {}) {
   return runLimited(files, concurrency, async (file) => {
-    await uploadPhotos({ file, projectId, title, type, tags });
-    return { status: 'fulfilled', fileName: file && file.name };
+    const response = await uploadPhotos({ file, projectId, title, type, tags });
+    return {
+      status: 'fulfilled',
+      fileName: file && file.name,
+      response,
+      photo: response,
+      id: response && response.id
+    };
   });
 }
 
@@ -555,6 +570,7 @@ export {
   fetchLatestByType,
   fetchRandomByProject,
   searchPhotos,
+  getPhotoById,
   detectPhotoFaces,
   getPhotoFaces,
   getFacePersonInfo,

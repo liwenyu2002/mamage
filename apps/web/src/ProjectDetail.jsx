@@ -4,13 +4,16 @@ import { Typography, Button, Tag, Spin, Empty, Modal, Input, DatePicker, TextAre
 import './ProjectDetail.css';
 import { getProjectById, updateProject, deleteProject } from './services/projectService';
 import { getToken } from './services/authService';
-import { fetchRandomByProject, searchPhotos, getFacePersonInfo, labelFacePerson, renameFacePerson, uploadPhotoFiles, deletePhotos, getPhotoFaces } from './services/photoService';
+import { fetchRandomByProject, searchPhotos, getPhotoById, getFacePersonInfo, labelFacePerson, renameFacePerson, uploadPhotoFiles, deletePhotos, getPhotoFaces } from './services/photoService';
 import { resolveAssetUrl, BASE_URL } from './services/request';
 import IfCan from './permissions/IfCan';
 import PermButton from './permissions/PermButton';
 import { canAny, getPermissions } from './permissions/permissionStore';
 
 const { Title, Text } = Typography;
+const ANALYSIS_POLL_INITIAL_DELAY_MS = 900;
+const ANALYSIS_POLL_INTERVAL_MS = 1800;
+const ANALYSIS_POLL_MAX_ATTEMPTS = 45;
 
 function safeParseTags(tags) {
   try {
@@ -33,6 +36,48 @@ function getPhotoOriginalCandidate(item) {
   if (!item) return '';
   if (typeof item === 'string') return item;
   return item.originalSrc || item.originalUrl || item.original || item.full || item.large || item.url || item.imageUrl || item.src || item.fileUrl || item.thumbSrc || item.thumbUrl || item.thumbnail || item.thumb || '';
+}
+
+function getPhotoRecordId(item) {
+  if (!item || typeof item !== 'object') return null;
+  const raw = item.id || item.photoId || item.photo_id || item.imageId || item.image_id || null;
+  if (raw === null || raw === undefined) return null;
+  const sid = String(raw).trim();
+  return sid || null;
+}
+
+function extractPhotoSemantic(photo) {
+  const allTags = safeParseTags(photo && photo.tags);
+  let aiLabel = null;
+  if (allTags.includes('AI recommended')) aiLabel = 'recommended';
+  else if (allTags.includes('AI rejected')) aiLabel = 'rejected';
+  const tags = allTags.filter((tag) => tag !== 'AI recommended' && tag !== 'AI rejected');
+  const description = String((photo && (photo.description || photo.desc)) || '').trim();
+  return {
+    tags,
+    description,
+    aiLabel,
+    hasAnalysis: Boolean(description || tags.length)
+  };
+}
+
+function normalizePhotoForGallery(photo) {
+  if (!photo || typeof photo !== 'object') return null;
+  const id = getPhotoRecordId(photo);
+  const thumbSrc = resolveAssetUrl(getPhotoThumbCandidate(photo));
+  const originalSrc = resolveAssetUrl(getPhotoOriginalCandidate(photo));
+  const src = thumbSrc || originalSrc;
+  if (!id || !src) return null;
+  return {
+    src,
+    meta: {
+      ...photo,
+      id,
+      photoId: id,
+      thumbSrc,
+      originalSrc
+    }
+  };
 }
 
 function toFiniteNumber(v) {
@@ -283,6 +328,8 @@ function ProjectDetail({
   // parsed photo tags and descriptions indexed by photo ID
   const [photoTagsMap, setPhotoTagsMap] = React.useState({});
   const [photoDescMap, setPhotoDescMap] = React.useState({});
+  const [photoAnalysisPendingMap, setPhotoAnalysisPendingMap] = React.useState({});
+  const analysisPollTimersRef = React.useRef({});
   // AI selection mode toggle
   const [showAILabels, setShowAILabels] = React.useState(false);
   // AI recommendation labels (recommended/rejected) indexed by photo ID
@@ -329,6 +376,13 @@ function ProjectDetail({
     };
   }, []);
 
+  React.useEffect(() => () => {
+    Object.values(analysisPollTimersRef.current || {}).forEach((timer) => {
+      try { clearTimeout(timer); } catch (e) { }
+    });
+    analysisPollTimersRef.current = {};
+  }, []);
+
   React.useEffect(() => {
     if (initialProject) {
       setProject((prev) => {
@@ -351,6 +405,7 @@ function ProjectDetail({
     const photoIds = Array.isArray(detail.photo_ids) ? detail.photo_ids : (Array.isArray(detail.photoIds) ? detail.photoIds : null);
     const tagsMap = {};
     const descMap = {};
+    const aiLabelMap = {};
     const normalized = items.map((item, idx) => {
       if (typeof item === 'string') {
         const meta = { url: item };
@@ -376,8 +431,12 @@ function ProjectDetail({
 
         const metaFinal = Object.assign({}, meta, { thumbSrc: resolveAssetUrl(thumbCandidate), originalSrc: resolveAssetUrl(origCandidate) });
         if (metaFinal.id) {
-          tagsMap[metaFinal.id] = safeParseTags(item.tags);
-          descMap[metaFinal.id] = item.description || item.desc || '';
+          const semantic = extractPhotoSemantic(item);
+          if (semantic.hasAnalysis) {
+            tagsMap[metaFinal.id] = semantic.tags;
+            descMap[metaFinal.id] = semantic.description;
+          }
+          if (semantic.aiLabel) aiLabelMap[metaFinal.id] = semantic.aiLabel;
         }
         // If this resolved src is still relative but there are absolute urls
         // available elsewhere in the provided items, try to prefer an absolute one.
@@ -428,8 +487,12 @@ function ProjectDetail({
       } catch (e) { }
       const metaFinal = Object.assign({}, meta, { thumbSrc: resolveAssetUrl(thumbCandidate), originalSrc: resolveAssetUrl(origCandidate) });
       if (metaFinal.id) {
-        tagsMap[metaFinal.id] = safeParseTags(item.tags);
-        descMap[metaFinal.id] = item.description || item.desc || '';
+        const semantic = extractPhotoSemantic(item);
+        if (semantic.hasAnalysis) {
+          tagsMap[metaFinal.id] = semantic.tags;
+          descMap[metaFinal.id] = semantic.description;
+        }
+        if (semantic.aiLabel) aiLabelMap[metaFinal.id] = semantic.aiLabel;
       }
       // Prefer absolute candidate when available (similar to ProjectCard behavior)
       let resolvedSrc = resolveAssetUrl(thumbCandidate);
@@ -461,10 +524,13 @@ function ProjectDetail({
     // Only update global maps if we actually found any tags/descriptions
     // to avoid clearing previously-loaded tags (for example from /api/photos)
     if (Object.keys(tagsMap).length) {
-      setPhotoTagsMap(tagsMap);
+      setPhotoTagsMap((prev) => ({ ...(prev || {}), ...tagsMap }));
     }
     if (Object.keys(descMap).length) {
-      setPhotoDescMap(descMap);
+      setPhotoDescMap((prev) => ({ ...(prev || {}), ...descMap }));
+    }
+    if (Object.keys(aiLabelMap).length) {
+      setPhotoAILabelMap((prev) => ({ ...(prev || {}), ...aiLabelMap }));
     }
     return { images: normalized.map((n) => n.src), metas: normalized.map((n) => n.meta) };
   }, []);
@@ -548,12 +614,14 @@ function ProjectDetail({
               photosArray.forEach((p) => {
                 const id = p && (p.id || p.photoId || p.photo_id);
                 if (!id) return;
-                const allTags = p.tags ? safeParseTags(p.tags) : [];
-                let aiLabel = null;
-                if (allTags.includes('AI recommended')) aiLabel = 'recommended';
-                else if (allTags.includes('AI rejected')) aiLabel = 'rejected';
-                const otherTags = allTags.filter(tag => tag !== 'AI recommended' && tag !== 'AI rejected');
-                photoMap[id] = { tags: otherTags, description: p.description || p.desc || '', aiLabel, raw: p };
+                const semantic = extractPhotoSemantic(p);
+                photoMap[id] = {
+                  tags: semantic.tags,
+                  description: semantic.description,
+                  aiLabel: semantic.aiLabel,
+                  hasAnalysis: semantic.hasAnalysis,
+                  raw: p
+                };
               });
             }
 
@@ -562,9 +630,10 @@ function ProjectDetail({
             const descMapOnly = {};
             const aiLabelMapOnly = {};
             Object.keys(photoMap).forEach((id) => {
+              if (photoMap[id].aiLabel) aiLabelMapOnly[id] = photoMap[id].aiLabel;
+              if (!photoMap[id].hasAnalysis) return;
               tagsMapOnly[id] = photoMap[id].tags;
               descMapOnly[id] = photoMap[id].description;
-              aiLabelMapOnly[id] = photoMap[id].aiLabel;
             });
 
             setPhotoTagsMap((prev) => ({ ...(prev || {}), ...tagsMapOnly }));
@@ -670,6 +739,131 @@ function ProjectDetail({
     setImages(built.images);
     setPhotoMetas(built.metas);
   }, [projectId, buildImagesAndMetas, readOnly]);
+
+  const clearAnalysisPollTimer = React.useCallback((photoId) => {
+    const key = String(photoId || '').trim();
+    if (!key) return;
+    const timer = analysisPollTimersRef.current[key];
+    if (timer) {
+      try { clearTimeout(timer); } catch (e) { }
+    }
+    delete analysisPollTimersRef.current[key];
+  }, []);
+
+  const mergePhotoAnalysisResult = React.useCallback((photo) => {
+    const photoId = getPhotoRecordId(photo);
+    if (!photoId) return false;
+    const semantic = extractPhotoSemantic(photo);
+    const normalized = normalizePhotoForGallery(photo);
+
+    setPhotoTagsMap((prev) => ({ ...(prev || {}), [photoId]: semantic.tags }));
+    setPhotoDescMap((prev) => ({ ...(prev || {}), [photoId]: semantic.description }));
+    setPhotoAILabelMap((prev) => ({ ...(prev || {}), [photoId]: semantic.aiLabel }));
+
+    if (normalized) {
+      setPhotoMetas((prev) => {
+        const list = Array.isArray(prev) ? prev : [];
+        let changed = false;
+        const next = list.map((meta) => {
+          if (String(getPhotoRecordId(meta) || '') !== photoId) return meta;
+          changed = true;
+          return { ...(meta || {}), ...normalized.meta };
+        });
+        return changed ? next : list;
+      });
+    }
+
+    if (semantic.hasAnalysis) {
+      setPhotoAnalysisPendingMap((prev) => {
+        if (!prev || !prev[photoId]) return prev || {};
+        const next = { ...prev };
+        delete next[photoId];
+        return next;
+      });
+    }
+
+    return semantic.hasAnalysis;
+  }, []);
+
+  const prependUploadedPhotos = React.useCallback((photos) => {
+    const normalized = (Array.isArray(photos) ? photos : [])
+      .map(normalizePhotoForGallery)
+      .filter(Boolean);
+    if (!normalized.length) return [];
+
+    const patchesById = {};
+    normalized.forEach(({ meta }) => {
+      const photoId = getPhotoRecordId(meta);
+      if (!photoId) return;
+      patchesById[photoId] = meta;
+      const semantic = extractPhotoSemantic(meta);
+      setPhotoTagsMap((prev) => ({ ...(prev || {}), [photoId]: semantic.tags }));
+      setPhotoDescMap((prev) => ({ ...(prev || {}), [photoId]: semantic.description }));
+      setPhotoAILabelMap((prev) => ({ ...(prev || {}), [photoId]: semantic.aiLabel }));
+    });
+
+    const currentMetas = Array.isArray(photoMetas) ? photoMetas : [];
+    const existingIds = new Set(currentMetas.map((meta) => getPhotoRecordId(meta)).filter(Boolean));
+    const freshMetas = normalized
+      .filter(({ meta }) => !existingIds.has(getPhotoRecordId(meta)))
+      .map(({ meta }) => meta);
+    const updatedExisting = currentMetas.map((meta) => {
+      const photoId = getPhotoRecordId(meta);
+      return photoId && patchesById[photoId] ? { ...(meta || {}), ...patchesById[photoId] } : meta;
+    });
+    const nextMetas = [...freshMetas, ...updatedExisting];
+    setPhotoMetas(nextMetas);
+    setImages(nextMetas.map((meta) => meta.thumbSrc || resolveAssetUrl(getPhotoThumbCandidate(meta))).filter(Boolean));
+    return normalized.map(({ meta }) => getPhotoRecordId(meta)).filter(Boolean);
+  }, [photoMetas]);
+
+  const scheduleAnalysisPolling = React.useCallback((photoId) => {
+    const key = String(photoId || '').trim();
+    if (!key) return;
+    clearAnalysisPollTimer(key);
+    setPhotoAnalysisPendingMap((prev) => ({ ...(prev || {}), [key]: true }));
+
+    let attempts = 0;
+    const poll = async () => {
+      attempts += 1;
+      try {
+        const photo = await getPhotoById(key);
+        const ready = mergePhotoAnalysisResult(photo);
+        if (ready) {
+          clearAnalysisPollTimer(key);
+          return;
+        }
+      } catch (err) {
+        console.warn('[ProjectDetail] photo analysis polling failed:', key, err);
+      }
+
+      if (attempts >= ANALYSIS_POLL_MAX_ATTEMPTS) {
+        clearAnalysisPollTimer(key);
+        return;
+      }
+      analysisPollTimersRef.current[key] = setTimeout(poll, ANALYSIS_POLL_INTERVAL_MS);
+    };
+
+    analysisPollTimersRef.current[key] = setTimeout(poll, ANALYSIS_POLL_INITIAL_DELAY_MS);
+  }, [clearAnalysisPollTimer, mergePhotoAnalysisResult]);
+
+  const getPhotoSemanticState = React.useCallback((meta) => {
+    const photoId = getPhotoRecordId(meta);
+    const semantic = extractPhotoSemantic(meta);
+    const hasMappedTags = photoId && Object.prototype.hasOwnProperty.call(photoTagsMap || {}, photoId);
+    const mappedTags = hasMappedTags ? photoTagsMap[photoId] : undefined;
+    const hasMappedDesc = photoId && Object.prototype.hasOwnProperty.call(photoDescMap || {}, photoId);
+    const description = hasMappedDesc ? String(photoDescMap[photoId] || '').trim() : semantic.description;
+    const tags = Array.isArray(mappedTags) ? mappedTags : semantic.tags;
+    const hasAnalysis = Boolean(description || (Array.isArray(tags) && tags.length));
+    return {
+      photoId,
+      description,
+      tags: Array.isArray(tags) ? tags : [],
+      hasAnalysis,
+      pending: Boolean(photoId && photoAnalysisPendingMap[photoId] && !hasAnalysis)
+    };
+  }, [photoTagsMap, photoDescMap, photoAnalysisPendingMap]);
 
   React.useEffect(() => {
     setSearchKeyword('');
@@ -812,6 +1006,11 @@ function ProjectDetail({
       }
 
       if (succeeded.length > 0) {
+        const uploadedPhotos = succeeded
+          .map((r) => (r && (r.response || r.photo)) || null)
+          .filter((photo) => !!getPhotoRecordId(photo));
+        const uploadedIds = prependUploadedPhotos(uploadedPhotos);
+        uploadedIds.forEach((photoId) => scheduleAnalysisPolling(photoId));
         cancelUpload();
         // Refresh in background; don't block upload completion feedback.
         getProjectById(projectId, { demo: readOnly, includeFaces: false })
@@ -829,7 +1028,7 @@ function ProjectDetail({
     } finally {
       setUploading(false);
     }
-  }, [stagingFiles, projectId, cancelUpload, DISABLE_UPLOAD_FEATURE]);
+  }, [stagingFiles, projectId, cancelUpload, DISABLE_UPLOAD_FEATURE, prependUploadedPhotos, scheduleAnalysisPolling, readOnly, buildImagesAndMetas]);
 
   const openEdit = React.useCallback(() => {
     const p = project || {};
@@ -1261,15 +1460,6 @@ function ProjectDetail({
     // Force desktop to at least 4 columns so it won't fall back to 3 too early.
     if (w <= 1200) return 4;
     return Math.max(4, Math.floor((w + 12) / (240 + 12)));
-  }, [galleryWidth]);
-
-  const gridColumns = React.useMemo(() => {
-    const w = galleryWidth || 0;
-    if (!w) return 1;
-    if (w <= 768) return 3;
-    const gap = 8;
-    const minColWidth = 220;
-    return Math.max(1, Math.floor((w + gap) / (minColWidth + gap)));
   }, [galleryWidth]);
 
   const isGalleryPreparing = !loading && !error && images.length > 0 && !galleryPrepared;
@@ -2296,48 +2486,10 @@ function ProjectDetail({
     return buckets.map((b) => b.items);
   }, [images, imageRatios, masonryColumns]);
 
-  const masonryPositionMap = React.useMemo(() => {
-    const map = {};
-    masonryBuckets.forEach((bucket, c) => {
-      bucket.forEach((item, r) => {
-        map[item.idx] = { r, c };
-      });
-    });
-    return map;
-  }, [masonryBuckets]);
-
   const getRippleStyle = React.useCallback((index) => {
-    if (hoveredPhotoIdx < 0 || hoveredPhotoIdx === index) return undefined;
-    if (galleryMode === 'grid') {
-      const cols = Math.max(1, gridColumns || 1);
-      const r = Math.floor(index / cols);
-      const c = index % cols;
-      const hr = Math.floor(hoveredPhotoIdx / cols);
-      const hc = hoveredPhotoIdx % cols;
-      const dr = r - hr;
-      const dc = c - hc;
-      if (Math.abs(dr) > 1 || Math.abs(dc) > 1) return undefined;
-      const isDirect = Math.abs(dr) + Math.abs(dc) === 1;
-      const step = isDirect ? 6 : 4;
-      const tx = dc === 0 ? 0 : (dc > 0 ? step : -step);
-      const ty = dr === 0 ? 0 : (dr > 0 ? step : -step);
-      return { transform: `translate(${tx}px, ${ty}px)` };
-    }
-    if (galleryMode === 'masonry') {
-      const p = masonryPositionMap[index];
-      const hp = masonryPositionMap[hoveredPhotoIdx];
-      if (!p || !hp) return undefined;
-      const dr = p.r - hp.r;
-      const dc = p.c - hp.c;
-      if (Math.abs(dr) > 1 || Math.abs(dc) > 1) return undefined;
-      const isDirect = Math.abs(dr) + Math.abs(dc) === 1;
-      const step = isDirect ? 6 : 4;
-      const tx = dc === 0 ? 0 : (dc > 0 ? step : -step);
-      const ty = dr === 0 ? 0 : (dr > 0 ? step : -step);
-      return { transform: `translate(${tx}px, ${ty}px)` };
-    }
+    void index;
     return undefined;
-  }, [galleryMode, hoveredPhotoIdx, gridColumns, masonryPositionMap]);
+  }, []);
 
   const buildTransferItem = React.useCallback((index) => {
     const meta = (photoMetas && photoMetas[index]) || {};
@@ -2460,6 +2612,8 @@ function ProjectDetail({
     const readyKey = `${overallIndex}|${src}`;
     const isReady = !!detailImageReadyMap[readyKey];
     const ratio = imageRatios[src] || 1.5;
+    const meta = photoMetas?.[overallIndex] || {};
+    const semanticState = getPhotoSemanticState(meta);
     const rippleStyle = getRippleStyle(overallIndex) || {};
     const itemStyle = galleryMode === 'grid'
       ? { ...rippleStyle, aspectRatio: '1 / 1' }
@@ -2506,7 +2660,6 @@ function ProjectDetail({
             }}
           />
           {(() => {
-            const meta = photoMetas?.[overallIndex] || {};
             const rawName = meta.photographerName || meta.photographer_name || meta.photographer || (meta.photographerId ? String(meta.photographerId) : null) || (meta.photographer_id ? String(meta.photographer_id) : null);
             const hasName = rawName && String(rawName).trim();
             let photographerLabel = null;
@@ -2529,23 +2682,28 @@ function ProjectDetail({
               </div>
             );
           })()}
+          {semanticState.pending && !deleteMode && (
+            <div className="detail-analysis-badge">
+              <span className="detail-analysis-dot" />
+              分析中
+            </div>
+          )}
           {deleteMode && (
             <div style={{ position: 'absolute', right: 8, top: 8, width: 32, height: 32, borderRadius: 16, background: selectedMap[String(overallIndex)] ? '#ff5252' : 'rgba(0,0,0,0.45)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); toggleSelect(overallIndex); }}>
               {selectedMap[String(overallIndex)] ? '✓' : ''}
             </div>
           )}
           {hoveredPhotoIdx === overallIndex && !deleteMode && (
-            <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, color: '#fff', padding: '8px', fontSize: '12px', pointerEvents: 'none', display: 'flex', flexDirection: 'column-reverse' }}>
+            <div className="detail-tag-overlay">
               {(() => {
-                const photoId = photoMetas?.[overallIndex]?.id;
-                const tags = photoTagsMap[photoId];
+                const tags = semanticState.tags;
                 return tags && tags.length > 0 ? (
-                  <div style={{ display: 'flex', flexWrap: 'wrap-reverse', gap: '4px' }}>
+                  <div className="detail-tag-strip">
                     {tags.slice(0, 5).map((tag, i) => (
-                      <span key={i} style={{ background: '#1890ff', padding: '2px 6px', borderRadius: '2px', whiteSpace: 'nowrap' }}>{tag}</span>
+                      <span key={i} className="detail-tag-chip">{tag}</span>
                     ))}
                   </div>
-                ) : <span style={{ color: '#ccc' }}>无标签</span>;
+                ) : <span className="detail-tag-empty">{semanticState.pending ? '分析中' : '暂无标签'}</span>;
               })()}
             </div>
           )}
@@ -2569,7 +2727,7 @@ function ProjectDetail({
       </div>
     </div>
     );
-  }, [title, handlePhotoDragStart, handleImageLoad, deleteMode, photoMetas, images, hoveredPhotoIdx, photoTagsMap, showAILabels, photoAILabelMap, selectedMap, toggleSelect, project, initialProject, getRippleStyle, openViewerAt, detailImageReadyMap, imageRatios, galleryMode]);
+  }, [title, handlePhotoDragStart, handleImageLoad, deleteMode, photoMetas, images, hoveredPhotoIdx, photoTagsMap, showAILabels, photoAILabelMap, selectedMap, toggleSelect, project, initialProject, getRippleStyle, openViewerAt, detailImageReadyMap, imageRatios, galleryMode, getPhotoSemanticState]);
 
   return (
     <div className="detail-page">
@@ -2740,8 +2898,10 @@ function ProjectDetail({
         ref={galleryRef}
       >
         {loading && (
-          <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '60px 0' }}>
-            <Spin size="large" tip="加载项目详情" />
+          <div className="detail-loading-state">
+            <div className="detail-loading-mark" />
+            <div className="detail-loading-title">正在加载相册</div>
+            <div className="detail-loading-subtitle">照片马上出现</div>
           </div>
         )}
 
@@ -3225,15 +3385,16 @@ function ProjectDetail({
                           推荐
                         </div>
                       );
-                    })()}
-                    {(() => {
-                      const pid = photoMetas[viewerIndex]?.id;
-                      const hasDesc = !!(photoDescMap[pid]);
-                      const hasTags = (photoTagsMap[pid] || []).length > 0;
-                      if (!hasDesc && !hasTags && !viewerEditVisible) return null;
-                      return (
-                        <div
-                          className="viewer-info-card"
+	                    })()}
+	                    {(() => {
+	                      const state = getPhotoSemanticState(photoMetas[viewerIndex] || {});
+	                      const { description, tags, pending } = state;
+	                      const hasDesc = !!description;
+	                      const hasTags = tags.length > 0;
+	                      if (!hasDesc && !hasTags && !pending && !viewerEditVisible) return null;
+	                      return (
+	                        <div
+	                          className="viewer-info-card"
                           style={{
                             background: viewerEditVisible ? 'rgba(255,255,255,0.98)' : 'rgba(0,0,0,0.45)',
                             color: viewerEditVisible ? '#111' : '#fff',
@@ -3265,17 +3426,23 @@ function ProjectDetail({
                                 </div>
                               </div>
                             </div>
-                          ) : (
-                            <div style={{ pointerEvents: 'none' }}>
-                              {hasDesc && (
-                                <div style={{ marginBottom: hasTags ? '8px' : 0, fontSize: '14px' }}>{photoDescMap[pid]}</div>
-                              )}
-                              {hasTags && (
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                                  {photoTagsMap[pid].map((tag, i) => (
-                                    <span key={i} style={{ background: '#1890ff', padding: '4px 8px', borderRadius: '3px', whiteSpace: 'nowrap', fontSize: '12px' }}>{tag}</span>
-                                  ))}
-                                </div>
+	                          ) : (
+	                            <div style={{ pointerEvents: 'none' }}>
+	                              {pending && !hasDesc && !hasTags && (
+	                                <div className="viewer-analysis-pending">
+	                                  <span className="detail-analysis-dot" />
+	                                  语义分析中
+	                                </div>
+	                              )}
+	                              {hasDesc && (
+	                                <div style={{ marginBottom: hasTags ? '8px' : 0, fontSize: '14px' }}>{description}</div>
+	                              )}
+	                              {hasTags && (
+	                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+	                                  {tags.map((tag, i) => (
+	                                    <span key={i} style={{ background: '#1890ff', padding: '4px 8px', borderRadius: '3px', whiteSpace: 'nowrap', fontSize: '12px' }}>{tag}</span>
+	                                  ))}
+	                                </div>
                               )}
                             </div>
                           )}

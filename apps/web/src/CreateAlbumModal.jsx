@@ -10,7 +10,7 @@ function TagChip({ tag, onRemove }) {
   return (
     <div className="cam-tag" onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
       <span className="cam-tag-text">{tag}</span>
-      {hover && <button className="cam-tag-remove" onClick={(e) => { e.stopPropagation(); onRemove(tag); }}>脳</button>}
+      {hover && <button className="cam-tag-remove" onClick={(e) => { e.stopPropagation(); onRemove(tag); }}>×</button>}
     </div>
   );
 }
@@ -49,7 +49,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
     const val = (t || '').trim();
     if (!val) return;
     if (tags.includes(val)) return;
-    if (tags.length >= 20) return Toast.warning('鏍囩鏁伴噺杈惧埌涓婇檺');
+    if (tags.length >= 20) return Toast.warning('标签数量达到上限');
     setTags((s) => [...s, val]);
   }, [tags]);
 
@@ -114,7 +114,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
   }, []);
 
   const handleSubmit = React.useCallback(async () => {
-    if (!name.trim()) return Toast.warning('椤圭洰鍚嶇О涓哄繀濉」');
+    if (!name.trim()) return Toast.warning('相册名称为必填项');
     setSubmitting(true);
     try {
       const payload = {
@@ -135,7 +135,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
         result = await onCreated(payload);
       }
 
-      Toast.success('已创建项目');
+      Toast.success('已创建相册');
 
       try {
         const filesToUpload = (stagingFiles && stagingFiles.length) ? stagingFiles : [];
@@ -150,13 +150,13 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
 
         if (filesToUpload.length > 0) {
           if (!projectId) {
-            Toast.warning('宸插垱寤洪」鐩紝浣嗘湭鑳借幏鍙栭」鐩?ID锛岀収鐗囨湭鑷姩涓婁紶');
+            Toast.warning('已创建相册，但未获取到相册 ID，照片未自动上传');
           } else {
             try {
               const token = (typeof window !== 'undefined') ? (localStorage.getItem('mamage_jwt_token') || '') : '';
               console.debug('[CreateAlbumModal] starting uploads', { projectId, tokenPresent: !!token, files: filesToUpload.length });
               if (!token) {
-                Toast.warning('鏈娴嬪埌鐧诲綍 token锛屼笂浼犲彲鑳戒細澶辫触');
+                Toast.warning('未检测到登录 token，上传可能会失败');
               }
             } catch (e) {}
 
@@ -171,7 +171,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
               }
             } catch (e) {
               console.error('parallel uploads failed unexpectedly', e);
-              try { Toast.error('鍥剧墖涓婁紶澶辫触'); } catch (ee) {}
+              try { Toast.error('图片上传失败'); } catch (ee) {}
             }
 
             try {
@@ -194,7 +194,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
       if (onClose) onClose();
     } catch (e) {
       console.error('create project failed', e);
-      Toast.error('鍒涘缓澶辫触');
+      Toast.error('创建失败');
     } finally {
       setSubmitting(false);
     }
@@ -202,25 +202,25 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
 
   return (
     <Modal
-      title="鏂板缓鐩稿唽"
+      title="新建相册"
       visible={visible}
       onCancel={onClose}
       onOk={handleSubmit}
       okButtonProps={{ loading: submitting }}
-      cancelText="鍙栨秷"
-      okText="鍒涘缓"
+      cancelText="取消"
+      okText="创建"
       closable
     >
       <div className="cam-form">
-        <Input value={name} onChange={(v) => setName(v)} placeholder="椤圭洰鍚嶇О锛堝繀濉級" />
-        <TextArea value={description} onChange={(v) => setDescription(v)} rows={3} placeholder="椤圭洰鎻忚堪锛堝彲閫夛級" />
+        <Input value={name} onChange={(v) => setName(v)} placeholder="相册名称（必填）" />
+        <TextArea value={description} onChange={(v) => setDescription(v)} rows={3} placeholder="相册描述（可选）" />
 
         <div style={{ marginTop: 12 }}>
           <div style={{ marginBottom: 6 }}>添加照片（可选，不限数量）</div>
           <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
             <label style={{ display: 'inline-block' }}>
               <input type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={(e) => handleFilesSelected(e.target.files)} />
-              <div style={{ padding: '8px 12px', border: '1px dashed #d9d9d9', borderRadius: 6, cursor: 'pointer', color: '#333' }}>閫夋嫨鐓х墖</div>
+              <div style={{ padding: '8px 12px', border: '1px dashed #d9d9d9', borderRadius: 6, cursor: 'pointer', color: '#333' }}>选择照片</div>
             </label>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               {stagingPreviews.map((p, i) => (
@@ -229,8 +229,8 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); removeStagingFile(i); }}
-                    aria-label="绉婚櫎鐓х墖"
-                    title="绉婚櫎"
+                    aria-label="移除照片"
+                    title="移除"
                     style={{
                       position: 'absolute',
                       right: 4,
@@ -249,7 +249,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
                       lineHeight: 1,
                     }}
                   >
-                    脳
+                    ×
                   </button>
                 </div>
               ))}
@@ -259,7 +259,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
 
         {userPermissions.includes('projects.create') ? (
           <div>
-            <div style={{ marginBottom: 6 }}>项目标签（按回车添加）</div>
+            <div style={{ marginBottom: 6 }}>相册标签（按回车添加）</div>
             <div className="cam-tags-row">
               {tags.map((t) => <TagChip key={t} tag={t} onRemove={removeTag} />)}
               <input className="cam-tag-input" value={tagInput} onChange={(e) => setTagInput(e.target.value)} onKeyDown={onTagKeyDown} placeholder="输入标签并回车" />
@@ -268,10 +268,9 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
         ) : null}
 
         <div style={{ marginTop: 12 }}>
-          <DatePicker value={startDate} onChange={(v) => setStartDate(v)} format="yyyy-MM-dd" placeholder="寮€濮嬫棩鏈燂紙鍙€夛級" style={{ width: '100%' }} />
+          <DatePicker value={startDate} onChange={(v) => setStartDate(v)} format="yyyy-MM-dd" placeholder="活动日期（可选）" style={{ width: '100%' }} />
         </div>
       </div>
     </Modal>
   );
 }
-

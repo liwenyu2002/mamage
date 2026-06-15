@@ -73,6 +73,36 @@
   min-height: clamp(280px, 52vh, 760px);
 }
 
+.detail-loading-state {
+  width: 100%;
+  min-height: 260px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: #334155;
+}
+
+.detail-loading-mark {
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  border: 3px solid #dbe5f2;
+  border-top-color: #2563eb;
+  animation: detail-loading-spin 0.9s linear infinite;
+}
+
+.detail-loading-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.detail-loading-subtitle {
+  font-size: 13px;
+  color: #64748b;
+}
+
 .detail-gallery--grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -228,23 +258,17 @@
   min-width: 0;
   display: block;
   transform-origin: center center;
-  transition: transform 0.38s cubic-bezier(0.2, 1.15, 0.25, 1), box-shadow 0.3s ease, filter 0.3s ease;
+  transition: transform 180ms ease, box-shadow 180ms ease, filter 180ms ease;
 }
 
 .detail-photo--skeleton {
   position: relative;
-  background: linear-gradient(120deg, #e8edf5 0%, #dce4ef 40%, #e8edf5 80%);
-  background-size: 180% 180%;
-  animation: detail-skeleton-pulse 1.4s ease-in-out infinite;
+  background: #eef2f7;
+  animation: detail-skeleton-breathe 1.8s ease-in-out infinite;
 }
 
 .detail-photo--skeleton::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  transform: translateX(-100%);
-  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.48) 50%, transparent 100%);
-  animation: detail-skeleton-shimmer 1.35s ease-in-out infinite;
+  content: none;
 }
 
 .detail-photo img {
@@ -282,8 +306,8 @@
 }
 
 .detail-photo-item:hover .detail-photo {
-  transform: scale(1.028);
-  box-shadow: 0 14px 26px rgba(0, 0, 0, 0.2), 0 4px 8px rgba(0, 0, 0, 0.08);
+  transform: translateY(-2px);
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.18), 0 3px 8px rgba(15, 23, 42, 0.1);
 }
 
 .detail-photo-item:hover .detail-photo img {
@@ -295,27 +319,92 @@
   box-shadow: none;
 }
 
-@keyframes detail-skeleton-pulse {
+@keyframes detail-skeleton-breathe {
   0% {
-    background-position: 0% 50%;
+    opacity: 0.7;
+  }
+
+  50% {
+    opacity: 1;
   }
 
   100% {
-    background-position: 100% 50%;
+    opacity: 0.7;
   }
 }
 
-@keyframes detail-skeleton-shimmer {
-  0% {
-    transform: translateX(-100%);
-  }
-
-  100% {
-    transform: translateX(100%);
-  }
+@keyframes detail-loading-spin {
+  to { transform: rotate(360deg); }
 }
 
-/* Ripple offsets are driven by JS for both grid and masonry. */
+.detail-analysis-badge {
+  position: absolute;
+  left: 8px;
+  top: 38px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100% - 16px);
+  padding: 4px 7px;
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.66);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.2;
+  pointer-events: none;
+}
+
+.detail-analysis-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #60a5fa;
+  box-shadow: 0 0 0 4px rgba(96, 165, 250, 0.2);
+  animation: detail-analysis-dot 1.2s ease-in-out infinite;
+  flex: 0 0 auto;
+}
+
+@keyframes detail-analysis-dot {
+  0%, 100% { opacity: 0.45; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+.detail-tag-overlay {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  padding: 26px 8px 8px;
+  color: #fff;
+  font-size: 12px;
+  pointer-events: none;
+  background: linear-gradient(180deg, transparent, rgba(15, 23, 42, 0.62));
+}
+
+.detail-tag-strip {
+  display: flex;
+  flex-wrap: wrap-reverse;
+  gap: 4px;
+}
+
+.detail-tag-chip {
+  max-width: 100%;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(37, 99, 235, 0.92);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.detail-tag-empty {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  color: rgba(255, 255, 255, 0.86);
+}
 
 .detail-upload-modal.semi-modal {
   width: min(720px, calc(100vw - 32px));
@@ -1119,6 +1208,14 @@
   border: 1px solid rgba(255, 255, 255, 0.16);
   font-size: 14px;
   box-sizing: border-box;
+}
+
+.viewer-analysis-pending {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 14px;
 }
 
 .viewer-action-bar {
