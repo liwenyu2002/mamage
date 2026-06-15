@@ -1419,6 +1419,34 @@ function ProjectDetail({
     }
   }, [rawTags]);
 
+  const aiSelectionStats = React.useMemo(() => {
+    const stats = { recommended: 0, rejected: 0, total: 0 };
+    (photoMetas || []).forEach((meta) => {
+      const photoId = getPhotoRecordId(meta);
+      if (!photoId) return;
+      const label = photoAILabelMap[photoId];
+      const currentTags = Array.isArray(photoTagsMap[photoId]) ? photoTagsMap[photoId] : safeParseTags(meta.tags);
+      if (label === 'recommended' || currentTags.includes('推荐')) {
+        stats.recommended += 1;
+      } else if (label === 'rejected') {
+        stats.rejected += 1;
+      }
+    });
+    stats.total = stats.recommended + stats.rejected;
+    return stats;
+  }, [photoMetas, photoAILabelMap, photoTagsMap]);
+
+  const toggleAILabels = React.useCallback(() => {
+    const nextVisible = !showAILabels;
+    setShowAILabels(nextVisible);
+    if (!nextVisible) return;
+    if (!aiSelectionStats.total) {
+      Toast.info('当前相册暂无 AI 选片结果，照片分析完成后会显示推荐/不推荐标记');
+      return;
+    }
+    Toast.info(`AI 选片：推荐 ${aiSelectionStats.recommended} 张，不推荐 ${aiSelectionStats.rejected} 张`);
+  }, [showAILabels, aiSelectionStats]);
+
   // expose resolved project and tags for easy debugging in browser console
   React.useEffect(() => {
     try {
@@ -2420,24 +2448,28 @@ function ProjectDetail({
     if (viewerIndex < 0 || !photoMetas || !photoMetas[viewerIndex]) return;
 
     const currentMeta = photoMetas[viewerIndex];
-    const photoId = currentMeta.id;
+    const photoId = getPhotoRecordId(currentMeta);
+    if (!photoId) {
+      Toast.warning('无法获取照片 ID');
+      return;
+    }
 
-    // 妫€鏌ユ槸鍚﹀凡鏈?鎺ㄨ崘"鏍囩
+    // 检查是否已有“推荐”标签
     const currentTags = photoTagsMap[photoId] || [];
-    if (currentTags.includes('鎺ㄨ崘')) {
-      Toast.warning('璇ョ収鐗囧凡鏈?鎺ㄨ崘"鏍囩');
+    if (currentTags.includes('推荐')) {
+      Toast.warning('该照片已有“推荐”标签');
       return;
     }
 
     try {
       const token = getToken();
       if (!token) {
-        Toast.error('鏈櫥褰曪紝璇峰厛鐧诲綍');
+        Toast.error('未登录，请先登录');
         return;
       }
 
-      // 娣诲姞"鎺ㄨ崘"鏍囩鍒扮幇鏈夋爣绛?
-      const newTags = [...currentTags, '鎺ㄨ崘'];
+      // 添加“推荐”标签到现有标签
+      const newTags = [...currentTags, '推荐'];
 
       const url = `${BASE_URL || ''}/api/photos/${photoId}`;
       const res = await fetch(url, {
@@ -2450,13 +2482,13 @@ function ProjectDetail({
       });
 
       if (res.status === 401 || res.status === 403) {
-        Toast.error('鏉冮檺涓嶈冻锛屼粎绠＄悊鍛樺彲鎿嶄綔');
+        Toast.error('权限不足，仅管理员可操作');
         return;
       }
 
       if (!res.ok) {
         const errText = await res.text();
-        Toast.error(`鎿嶄綔澶辫触: ${errText}`);
+        Toast.error(`操作失败: ${errText}`);
         return;
       }
 
@@ -2466,7 +2498,7 @@ function ProjectDetail({
       Toast.success('已添加推荐标签');
     } catch (err) {
       console.error('add recommendation failed:', err);
-      Toast.error(`鎿嶄綔澶辫触: ${err.message}`);
+      Toast.error(`操作失败: ${err.message}`);
     }
   }, [viewerIndex, photoMetas, photoTagsMap]);
 
@@ -2824,11 +2856,11 @@ function ProjectDetail({
               </IfCan>
               <Button
                 className="detail-toolbar-btn"
-                onClick={() => setShowAILabels(!showAILabels)}
+                onClick={toggleAILabels}
                 type={showAILabels ? 'primary' : 'tertiary'}
                 style={{ color: '#722ed1', marginLeft: 6 }}
               >
-                AI 选片
+                {aiSelectionStats.total ? `AI 选片 ${aiSelectionStats.total}` : 'AI 选片'}
               </Button>
               <Button
                 className="detail-toolbar-btn"
