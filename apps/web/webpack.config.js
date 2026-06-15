@@ -1,6 +1,31 @@
 // webpack.config.js
 const path = require('path');
+const fs = require('fs');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
+
+const publicAssets = [
+  'favicon.svg',
+  'favicon.png',
+  'favicon-16x16.png',
+  'favicon-32x32.png',
+  'apple-touch-icon.png',
+  'site.webmanifest',
+  'icons/icon-192.png',
+  'icons/icon-512.png',
+];
+
+class CopyPublicAssetsPlugin {
+  apply(compiler) {
+    compiler.hooks.afterEmit.tapPromise('CopyPublicAssetsPlugin', async () => {
+      await Promise.all(publicAssets.map(async (asset) => {
+        const from = path.resolve(__dirname, 'public', asset);
+        const to = path.resolve(compiler.options.output.path, asset);
+        await fs.promises.mkdir(path.dirname(to), { recursive: true });
+        await fs.promises.copyFile(from, to);
+      }));
+    });
+  }
+}
 
 module.exports = {
   entry: './src/index.jsx',
@@ -44,6 +69,7 @@ module.exports = {
         MAMAGE_API_BASE: process.env.MAMAGE_API_BASE || '',
       }
     }),
+    new CopyPublicAssetsPlugin(),
   ],
   devServer: {
     // Default dev server port (can be overridden by env vars)
