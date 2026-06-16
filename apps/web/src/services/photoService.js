@@ -47,6 +47,16 @@ async function getPhotoById(photoId) {
   });
 }
 
+async function updatePhoto(photoId, data = {}) {
+  if (photoId === undefined || photoId === null || String(photoId).trim() === '') {
+    throw new Error('updatePhoto: photoId is required');
+  }
+  return request(`/api/photos/${encodeURIComponent(String(photoId).trim())}`, {
+    method: 'PATCH',
+    data,
+  });
+}
+
 async function detectPhotoFaces(photoId, { force = false, projectId } = {}) {
   if (photoId === undefined || photoId === null || String(photoId).trim() === '') {
     throw new Error('detectPhotoFaces: photoId is required');
@@ -571,6 +581,7 @@ export {
   fetchRandomByProject,
   searchPhotos,
   getPhotoById,
+  updatePhoto,
   detectPhotoFaces,
   getPhotoFaces,
   getFacePersonInfo,

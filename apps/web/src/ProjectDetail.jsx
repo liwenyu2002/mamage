@@ -14,11 +14,19 @@ import {
 import './ProjectDetail.css';
 import { getProjectById, updateProject, deleteProject } from './services/projectService';
 import { getToken } from './services/authService';
-import { fetchRandomByProject, searchPhotos, getPhotoById, getFacePersonInfo, labelFacePerson, renameFacePerson, uploadPhotoFiles, deletePhotos, getPhotoFaces } from './services/photoService';
+import { fetchRandomByProject, searchPhotos, getPhotoById, updatePhoto, getFacePersonInfo, labelFacePerson, renameFacePerson, uploadPhotoFiles, deletePhotos, getPhotoFaces } from './services/photoService';
 import { resolveAssetUrl, BASE_URL } from './services/request';
 import IfCan from './permissions/IfCan';
 import PermButton from './permissions/PermButton';
 import { canAny, getPermissions } from './permissions/permissionStore';
+import {
+  DEFAULT_PHOTO_ADJUSTMENTS,
+  analyzePhotoTone,
+  buildPhotoAdjustments,
+  getPhotoAdjustmentStyle,
+  isDefaultPhotoAdjustments,
+  normalizePhotoAdjustments,
+} from './utils/photoAdjustments';
 
 const { Title, Text } = Typography;
 const ANALYSIS_POLL_INITIAL_DELAY_MS = 900;
@@ -79,6 +87,27 @@ function getPhotoRecordId(item) {
   if (raw === null || raw === undefined) return null;
   const sid = String(raw).trim();
   return sid || null;
+}
+
+function HistogramView({ histogram }) {
+  const bins = Array.isArray(histogram) && histogram.length ? histogram : Array(256).fill(0);
+  const max = Math.max(1, ...bins);
+  const points = bins.map((value, idx) => {
+    const x = (idx / 255) * 100;
+    const y = 100 - (Math.sqrt(value / max) * 92);
+    return `${x.toFixed(2)},${y.toFixed(2)}`;
+  }).join(' ');
+  const areaPoints = `0,100 ${points} 100,100`;
+  return (
+    <svg className="tone-histogram-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+      <polygon points={areaPoints} />
+      <polyline points={points} />
+    </svg>
+  );
+}
+
+function hasPhotoAdjustment(adjustments) {
+  return !isDefaultPhotoAdjustments(adjustments);
 }
 
 function extractPhotoSemantic(photo) {
@@ -378,6 +407,14 @@ function ProjectDetail({
   const [viewerEditTags, setViewerEditTags] = React.useState([]);
   const [viewerEditTagInput, setViewerEditTagInput] = React.useState('');
   const [viewerEditDescription, setViewerEditDescription] = React.useState('');
+  const [photoAdjustmentsMap, setPhotoAdjustmentsMap] = React.useState({});
+  const [viewerToneVisible, setViewerToneVisible] = React.useState(false);
+  const [viewerToneDraft, setViewerToneDraft] = React.useState(() => normalizePhotoAdjustments(DEFAULT_PHOTO_ADJUSTMENTS));
+  const [viewerToneSaving, setViewerToneSaving] = React.useState(false);
+  const [viewerToneAnalyzing, setViewerToneAnalyzing] = React.useState(false);
+  const [viewerToneError, setViewerToneError] = React.useState('');
+  const [viewerToneAnalysis, setViewerToneAnalysis] = React.useState(null);
+  const toneAnalysisSeqRef = React.useRef(0);
   const [internalGalleryMode, setInternalGalleryMode] = React.useState('masonry'); // 'grid' | 'masonry'
   const galleryMode = controlledGalleryMode || internalGalleryMode;
   const handleGalleryModeChange = React.useCallback((nextMode) => {
@@ -467,6 +504,7 @@ function ProjectDetail({
     const tagsMap = {};
     const descMap = {};
     const aiLabelMap = {};
+    const adjustmentsMap = {};
     const normalized = items.map((item, idx) => {
       if (typeof item === 'string') {
         const meta = { url: item };
@@ -498,6 +536,7 @@ function ProjectDetail({
             descMap[metaFinal.id] = semantic.description;
           }
           if (semantic.aiLabel) aiLabelMap[metaFinal.id] = semantic.aiLabel;
+          if (metaFinal.adjustments) adjustmentsMap[metaFinal.id] = normalizePhotoAdjustments(metaFinal.adjustments);
         }
         // If this resolved src is still relative but there are absolute urls
         // available elsewhere in the provided items, try to prefer an absolute one.
@@ -554,6 +593,7 @@ function ProjectDetail({
           descMap[metaFinal.id] = semantic.description;
         }
         if (semantic.aiLabel) aiLabelMap[metaFinal.id] = semantic.aiLabel;
+        if (metaFinal.adjustments) adjustmentsMap[metaFinal.id] = normalizePhotoAdjustments(metaFinal.adjustments);
       }
       // Prefer absolute candidate when available (similar to ProjectCard behavior)
       let resolvedSrc = resolveAssetUrl(thumbCandidate);
@@ -592,6 +632,9 @@ function ProjectDetail({
     }
     if (Object.keys(aiLabelMap).length) {
       setPhotoAILabelMap((prev) => ({ ...(prev || {}), ...aiLabelMap }));
+    }
+    if (Object.keys(adjustmentsMap).length) {
+      setPhotoAdjustmentsMap((prev) => ({ ...(prev || {}), ...adjustmentsMap }));
     }
     return { images: normalized.map((n) => n.src), metas: normalized.map((n) => n.meta) };
   }, []);
@@ -901,6 +944,9 @@ function ProjectDetail({
       setPhotoTagsMap((prev) => ({ ...(prev || {}), [photoId]: semantic.tags }));
       setPhotoDescMap((prev) => ({ ...(prev || {}), [photoId]: semantic.description }));
       setPhotoAILabelMap((prev) => ({ ...(prev || {}), [photoId]: semantic.aiLabel }));
+      if (meta.adjustments) {
+        setPhotoAdjustmentsMap((prev) => ({ ...(prev || {}), [photoId]: normalizePhotoAdjustments(meta.adjustments) }));
+      }
     });
 
     const currentMetas = Array.isArray(photoMetas) ? photoMetas : [];
@@ -1021,16 +1067,21 @@ function ProjectDetail({
 
         const tagsPatch = {};
         const descPatch = {};
+        const adjustmentsPatch = {};
         nextMetas.forEach((m) => {
           if (!m || !m.id) return;
           tagsPatch[m.id] = safeParseTags(m.tags);
           descPatch[m.id] = m.description || '';
+          if (m.adjustments) adjustmentsPatch[m.id] = normalizePhotoAdjustments(m.adjustments);
         });
         if (Object.keys(tagsPatch).length) {
           setPhotoTagsMap((prev) => ({ ...(prev || {}), ...tagsPatch }));
         }
         if (Object.keys(descPatch).length) {
           setPhotoDescMap((prev) => ({ ...(prev || {}), ...descPatch }));
+        }
+        if (Object.keys(adjustmentsPatch).length) {
+          setPhotoAdjustmentsMap((prev) => ({ ...(prev || {}), ...adjustmentsPatch }));
         }
 
         setDeleteMode(false);
@@ -1816,6 +1867,12 @@ function ProjectDetail({
   const currentViewerPhotoId = React.useMemo(() => getMetaPhotoId(photoMetas?.[viewerIndex]), [photoMetas, viewerIndex, getMetaPhotoId]);
   const currentViewerFaces = React.useMemo(() => (currentViewerPhotoId ? (viewerFaceMap[currentViewerPhotoId] || []) : []), [currentViewerPhotoId, viewerFaceMap]);
   const currentViewerFaceError = currentViewerPhotoId ? (viewerFaceErrorMap[currentViewerPhotoId] || '') : '';
+  const getAdjustmentForPhoto = React.useCallback((meta) => {
+    const photoId = getPhotoRecordId(meta);
+    return normalizePhotoAdjustments((photoId && photoAdjustmentsMap[photoId]) || meta?.adjustments || DEFAULT_PHOTO_ADJUSTMENTS);
+  }, [photoAdjustmentsMap]);
+  const currentViewerAdjustment = React.useMemo(() => getAdjustmentForPhoto(photoMetas?.[viewerIndex]), [getAdjustmentForPhoto, photoMetas, viewerIndex]);
+  const currentViewerToneSrc = React.useMemo(() => getViewerTargetSrc(viewerIndex, false), [getViewerTargetSrc, viewerIndex]);
 
   const handleViewerImageLoad = React.useCallback((photoId, e) => {
     if (!photoId || !e?.target) return;
@@ -1827,6 +1884,122 @@ function ProjectDetail({
       if (old && old.width === width && old.height === height) return prev;
       return { ...(prev || {}), [photoId]: { width, height } };
     });
+  }, []);
+
+  const analyzeViewerTone = React.useCallback(async (adjustments) => {
+    if (!currentViewerToneSrc) throw new Error('缺少图片地址');
+    if (!currentViewerPhotoId) {
+      return analyzePhotoTone(currentViewerToneSrc, adjustments, { maxSize: 640 });
+    }
+    const token = getToken();
+    const pixelUrl = `${BASE_URL || ''}/api/photos/${encodeURIComponent(String(currentViewerPhotoId))}/pixel-source?variant=thumb`;
+    const response = await fetch(pixelUrl, {
+      method: 'GET',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      credentials: 'same-origin',
+    });
+    if (!response.ok) {
+      throw new Error(response.status === 401 || response.status === 403 ? '无权读取照片像素' : '无法读取照片像素');
+    }
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    try {
+      return await analyzePhotoTone(objectUrl, adjustments, { maxSize: 640 });
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+  }, [currentViewerPhotoId, currentViewerToneSrc]);
+
+  React.useEffect(() => {
+    setViewerToneVisible(false);
+    setViewerToneError('');
+    setViewerToneAnalysis(null);
+    setViewerToneDraft(currentViewerAdjustment);
+  }, [currentViewerPhotoId, currentViewerAdjustment]);
+
+  React.useEffect(() => {
+    if (!viewerToneVisible || !currentViewerToneSrc) return undefined;
+    const seq = toneAnalysisSeqRef.current + 1;
+    toneAnalysisSeqRef.current = seq;
+    setViewerToneAnalyzing(true);
+    setViewerToneError('');
+    const timer = setTimeout(() => {
+      analyzeViewerTone(viewerToneDraft)
+        .then((result) => {
+          if (toneAnalysisSeqRef.current !== seq) return;
+          setViewerToneAnalysis(result);
+        })
+        .catch((err) => {
+          if (toneAnalysisSeqRef.current !== seq) return;
+          setViewerToneAnalysis(null);
+          setViewerToneError(err?.message || '直方图计算失败');
+        })
+        .finally(() => {
+          if (toneAnalysisSeqRef.current === seq) setViewerToneAnalyzing(false);
+        });
+    }, 90);
+    return () => clearTimeout(timer);
+  }, [viewerToneVisible, currentViewerToneSrc, viewerToneDraft, analyzeViewerTone]);
+
+  const patchPhotoAdjustmentState = React.useCallback((photoId, adjustments) => {
+    if (!photoId) return;
+    const normalized = normalizePhotoAdjustments(adjustments);
+    setPhotoAdjustmentsMap((prev) => ({ ...(prev || {}), [photoId]: normalized }));
+    setPhotoMetas((prev) => (Array.isArray(prev)
+      ? prev.map((meta) => (String(getPhotoRecordId(meta) || '') === String(photoId) ? { ...(meta || {}), adjustments: normalized } : meta))
+      : prev));
+  }, []);
+
+  const openToneEditor = React.useCallback(() => {
+    if (!currentViewerPhotoId) return Toast.warning('无法获取照片 ID');
+    setViewerEditVisible(false);
+    setViewerToneDraft(currentViewerAdjustment);
+    setViewerToneVisible((prev) => !prev);
+  }, [currentViewerAdjustment, currentViewerPhotoId]);
+
+  const updateToneDraft = React.useCallback((key, value) => {
+    setViewerToneDraft((prev) => buildPhotoAdjustments({ ...normalizePhotoAdjustments(prev), [key]: Number(value) }, 'manual'));
+  }, []);
+
+  const autoTuneCurrentPhoto = React.useCallback(async () => {
+    if (!currentViewerToneSrc) return;
+    const seq = toneAnalysisSeqRef.current + 1;
+    toneAnalysisSeqRef.current = seq;
+    setViewerToneAnalyzing(true);
+    setViewerToneError('');
+    try {
+      const result = await analyzeViewerTone(DEFAULT_PHOTO_ADJUSTMENTS);
+      if (toneAnalysisSeqRef.current !== seq) return;
+      setViewerToneAnalysis(result);
+      setViewerToneDraft(result.autoAdjustments);
+    } catch (err) {
+      if (toneAnalysisSeqRef.current !== seq) return;
+      setViewerToneError(err?.message || '自动调节失败');
+    } finally {
+      if (toneAnalysisSeqRef.current === seq) setViewerToneAnalyzing(false);
+    }
+  }, [analyzeViewerTone, currentViewerToneSrc]);
+
+  const saveViewerTone = React.useCallback(async () => {
+    if (!currentViewerPhotoId) return Toast.warning('无法获取照片 ID');
+    try {
+      setViewerToneSaving(true);
+      const adjustments = buildPhotoAdjustments(viewerToneDraft, 'manual');
+      const data = await updatePhoto(currentViewerPhotoId, { adjustments });
+      const saved = normalizePhotoAdjustments(data?.adjustments || adjustments);
+      patchPhotoAdjustmentState(currentViewerPhotoId, saved);
+      setViewerToneDraft(saved);
+      Toast.success('调色参数已保存');
+    } catch (err) {
+      console.error('saveViewerTone error', err);
+      Toast.error(err?.body || err?.message || '保存调色参数失败');
+    } finally {
+      setViewerToneSaving(false);
+    }
+  }, [currentViewerPhotoId, patchPhotoAdjustmentState, viewerToneDraft]);
+
+  const resetViewerTone = React.useCallback(() => {
+    setViewerToneDraft(buildPhotoAdjustments(DEFAULT_PHOTO_ADJUSTMENTS, 'manual'));
   }, []);
 
   const getViewerFaceBoxStyle = React.useCallback((face, photoId) => {
@@ -2343,6 +2516,7 @@ function ProjectDetail({
   const canDeletePhotos = !DISABLE_DELETE_FEATURE && hasPerm('photos.delete');
   const canDeleteProject = !DISABLE_DELETE_FEATURE && hasPerm('projects.delete');
   const canEditTags = hasPerm('tags.edit');
+  const canEditPhotos = hasPerm('photos.edit');
   const canPackDownload = readOnly || hasPerm('photos.zip');
   const canEditFacePersonName = hasPerm('faces.label');
 
@@ -2741,6 +2915,7 @@ function ProjectDetail({
     const ratio = imageRatios[src] || 1.5;
     const meta = photoMetas?.[overallIndex] || {};
     const semanticState = getPhotoSemanticState(meta);
+    const adjustmentStyle = getPhotoAdjustmentStyle(getAdjustmentForPhoto(meta));
     const rippleStyle = getRippleStyle(overallIndex) || {};
     const itemStyle = galleryMode === 'grid'
       ? { ...rippleStyle, aspectRatio: '1 / 1' }
@@ -2762,7 +2937,7 @@ function ProjectDetail({
               handleImageLoad(src, event);
               setDetailImageReadyMap((prev) => (prev[readyKey] ? prev : { ...prev, [readyKey]: true }));
             }}
-            style={{ display: 'block', cursor: deleteMode ? 'pointer' : 'zoom-in', aspectRatio: galleryMode === 'masonry' ? `${ratio}` : undefined }}
+            style={{ display: 'block', cursor: deleteMode ? 'pointer' : 'zoom-in', aspectRatio: galleryMode === 'masonry' ? `${ratio}` : undefined, ...(adjustmentStyle || {}) }}
             data-original={photoMetas && photoMetas[overallIndex] ? (photoMetas[overallIndex].originalSrc || images[overallIndex]) : images[overallIndex]}
             data-tried="0"
             onError={(e) => {
@@ -2857,7 +3032,7 @@ function ProjectDetail({
       </div>
     </div>
     );
-  }, [title, handlePhotoDragStart, handleImageLoad, deleteMode, photoMetas, images, hoveredPhotoIdx, photoTagsMap, showAILabels, photoAILabelMap, selectedMap, toggleSelect, project, initialProject, getRippleStyle, openViewerAt, detailImageReadyMap, imageRatios, galleryMode, getPhotoSemanticState]);
+  }, [title, handlePhotoDragStart, handleImageLoad, deleteMode, photoMetas, images, hoveredPhotoIdx, photoTagsMap, showAILabels, photoAILabelMap, selectedMap, toggleSelect, project, initialProject, getRippleStyle, openViewerAt, detailImageReadyMap, imageRatios, galleryMode, getPhotoSemanticState, getAdjustmentForPhoto]);
 
   return (
     <div className="detail-page">
@@ -3535,6 +3710,7 @@ function ProjectDetail({
                           const slidePhotoId = getMetaPhotoId(slideMeta);
                           const slideFaces = slidePhotoId ? (viewerFaceMap[slidePhotoId] || []) : [];
                           const showFaceBoxes = idx === viewerIndex && viewerFaceOverlayVisible && slideFaces.length > 0;
+                          const slideAdjustmentStyle = getPhotoAdjustmentStyle(idx === viewerIndex && viewerToneVisible ? viewerToneDraft : getAdjustmentForPhoto(slideMeta));
                           return (
                             <div className={`viewer-slide${idx === viewerIndex ? ' is-active' : ''}`} style={viewerSlideStyle} key={`viewer-slide-${idx}`}>
                               <div className="viewer-face-image-surface">
@@ -3542,6 +3718,7 @@ function ProjectDetail({
                                   src={slideSrc}
                                   alt={`viewer-${idx}`}
                                   className={`viewer-carousel-img${idx === viewerIndex && viewerEnableOpenZoom ? ' viewer-img--open-zoom' : ''}`}
+                                  style={slideAdjustmentStyle}
                                   onLoad={(e) => handleViewerImageLoad(slidePhotoId, e)}
                                 />
                                 {showFaceBoxes ? (
@@ -3682,21 +3859,83 @@ function ProjectDetail({
                 ) : images[viewerIndex] ? (
                     <div className="viewer-img-stage" onClick={(e) => e.stopPropagation()}>
                       <div className="viewer-carousel" style={viewerTrackStyle}>
-                        {images.map((src, idx) => (
+                        {images.map((src, idx) => {
+                          const fallbackAdjustmentStyle = getPhotoAdjustmentStyle(idx === viewerIndex && viewerToneVisible ? viewerToneDraft : getAdjustmentForPhoto(photoMetas?.[idx]));
+                          return (
                           <div className={`viewer-slide${idx === viewerIndex ? ' is-active' : ''}`} style={viewerSlideStyle} key={`viewer-fallback-slide-${idx}`}>
                             <div className="viewer-face-image-surface">
                               <img
                                 src={src}
                                 alt={`viewer-${idx}`}
                                 className={`viewer-carousel-img${idx === viewerIndex && viewerEnableOpenZoom ? ' viewer-img--open-zoom' : ''}`}
+                                style={fallbackAdjustmentStyle}
                               />
                             </div>
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                 ) : null}
               </div>
+
+              {viewerToneVisible && (photoMetas && photoMetas[viewerIndex]) ? (
+                <div className="viewer-tone-panel" onClick={(e) => e.stopPropagation()}>
+                  <div className="viewer-tone-head">
+                    <div>
+                      <div className="viewer-tone-title">照片调色</div>
+                      <div className="viewer-tone-subtitle">非破坏式参数，原图不变</div>
+                    </div>
+                    <button type="button" className="viewer-tone-close" onClick={() => setViewerToneVisible(false)} aria-label="关闭调色">×</button>
+                  </div>
+
+                  <div className="viewer-tone-histogram">
+                    <HistogramView histogram={viewerToneAnalysis?.adjustedHistogram} />
+                    <div className="viewer-tone-histogram-scale">
+                      <span>暗部</span>
+                      <span>中间调</span>
+                      <span>高光</span>
+                    </div>
+                    {viewerToneError ? (
+                      <div className="viewer-tone-error">{viewerToneError}</div>
+                    ) : (
+                      <div className="viewer-tone-clipping">
+                        {viewerToneAnalyzing ? '计算直方图中' : `阴影溢出 ${Math.round((viewerToneAnalysis?.clipping?.shadows || 0) * 1000) / 10}% · 高光溢出 ${Math.round((viewerToneAnalysis?.clipping?.highlights || 0) * 1000) / 10}%`}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="viewer-tone-actions">
+                    <button type="button" onClick={autoTuneCurrentPhoto} disabled={viewerToneAnalyzing}>自动</button>
+                    <button type="button" onClick={resetViewerTone}>重置</button>
+                    <button type="button" className="is-primary" onClick={saveViewerTone} disabled={viewerToneSaving}>
+                      {viewerToneSaving ? '保存中' : '保存'}
+                    </button>
+                  </div>
+
+                  <div className="viewer-tone-sliders">
+                    {[
+                      ['brightness', '亮度', -100, 100],
+                      ['contrast', '对比度', -100, 100],
+                      ['temperature', '白平衡', -100, 100],
+                      ['tint', '色调', -100, 100],
+                    ].map(([key, label, min, max]) => (
+                      <label className="viewer-tone-slider" key={key}>
+                        <span>{label}</span>
+                        <input
+                          type="range"
+                          min={min}
+                          max={max}
+                          step="1"
+                          value={Math.round(Number(viewerToneDraft[key] || 0))}
+                          onChange={(e) => updateToneDraft(key, e.target.value)}
+                        />
+                        <strong>{Math.round(Number(viewerToneDraft[key] || 0))}</strong>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
 
               <div className="viewer-action-bar">
                 <button
@@ -3714,6 +3953,16 @@ function ProjectDetail({
                     onClick={(e) => { e.stopPropagation(); handleDetectViewerFaces(); }}
                   >
                     {viewerFaceOverlayVisible ? '隐藏人脸框' : '显示人脸框'}
+                  </button>
+                )}
+
+                {!readOnly && canEditPhotos && (photoMetas && photoMetas[viewerIndex]) && (
+                  <button
+                    type="button"
+                    className={`viewer-original-btn${viewerToneVisible ? ' viewer-action-primary' : ''}`}
+                    onClick={(e) => { e.stopPropagation(); openToneEditor(); }}
+                  >
+                    {viewerToneVisible ? '关闭调色' : '调色'}
                   </button>
                 )}
 
