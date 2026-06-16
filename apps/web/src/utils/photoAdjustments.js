@@ -182,6 +182,30 @@ function percentileFromHistogram(histogram, ratio) {
   return 255;
 }
 
+function histogramRangeRatio(histogram, start, end) {
+  const total = histogram.reduce((sum, v) => sum + v, 0);
+  if (!total) return 0;
+  const from = Math.max(0, Math.min(255, Math.floor(start)));
+  const to = Math.max(from, Math.min(255, Math.ceil(end)));
+  let count = 0;
+  for (let i = from; i <= to; i += 1) count += histogram[i] || 0;
+  return count / total;
+}
+
+function previewTonePercentiles(data, adjustments, sampleStep = 12) {
+  const histogram = Array(256).fill(0);
+  const step = Math.max(1, Math.floor(sampleStep));
+  for (let i = 0; i < data.length; i += 4 * step) {
+    if (data[i + 3] < 10) continue;
+    const [r, g, b] = applyToneToRgb(data[i], data[i + 1], data[i + 2], adjustments);
+    histogram[getLuma(r, g, b)] += 1;
+  }
+  return {
+    p01: percentileFromHistogram(histogram, 0.01),
+    p99: percentileFromHistogram(histogram, 0.99),
+  };
+}
+
 function loadImage(src) {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -267,41 +291,65 @@ async function analyzePhotoTone(src, adjustments, options = {}) {
     autoTint = clamp(((avgG - ((avgR + avgB) / 2)) / 255) * 150, -28, 28);
   }
 
-  const highlightPressure = clamp((sourceP99 - 232) / 24, 0, 1, 0);
+  const brightTail = histogramRangeRatio(sourceHistogram, 240, 255);
+  const clippedBright = histogramRangeRatio(sourceHistogram, 252, 255);
   const lowKeyPressure = clamp((92 - p50) / 58, 0, 1, 0) * clamp((188 - p90) / 128, 0, 1, 0);
-  const preserveLowKey = Math.max(lowKeyPressure, highlightPressure * clamp((100 - p50) / 72, 0, 1, 0));
-  const targetMedian = 108 - preserveLowKey * 34;
-  const maxLiftEv = 0.45 - preserveLowKey * 0.26;
+  const tonalRange = p90 - p10;
+  const highDynamicRange = clamp((tonalRange - 135) / 85, 0, 0.7, 0);
+  const targetMedian = 104 - lowKeyPressure * 24 + clamp((p50 - 142) / 80, 0, 1, 0) * 10;
+  const maxLiftEv = 0.26 - lowKeyPressure * 0.08;
+  const maxDropEv = -0.32 + highDynamicRange * 0.18;
   const median = Math.max(10, p50);
-  let ev = Math.log2(targetMedian / median);
-  if (sourceP99 > 238) ev -= ((sourceP99 - 238) / 255) * 1.8;
-  if (p97 > 232) ev -= ((p97 - 232) / 255) * 0.9;
-  ev = clamp(ev, -0.85, maxLiftEv);
-  const brightness = clamp((ev / 1.25) * 100, -64, 36);
-  const spread = p90 - p10;
-  const contrast = clamp((118 - spread) * 0.28, -14, 24 - preserveLowKey * 10);
-  const whites = clamp(
-    sourceP99 > 244 ? -((sourceP99 - 244) * 1.7) : (sourceP99 < 220 ? (220 - sourceP99) * 0.35 : 0),
-    -45,
-    18,
+  let ev = Math.log2(targetMedian / median) * (1 - highDynamicRange * 0.75);
+  ev = clamp(ev, maxDropEv, maxLiftEv);
+  let brightness = clamp((ev / 1.25) * 100, -28, 24);
+  let contrast = clamp((112 - tonalRange) * 0.14, -8, 12);
+  let whites = clamp(
+    sourceP99 > 246 ? -((sourceP99 - 246) * 0.42) - (clippedBright * 70) : (sourceP99 < 220 ? (220 - sourceP99) * 0.16 : 0),
+    -12,
+    8,
   );
-  const protectHighlights = highlightPressure > 0.18;
+  const protectHighlights = sourceP99 > 246 || p97 > 230 || brightTail > 0.08;
   const highlightsBase = protectHighlights
-    ? -((Math.max(0, sourceP99 - 240) * 0.75) + (Math.max(0, p97 - 228) * 0.28))
-    : (p90 > 210 ? -((p90 - 210) * 0.55) : (p90 < 160 ? (160 - p90) * 0.22 : 0));
-  const highlights = clamp(highlightsBase, -38, protectHighlights ? 0 : 20);
-  const shadowLiftScale = 1 - preserveLowKey * 0.68;
-  const shadowsBase = p10 < 42 ? (42 - p10) * 0.42 : (p10 > 78 ? -((p10 - 78) * 0.2) : 0);
-  const shadows = clamp(shadowsBase * shadowLiftScale, -18, 34);
-  const blacksBase = p02 < 8 ? (8 - p02) * 0.18 : (p02 > 28 ? -((p02 - 28) * 0.35) : 0);
-  const blacks = clamp(blacksBase - preserveLowKey * 12, -24, 20);
-  const autoAdjustments = buildPhotoAdjustments({
+    ? -((Math.max(0, sourceP99 - 245) * 0.22) + (Math.max(0, p97 - 228) * 0.13) + (brightTail * 24))
+    : (p90 > 210 ? -((p90 - 210) * 0.22) : (p90 < 155 ? (155 - p90) * 0.12 : 0));
+  let highlights = clamp(highlightsBase, -16, protectHighlights ? 0 : 10);
+  const shadowLiftScale = 1 - lowKeyPressure * 0.5;
+  const shadowsBase = p10 < 42 ? (42 - p10) * 0.24 : (p10 > 78 ? -((p10 - 78) * 0.12) : 0);
+  let shadows = clamp(shadowsBase * shadowLiftScale, -10, 18);
+  const blacksBase = p02 < 8 ? (8 - p02) * 0.06 : (p02 > 28 ? -((p02 - 28) * 0.18) : 0);
+  let blacks = clamp(blacksBase - lowKeyPressure * 7, -10, 8);
+
+  const protectTone = previewTonePercentiles(data, {
     brightness,
     contrast,
     whites,
     highlights,
     shadows,
     blacks,
+    temperature: autoTemperature,
+    tint: autoTint,
+  });
+  const darkGap = clamp((protectTone.p01 - Math.max(5, p02 + 4)) / 24, 0, 0.65, 0);
+  if (darkGap > 0) {
+    if (brightness > 0) brightness *= (1 - darkGap);
+    if (shadows > 0) shadows *= (1 - darkGap);
+    blacks = clamp(blacks - darkGap * 8, -10, 8);
+  }
+  const highlightGap = clamp((Math.min(248, sourceP99) - protectTone.p99) / 24, 0, 0.65, 0);
+  if (highlightGap > 0) {
+    if (brightness < 0) brightness *= (1 - highlightGap);
+    if (highlights < 0) highlights *= (1 - highlightGap);
+    if (whites < 0) whites *= (1 - highlightGap);
+    contrast *= (1 - highlightGap * 0.35);
+  }
+  const autoAdjustments = buildPhotoAdjustments({
+    brightness: Math.round(brightness),
+    contrast: Math.round(contrast),
+    whites: Math.round(whites),
+    highlights: Math.round(highlights),
+    shadows: Math.round(shadows),
+    blacks: Math.round(blacks),
     temperature: autoTemperature,
     tint: autoTint,
   }, 'auto');
