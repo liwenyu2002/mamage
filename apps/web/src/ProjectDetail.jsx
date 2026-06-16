@@ -1497,31 +1497,131 @@ function ProjectDetail({
   // ========== Download helpers ==========
   const getSelectedIndexes = React.useCallback(() => Object.keys(selectedMap || {}).map((k) => Number(k)).sort((a, b) => a - b), [selectedMap]);
 
-  const downloadCurrentPhoto = React.useCallback(() => {
+  const getDownloadAdjustmentForMeta = React.useCallback((meta) => {
+    const photoId = getPhotoRecordId(meta);
+    return normalizePhotoAdjustments((photoId && photoAdjustmentsMap[photoId]) || meta?.adjustments || DEFAULT_PHOTO_ADJUSTMENTS);
+  }, [photoAdjustmentsMap]);
+
+  const inferDownloadExt = React.useCallback((rawUrl) => {
+    try {
+      const u = new URL(String(rawUrl || ''), window.location.origin);
+      const m = String(u.pathname || '').match(/\.([a-zA-Z0-9]{2,6})$/);
+      return m && m[1] ? `.${String(m[1]).toLowerCase()}` : '.jpg';
+    } catch (e) {
+      return '.jpg';
+    }
+  }, []);
+
+  const buildDownloadBaseName = React.useCallback((meta, index) => {
+    return String(meta?.title || meta?.name || `photo-${meta?.id || index + 1}`)
+      .replace(/[\\/:*?"<>|]/g, '_')
+      .slice(0, 64) || `photo-${index + 1}`;
+  }, []);
+
+  const triggerBlobDownload = React.useCallback((blob, filename) => {
+    const objectUrl = URL.createObjectURL(blob);
+    try {
+      const a = document.createElement('a');
+      a.href = objectUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } finally {
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
+    }
+  }, []);
+
+  const triggerUrlDownload = React.useCallback((url, filename) => {
+    const isSameOrigin = (() => {
+      try {
+        const u = new URL(String(url || ''), window.location.origin);
+        return u.origin === window.location.origin;
+      } catch (e) {
+        return false;
+      }
+    })();
+    const a = document.createElement('a');
+    a.href = url;
+    if (!isSameOrigin) {
+      a.target = '_blank';
+      a.rel = 'noopener';
+    }
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }, []);
+
+  const canvasToBlob = React.useCallback((canvas, type = 'image/jpeg', quality = 0.94) => new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error('无法生成下载图片'));
+    }, type, quality);
+  }), []);
+
+  const fetchDownloadPixelSource = React.useCallback(async (photoId) => {
+    if (!photoId) return null;
+    const token = getToken();
+    const pixelUrl = `${BASE_URL || ''}/api/photos/${encodeURIComponent(String(photoId))}/pixel-source?variant=original`;
+    const response = await fetch(pixelUrl, {
+      method: 'GET',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      credentials: 'same-origin',
+    });
+    if (!response.ok) throw new Error(response.status === 401 || response.status === 403 ? '无权读取照片像素' : '无法读取照片像素');
+    return response.blob();
+  }, []);
+
+  const downloadRenderedPhoto = React.useCallback(async (meta, index, options = {}) => {
+    const url = meta?.originalSrc || meta?.url || meta?.thumbSrc || images[index];
+    if (!url) throw new Error('无法获取图片资源');
+    const adjustments = getDownloadAdjustmentForMeta(meta);
+    const baseName = buildDownloadBaseName(meta, index);
+
+    if (options.forceOriginal || isDefaultPhotoAdjustments(adjustments)) {
+      triggerUrlDownload(url, `${baseName}${inferDownloadExt(url)}`);
+      return { rendered: false };
+    }
+
+    let objectUrl = '';
+    try {
+      const photoId = getPhotoRecordId(meta);
+      const sourceBlob = await fetchDownloadPixelSource(photoId);
+      const renderSrc = sourceBlob ? URL.createObjectURL(sourceBlob) : url;
+      objectUrl = sourceBlob ? renderSrc : '';
+      const canvas = document.createElement('canvas');
+      await renderPhotoAdjustmentsToCanvas(canvas, renderSrc, adjustments, { maxSize: 4096 });
+      const blob = await canvasToBlob(canvas, 'image/jpeg', 0.94);
+      triggerBlobDownload(blob, `${baseName}.jpg`);
+      return { rendered: true };
+    } finally {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    }
+  }, [
+    buildDownloadBaseName,
+    canvasToBlob,
+    fetchDownloadPixelSource,
+    getDownloadAdjustmentForMeta,
+    images,
+    inferDownloadExt,
+    triggerBlobDownload,
+    triggerUrlDownload,
+  ]);
+
+  const downloadCurrentPhoto = React.useCallback(async () => {
     const idx = viewerIndex;
     const meta = (photoMetas && photoMetas[idx]) || {};
     const url = meta.originalSrc || meta.url || meta.thumbSrc || images[idx];
     if (!url) return Toast.warning('鏃犳硶鑾峰彇鍥剧墖璧勬簮');
     try {
-      if (typeof window !== 'undefined' && window.open) {
-        window.open(url, '_blank', 'noopener');
-        Toast.success('宸插湪鏂版爣绛鹃〉鎵撳紑鍥剧墖锛屾祻瑙堝櫒灏嗘牴鎹祫婧愬喅瀹氫笅杞芥垨鏄剧ず');
-        return;
-      }
-      // Fallback: create an anchor and click it
-      const a = document.createElement('a');
-      a.href = url;
-      a.target = '_blank';
-      a.rel = 'noopener';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      Toast.success('宸插湪鏂版爣绛鹃〉鎵撳紑鍥剧墖锛屾祻瑙堝櫒灏嗘牴鎹祫婧愬喅瀹氫笅杞芥垨鏄剧ず');
+      const result = await downloadRenderedPhoto(meta, idx);
+      Toast.success(result.rendered ? '已下载调色后的照片' : '已开始下载原图');
     } catch (err) {
       console.error('downloadCurrentPhoto error', err);
-      Toast.error('鎵撳紑鍥剧墖澶辫触锛岃绋嶅悗鍐嶈瘯');
+      Toast.error(err?.message || '下载照片失败');
     }
-  }, [viewerIndex, photoMetas, images]);
+  }, [viewerIndex, photoMetas, images, downloadRenderedPhoto]);
 
   // Expose a global getter so the floating TransferStation can read current selection
   React.useEffect(() => {
@@ -1545,6 +1645,7 @@ function ProjectDetail({
             originalSrc: meta.originalSrc || images[i] || null,
             description: (pid && photoDescMap && photoDescMap[pid]) ? photoDescMap[pid] : (meta.description || ''),
             tags: (pid && photoTagsMap && photoTagsMap[pid]) ? photoTagsMap[pid] : (safeParseTags(meta.tags) || []),
+            adjustments: getDownloadAdjustmentForMeta(meta),
             projectTitle: srcProjectName,
             faceNames,
             personNames: faceNames,
@@ -1558,70 +1659,38 @@ function ProjectDetail({
     return () => {
       try { delete window.__MAMAGE_GET_CURRENT_PROJECT_SELECTION; } catch (e) { window.__MAMAGE_GET_CURRENT_PROJECT_SELECTION = undefined; }
     };
-  }, [getSelectedIndexes, photoMetas, images, project, initialProject, photoDescMap, photoTagsMap, viewerFaceMap]);
+  }, [getSelectedIndexes, photoMetas, images, project, initialProject, photoDescMap, photoTagsMap, viewerFaceMap, getDownloadAdjustmentForMeta]);
 
   const downloadSelectedIndividually = React.useCallback(async () => {
     const idxs = getSelectedIndexes();
     if (!idxs.length) return Toast.warning('未选择照片');
-    const anchors = [];
     let prepared = 0;
-    const isSameOrigin = (rawUrl) => {
-      try {
-        const u = new URL(String(rawUrl || ''), window.location.origin);
-        return u.origin === window.location.origin;
-      } catch (e) {
-        return false;
-      }
-    };
-    const inferExt = (rawUrl) => {
-      try {
-        const u = new URL(String(rawUrl || ''), window.location.origin);
-        const m = String(u.pathname || '').match(/\.([a-zA-Z0-9]{2,6})$/);
-        const ext = m && m[1] ? `.${String(m[1]).toLowerCase()}` : '.jpg';
-        return ext;
-      } catch (e) {
-        return '.jpg';
-      }
-    };
+    let rendered = 0;
+    let failed = 0;
+    if (idxs.length > 1) Toast.info('正在准备下载照片');
 
     for (const i of idxs) {
       const meta = (photoMetas && photoMetas[i]) || {};
       const url = meta.originalSrc || meta.url || meta.thumbSrc || images[i];
       if (!url) continue;
-      const baseName = String(meta.title || meta.name || `photo-${meta.id || i + 1}`).replace(/[\\/:*?"<>|]/g, '_').slice(0, 64) || `photo-${i + 1}`;
       try {
-        const a = document.createElement('a');
-        a.href = url;
-        if (!isSameOrigin(url)) {
-          // Cross-origin URLs may ignore `download`; open in new tab as fallback.
-          a.target = '_blank';
-          a.rel = 'noopener';
-        }
-        a.download = `${baseName}${inferExt(url)}`;
-        document.body.appendChild(a);
-        anchors.push(a);
+        const result = await downloadRenderedPhoto(meta, i);
+        if (result.rendered) rendered += 1;
         prepared += 1;
       } catch (e) {
-        // ignore
+        console.error('downloadSelectedIndividually item failed', e);
+        failed += 1;
       }
-    }
-
-    for (let i = 0; i < anchors.length; i += 1) {
-      const a = anchors[i];
-      try { a.click(); } catch (e) { }
-      if (i < anchors.length - 1) {
-        await new Promise((resolve) => setTimeout(resolve, 80));
+      if (prepared + failed < idxs.length) {
+        await new Promise((resolve) => setTimeout(resolve, 90));
       }
-    }
-    for (const a of anchors) {
-      try { a.remove(); } catch (e) { }
     }
 
     if (prepared > 0) {
-      if (prepared < idxs.length) {
-        Toast.warning(`已触发 ${prepared}/${idxs.length} 张下载`);
+      if (failed > 0) {
+        Toast.warning(`已下载 ${prepared}/${idxs.length} 张，${failed} 张失败`);
       } else {
-        Toast.success(`已开始下载 ${prepared} 张`);
+        Toast.success(rendered > 0 ? `已开始下载 ${prepared} 张（${rendered} 张已烘焙调色）` : `已开始下载 ${prepared} 张`);
       }
       if (prepared > 1) {
         Toast.info('若浏览器仅下载 1 张，请在浏览器设置里允许该站点“多文件下载”');
@@ -1629,7 +1698,7 @@ function ProjectDetail({
     } else {
       Toast.error('下载失败');
     }
-  }, [getSelectedIndexes, photoMetas, images]);
+  }, [getSelectedIndexes, photoMetas, images, downloadRenderedPhoto]);
 
 
 

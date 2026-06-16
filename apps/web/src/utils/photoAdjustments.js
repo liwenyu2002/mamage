@@ -366,7 +366,7 @@ async function analyzePhotoTone(src, adjustments, options = {}) {
 async function renderPhotoAdjustmentsToCanvas(canvas, src, adjustments, options = {}) {
   if (!canvas) throw new Error('缺少画布');
   if (!src) throw new Error('缺少图片地址');
-  const maxSize = Math.max(320, Math.min(2400, Number(options.maxSize || 1600)));
+  const maxSize = Math.max(320, Math.min(4096, Number(options.maxSize || 1600)));
   const img = await loadImage(src);
   const naturalW = img.naturalWidth || img.width || maxSize;
   const naturalH = img.naturalHeight || img.height || maxSize;
