@@ -1,6 +1,16 @@
 ﻿// src/ProjectDetail.jsx
 import React from 'react';
 import { Typography, Button, Tag, Spin, Empty, Modal, Input, DatePicker, TextArea, Toast } from '@douyinfe/semi-ui';
+import {
+  IconAIStrokedLevel1,
+  IconClose,
+  IconCloudUploadStroked,
+  IconEditStroked,
+  IconGridView,
+  IconListView,
+  IconMoreStroked,
+  IconSearch,
+} from '@douyinfe/semi-icons';
 import './ProjectDetail.css';
 import { getProjectById, updateProject, deleteProject } from './services/projectService';
 import { getToken } from './services/authService';
@@ -388,8 +398,30 @@ function ProjectDetail({
   const [searchKeyword, setSearchKeyword] = React.useState('');
   const [searching, setSearching] = React.useState(false);
   const [searchError, setSearchError] = React.useState('');
+  const [searchOpen, setSearchOpen] = React.useState(false);
+  const [actionSheetOpen, setActionSheetOpen] = React.useState(false);
   const searchReqSeqRef = React.useRef(0);
   const hasSearchedRef = React.useRef(false);
+
+  React.useEffect(() => {
+    setActionSheetOpen(false);
+    setSearchOpen(false);
+  }, [projectId]);
+
+  React.useEffect(() => {
+    if (!actionSheetOpen) return undefined;
+    const onKey = (event) => {
+      if (event.key === 'Escape') setActionSheetOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [actionSheetOpen]);
+
+  React.useEffect(() => {
+    if (typeof document === 'undefined') return undefined;
+    document.body.classList.toggle('mamage-detail-actions-open', actionSheetOpen);
+    return () => document.body.classList.remove('mamage-detail-actions-open');
+  }, [actionSheetOpen]);
 
   React.useEffect(() => {
     if (typeof window === 'undefined') return undefined;
@@ -1529,6 +1561,11 @@ function ProjectDetail({
     [images, visiblePhotoCount]
   );
   const hasMoreGalleryPhotos = visiblePhotoCount < images.length;
+  const searchKeywordTrimmed = String(searchKeyword || '').trim();
+  const detailSearchVisible = Boolean(searchOpen || searching || searchError || searchKeywordTrimmed);
+  const compactCountText = hasMoreGalleryPhotos
+    ? `${count} 张，已显示 ${visiblePhotoCount}`
+    : `${count} 张照片`;
   const loadMoreGalleryPhotos = React.useCallback(() => {
     setGalleryRenderLimit((prev) => Math.min(
       images.length,
@@ -2744,165 +2781,262 @@ function ProjectDetail({
     <div className="detail-page">
       {/* 椤堕儴淇℃伅鏍?*/}
       <div className="detail-header">
-        <div>
-          <div className="detail-topbar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 12 }}>
-            {canUploadPhotos ? (
-              <div className="detail-upload-wrap" style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                <div className="detail-upload-stack" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <Button
-                      className="detail-upload-trigger"
-                      onClick={openUploadPicker}
-                      onMouseEnter={() => setUploadHover(true)}
-                      onMouseLeave={() => setUploadHover(false)}
-                      onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
-                      onDragEnter={(e) => { e.preventDefault(); setDragActive(true); }}
-                      onDragLeave={(e) => { e.preventDefault(); setDragActive(false); }}
-                      onDrop={(e) => { e.preventDefault(); setDragActive(false); if (e.dataTransfer && e.dataTransfer.files) handleFilesSelected(e.dataTransfer.files); }}
-                      type="primary"
-                      style={{
-                        borderRadius: 10,
-                        padding: '16px 24px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 12,
-                        fontSize: 16,
-                        height: 72,
-                        border: '1.5px dashed #d9d9d9',
-                        boxShadow: dragActive ? '0 6px 18px rgba(0,0,0,0.12)' : (uploadHover ? '0 8px 20px rgba(0,0,0,0.12)' : undefined),
-                        transform: dragActive ? 'translateY(-1px)' : undefined,
-                      }}
-                      title="点击上传，或将图片拖拽到按钮上"
-                      aria-label="上传照片"
-                    >
-                      <svg style={{ marginRight: 10 }} width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
-                        <path d="M12 3v10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                        <path d="M8 7l4-4 4 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                        <path d="M21 21H3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                      <div className="detail-upload-copy" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: 1 }}>
-                        <span style={{ fontWeight: 400, color: '#111', marginBottom: 6 }}>补充照片</span>
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                          <span style={{ fontSize: 12, color: '#6b6b6b', opacity: 0.95, fontWeight: 400, textAlign: 'left' }}>支持拖拽到按钮或点击上传</span>
-                          <span style={{ fontSize: 12, color: '#6b6b6b', opacity: 0.95, fontWeight: 400, textAlign: 'left' }}>上传数量不限（建议分批）</span>
-                        </div>
-                      </div>
-                      {stagingFiles && stagingFiles.length > 0 ? (
-                        <span style={{ marginLeft: 8, background: '#ff4d4f', color: '#fff', padding: '4px 10px', borderRadius: 14, fontSize: 13 }}>
-                          {stagingFiles.length}
-                        </span>
-                      ) : null}
-                    </Button>
-                  </div>
-
-                  <input
-                    id="project-file-input"
-                    ref={fileInputRef}
-                    style={{ display: 'none' }}
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    onChange={(e) => handleFilesSelected(e.target.files)}
-                    aria-hidden="true"
-                  />
-                </div>
+        <div className="detail-header-inner">
+          <div className="detail-heading-row">
+            <div className="detail-heading-main">
+              <div className="detail-title-row">
+                <Title heading={3} style={{ margin: 0 }}>
+                  {title}
+                </Title>
+                {subtitle && (
+                  <Tag className="detail-subtitle-tag" size="small" type="light" color="blue">
+                    {subtitle}
+                  </Tag>
+                )}
               </div>
-            ) : null}
-          </div>
-
-          <div className="detail-title-row">
-            <Title heading={3} style={{ margin: 0 }}>
-              {title}
-            </Title>
-            {subtitle && (
-              <Tag size="large" type="solid" color="blue" style={{ marginLeft: 12 }}>
-                {subtitle}
-              </Tag>
-            )}
-          </div>
-
-          <div className="detail-toolbar" style={{ display: 'flex', gap: 12, marginTop: 8, alignItems: 'center', width: '100%' }}>
-            <div className="detail-toolbar-main" style={{ display: 'flex', gap: 0, alignItems: 'center' }}>
-              <Button
-                className="detail-view-toggle"
-                type="tertiary"
-                onClick={() => handleGalleryModeChange(galleryMode === 'grid' ? 'masonry' : 'grid')}
-                title="切换照片布局"
-              >
-                {galleryMode === 'grid' ? '瀑布流' : '网格'}
-              </Button>
-              <IfCan perms={['projects.update']}>
-                <Button className="detail-toolbar-btn" onClick={openEdit} type="primary" style={{ marginLeft: 6 }}>修改信息</Button>
-              </IfCan>
-              <Button
-                className="detail-toolbar-btn"
-                onClick={toggleAILabels}
-                type={showAILabels ? 'primary' : 'tertiary'}
-                style={{ color: '#722ed1', marginLeft: 6 }}
-              >
-                {aiSelectionStats.total ? `AI 选片 ${aiSelectionStats.total}` : 'AI 选片'}
-              </Button>
-              <Button
-                className="detail-toolbar-btn"
-                onClick={openSimilarityModal}
-                type="tertiary"
-                style={{ marginLeft: 6 }}
-              >
-                查看相似照片
-              </Button>
+              <div className="detail-header-summary">
+                <span>{compactCountText}</span>
+                {searchKeywordTrimmed ? <span>搜索：{searchKeywordTrimmed}</span> : null}
+                {showAILabels && aiSelectionStats.total ? <span>AI {aiSelectionStats.total}</span> : null}
+              </div>
             </div>
-            {/* "鎴戣琛ュ厖鐓х墖" 宸茬Щ鑷抽《閮ㄨ繑鍥炴寜閽 */}
+
+            <div className="detail-header-actions">
+              <Button
+                className={`detail-icon-action${detailSearchVisible ? ' is-active' : ''}`}
+                icon={<IconSearch />}
+                theme="borderless"
+                onClick={() => setSearchOpen((open) => !open)}
+                title="搜索照片"
+                aria-label="搜索照片"
+              />
+              <Button
+                className={`detail-icon-action${actionSheetOpen ? ' is-active' : ''}`}
+                icon={<IconMoreStroked />}
+                theme="borderless"
+                onClick={() => setActionSheetOpen(true)}
+                title="相册操作"
+                aria-label="相册操作"
+              />
+            </div>
           </div>
 
-          <div className="detail-search-row">
-            <Input
-              className="detail-search-input"
-              value={searchKeyword}
-              onChange={(v) => setSearchKeyword(v)}
-              placeholder="搜索照片：标题 / 描述 / 标签 / 摄影师"
-              showClear
-            />
-            {searching ? <Text type="tertiary">搜索中...</Text> : null}
-            {String(searchKeyword || '').trim() ? (
-              <Text type="tertiary">{`结果 ${images.length} 张`}</Text>
-            ) : null}
-          </div>
+          {detailSearchVisible ? (
+            <div className="detail-search-row">
+              <Input
+                className="detail-search-input"
+                value={searchKeyword}
+                onChange={(v) => setSearchKeyword(v)}
+                placeholder="搜索照片 / 标签 / 摄影师"
+                prefix={<IconSearch />}
+                showClear
+              />
+              <div className="detail-search-status">
+                {searching ? <Text type="tertiary">搜索中</Text> : null}
+                {searchKeywordTrimmed ? (
+                  <Text type="tertiary">{`${images.length} 张`}</Text>
+                ) : null}
+              </div>
+              <Button
+                className="detail-search-close"
+                icon={<IconClose />}
+                theme="borderless"
+                onClick={() => {
+                  if (searchKeywordTrimmed) setSearchKeyword('');
+                  setSearchOpen(false);
+                }}
+                aria-label="收起搜索"
+                title="收起搜索"
+              />
+            </div>
+          ) : null}
           {searchError ? (
-            <Text type="danger" style={{ marginTop: 6, display: 'block' }}>{searchError}</Text>
+            <Text type="danger" className="detail-search-error">{searchError}</Text>
+          ) : null}
+          {canUploadPhotos ? (
+            <input
+              id="project-file-input"
+              ref={fileInputRef}
+              style={{ display: 'none' }}
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={(e) => handleFilesSelected(e.target.files)}
+              aria-hidden="true"
+            />
+          ) : null}
+        </div>
+      </div>
+
+      <button
+        type="button"
+        className={`detail-actions-fab${actionSheetOpen ? ' is-open' : ''}`}
+        onClick={() => setActionSheetOpen(true)}
+        aria-label="打开相册操作"
+      >
+        <IconMoreStroked />
+        <span>操作</span>
+      </button>
+
+      {actionSheetOpen ? (
+        <button
+          type="button"
+          className="detail-actions-backdrop"
+          onClick={() => setActionSheetOpen(false)}
+          aria-label="关闭相册操作"
+        />
+      ) : null}
+
+      <div className={`detail-actions-sheet${actionSheetOpen ? ' is-open' : ''}`} role="dialog" aria-modal="true" aria-hidden={!actionSheetOpen}>
+        <div className="detail-actions-grip" />
+        <div className="detail-actions-head">
+          <div>
+            <div className="detail-actions-title">相册操作</div>
+            <div className="detail-actions-subtitle">{compactCountText}</div>
+          </div>
+          <Button
+            className="detail-sheet-close"
+            icon={<IconClose />}
+            theme="borderless"
+            onClick={() => setActionSheetOpen(false)}
+            aria-label="关闭"
+          />
+        </div>
+
+        <div className="detail-actions-grid">
+          {canUploadPhotos ? (
+            <Button
+              className={`detail-action-tile detail-action-tile--upload${dragActive ? ' is-drag-active' : ''}${uploadHover ? ' is-hovered' : ''}`}
+              theme="borderless"
+              onClick={() => {
+                setActionSheetOpen(false);
+                openUploadPicker();
+              }}
+              onMouseEnter={() => setUploadHover(true)}
+              onMouseLeave={() => setUploadHover(false)}
+              onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+              onDragEnter={(e) => { e.preventDefault(); setDragActive(true); }}
+              onDragLeave={(e) => { e.preventDefault(); setDragActive(false); }}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragActive(false);
+                setActionSheetOpen(false);
+                if (e.dataTransfer && e.dataTransfer.files) handleFilesSelected(e.dataTransfer.files);
+              }}
+              aria-label="补充照片"
+            >
+              <span className="detail-action-icon" aria-hidden="true"><IconCloudUploadStroked /></span>
+              <span className="detail-action-copy">
+                <span className="detail-action-title">补充照片</span>
+                <span className="detail-action-desc">{stagingFiles && stagingFiles.length > 0 ? `${stagingFiles.length} 张待上传` : '点击或拖入图片'}</span>
+              </span>
+            </Button>
           ) : null}
 
-          <div className="detail-meta" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div className="detail-meta-dates" style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              {startText && <Text type="tertiary">{`开始于 ${startText}`}</Text>}
-              {createdText && <Text type="tertiary">{`创建于 ${createdText}`}</Text>}
-              {!startText && !createdText && date && <Text type="tertiary">{date}</Text>}
-            </div>
-            <Text type="tertiary" style={{ marginLeft: 16 }}>
-              共 {count} 张照片{hasMoreGalleryPhotos ? `，已显示 ${visiblePhotoCount} 张` : ''}
-            </Text>
-          </div>
+          <Button
+            className="detail-action-tile"
+            theme="borderless"
+            onClick={() => {
+              handleGalleryModeChange(galleryMode === 'grid' ? 'masonry' : 'grid');
+              setActionSheetOpen(false);
+            }}
+            aria-label="切换照片布局"
+          >
+            <span className="detail-action-icon" aria-hidden="true">{galleryMode === 'grid' ? <IconListView /> : <IconGridView />}</span>
+            <span className="detail-action-copy">
+              <span className="detail-action-title">{galleryMode === 'grid' ? '瀑布流' : '网格'}</span>
+              <span className="detail-action-desc">切换排列</span>
+            </span>
+          </Button>
 
-          {description && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <Text strong className="detail-desc-label">详情描述</Text>
-              <Text strong type="secondary" className="detail-desc">
-                {description}
-              </Text>
-            </div>
-          )}
-          {tags && tags.length > 0 && (
-            <div className="detail-tags" style={{ marginTop: 8 }}>
-              <Text strong className="detail-desc-label">项目标签</Text>
-              <div className="detail-tags-list" style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          <Button
+            className={`detail-action-tile${showAILabels ? ' is-active' : ''}`}
+            theme="borderless"
+            onClick={() => {
+              toggleAILabels();
+              setActionSheetOpen(false);
+            }}
+            aria-label="AI 选片"
+          >
+            <span className="detail-action-icon" aria-hidden="true"><IconAIStrokedLevel1 /></span>
+            <span className="detail-action-copy">
+              <span className="detail-action-title">AI 选片</span>
+              <span className="detail-action-desc">{aiSelectionStats.total ? `推荐 ${aiSelectionStats.recommended} / 中等 ${aiSelectionStats.medium} / 不推荐 ${aiSelectionStats.rejected}` : '等待分析结果'}</span>
+            </span>
+          </Button>
+
+          <Button
+            className="detail-action-tile"
+            theme="borderless"
+            onClick={() => {
+              setActionSheetOpen(false);
+              openSimilarityModal();
+            }}
+            aria-label="查看相似照片"
+          >
+            <span className="detail-action-icon" aria-hidden="true"><IconMoreStroked /></span>
+            <span className="detail-action-copy">
+              <span className="detail-action-title">相似照片</span>
+              <span className="detail-action-desc">成组查看</span>
+            </span>
+          </Button>
+
+          <Button
+            className={`detail-action-tile${detailSearchVisible ? ' is-active' : ''}`}
+            theme="borderless"
+            onClick={() => {
+              setSearchOpen(true);
+              setActionSheetOpen(false);
+            }}
+            aria-label="搜索照片"
+          >
+            <span className="detail-action-icon" aria-hidden="true"><IconSearch /></span>
+            <span className="detail-action-copy">
+              <span className="detail-action-title">搜索</span>
+              <span className="detail-action-desc">{searchKeywordTrimmed ? `${images.length} 张结果` : '照片/标签/人'}</span>
+            </span>
+          </Button>
+
+          <IfCan perms={['projects.update']}>
+            <Button
+              className="detail-action-tile"
+              theme="borderless"
+              onClick={() => {
+                setActionSheetOpen(false);
+                openEdit();
+              }}
+              aria-label="修改相册信息"
+            >
+              <span className="detail-action-icon" aria-hidden="true"><IconEditStroked /></span>
+              <span className="detail-action-copy">
+                <span className="detail-action-title">修改信息</span>
+                <span className="detail-action-desc">标题/日期/标签</span>
+              </span>
+            </Button>
+          </IfCan>
+        </div>
+
+        {(description || (tags && tags.length > 0) || startText || createdText || date) ? (
+          <div className="detail-actions-info">
+            {(startText || createdText || date) ? (
+              <div className="detail-actions-info-row">
+                {startText ? <span>开始 {startText}</span> : null}
+                {createdText ? <span>创建 {createdText}</span> : null}
+                {!startText && !createdText && date ? <span>{date}</span> : null}
+              </div>
+            ) : null}
+            {description ? <p>{description}</p> : null}
+            {tags && tags.length > 0 ? (
+              <div className="detail-actions-tags">
                 {tags.map((t, idx) => (
                   <Tag key={idx} size="small" type="light" color="grey">
                     {t}
                   </Tag>
                 ))}
               </div>
-            </div>
-          )}
-        </div>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       <div
