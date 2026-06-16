@@ -24,6 +24,22 @@ const { Header, Content, Footer } = Layout;
 const { Text } = Typography;
 const PROJECT_PAGE_SIZE = 24;
 
+function formatHeaderDate(val) {
+  if (!val && val !== 0) return '';
+  try {
+    const dt = (typeof val === 'string' || typeof val === 'number') ? new Date(val) : (val instanceof Date ? val : new Date(String(val)));
+    if (Number.isNaN(dt.getTime())) return '';
+    const y = dt.getFullYear();
+    const m = String(dt.getMonth() + 1).padStart(2, '0');
+    const d = String(dt.getDate()).padStart(2, '0');
+    const hh = String(dt.getHours()).padStart(2, '0');
+    const mm = String(dt.getMinutes()).padStart(2, '0');
+    return `${y}-${m}-${d} ${hh}:${mm}`;
+  } catch (e) {
+    return '';
+  }
+}
+
 function AppLoadingState({ title = '正在加载', subtitle = '请稍候', compact = false }) {
   return (
     <div className={`app-loading-state${compact ? ' is-compact' : ''}`}>
@@ -56,6 +72,7 @@ function App() {
   const [error, setError] = React.useState(null);
   const [keyword, setKeyword] = React.useState('');
   const [currentProjectId, setCurrentProjectId] = React.useState(null);
+  const [activeProjectHeader, setActiveProjectHeader] = React.useState(null);
   const [pendingOpenPhotoId, setPendingOpenPhotoId] = React.useState(null);
   const [selectedNav, setSelectedNav] = React.useState('projects');
   const [showCreateModal, setShowCreateModal] = React.useState(false);
@@ -201,6 +218,10 @@ function App() {
   React.useEffect(() => {
     loadProjects();
   }, [loadProjects]);
+
+  React.useEffect(() => {
+    setActiveProjectHeader(null);
+  }, [currentProjectId]);
 
   React.useEffect(() => {
     if (typeof window === 'undefined') return undefined;
@@ -511,6 +532,7 @@ function App() {
       const date = project?.date ?? project?.shootDate ?? project?.updatedAt ?? project?.createdAt ?? '';
       const startDate = project?.eventDate ?? project?.startDate ?? project?.date ?? project?.shootDate ?? null;
       const createdAt = project?.createdAt ?? project?.created_at ?? project?.updatedAt ?? null;
+      const updatedAt = project?.updatedAt ?? project?.updated_at ?? project?.modifiedAt ?? project?.modified_at ?? null;
       const baseImages = Array.isArray(project?.previewImages)
         ? project.previewImages
         : Array.isArray(project?.images)
@@ -547,6 +569,7 @@ function App() {
         date,
         startDate,
         createdAt,
+        updatedAt,
         count,
         images: normalizedImages,
         cover: resolvedCover,
@@ -561,6 +584,40 @@ function App() {
     if (!currentProjectId) return null;
     return normalizedProjects.find((project) => project.id === currentProjectId) || null;
   }, [normalizedProjects, currentProjectId]);
+
+  const projectHeader = React.useMemo(() => {
+    if (!currentProjectId) return null;
+    const fallback = currentProject ? {
+      id: currentProject.id,
+      title: currentProject.title,
+      subtitle: currentProject.subtitle,
+      description: currentProject.description,
+      count: currentProject.count,
+      createdText: formatHeaderDate(currentProject.createdAt),
+      updatedText: formatHeaderDate(currentProject.updatedAt),
+    } : {};
+    return {
+      ...fallback,
+      ...(activeProjectHeader || {}),
+    };
+  }, [activeProjectHeader, currentProject, currentProjectId]);
+
+  const projectHeaderTitle = projectHeader?.title || (currentProjectId ? '未命名相册' : 'MaMage 图库');
+  const projectHeaderDescription = String(projectHeader?.description || projectHeader?.subtitle || '').trim();
+  const projectHeaderDescriptionText = currentProjectId ? (projectHeaderDescription || '暂无描述') : '';
+  const projectHeaderMeta = React.useMemo(() => {
+    if (!projectHeader) return [];
+    const items = [];
+    const countValue = Number(projectHeader.count);
+    if (Number.isFinite(countValue)) {
+      items.push(`${countValue} 张照片`);
+    } else {
+      items.push(`${projectHeader.count || 0} 张照片`);
+    }
+    items.push(`创建 ${projectHeader.createdText || '-'}`);
+    items.push(`更新 ${projectHeader.updatedText || '-'}`);
+    return items;
+  }, [projectHeader]);
 
   const showProjectPager = (projectPage > 1) || projectHasMore;
   const projectPageText = projectTotal > 0
@@ -616,7 +673,7 @@ function App() {
   return (
     <Layout className="mamage-shell" style={{ background: 'transparent' }}>
       <Header
-        className="mamage-header"
+        className={`mamage-header${currentProjectId ? ' is-project-detail' : ''}`}
         style={{
           position: 'sticky',
           top: 0,
@@ -640,6 +697,8 @@ function App() {
                 <button
                   type="button"
                   onClick={handleBackToList}
+                  className={`mamage-mobile-brand-button${currentProjectId ? ' is-project-title' : ''}`}
+                  title={currentProjectId ? '返回项目列表' : '返回首页'}
                   style={{
                     fontSize: 24,
                     fontWeight: 700,
@@ -653,7 +712,7 @@ function App() {
                     color: 'inherit',
                   }}
                 >
-                  MaMage 图库
+                  {currentProjectId ? projectHeaderTitle : 'MaMage 图库'}
                 </button>
               </div>
               {currentUser ? (
@@ -677,6 +736,16 @@ function App() {
                 </Button>
               )}
             </div>
+            {currentProjectId ? (
+              <div className="mamage-mobile-project-details">
+                {projectHeaderMeta.length > 0 ? (
+                  <div className="mamage-project-meta-line">
+                    {projectHeaderMeta.map((item) => <span key={item}>{item}</span>)}
+                  </div>
+                ) : null}
+                <div className="mamage-project-description">描述：{projectHeaderDescriptionText}</div>
+              </div>
+            ) : null}
             <SideSheet
               title="导航"
               placement="left"
@@ -753,7 +822,7 @@ function App() {
             </div>
           </div>
         ) : (
-          <div className="mamage-desktop-header">
+          <div className={`mamage-desktop-header${currentProjectId ? ' is-project-detail' : ''}`}>
             <Nav
               mode="horizontal"
               items={[
@@ -782,11 +851,12 @@ function App() {
                   <button
                     type="button"
                     onClick={handleBackToList}
-                      className="mamage-brand-button"
-                      style={{
-                        border: 'none',
-                        background: 'transparent',
-                        padding: 0,
+                    className={`mamage-brand-button${currentProjectId ? ' mamage-project-title-button' : ''}`}
+                    title={currentProjectId ? '返回项目列表' : '返回首页'}
+                    style={{
+                      border: 'none',
+                      background: 'transparent',
+                      padding: 0,
                       margin: 0,
                       fontSize: 18,
                       fontWeight: 700,
@@ -794,7 +864,17 @@ function App() {
                       color: '#111827',
                     }}
                   >
-                    MaMage 图库
+                    {currentProjectId ? (
+                      <>
+                        <span className="mamage-project-title-text">{projectHeaderTitle}</span>
+                        {projectHeaderMeta.length > 0 ? (
+                          <span className="mamage-project-meta-line">
+                            {projectHeaderMeta.map((item) => <span key={item}>{item}</span>)}
+                          </span>
+                        ) : null}
+                        <span className="mamage-project-description">描述：{projectHeaderDescriptionText}</span>
+                      </>
+                    ) : 'MaMage 图库'}
                   </button>
                 ),
               }}
@@ -862,6 +942,7 @@ function App() {
               readOnly={isDemoPath}
               initialOpenPhotoId={pendingOpenPhotoId}
               onInitialOpenPhotoHandled={handleInitialPhotoOpened}
+              onProjectHeaderChange={setActiveProjectHeader}
             />
           ) : (
             selectedNav === 'projects' ? (

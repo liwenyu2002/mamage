@@ -1805,6 +1805,12 @@
   border-radius: 22px;
 }
 
+.detail-header--search-only {
+  margin-bottom: 8px;
+  padding: 6px;
+  border-radius: 18px;
+}
+
 .detail-header-inner {
   display: flex;
   flex-direction: column;
@@ -1905,6 +1911,10 @@
   gap: 8px;
   margin-top: 10px;
   padding: 5px;
+}
+
+.detail-header--search-only .detail-search-row {
+  margin-top: 0;
 }
 
 .detail-search-input {
@@ -2158,6 +2168,10 @@ body.mamage-detail-actions-open [data-transfer-station-root="1"] {
     margin-bottom: 6px;
     padding: 10px 12px;
     border-radius: 18px;
+  }
+
+  .detail-header--search-only {
+    padding: 4px;
   }
 
   .detail-heading-row {

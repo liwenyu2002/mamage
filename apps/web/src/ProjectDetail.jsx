@@ -297,6 +297,7 @@ function ProjectDetail({
   readOnly = false,
   galleryMode: controlledGalleryMode,
   onGalleryModeChange,
+  onProjectHeaderChange,
 }) {
   const DISABLE_UPLOAD_FEATURE = !!readOnly;
   const DISABLE_DELETE_FEATURE = !!readOnly;
@@ -1520,7 +1521,8 @@ function ProjectDetail({
   }, [resolvedProject, tags]);
   // compute display dates: start (event) and created
   const startRaw = resolvedProject?.eventDate ?? resolvedProject?.startDate ?? resolvedProject?.date ?? resolvedProject?.shootDate ?? null;
-  const createdRaw = resolvedProject?.createdAt ?? resolvedProject?.created_at ?? resolvedProject?.updatedAt ?? null;
+  const createdRaw = resolvedProject?.createdAt ?? resolvedProject?.created_at ?? null;
+  const updatedRaw = resolvedProject?.updatedAt ?? resolvedProject?.updated_at ?? resolvedProject?.modifiedAt ?? resolvedProject?.modified_at ?? null;
   const date = resolvedProject?.date ?? resolvedProject?.shootDate ?? resolvedProject?.updatedAt ?? resolvedProject?.createdAt ?? '';
 
   const formatToMinute = (val) => {
@@ -1541,6 +1543,7 @@ function ProjectDetail({
 
   const startText = formatToMinute(startRaw);
   const createdText = formatToMinute(createdRaw);
+  const updatedText = formatToMinute(updatedRaw);
   const count = resolvedProject?.photoCount ?? resolvedProject?.count ?? images.length;
   const masonryColumns = React.useMemo(() => {
     const w = galleryWidth || 0;
@@ -1566,6 +1569,22 @@ function ProjectDetail({
   const compactCountText = hasMoreGalleryPhotos
     ? `${count} 张，已显示 ${visiblePhotoCount}`
     : `${count} 张照片`;
+  React.useEffect(() => {
+    if (typeof onProjectHeaderChange !== 'function') return;
+    onProjectHeaderChange({
+      id: projectId,
+      title,
+      subtitle,
+      description,
+      count,
+      createdText,
+      updatedText,
+      tags,
+    });
+  }, [onProjectHeaderChange, projectId, title, subtitle, description, count, createdText, updatedText, tags]);
+  React.useEffect(() => () => {
+    if (typeof onProjectHeaderChange === 'function') onProjectHeaderChange(null);
+  }, [onProjectHeaderChange]);
   const loadMoreGalleryPhotos = React.useCallback(() => {
     setGalleryRenderLimit((prev) => Math.min(
       images.length,
@@ -2779,49 +2798,22 @@ function ProjectDetail({
 
   return (
     <div className="detail-page">
-      {/* 椤堕儴淇℃伅鏍?*/}
-      <div className="detail-header">
-        <div className="detail-header-inner">
-          <div className="detail-heading-row">
-            <div className="detail-heading-main">
-              <div className="detail-title-row">
-                <Title heading={3} style={{ margin: 0 }}>
-                  {title}
-                </Title>
-                {subtitle && (
-                  <Tag className="detail-subtitle-tag" size="small" type="light" color="blue">
-                    {subtitle}
-                  </Tag>
-                )}
-              </div>
-              <div className="detail-header-summary">
-                <span>{compactCountText}</span>
-                {searchKeywordTrimmed ? <span>搜索：{searchKeywordTrimmed}</span> : null}
-                {showAILabels && aiSelectionStats.total ? <span>AI {aiSelectionStats.total}</span> : null}
-              </div>
-            </div>
+      {canUploadPhotos ? (
+        <input
+          id="project-file-input"
+          ref={fileInputRef}
+          style={{ display: 'none' }}
+          type="file"
+          accept="image/*"
+          multiple
+          onChange={(e) => handleFilesSelected(e.target.files)}
+          aria-hidden="true"
+        />
+      ) : null}
 
-            <div className="detail-header-actions">
-              <Button
-                className={`detail-icon-action${detailSearchVisible ? ' is-active' : ''}`}
-                icon={<IconSearch />}
-                theme="borderless"
-                onClick={() => setSearchOpen((open) => !open)}
-                title="搜索照片"
-                aria-label="搜索照片"
-              />
-              <Button
-                className={`detail-icon-action${actionSheetOpen ? ' is-active' : ''}`}
-                icon={<IconMoreStroked />}
-                theme="borderless"
-                onClick={() => setActionSheetOpen(true)}
-                title="相册操作"
-                aria-label="相册操作"
-              />
-            </div>
-          </div>
-
-          {detailSearchVisible ? (
+      {detailSearchVisible ? (
+        <div className="detail-header detail-header--search-only">
+          <div className="detail-header-inner">
             <div className="detail-search-row">
               <Input
                 className="detail-search-input"
@@ -2849,24 +2841,12 @@ function ProjectDetail({
                 title="收起搜索"
               />
             </div>
-          ) : null}
-          {searchError ? (
-            <Text type="danger" className="detail-search-error">{searchError}</Text>
-          ) : null}
-          {canUploadPhotos ? (
-            <input
-              id="project-file-input"
-              ref={fileInputRef}
-              style={{ display: 'none' }}
-              type="file"
-              accept="image/*"
-              multiple
-              onChange={(e) => handleFilesSelected(e.target.files)}
-              aria-hidden="true"
-            />
-          ) : null}
+            {searchError ? (
+              <Text type="danger" className="detail-search-error">{searchError}</Text>
+            ) : null}
+          </div>
         </div>
-      </div>
+      ) : null}
 
       <button
         type="button"
