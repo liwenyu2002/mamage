@@ -220,11 +220,11 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
           <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
             <label style={{ display: 'inline-block' }}>
               <input type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={(e) => handleFilesSelected(e.target.files)} />
-              <div style={{ padding: '8px 12px', border: '1px dashed #d9d9d9', borderRadius: 6, cursor: 'pointer', color: '#333' }}>选择照片</div>
+              <div className="cam-file-picker">选择照片</div>
             </label>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               {stagingPreviews.map((p, i) => (
-                <div key={i} style={{ width: 72, height: 72, overflow: 'hidden', borderRadius: 4, background: '#f5f5f5', position: 'relative' }}>
+                <div key={i} className="cam-preview-item">
                   <img src={p} alt={`preview-${i}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                   <button
                     type="button"

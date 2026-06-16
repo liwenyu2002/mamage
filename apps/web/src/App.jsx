@@ -614,19 +614,20 @@ function App() {
   }
 
   return (
-    <Layout style={{ background: '#f4f4f4ff' }}>
+    <Layout className="mamage-shell" style={{ background: 'transparent' }}>
       <Header
+        className="mamage-header"
         style={{
           position: 'sticky',
           top: 0,
           zIndex: 1000,
           padding: 0,
-          background: '#ffffff',
-          borderBottom: '1px solid #eef2f7',
+          background: 'transparent',
+          borderBottom: 'none',
         }}
       >
         {isMobileHeader ? (
-          <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div className="mamage-mobile-header" style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 10 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                 <Button
@@ -752,7 +753,7 @@ function App() {
             </div>
           </div>
         ) : (
-          <div style={{ padding: '0 0px' }}>
+          <div className="mamage-desktop-header" style={{ padding: '0 0px' }}>
             <Nav
               mode="horizontal"
               items={[
@@ -847,7 +848,7 @@ function App() {
         )}
       </Header>
 
-      <Content style={{ padding: 'clamp(10px, 2.5vw, 24px)' }}>
+      <Content className="mamage-content" style={{ padding: 'clamp(10px, 2.5vw, 24px)' }}>
         <div className="project-page">
           {currentProjectId ? (
             <ProjectDetail
@@ -1125,7 +1126,7 @@ function App() {
         onClose={closePhotoPreview}
       />
 
-      <Footer style={{ textAlign: 'center' }}>
+      <Footer className="mamage-footer" style={{ textAlign: 'center' }}>
         MaMage 校园图库 © {new Date().getFullYear()}
       </Footer>
       <TransferStation />

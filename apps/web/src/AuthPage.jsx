@@ -451,16 +451,9 @@ export default function AuthPage({ onAuthenticated }) {
               {/* 临时替换为原生按钮以确保事件可捕获（仅用于调试） */}
               <button
                 id="mamage-register-btn-native"
+                className="auth-native-primary"
                 disabled={loading}
                 onClick={handleRegisterClick}
-                style={{
-                  background: '#1677ff',
-                  color: '#fff',
-                  border: 'none',
-                  padding: '10px 14px',
-                  borderRadius: 4,
-                  cursor: loading ? 'not-allowed' : 'pointer'
-                }}
               >
                 注册并登录
               </button>
