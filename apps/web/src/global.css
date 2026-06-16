@@ -148,6 +148,10 @@ textarea {
     padding-block: 7px;
 }
 
+.mamage-header.is-desktop-header.is-project-detail {
+    padding-bottom: 8px;
+}
+
 .mamage-brand-area,
 .mamage-nav-links,
 .mamage-nav-actions,
@@ -297,6 +301,69 @@ textarea {
     line-height: 1.34;
     -webkit-line-clamp: 3;
     -webkit-box-orient: vertical;
+}
+
+.mamage-desktop-project-notch {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    width: min(720px, calc(100% - 360px));
+    min-width: 360px;
+    height: 32px;
+    margin: -1px auto 0;
+    padding: 0 16px;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.62);
+    border-top: 0;
+    border-radius: 0 0 18px 18px;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.64), rgba(255, 255, 255, 0.32));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.52), 0 10px 22px rgba(30, 80, 130, 0.1);
+    color: rgba(16, 32, 51, 0.64);
+    backdrop-filter: blur(12px) saturate(1.14);
+    -webkit-backdrop-filter: blur(12px) saturate(1.14);
+    white-space: nowrap;
+}
+
+.mamage-notch-title {
+    min-width: 0;
+    max-width: 190px;
+    overflow: hidden;
+    color: var(--lg-text);
+    font-size: 14px;
+    font-weight: 820;
+    line-height: 1;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mamage-notch-meta {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+    overflow: hidden;
+    font-size: 11px;
+    font-weight: 660;
+    line-height: 1;
+}
+
+.mamage-notch-meta span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.mamage-notch-description {
+    min-width: 0;
+    max-width: 220px;
+    overflow: hidden;
+    color: rgba(16, 32, 51, 0.52);
+    font-size: 11px;
+    font-weight: 560;
+    line-height: 1;
+    text-overflow: ellipsis;
 }
 
 .mamage-nav-links {
@@ -652,6 +719,15 @@ textarea {
     .mamage-user-email {
         max-width: 84px;
     }
+
+    .mamage-desktop-project-notch {
+        width: min(620px, calc(100% - 280px));
+        min-width: 320px;
+    }
+
+    .mamage-notch-description {
+        max-width: 160px;
+    }
 }
 
 @media (max-width: 1120px) {
@@ -670,9 +746,31 @@ textarea {
     .mamage-user-chip {
         padding-right: 3px;
     }
+
+    .mamage-desktop-project-notch {
+        width: min(560px, calc(100% - 220px));
+        min-width: 300px;
+        padding-inline: 12px;
+    }
+
+    .mamage-notch-title {
+        max-width: 150px;
+    }
+
+    .mamage-notch-description {
+        display: none;
+    }
 }
 
 @media (max-width: 1024px) {
+    .mamage-header.is-desktop-header.is-project-detail {
+        padding-bottom: 0;
+    }
+
+    .mamage-desktop-project-notch {
+        display: none;
+    }
+
     .mamage-topbar,
     .mamage-topbar.is-project-detail {
         grid-template-columns: minmax(0, 1fr);

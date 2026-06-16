@@ -785,7 +785,7 @@ function App() {
 
   return (
     <div className="mamage-shell">
-      <header className={`mamage-header${currentProjectId ? ' is-project-detail' : ''}`}>
+      <header className={`mamage-header${currentProjectId ? ' is-project-detail' : ''}${isMobileHeader ? ' is-mobile-header' : ' is-desktop-header'}`}>
         <div className={`mamage-topbar${currentProjectId ? ' is-project-detail' : ''}`}>
           <div className="mamage-brand-area">
             {isMobileHeader ? (
@@ -804,17 +804,17 @@ function App() {
             <button
               type="button"
               onClick={handleBackToList}
-              className={`mamage-brand-button${currentProjectId ? ' is-project-title' : ''}`}
+              className={`mamage-brand-button${currentProjectId && isMobileHeader ? ' is-project-title' : ''}`}
               title={currentProjectId ? '返回项目列表' : '返回首页'}
             >
-              {currentProjectId ? (
+              {currentProjectId && isMobileHeader ? (
                 <span className="mamage-project-title-text">{projectHeaderTitle}</span>
               ) : (
-                <span className="mamage-brand-name">MaMage 图库</span>
+                <span className="mamage-brand-name">{isMobileHeader ? 'MaMage 图库' : 'MaMage'}</span>
               )}
             </button>
 
-            {currentProjectId ? (
+            {currentProjectId && isMobileHeader ? (
               <div className="mamage-project-info-menu">
                 <button
                   type="button"
@@ -913,6 +913,18 @@ function App() {
             )}
           </div>
         </div>
+
+        {currentProjectId && !isMobileHeader ? (
+          <div className="mamage-desktop-project-notch" aria-label="相册信息">
+            <span className="mamage-notch-title">{projectHeaderTitle}</span>
+            {projectHeaderMeta.length > 0 ? (
+              <span className="mamage-notch-meta">
+                {projectHeaderMeta.map((item) => <span key={item}>{item}</span>)}
+              </span>
+            ) : null}
+            <span className="mamage-notch-description">描述：{projectHeaderDescriptionText}</span>
+          </div>
+        ) : null}
 
         {isMobileHeader && mobileNavVisible ? (
           <>
