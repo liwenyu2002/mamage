@@ -19,11 +19,17 @@
     (function () {
       var cosBase = '<%= MAMAGE_COS_BASE %>' || '';
       var apiBase = '<%= MAMAGE_API_BASE %>' || '';
+      var disableDirectUpload = '<%= MAMAGE_DISABLE_DIRECT_UPLOAD %>' || '';
       if (cosBase) {
         try { window.__MAMAGE_COS_BASE__ = cosBase.replace(/\/+$/, ''); } catch (e) { }
       }
       if (apiBase) {
         try { window.__MAMAGE_API_BASE__ = apiBase.replace(/\/+$/, ''); } catch (e) { }
+      }
+      if (disableDirectUpload) {
+        try {
+          window.__MAMAGE_DISABLE_DIRECT_UPLOAD__ = /^(1|true|yes)$/i.test(disableDirectUpload);
+        } catch (e) { }
       }
     })();
   </script>

@@ -12,6 +12,7 @@
   "optionalDependencies": {},
   "scripts": {
     "start": "webpack serve --mode development",
+    "dev:prod": "MAMAGE_BACKEND_URL=https://mamage.wenyuli.site MAMAGE_DISABLE_DIRECT_UPLOAD=1 webpack serve --mode development",
     "build": "webpack --mode production"
   },
   "devDependencies": {

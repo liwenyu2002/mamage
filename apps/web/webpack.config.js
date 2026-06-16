@@ -3,6 +3,9 @@ const path = require('path');
 const fs = require('fs');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 
+const devProxyTarget = process.env.MAMAGE_BACKEND_URL || 'http://localhost:8001';
+const devProxyContexts = ['/api', '/uploads', '/static'];
+
 const publicAssets = [
   'favicon.svg',
   'favicon.png',
@@ -67,6 +70,7 @@ module.exports = {
       templateParameters: {
         MAMAGE_COS_BASE: process.env.MAMAGE_COS_BASE || '',
         MAMAGE_API_BASE: process.env.MAMAGE_API_BASE || '',
+        MAMAGE_DISABLE_DIRECT_UPLOAD: process.env.MAMAGE_DISABLE_DIRECT_UPLOAD || '',
       }
     }),
     new CopyPublicAssetsPlugin(),
@@ -76,13 +80,13 @@ module.exports = {
     port: process.env.WEBPACK_DEV_SERVER_PORT || process.env.PORT || 5173,
     // Serve index.html for unknown routes so SPA routes like /share/:code work in dev
     historyApiFallback: true,
-    open: true,
+    open: process.env.WEBPACK_DEV_SERVER_OPEN === '0' ? false : true,
     proxy: [
       {
-        context: ['/api'],
+        context: devProxyContexts,
         // Proxy target should be provided via env `MAMAGE_BACKEND_URL`.
         // Match the local API default in mamage-server/.env.
-        target: process.env.MAMAGE_BACKEND_URL || 'http://localhost:8001',
+        target: devProxyTarget,
         changeOrigin: true,
         secure: false,
       },
