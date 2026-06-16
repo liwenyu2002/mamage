@@ -143,13 +143,13 @@ textarea {
 }
 
 .mamage-topbar.is-project-detail {
-    grid-template-columns: minmax(170px, auto) auto minmax(280px, 1fr);
+    grid-template-columns: auto minmax(0, 1fr) auto;
     min-height: 52px;
     padding-block: 7px;
 }
 
 .mamage-header.is-desktop-header.is-project-detail {
-    padding-bottom: 8px;
+    margin-bottom: 34px;
 }
 
 .mamage-brand-area,
@@ -303,39 +303,56 @@ textarea {
     -webkit-box-orient: vertical;
 }
 
+.mamage-desktop-project-title {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    z-index: 3;
+    max-width: min(320px, 28vw);
+    overflow: hidden;
+    border: 0;
+    margin: 0;
+    padding: 0 12px;
+    background: transparent;
+    color: var(--lg-text);
+    cursor: pointer;
+    font: inherit;
+    font-size: 18px;
+    font-weight: 820;
+    line-height: 34px;
+    text-align: center;
+    text-overflow: ellipsis;
+    transform: translate(-50%, -50%);
+    white-space: nowrap;
+}
+
+.mamage-desktop-project-title:hover {
+    color: rgba(16, 32, 51, 0.78);
+}
+
 .mamage-desktop-project-notch {
-    position: relative;
-    z-index: 1;
+    position: absolute;
+    left: 50%;
+    top: calc(100% - 1px);
+    z-index: 2;
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 9px;
-    width: min(720px, calc(100% - 360px));
-    min-width: 360px;
-    height: 32px;
-    margin: -1px auto 0;
-    padding: 0 16px;
+    width: min(560px, calc(100% - 520px));
+    min-width: 320px;
+    height: 30px;
+    padding: 0 14px;
     overflow: hidden;
     border: 1px solid rgba(255, 255, 255, 0.62);
     border-top: 0;
-    border-radius: 0 0 18px 18px;
+    border-radius: 0 0 16px 16px;
     background: linear-gradient(135deg, rgba(255, 255, 255, 0.64), rgba(255, 255, 255, 0.32));
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.52), 0 10px 22px rgba(30, 80, 130, 0.1);
     color: rgba(16, 32, 51, 0.64);
+    transform: translateX(-50%);
     backdrop-filter: blur(12px) saturate(1.14);
     -webkit-backdrop-filter: blur(12px) saturate(1.14);
-    white-space: nowrap;
-}
-
-.mamage-notch-title {
-    min-width: 0;
-    max-width: 190px;
-    overflow: hidden;
-    color: var(--lg-text);
-    font-size: 14px;
-    font-weight: 820;
-    line-height: 1;
-    text-overflow: ellipsis;
     white-space: nowrap;
 }
 
@@ -371,6 +388,10 @@ textarea {
     gap: 3px;
 }
 
+.mamage-header.is-desktop-header.is-project-detail .mamage-nav-links {
+    justify-self: start;
+}
+
 .mamage-nav-link,
 .mamage-action-button,
 .mamage-mobile-nav-item {
@@ -404,6 +425,15 @@ textarea {
 .mamage-nav-actions {
     justify-content: flex-end;
     gap: 8px;
+}
+
+.mamage-header.is-desktop-header.is-project-detail .mamage-nav-actions {
+    flex: 0 1 auto;
+    justify-self: end;
+}
+
+.mamage-header.is-desktop-header.is-project-detail .mamage-nav-search-field {
+    max-width: 220px;
 }
 
 .mamage-nav-search-field {
@@ -689,7 +719,7 @@ textarea {
     }
 
     .mamage-topbar.is-project-detail {
-        grid-template-columns: minmax(150px, auto) auto minmax(250px, 1fr);
+        grid-template-columns: auto minmax(0, 1fr) auto;
     }
 
     .mamage-brand-button {
@@ -721,11 +751,19 @@ textarea {
     }
 
     .mamage-desktop-project-notch {
-        width: min(620px, calc(100% - 280px));
+        width: min(500px, calc(100% - 420px));
         min-width: 320px;
     }
 
     .mamage-notch-description {
+        display: none;
+    }
+
+    .mamage-desktop-project-title {
+        max-width: min(210px, 18vw);
+    }
+
+    .mamage-header.is-desktop-header.is-project-detail .mamage-nav-search-field {
         max-width: 160px;
     }
 }
@@ -748,23 +786,23 @@ textarea {
     }
 
     .mamage-desktop-project-notch {
-        width: min(560px, calc(100% - 220px));
-        min-width: 300px;
+        width: min(420px, calc(100% - 360px));
+        min-width: 280px;
         padding-inline: 12px;
     }
 
-    .mamage-notch-title {
-        max-width: 150px;
+    .mamage-desktop-project-title {
+        max-width: min(170px, 16vw);
     }
 
-    .mamage-notch-description {
-        display: none;
+    .mamage-header.is-desktop-header.is-project-detail .mamage-nav-search-field {
+        max-width: 130px;
     }
 }
 
 @media (max-width: 1024px) {
     .mamage-header.is-desktop-header.is-project-detail {
-        padding-bottom: 0;
+        margin-bottom: 0;
     }
 
     .mamage-desktop-project-notch {

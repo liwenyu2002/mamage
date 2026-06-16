@@ -841,9 +841,21 @@ function App() {
           </div>
 
           {!isMobileHeader ? (
-            <nav className="mamage-nav-links" aria-label="主导航">
-              {navItems.map((item) => renderNavItem(item))}
-            </nav>
+            <>
+              <nav className="mamage-nav-links" aria-label="主导航">
+                {navItems.map((item) => renderNavItem(item))}
+              </nav>
+              {currentProjectId ? (
+                <button
+                  type="button"
+                  className="mamage-desktop-project-title"
+                  title={projectHeaderTitle}
+                  onClick={handleBackToList}
+                >
+                  {projectHeaderTitle}
+                </button>
+              ) : null}
+            </>
           ) : null}
 
           <div className="mamage-nav-actions">
@@ -916,7 +928,6 @@ function App() {
 
         {currentProjectId && !isMobileHeader ? (
           <div className="mamage-desktop-project-notch" aria-label="相册信息">
-            <span className="mamage-notch-title">{projectHeaderTitle}</span>
             {projectHeaderMeta.length > 0 ? (
               <span className="mamage-notch-meta">
                 {projectHeaderMeta.map((item) => <span key={item}>{item}</span>)}
