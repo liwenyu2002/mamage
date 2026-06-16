@@ -81,8 +81,8 @@ module.exports = {
       {
         context: ['/api'],
         // Proxy target should be provided via env `MAMAGE_BACKEND_URL`.
-        // Fallback to localhost:8000 for local development when not provided.
-        target: process.env.MAMAGE_BACKEND_URL || 'http://localhost:8000',
+        // Match the local API default in mamage-server/.env.
+        target: process.env.MAMAGE_BACKEND_URL || 'http://localhost:8001',
         changeOrigin: true,
         secure: false,
       },
