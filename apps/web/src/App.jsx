@@ -1,14 +1,12 @@
 ﻿// src/App.jsx
 import React from 'react';
-import { Layout, Typography, Input, Nav, Avatar, Spin, Empty, Button, Popover, Card, SideSheet } from '@douyinfe/semi-ui';
+import { Layout, Typography, Input, Nav, Avatar, Empty, Button, Popover, Card, SideSheet } from '@douyinfe/semi-ui';
 import '@semi-bot/semi-theme-mamage_day/semi.css';
 import { IconUser, IconSearch, IconMenu } from '@douyinfe/semi-icons';
 import ProjectCard from './ProjectCard';
 import ProjectDetail from './ProjectDetail';
 import ShareView from './ShareView';
-import Scenery from './Scenery';
 import AuthPage from './AuthPage';
-import AccountPage from './AccountPage';
 import * as authService from './services/authService';
 import { fetchProjectList, createProject } from './services/projectService';
 import { searchPhotos } from './services/photoService';
@@ -16,12 +14,37 @@ import CreateAlbumModal from './CreateAlbumModal';
 import { resolveAssetUrl } from './services/request';
 import TransferStation from './TransferStation';
 import IfCan from './permissions/IfCan';
-import AiNewsWriter from './AiNewsWriter.jsx';
 import PhotoPreviewOverlay from './PhotoPreviewOverlay.jsx';
+
+const Scenery = React.lazy(() => import('./Scenery'));
+const AccountPage = React.lazy(() => import('./AccountPage'));
+const AiNewsWriter = React.lazy(() => import('./AiNewsWriter.jsx'));
 
 const { Header, Content, Footer } = Layout;
 const { Text } = Typography;
 const PROJECT_PAGE_SIZE = 24;
+
+function AppLoadingState({ title = '正在加载', subtitle = '请稍候', compact = false }) {
+  return (
+    <div className={`app-loading-state${compact ? ' is-compact' : ''}`}>
+      <div className="app-loading-mark">
+        <span />
+        <span />
+        <span />
+      </div>
+      <div className="app-loading-title">{title}</div>
+      {subtitle ? <div className="app-loading-subtitle">{subtitle}</div> : null}
+    </div>
+  );
+}
+
+function LazyPanel({ children, title = '正在加载功能' }) {
+  return (
+    <React.Suspense fallback={<AppLoadingState title={title} subtitle="马上打开" compact />}>
+      {children}
+    </React.Suspense>
+  );
+}
 
 function App() {
   const [projects, setProjects] = React.useState([]);
@@ -573,7 +596,7 @@ function App() {
     }
     return (
       <div style={{ width: '100%', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Spin size="large" tip="Loading shared content..." />
+        <AppLoadingState title="正在打开分享内容" subtitle="正在整理相册信息" />
       </div>
     );
   }
@@ -581,7 +604,7 @@ function App() {
   if (authLoading) {
     return (
       <div style={{ width: '100%', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Spin size="large" tip="检查登录状态中" />
+        <AppLoadingState title="正在检查登录状态" subtitle="马上进入图库" />
       </div>
     );
   }
@@ -858,7 +881,7 @@ function App() {
                     <div className="project-grid">
                       {loading && (
                         <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
-                          <Spin size="large" tip="搜索项目中..." />
+                          <AppLoadingState title="正在搜索项目" subtitle="匹配相册中" compact />
                         </div>
                       )}
 
@@ -899,7 +922,7 @@ function App() {
 
                     {photoSearchLoading && photoSearchResults.length === 0 && (
                       <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
-                        <Spin size="large" tip="搜索照片中..." />
+                        <AppLoadingState title="正在搜索照片" subtitle="按描述、标签和摄影师匹配" compact />
                       </div>
                     )}
 
@@ -1027,7 +1050,7 @@ function App() {
                   <div className="project-grid">
                     {loading && (
                       <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '80px 0' }}>
-                        <Spin size="large" tip="Loading projects..." />
+                        <AppLoadingState title="正在加载相册" subtitle="照片马上出现" compact />
                       </div>
                     )}
 
@@ -1062,12 +1085,18 @@ function App() {
                 </>
               )
             ) : selectedNav === 'scenery' ? (
-              <Scenery />
+              <LazyPanel title="正在加载风景页">
+                <Scenery />
+              </LazyPanel>
             ) : selectedNav === 'account' ? (
-              <AccountPage currentUser={currentUser} onUpdated={(u) => { setCurrentUser(u); }} />
+              <LazyPanel title="正在加载账户页">
+                <AccountPage currentUser={currentUser} onUpdated={(u) => { setCurrentUser(u); }} />
+              </LazyPanel>
             ) : selectedNav === 'function' ? (
               functionPage === 'ai-writer' ? (
-                <AiNewsWriter />
+                <LazyPanel title="正在加载 AI 写作">
+                  <AiNewsWriter />
+                </LazyPanel>
               ) : (
                 <div style={{ padding: 24 }}>
                   <Card title="功能" bordered>

@@ -6,6 +6,8 @@ import { resolveAssetUrl } from './services/request';
 import './ProjectCard.css';
 
 const { Text } = Typography;
+const FALLBACK_THUMB_CACHE = new Map();
+const FALLBACK_THUMB_IN_FLIGHT = new Map();
 
 const truncateText = (text, maxLength = 30) => {
   const safe = String(text || '');
@@ -60,32 +62,77 @@ function ProjectCard({
   const [fallbackThumbs, setFallbackThumbs] = React.useState([]);
   const [coverOverride, setCoverOverride] = React.useState(null);
   const [loadedMap, setLoadedMap] = React.useState({});
+  const [isVisible, setIsVisible] = React.useState(false);
+  const cardRef = React.useRef(null);
+
+  React.useEffect(() => {
+    if (isVisible) return undefined;
+    const node = cardRef.current;
+    if (!node || typeof IntersectionObserver === 'undefined') {
+      setIsVisible(true);
+      return undefined;
+    }
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        setIsVisible(true);
+        observer.disconnect();
+      }
+    }, { rootMargin: '480px 0px' });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [isVisible]);
 
   React.useEffect(() => {
     let canceled = false;
-    const need = normalizedThumbnails.length;
-    if (id && need < 3) {
-      fetchRandomByProject(id, 6)
+    const availablePreviewCount = normalizedThumbnails.length + normalizedImages.length + (resolvedMain ? 1 : 0);
+    if (!id || !isVisible || availablePreviewCount >= 4) {
+      return undefined;
+    }
+
+    const applyFallbacks = (srcs) => {
+      if (canceled) return;
+      const existing = new Set([...normalizedThumbnails, ...normalizedImages]);
+      const filtered = srcs.filter((s) => s && s !== resolvedMain && !existing.has(s));
+      const nextFallbacks = filtered.slice(0, 3);
+      setFallbackThumbs((prev) => (sameStringList(prev, nextFallbacks) ? prev : nextFallbacks));
+      const firstAbs = srcs.find((s) => /^https?:\/\//i.test(s));
+      const isRelativeMain = !!(resolvedMain && resolvedMain.startsWith('/'));
+      if (isRelativeMain && firstAbs) {
+        setCoverOverride((prev) => (prev === firstAbs ? prev : firstAbs));
+      }
+    };
+
+    const cacheKey = String(id);
+    const cached = FALLBACK_THUMB_CACHE.get(cacheKey);
+    if (cached) {
+      applyFallbacks(cached);
+      return () => {
+        canceled = true;
+      };
+    }
+
+    let promise = FALLBACK_THUMB_IN_FLIGHT.get(cacheKey);
+    if (!promise) {
+      promise = fetchRandomByProject(id, 6)
         .then((res) => {
-          if (canceled) return;
           const list = Array.isArray(res?.list) ? res.list : (Array.isArray(res) ? res : []);
           const srcs = list.map((it) => resolveAssetUrl(pickThumbSrc(it) || it)).filter(Boolean);
-          const existing = new Set(normalizedThumbnails);
-          const filtered = srcs.filter((s) => s && s !== resolvedMain && !existing.has(s));
-          const nextFallbacks = filtered.slice(0, 3);
-          setFallbackThumbs((prev) => (sameStringList(prev, nextFallbacks) ? prev : nextFallbacks));
-          const firstAbs = srcs.find((s) => /^https?:\/\//i.test(s));
-          const isRelativeMain = !!(resolvedMain && resolvedMain.startsWith('/'));
-          if (isRelativeMain && firstAbs) {
-            setCoverOverride((prev) => (prev === firstAbs ? prev : firstAbs));
-          }
+          FALLBACK_THUMB_CACHE.set(cacheKey, srcs);
+          FALLBACK_THUMB_IN_FLIGHT.delete(cacheKey);
+          return srcs;
         })
-        .catch(() => {});
+        .catch((err) => {
+          FALLBACK_THUMB_IN_FLIGHT.delete(cacheKey);
+          throw err;
+        });
+      FALLBACK_THUMB_IN_FLIGHT.set(cacheKey, promise);
     }
+
+    promise.then(applyFallbacks).catch(() => {});
     return () => {
       canceled = true;
     };
-  }, [id, normalizedThumbnails.length, resolvedMain]);
+  }, [id, isVisible, normalizedThumbnails, normalizedImages, resolvedMain]);
 
   const pickByMaxId = () => {
     const candidates = [];
@@ -169,7 +216,7 @@ function ProjectCard({
   };
 
   return (
-    <div className="project-card" onClick={onClick}>
+    <div className="project-card" onClick={onClick} ref={cardRef}>
       <div className="project-card__mobile-layout">
         <div className="project-card__mobile-main">
           {mobileMain ? (

@@ -15,6 +15,8 @@ const ANALYSIS_POLL_INITIAL_DELAY_MS = 900;
 const ANALYSIS_POLL_INTERVAL_MS = 1800;
 const ANALYSIS_POLL_MAX_ATTEMPTS = 45;
 const AI_QUALITY_TAGS = ['AI recommended', 'AI medium', 'AI rejected'];
+const GALLERY_INITIAL_RENDER_LIMIT = 96;
+const GALLERY_RENDER_BATCH_SIZE = 96;
 
 function getAISelectionLabel(label) {
   if (label === 'recommended') return 'AI推荐';
@@ -329,6 +331,8 @@ function ProjectDetail({
   const [imageRatios, setImageRatios] = React.useState({});
   const ratioCacheRef = React.useRef({});
   const [galleryPrepared, setGalleryPrepared] = React.useState(false);
+  const [galleryRenderLimit, setGalleryRenderLimit] = React.useState(GALLERY_INITIAL_RENDER_LIMIT);
+  const galleryMoreRef = React.useRef(null);
   const [detailImageReadyMap, setDetailImageReadyMap] = React.useState({});
   // image viewer
   const [viewerVisible, setViewerVisible] = React.useState(false);
@@ -1515,53 +1519,28 @@ function ProjectDetail({
     return Math.max(4, Math.floor((w + 12) / (240 + 12)));
   }, [galleryWidth]);
 
-  const isGalleryPreparing = !loading && !error && images.length > 0 && !galleryPrepared;
+  React.useEffect(() => {
+    setGalleryRenderLimit(GALLERY_INITIAL_RENDER_LIMIT);
+  }, [projectId, searchKeyword]);
+
+  const visiblePhotoCount = Math.min(images.length, Math.max(GALLERY_INITIAL_RENDER_LIMIT, galleryRenderLimit));
+  const visibleImages = React.useMemo(
+    () => images.slice(0, visiblePhotoCount),
+    [images, visiblePhotoCount]
+  );
+  const hasMoreGalleryPhotos = visiblePhotoCount < images.length;
+  const loadMoreGalleryPhotos = React.useCallback(() => {
+    setGalleryRenderLimit((prev) => Math.min(
+      images.length,
+      Math.max(GALLERY_INITIAL_RENDER_LIMIT, prev + GALLERY_RENDER_BATCH_SIZE)
+    ));
+  }, [images.length]);
+
+  const isGalleryPreparing = !loading && !error && visibleImages.length > 0 && !galleryPrepared;
 
   if (!projectId) {
     return null;
   }
-
-  // compute rows with justified layout
-  const rows = React.useMemo(() => {
-    const GAP = 10;
-    const targetRowHeight = 200; // preferred height
-    const minHeight = 100;
-    const maxHeight = 400;
-    const w = galleryWidth || 800;
-    const out = [];
-    if (!images || images.length === 0) return out;
-
-    let i = 0;
-    while (i < images.length) {
-      let sumRatio = 0;
-      let j = i;
-      for (; j < images.length; j++) {
-        const r = imageRatios[images[j]] || 1.5; // fallback ratio
-        sumRatio += r;
-        const totalGap = GAP * (j - i);
-        const rowH = (w - totalGap) / sumRatio;
-        // stop when row height goes below targetRowHeight (too many images)
-        if (rowH < targetRowHeight) {
-          break;
-        }
-      }
-
-      // if we didn't add any (first image already below target), ensure at least one
-      if (j === i) j = i + 1;
-
-      const rowImgs = images.slice(i, j + 1);
-      // compute final height for the chosen images
-      const ratios = rowImgs.map((src) => imageRatios[src] || 1.5);
-      const totalRatio = ratios.reduce((s, r) => s + r, 0);
-      const totalGap = GAP * (rowImgs.length - 1);
-      let height = Math.max(minHeight, Math.min(maxHeight, (w - totalGap) / totalRatio));
-
-      out.push({ images: rowImgs, height, ratios });
-      i = j + 1;
-    }
-
-    return out;
-  }, [images, imageRatios, galleryWidth]);
 
   const handleImageLoad = React.useCallback((src, event) => {
     const { naturalWidth, naturalHeight } = event.target;
@@ -1575,14 +1554,11 @@ function ProjectDetail({
   }, []);
 
   React.useEffect(() => {
-    const list = Array.isArray(images) ? images.filter(Boolean) : [];
+    const list = Array.isArray(visibleImages) ? visibleImages.filter(Boolean) : [];
     if (!list.length) {
       setGalleryPrepared(true);
       return undefined;
     }
-
-    let cancelled = false;
-    setGalleryPrepared(false);
 
     const readMetaRatio = (meta) => {
       if (!meta || typeof meta !== 'object') return null;
@@ -1607,23 +1583,16 @@ function ProjectDetail({
     };
 
     const nextRatios = {};
-    const pending = [];
-    const seen = new Set();
 
     list.forEach((src, idx) => {
       const cachedRatio = imageRatios[src] || ratioCacheRef.current[src] || readMetaRatio(photoMetas?.[idx]);
       if (cachedRatio && Number.isFinite(cachedRatio) && cachedRatio > 0) {
         nextRatios[src] = cachedRatio;
         ratioCacheRef.current[src] = cachedRatio;
-        return;
       }
-      if (seen.has(src)) return;
-      seen.add(src);
-      pending.push(src);
     });
 
-    const applyPreparedRatios = () => {
-      if (cancelled) return;
+    if (Object.keys(nextRatios).length) {
       setImageRatios((prev) => {
         let changed = false;
         const merged = { ...prev };
@@ -1637,42 +1606,24 @@ function ProjectDetail({
         });
         return changed ? merged : prev;
       });
-      setGalleryPrepared(true);
-    };
-
-    if (!pending.length) {
-      applyPreparedRatios();
-      return () => {
-        cancelled = true;
-      };
     }
 
-    let remaining = pending.length;
-    pending.forEach((src) => {
-      const img = new Image();
-      const done = (ratio) => {
-        if (cancelled) return;
-        const safeRatio = Number.isFinite(ratio) && ratio > 0 ? ratio : 1.5;
-        nextRatios[src] = safeRatio;
-        ratioCacheRef.current[src] = safeRatio;
-        remaining -= 1;
-        if (remaining <= 0) {
-          applyPreparedRatios();
-        }
-      };
+    setGalleryPrepared(true);
+    return undefined;
+  }, [visibleImages, photoMetas]);
 
-      img.onload = () => {
-        const ratio = img.naturalWidth && img.naturalHeight ? img.naturalWidth / img.naturalHeight : null;
-        done(ratio);
-      };
-      img.onerror = () => done(null);
-      img.src = src;
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [images, photoMetas]);
+  React.useEffect(() => {
+    if (!galleryPrepared || !hasMoreGalleryPhotos) return undefined;
+    const target = galleryMoreRef.current;
+    if (!target || typeof IntersectionObserver === 'undefined') return undefined;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        loadMoreGalleryPhotos();
+      }
+    }, { rootMargin: '700px 0px 900px 0px' });
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [galleryPrepared, hasMoreGalleryPhotos, loadMoreGalleryPhotos]);
 
   React.useEffect(() => {
     setDetailImageReadyMap((prev) => {
@@ -2530,7 +2481,7 @@ function ProjectDetail({
   const masonryBuckets = React.useMemo(() => {
     const cols = Math.max(1, masonryColumns);
     const buckets = Array.from({ length: cols }, () => ({ h: 0, items: [] }));
-    images.forEach((src, idx) => {
+    visibleImages.forEach((src, idx) => {
       const ratio = imageRatios[src] || 1.5;
       const estHeight = 1 / Math.max(0.2, ratio);
       let minCol = 0;
@@ -2541,7 +2492,7 @@ function ProjectDetail({
       buckets[minCol].h += estHeight;
     });
     return buckets.map((b) => b.items);
-  }, [images, imageRatios, masonryColumns]);
+  }, [visibleImages, imageRatios, masonryColumns]);
 
   const getRippleStyle = React.useCallback((index) => {
     void index;
@@ -2876,8 +2827,9 @@ function ProjectDetail({
                 className="detail-view-toggle"
                 type="tertiary"
                 onClick={() => handleGalleryModeChange(galleryMode === 'grid' ? 'masonry' : 'grid')}
+                title="切换照片布局"
               >
-                样式
+                {galleryMode === 'grid' ? '瀑布流' : '网格'}
               </Button>
               <IfCan perms={['projects.update']}>
                 <Button className="detail-toolbar-btn" onClick={openEdit} type="primary" style={{ marginLeft: 6 }}>修改信息</Button>
@@ -2926,7 +2878,7 @@ function ProjectDetail({
               {!startText && !createdText && date && <Text type="tertiary">{date}</Text>}
             </div>
             <Text type="tertiary" style={{ marginLeft: 16 }}>
-              共 {count} 张照片
+              共 {count} 张照片{hasMoreGalleryPhotos ? `，已显示 ${visiblePhotoCount} 张` : ''}
             </Text>
           </div>
 
@@ -2991,7 +2943,7 @@ function ProjectDetail({
               ))}
             </div>
           ) : (
-            images.map((src, idx) => (
+            visibleImages.map((src, idx) => (
               <div className="detail-photo-item detail-photo-item--skeleton" key={`grid-placeholder-${idx}`}>
                 <div className="detail-photo detail-photo--skeleton" />
               </div>
@@ -3009,9 +2961,16 @@ function ProjectDetail({
               ))}
             </div>
           ) : (
-            images.map((src, overallIndex) => renderPhotoItem(src, overallIndex))
+            visibleImages.map((src, overallIndex) => renderPhotoItem(src, overallIndex))
           )
         )}
+        {!loading && !error && galleryPrepared && hasMoreGalleryPhotos ? (
+          <div className="detail-gallery-more" ref={galleryMoreRef}>
+            <Button type="tertiary" onClick={loadMoreGalleryPhotos}>
+              加载更多照片（已显示 {visiblePhotoCount} / {images.length}）
+            </Button>
+          </div>
+        ) : null}
         {(canDeletePhotos || canPackDownload) ? (
           <div className={`detail-selection-inline ${deleteMode ? 'is-expanded' : ''}`}>
             <button
@@ -3019,7 +2978,7 @@ function ProjectDetail({
               className="detail-select-fab"
               onClick={toggleDeleteMode}
             >
-              {deleteMode ? '收起' : '选择'}
+              {deleteMode ? '完成选择' : '选择照片'}
             </button>
 
             {deleteMode ? (

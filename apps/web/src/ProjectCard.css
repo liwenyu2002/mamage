@@ -15,14 +15,16 @@
   width: 100%;
   max-width: 342px;
   flex: 0 0 auto;
-  border-radius: 16px;
+  border-radius: 12px;
   padding: 16px;
   /* ✅ 改成普通实色背景，不再毛玻璃 */
   background: #ffffff;
   /* 深灰，配你黑色页面背景 */
 
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
-  color: #f9fafb;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.14);
+  color: #111827;
+  content-visibility: auto;
+  contain-intrinsic-size: 430px 520px;
 
   /* 删掉毛玻璃相关： */
   /* backdrop-filter: blur(20px); */
@@ -30,9 +32,9 @@
 
   /* 悬停动画过渡 */
   transition:
-    transform 0.2s ease,
-    box-shadow 0.2s ease,
-    background 0.2s ease
+    transform 0.16s ease,
+    box-shadow 0.16s ease,
+    background 0.16s ease
 }
 
 /* 使卡片成为垂直弹性容器：顶部封面固定，中间 meta 区域弹性拉伸，底部缩略图固定在底部 */
@@ -43,9 +45,9 @@
 
 /* 🧊 悬停特效：轻微抬起 + 阴影更深 + 背景稍微提亮 */
 .project-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.65);
-  background: #e7e7e7;
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.2);
+  background: #ffffff;
 
 }
 
@@ -57,6 +59,7 @@
   /* keep original proportion */
   overflow: hidden;
   border-radius: 5px;
+  background: #e5e7eb;
 }
 
 .project-card__cover-image img {
@@ -68,14 +71,11 @@
 
 .project-card__img {
   opacity: 0;
-  transform: scale(1.045);
-  transition: opacity 260ms ease, transform 520ms cubic-bezier(0.16, 0.84, 0.3, 1);
-  will-change: opacity, transform;
+  transition: opacity 180ms ease;
 }
 
 .project-card__img.is-ready {
   opacity: 1;
-  transform: scale(1);
 }
 
 /* 中间文字信息行 */
@@ -241,6 +241,7 @@
   border-radius: 1px;
   overflow: hidden;
   aspect-ratio: 1 / 1;
+  background: #e5e7eb;
   /* 强制1:1比例 */
 }
 

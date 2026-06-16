@@ -42,3 +42,78 @@ textarea {
 * {
     word-wrap: break-word;
 }
+
+.app-loading-state {
+    min-width: min(320px, calc(100vw - 48px));
+    padding: 28px 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    color: #111827;
+}
+
+.app-loading-state.is-compact {
+    min-width: 240px;
+    padding: 18px 16px;
+}
+
+.app-loading-mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 24px;
+}
+
+.app-loading-mark span {
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: #2563eb;
+    opacity: 0.35;
+    animation: app-loading-dot 1.1s ease-in-out infinite;
+}
+
+.app-loading-mark span:nth-child(2) {
+    background: #0f766e;
+    animation-delay: 120ms;
+}
+
+.app-loading-mark span:nth-child(3) {
+    background: #f59e0b;
+    animation-delay: 240ms;
+}
+
+.app-loading-title {
+    font-size: 15px;
+    font-weight: 650;
+    line-height: 1.4;
+}
+
+.app-loading-subtitle {
+    color: #6b7280;
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+@keyframes app-loading-dot {
+    0%,
+    100% {
+        opacity: 0.35;
+        transform: translateY(0);
+    }
+
+    50% {
+        opacity: 1;
+        transform: translateY(-4px);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .app-loading-mark span {
+        animation: none;
+        opacity: 0.8;
+    }
+}
