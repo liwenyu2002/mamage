@@ -619,7 +619,8 @@ function App() {
 
   const currentProject = React.useMemo(() => {
     if (!currentProjectId) return null;
-    return normalizedProjects.find((project) => project.id === currentProjectId) || null;
+    const sid = String(currentProjectId);
+    return normalizedProjects.find((project) => String(project.id) === sid) || null;
   }, [normalizedProjects, currentProjectId]);
 
   const projectHeader = React.useMemo(() => {
@@ -675,6 +676,21 @@ function App() {
   const closeMobileNav = React.useCallback(() => {
     setMobileNavVisible(false);
   }, []);
+
+  React.useEffect(() => {
+    if (!isMobileHeader && mobileNavVisible) {
+      setMobileNavVisible(false);
+    }
+  }, [isMobileHeader, mobileNavVisible]);
+
+  React.useEffect(() => {
+    if (!mobileNavVisible) return undefined;
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') closeMobileNav();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [closeMobileNav, mobileNavVisible]);
 
   const handleNavigateScenery = React.useCallback(() => {
     setSelectedNav('scenery');
@@ -791,9 +807,11 @@ function App() {
             {isMobileHeader ? (
               <button
                 type="button"
-                className="mamage-menu-trigger"
-                aria-label="打开导航"
-                onClick={() => setMobileNavVisible(true)}
+                className={`mamage-menu-trigger${currentProjectId ? ' is-home' : (mobileNavVisible ? ' is-open' : '')}`}
+                aria-label={currentProjectId ? '返回首页' : '打开导航'}
+                aria-controls={currentProjectId ? undefined : 'mamage-mobile-nav'}
+                aria-expanded={currentProjectId ? undefined : mobileNavVisible}
+                onClick={currentProjectId ? handleBackToList : () => setMobileNavVisible((prev) => !prev)}
               >
                 <span />
                 <span />
@@ -803,9 +821,10 @@ function App() {
 
             <button
               type="button"
-              onClick={handleBackToList}
+              onClick={currentProjectId && isMobileHeader ? () => setProjectInfoOpen((prev) => !prev) : handleBackToList}
               className={`mamage-brand-button${currentProjectId && isMobileHeader ? ' is-project-title' : ''}`}
-              title={currentProjectId ? '返回项目列表' : '返回首页'}
+              title={currentProjectId && isMobileHeader ? '查看相册信息' : (currentProjectId ? '返回项目列表' : '返回首页')}
+              aria-expanded={currentProjectId && isMobileHeader ? projectInfoOpen : undefined}
             >
               {currentProjectId && isMobileHeader ? (
                 <span className="mamage-project-title-text">{projectHeaderTitle}</span>
@@ -815,28 +834,17 @@ function App() {
             </button>
 
             {currentProjectId && isMobileHeader ? (
-              <div className="mamage-project-info-menu">
-                <button
-                  type="button"
-                  className="mamage-project-info-trigger"
-                  aria-label="查看相册信息"
-                  aria-expanded={projectInfoOpen}
-                  onClick={() => setProjectInfoOpen((prev) => !prev)}
-                >
-                  i
-                </button>
-                {projectInfoOpen ? (
-                  <div className="mamage-project-info-panel">
-                    <div className="mamage-project-info-title">{projectHeaderTitle}</div>
-                    {projectHeaderMeta.length > 0 ? (
-                      <div className="mamage-project-info-meta">
-                        {projectHeaderMeta.map((item) => <span key={item}>{item}</span>)}
-                      </div>
-                    ) : null}
-                    <div className="mamage-project-info-desc">描述：{projectHeaderDescriptionText}</div>
-                  </div>
-                ) : null}
-              </div>
+              projectInfoOpen ? (
+                <div className="mamage-project-info-panel">
+                  <div className="mamage-project-info-title">{projectHeaderTitle}</div>
+                  {projectHeaderMeta.length > 0 ? (
+                    <div className="mamage-project-info-meta">
+                      {projectHeaderMeta.map((item) => <span key={item}>{item}</span>)}
+                    </div>
+                  ) : null}
+                  <div className="mamage-project-info-desc">描述：{projectHeaderDescriptionText}</div>
+                </div>
+              ) : null
             ) : null}
           </div>
 
@@ -860,7 +868,6 @@ function App() {
 
           <div className="mamage-nav-actions">
             <div className="mamage-nav-search-field">
-              <span className="mamage-search-symbol" aria-hidden="true" />
               <input
                 className="mamage-nav-search-input"
                 aria-label="搜索项目、照片、标签或摄影师"
@@ -881,13 +888,21 @@ function App() {
                   ×
                 </button>
               ) : null}
+              <button
+                type="button"
+                className="mamage-search-submit"
+                aria-label="搜索"
+                onClick={handleSearchSubmit}
+              >
+                <span className="mamage-search-symbol" aria-hidden="true" />
+              </button>
             </div>
 
-            <button type="button" className="mamage-action-button is-primary" onClick={handleSearchSubmit}>
+            <button type="button" className="mamage-action-button is-primary mamage-desktop-search-button" onClick={handleSearchSubmit}>
               搜索
             </button>
 
-            {!isDemoPath ? (
+            {!isDemoPath && !currentProjectId ? (
               <IfCan perms={['projects.create']}>
                 <button type="button" className="mamage-action-button is-secondary" onClick={() => setShowCreateModal(true)}>
                   <span className="mamage-label-full">新建相册</span>
@@ -940,7 +955,7 @@ function App() {
         {isMobileHeader && mobileNavVisible ? (
           <>
             <button type="button" className="mamage-mobile-nav-backdrop" aria-label="关闭导航遮罩" onClick={closeMobileNav} />
-            <aside className="mamage-mobile-nav-panel is-open" aria-hidden={false}>
+            <aside id="mamage-mobile-nav" className="mamage-mobile-nav-panel is-open" role="dialog" aria-modal="true" aria-hidden={false}>
               <div className="mamage-mobile-nav-head">
                 <span>导航</span>
                 <button type="button" aria-label="关闭导航" onClick={closeMobileNav}>×</button>
@@ -959,7 +974,7 @@ function App() {
             <ProjectDetail
               key={`project-${currentProjectId}`}
               projectId={currentProjectId}
-              initialProject={currentProject ? { ...currentProject, images: [] } : null}
+              initialProject={currentProject || null}
               onBack={handleBackToList}
               readOnly={isDemoPath}
               initialOpenPhotoId={pendingOpenPhotoId}
