@@ -5,6 +5,10 @@ const DEFAULT_PHOTO_ADJUSTMENTS = Object.freeze({
   engine: ENGINE,
   brightness: 0,
   contrast: 0,
+  whites: 0,
+  highlights: 0,
+  shadows: 0,
+  blacks: 0,
   temperature: 0,
   tint: 0,
   wbGains: [1, 1, 1],
@@ -40,6 +44,10 @@ function normalizePhotoAdjustments(input) {
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) parsed = {};
   const brightness = clamp(parsed.brightness, -100, 100, 0);
   const contrast = clamp(parsed.contrast, -100, 100, 0);
+  const whites = clamp(parsed.whites, -100, 100, 0);
+  const highlights = clamp(parsed.highlights, -100, 100, 0);
+  const shadows = clamp(parsed.shadows, -100, 100, 0);
+  const blacks = clamp(parsed.blacks, -100, 100, 0);
   const temperature = clamp(parsed.temperature, -100, 100, 0);
   const tint = clamp(parsed.tint, -100, 100, 0);
   const rawGains = Array.isArray(parsed.wbGains) && parsed.wbGains.length >= 3
@@ -50,6 +58,10 @@ function normalizePhotoAdjustments(input) {
     engine: ENGINE,
     brightness,
     contrast,
+    whites,
+    highlights,
+    shadows,
+    blacks,
     temperature,
     tint,
     wbGains: [0, 1, 2].map((idx) => clamp(rawGains[idx], 0.5, 1.8, 1)),
@@ -73,6 +85,10 @@ function isDefaultPhotoAdjustments(input) {
   const a = normalizePhotoAdjustments(input);
   return Math.abs(a.brightness) < 0.01
     && Math.abs(a.contrast) < 0.01
+    && Math.abs(a.whites) < 0.01
+    && Math.abs(a.highlights) < 0.01
+    && Math.abs(a.shadows) < 0.01
+    && Math.abs(a.blacks) < 0.01
     && Math.abs(a.temperature) < 0.01
     && Math.abs(a.tint) < 0.01;
 }
@@ -80,8 +96,14 @@ function isDefaultPhotoAdjustments(input) {
 function getPhotoAdjustmentStyle(input) {
   const a = normalizePhotoAdjustments(input);
   if (isDefaultPhotoAdjustments(a)) return undefined;
-  const exposure = Math.pow(2, (a.brightness / 100) * 1.25);
-  const contrast = 1 + (a.contrast / 100) * 0.72;
+  const zoneExposure = (a.whites * 0.002)
+    + (a.highlights * 0.0012)
+    + (a.shadows * 0.0008)
+    + (a.blacks * 0.0005);
+  const zoneContrast = ((a.whites - a.blacks) * 0.0018)
+    + ((a.highlights - a.shadows) * 0.0012);
+  const exposure = Math.pow(2, ((a.brightness / 100) * 1.25) + zoneExposure);
+  const contrast = clamp(1 + (a.contrast / 100) * 0.72 + zoneContrast, 0.25, 2.2, 1);
   const temp = a.temperature / 100;
   const tint = a.tint / 100;
   const sepia = Math.max(0, temp) * 0.14;
@@ -103,19 +125,45 @@ function linearToSrgb(v) {
   return clamp(Math.round(y * 255), 0, 255);
 }
 
-function applyToneToRgb(r, g, b, input) {
-  const a = normalizePhotoAdjustments(input);
+function smoothstep(edge0, edge1, value) {
+  if (edge0 === edge1) return value >= edge1 ? 1 : 0;
+  const x = clamp((value - edge0) / (edge1 - edge0), 0, 1, 0);
+  return x * x * (3 - (2 * x));
+}
+
+function zoneDeltaForLuma(luma, adjustments) {
+  const blacksMask = 1 - smoothstep(0.03, 0.28, luma);
+  const shadowsMask = 1 - smoothstep(0.18, 0.56, luma);
+  const highlightsMask = smoothstep(0.48, 0.86, luma);
+  const whitesMask = smoothstep(0.72, 0.98, luma);
+
+  return ((adjustments.blacks / 100) * 0.12 * blacksMask)
+    + ((adjustments.shadows / 100) * 0.18 * shadowsMask)
+    + ((adjustments.highlights / 100) * 0.16 * highlightsMask)
+    + ((adjustments.whites / 100) * 0.11 * whitesMask);
+}
+
+function applyToneToRgbNormalized(r, g, b, a) {
   const exposure = Math.pow(2, (a.brightness / 100) * 1.25);
   const contrast = (a.contrast / 100) * 0.65;
   const gains = Array.isArray(a.wbGains) ? a.wbGains : [1, 1, 1];
   let lr = srgbToLinear(r) * gains[0] * exposure;
   let lg = srgbToLinear(g) * gains[1] * exposure;
   let lb = srgbToLinear(b) * gains[2] * exposure;
+  const luma = clamp((0.2126 * lr) + (0.7152 * lg) + (0.0722 * lb), 0, 1, 0);
+  const zoneDelta = zoneDeltaForLuma(luma, a);
+  lr = clamp(lr + zoneDelta, 0, 1);
+  lg = clamp(lg + zoneDelta, 0, 1);
+  lb = clamp(lb + zoneDelta, 0, 1);
   const applyContrast = (x) => clamp(x + contrast * (x - 0.5) * 4 * x * (1 - x), 0, 1);
   lr = applyContrast(lr);
   lg = applyContrast(lg);
   lb = applyContrast(lb);
   return [linearToSrgb(lr), linearToSrgb(lg), linearToSrgb(lb)];
+}
+
+function applyToneToRgb(r, g, b, input) {
+  return applyToneToRgbNormalized(r, g, b, normalizePhotoAdjustments(input));
 }
 
 function getLuma(r, g, b) {
@@ -193,9 +241,12 @@ async function analyzePhotoTone(src, adjustments, options = {}) {
     }
   }
 
+  const p02 = percentileFromHistogram(sourceHistogram, 0.02);
   const p10 = percentileFromHistogram(sourceHistogram, 0.1);
   const p50 = percentileFromHistogram(sourceHistogram, 0.5);
   const p90 = percentileFromHistogram(sourceHistogram, 0.9);
+  const p97 = percentileFromHistogram(sourceHistogram, 0.97);
+  const sourceP99 = percentileFromHistogram(sourceHistogram, 0.99);
   const p01 = percentileFromHistogram(adjustedHistogram, 0.01);
   const p99 = percentileFromHistogram(adjustedHistogram, 0.99);
   const total = adjustedHistogram.reduce((sum, v) => sum + v, 0) || 1;
@@ -216,14 +267,41 @@ async function analyzePhotoTone(src, adjustments, options = {}) {
     autoTint = clamp(((avgG - ((avgR + avgB) / 2)) / 255) * 150, -28, 28);
   }
 
-  const median = Math.max(8, p50);
-  const ev = clamp(Math.log2(115 / median), -0.72, 0.72);
-  const brightness = clamp((ev / 1.25) * 100, -58, 58);
+  const median = Math.max(10, p50);
+  let ev = Math.log2(112 / median);
+  if (sourceP99 > 238) ev -= ((sourceP99 - 238) / 255) * 1.8;
+  if (p97 > 232) ev -= ((p97 - 232) / 255) * 0.9;
+  ev = clamp(ev, -0.85, 0.45);
+  const brightness = clamp((ev / 1.25) * 100, -64, 36);
   const spread = p90 - p10;
-  const contrast = clamp((122 - spread) * 0.45, -18, 34);
+  const contrast = clamp((118 - spread) * 0.32, -14, 24);
+  const whites = clamp(
+    sourceP99 > 244 ? -((sourceP99 - 244) * 1.7) : (sourceP99 < 220 ? (220 - sourceP99) * 0.35 : 0),
+    -45,
+    18,
+  );
+  const highlights = clamp(
+    p90 > 210 ? -((p90 - 210) * 0.55) : (p90 < 160 ? (160 - p90) * 0.25 : 0),
+    -38,
+    22,
+  );
+  const shadows = clamp(
+    p10 < 42 ? (42 - p10) * 0.45 : (p10 > 78 ? -((p10 - 78) * 0.2) : 0),
+    -18,
+    38,
+  );
+  const blacks = clamp(
+    p02 < 8 ? (8 - p02) * 0.55 : (p02 > 28 ? -((p02 - 28) * 0.35) : 0),
+    -24,
+    26,
+  );
   const autoAdjustments = buildPhotoAdjustments({
     brightness,
     contrast,
+    whites,
+    highlights,
+    shadows,
+    blacks,
     temperature: autoTemperature,
     tint: autoTint,
   }, 'auto');
@@ -232,8 +310,47 @@ async function analyzePhotoTone(src, adjustments, options = {}) {
     sourceHistogram,
     adjustedHistogram,
     clipping,
-    stats: { p10, p50, p90, colorSamples },
+    stats: { p02, p10, p50, p90, p97, p99: sourceP99, colorSamples },
     autoAdjustments,
+  };
+}
+
+async function renderPhotoAdjustmentsToCanvas(canvas, src, adjustments, options = {}) {
+  if (!canvas) throw new Error('缺少画布');
+  if (!src) throw new Error('缺少图片地址');
+  const maxSize = Math.max(320, Math.min(2400, Number(options.maxSize || 1600)));
+  const img = await loadImage(src);
+  const naturalW = img.naturalWidth || img.width || maxSize;
+  const naturalH = img.naturalHeight || img.height || maxSize;
+  const scale = Math.min(1, maxSize / Math.max(naturalW, naturalH));
+  const width = Math.max(1, Math.round(naturalW * scale));
+  const height = Math.max(1, Math.round(naturalH * scale));
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) throw new Error('无法创建画布上下文');
+
+  canvas.width = width;
+  canvas.height = height;
+  canvas.style.aspectRatio = `${width} / ${height}`;
+  ctx.clearRect(0, 0, width, height);
+  ctx.drawImage(img, 0, 0, width, height);
+
+  const normalized = normalizePhotoAdjustments(adjustments);
+  const image = ctx.getImageData(0, 0, width, height);
+  const data = image.data;
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] < 10) continue;
+    const [r, g, b] = applyToneToRgbNormalized(data[i], data[i + 1], data[i + 2], normalized);
+    data[i] = r;
+    data[i + 1] = g;
+    data[i + 2] = b;
+  }
+  ctx.putImageData(image, 0, 0);
+
+  return {
+    width,
+    height,
+    naturalWidth: naturalW,
+    naturalHeight: naturalH,
   };
 }
 
@@ -244,4 +361,5 @@ export {
   isDefaultPhotoAdjustments,
   getPhotoAdjustmentStyle,
   analyzePhotoTone,
+  renderPhotoAdjustmentsToCanvas,
 };

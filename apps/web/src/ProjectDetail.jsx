@@ -26,6 +26,7 @@ import {
   getPhotoAdjustmentStyle,
   isDefaultPhotoAdjustments,
   normalizePhotoAdjustments,
+  renderPhotoAdjustmentsToCanvas,
 } from './utils/photoAdjustments';
 
 const { Title, Text } = Typography;
@@ -56,6 +57,113 @@ function getAISelectionChipClass(label) {
   if (label === 'medium') return 'viewer-chip--medium';
   if (label === 'rejected') return 'viewer-chip--bad';
   return '';
+}
+
+function getToneAdjustmentKey(adjustments) {
+  const a = normalizePhotoAdjustments(adjustments);
+  return [
+    a.brightness,
+    a.contrast,
+    a.highlights,
+    a.shadows,
+    a.whites,
+    a.blacks,
+    a.temperature,
+    a.tint,
+    ...(Array.isArray(a.wbGains) ? a.wbGains : []),
+  ].map((value) => Math.round(Number(value || 0) * 1000) / 1000).join('|');
+}
+
+function ViewerToneImage({
+  src,
+  photoId,
+  adjustments,
+  exact,
+  alt,
+  className,
+  style,
+  onLoad,
+}) {
+  const canvasRef = React.useRef(null);
+  const normalized = React.useMemo(() => normalizePhotoAdjustments(adjustments), [adjustments]);
+  const adjustmentKey = React.useMemo(() => getToneAdjustmentKey(normalized), [normalized]);
+  const shouldRenderCanvas = Boolean(exact && src && !isDefaultPhotoAdjustments(normalized));
+  const [canvasReady, setCanvasReady] = React.useState(false);
+  const normalizedRef = React.useRef(normalized);
+  const onLoadRef = React.useRef(onLoad);
+
+  React.useEffect(() => {
+    normalizedRef.current = normalized;
+  }, [adjustmentKey, normalized]);
+
+  React.useEffect(() => {
+    onLoadRef.current = onLoad;
+  }, [onLoad]);
+
+  React.useEffect(() => {
+    if (!shouldRenderCanvas) {
+      setCanvasReady(false);
+      return undefined;
+    }
+    let cancelled = false;
+    let objectUrl = '';
+    const timer = window.setTimeout(async () => {
+      try {
+        let renderSrc = src;
+        if (photoId) {
+          const token = getToken();
+          const pixelUrl = `${BASE_URL || ''}/api/photos/${encodeURIComponent(String(photoId))}/pixel-source?variant=thumb`;
+          const response = await fetch(pixelUrl, {
+            method: 'GET',
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            credentials: 'same-origin',
+          });
+          if (!response.ok) throw new Error('无法读取照片像素');
+          const blob = await response.blob();
+          objectUrl = URL.createObjectURL(blob);
+          renderSrc = objectUrl;
+        }
+        const result = await renderPhotoAdjustmentsToCanvas(canvasRef.current, renderSrc, normalizedRef.current, { maxSize: 1600 });
+        if (cancelled) return;
+        setCanvasReady(true);
+        if (typeof onLoadRef.current === 'function') {
+          onLoadRef.current({ target: { naturalWidth: result.naturalWidth, naturalHeight: result.naturalHeight } });
+        }
+      } catch (err) {
+        if (!cancelled) setCanvasReady(false);
+      }
+    }, 80);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [adjustmentKey, photoId, shouldRenderCanvas, src]);
+
+  const fallbackStyle = shouldRenderCanvas && canvasReady
+    ? { ...(style || {}), position: 'absolute', inset: 0, opacity: 0, pointerEvents: 'none' }
+    : style;
+
+  return (
+    <>
+      {shouldRenderCanvas ? (
+        <canvas
+          ref={canvasRef}
+          className={`${className || ''} viewer-adjusted-canvas`}
+          style={{ display: canvasReady ? 'block' : 'none' }}
+          aria-hidden="true"
+        />
+      ) : null}
+      <img
+        src={src}
+        alt={alt}
+        className={className}
+        style={fallbackStyle}
+        onLoad={onLoad}
+      />
+    </>
+  );
 }
 
 function safeParseTags(tags) {
@@ -3710,12 +3818,17 @@ function ProjectDetail({
                           const slidePhotoId = getMetaPhotoId(slideMeta);
                           const slideFaces = slidePhotoId ? (viewerFaceMap[slidePhotoId] || []) : [];
                           const showFaceBoxes = idx === viewerIndex && viewerFaceOverlayVisible && slideFaces.length > 0;
-                          const slideAdjustmentStyle = getPhotoAdjustmentStyle(idx === viewerIndex && viewerToneVisible ? viewerToneDraft : getAdjustmentForPhoto(slideMeta));
+                          const slideAdjustments = idx === viewerIndex && viewerToneVisible ? viewerToneDraft : getAdjustmentForPhoto(slideMeta);
+                          const slideAdjustmentStyle = getPhotoAdjustmentStyle(slideAdjustments);
+                          const useExactTonePreview = idx === viewerIndex && !viewerShowOriginal && !isDefaultPhotoAdjustments(slideAdjustments);
                           return (
                             <div className={`viewer-slide${idx === viewerIndex ? ' is-active' : ''}`} style={viewerSlideStyle} key={`viewer-slide-${idx}`}>
                               <div className="viewer-face-image-surface">
-                                <img
+                                <ViewerToneImage
                                   src={slideSrc}
+                                  photoId={slidePhotoId}
+                                  adjustments={slideAdjustments}
+                                  exact={useExactTonePreview}
                                   alt={`viewer-${idx}`}
                                   className={`viewer-carousel-img${idx === viewerIndex && viewerEnableOpenZoom ? ' viewer-img--open-zoom' : ''}`}
                                   style={slideAdjustmentStyle}
@@ -3860,12 +3973,17 @@ function ProjectDetail({
                     <div className="viewer-img-stage" onClick={(e) => e.stopPropagation()}>
                       <div className="viewer-carousel" style={viewerTrackStyle}>
                         {images.map((src, idx) => {
-                          const fallbackAdjustmentStyle = getPhotoAdjustmentStyle(idx === viewerIndex && viewerToneVisible ? viewerToneDraft : getAdjustmentForPhoto(photoMetas?.[idx]));
+                          const fallbackAdjustments = idx === viewerIndex && viewerToneVisible ? viewerToneDraft : getAdjustmentForPhoto(photoMetas?.[idx]);
+                          const fallbackAdjustmentStyle = getPhotoAdjustmentStyle(fallbackAdjustments);
+                          const useExactTonePreview = idx === viewerIndex && !isDefaultPhotoAdjustments(fallbackAdjustments);
                           return (
                           <div className={`viewer-slide${idx === viewerIndex ? ' is-active' : ''}`} style={viewerSlideStyle} key={`viewer-fallback-slide-${idx}`}>
                             <div className="viewer-face-image-surface">
-                              <img
+                              <ViewerToneImage
                                 src={src}
+                                photoId={getMetaPhotoId(photoMetas?.[idx])}
+                                adjustments={fallbackAdjustments}
+                                exact={useExactTonePreview}
                                 alt={`viewer-${idx}`}
                                 className={`viewer-carousel-img${idx === viewerIndex && viewerEnableOpenZoom ? ' viewer-img--open-zoom' : ''}`}
                                 style={fallbackAdjustmentStyle}
@@ -3917,6 +4035,10 @@ function ProjectDetail({
                     {[
                       ['brightness', '亮度', -100, 100],
                       ['contrast', '对比度', -100, 100],
+                      ['highlights', '高光', -100, 100],
+                      ['shadows', '阴影', -100, 100],
+                      ['whites', '白色', -100, 100],
+                      ['blacks', '黑色', -100, 100],
                       ['temperature', '白平衡', -100, 100],
                       ['tint', '色调', -100, 100],
                     ].map(([key, label, min, max]) => (
