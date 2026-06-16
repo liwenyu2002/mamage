@@ -267,34 +267,34 @@ async function analyzePhotoTone(src, adjustments, options = {}) {
     autoTint = clamp(((avgG - ((avgR + avgB) / 2)) / 255) * 150, -28, 28);
   }
 
+  const highlightPressure = clamp((sourceP99 - 232) / 24, 0, 1, 0);
+  const lowKeyPressure = clamp((92 - p50) / 58, 0, 1, 0) * clamp((188 - p90) / 128, 0, 1, 0);
+  const preserveLowKey = Math.max(lowKeyPressure, highlightPressure * clamp((100 - p50) / 72, 0, 1, 0));
+  const targetMedian = 108 - preserveLowKey * 34;
+  const maxLiftEv = 0.45 - preserveLowKey * 0.26;
   const median = Math.max(10, p50);
-  let ev = Math.log2(112 / median);
+  let ev = Math.log2(targetMedian / median);
   if (sourceP99 > 238) ev -= ((sourceP99 - 238) / 255) * 1.8;
   if (p97 > 232) ev -= ((p97 - 232) / 255) * 0.9;
-  ev = clamp(ev, -0.85, 0.45);
+  ev = clamp(ev, -0.85, maxLiftEv);
   const brightness = clamp((ev / 1.25) * 100, -64, 36);
   const spread = p90 - p10;
-  const contrast = clamp((118 - spread) * 0.32, -14, 24);
+  const contrast = clamp((118 - spread) * 0.28, -14, 24 - preserveLowKey * 10);
   const whites = clamp(
     sourceP99 > 244 ? -((sourceP99 - 244) * 1.7) : (sourceP99 < 220 ? (220 - sourceP99) * 0.35 : 0),
     -45,
     18,
   );
-  const highlights = clamp(
-    p90 > 210 ? -((p90 - 210) * 0.55) : (p90 < 160 ? (160 - p90) * 0.25 : 0),
-    -38,
-    22,
-  );
-  const shadows = clamp(
-    p10 < 42 ? (42 - p10) * 0.45 : (p10 > 78 ? -((p10 - 78) * 0.2) : 0),
-    -18,
-    38,
-  );
-  const blacks = clamp(
-    p02 < 8 ? (8 - p02) * 0.55 : (p02 > 28 ? -((p02 - 28) * 0.35) : 0),
-    -24,
-    26,
-  );
+  const protectHighlights = highlightPressure > 0.18;
+  const highlightsBase = protectHighlights
+    ? -((Math.max(0, sourceP99 - 240) * 0.75) + (Math.max(0, p97 - 228) * 0.28))
+    : (p90 > 210 ? -((p90 - 210) * 0.55) : (p90 < 160 ? (160 - p90) * 0.22 : 0));
+  const highlights = clamp(highlightsBase, -38, protectHighlights ? 0 : 20);
+  const shadowLiftScale = 1 - preserveLowKey * 0.68;
+  const shadowsBase = p10 < 42 ? (42 - p10) * 0.42 : (p10 > 78 ? -((p10 - 78) * 0.2) : 0);
+  const shadows = clamp(shadowsBase * shadowLiftScale, -18, 34);
+  const blacksBase = p02 < 8 ? (8 - p02) * 0.18 : (p02 > 28 ? -((p02 - 28) * 0.35) : 0);
+  const blacks = clamp(blacksBase - preserveLowKey * 12, -24, 20);
   const autoAdjustments = buildPhotoAdjustments({
     brightness,
     contrast,
