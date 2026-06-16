@@ -1,8 +1,6 @@
 ﻿// src/App.jsx
 import React from 'react';
-import { Layout, Typography, Input, Nav, Avatar, Empty, Button, Popover, Card, SideSheet } from '@douyinfe/semi-ui';
 import '@semi-bot/semi-theme-mamage_day/semi.css';
-import { IconUser, IconSearch, IconMenu } from '@douyinfe/semi-icons';
 import ProjectCard from './ProjectCard';
 import ProjectDetail from './ProjectDetail';
 import ShareView from './ShareView';
@@ -20,8 +18,6 @@ const Scenery = React.lazy(() => import('./Scenery'));
 const AccountPage = React.lazy(() => import('./AccountPage'));
 const AiNewsWriter = React.lazy(() => import('./AiNewsWriter.jsx'));
 
-const { Header, Content, Footer } = Layout;
-const { Text } = Typography;
 const PROJECT_PAGE_SIZE = 24;
 
 function formatHeaderDate(val) {
@@ -62,6 +58,45 @@ function LazyPanel({ children, title = '正在加载功能' }) {
   );
 }
 
+function Text({ children, type = '', strong = false, size = '', style }) {
+  return (
+    <span
+      className={`app-text${type ? ` is-${type}` : ''}${strong ? ' is-strong' : ''}${size ? ` is-${size}` : ''}`}
+      style={style}
+    >
+      {children}
+    </span>
+  );
+}
+
+function Button({ children, className = '', disabled = false, loading = false, onClick, size = '', style }) {
+  return (
+    <button
+      type="button"
+      className={`app-inline-button${size ? ` is-${size}` : ''}${className ? ` ${className}` : ''}`}
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
+      onClick={onClick}
+      style={style}
+    >
+      {children}
+    </button>
+  );
+}
+
+function Empty({ description = '暂无内容' }) {
+  return <div className="app-empty-state">{description}</div>;
+}
+
+function Card({ title, children }) {
+  return (
+    <section className="app-card">
+      {title ? <div className="app-card-title">{title}</div> : null}
+      {children}
+    </section>
+  );
+}
+
 function App() {
   const [projects, setProjects] = React.useState([]);
   const [projectPage, setProjectPage] = React.useState(1);
@@ -87,6 +122,7 @@ function App() {
   });
   const [isMobileHeader, setIsMobileHeader] = React.useState(() => (typeof window !== 'undefined' ? window.innerWidth <= 1024 : false));
   const [mobileNavVisible, setMobileNavVisible] = React.useState(false);
+  const [projectInfoOpen, setProjectInfoOpen] = React.useState(false);
   const [shareMode, setShareMode] = React.useState(false);
   const [shareInitialProject, setShareInitialProject] = React.useState(null);
   const [photoSearchMode, setPhotoSearchMode] = React.useState(false);
@@ -221,6 +257,7 @@ function App() {
 
   React.useEffect(() => {
     setActiveProjectHeader(null);
+    setProjectInfoOpen(false);
   }, [currentProjectId]);
 
   React.useEffect(() => {
@@ -602,11 +639,24 @@ function App() {
     };
   }, [activeProjectHeader, currentProject, currentProjectId]);
 
-  const projectHeaderTitle = projectHeader?.title || (currentProjectId ? '未命名相册' : 'MaMage 图库');
+  const projectHeaderReady = Boolean(projectHeader && (
+    projectHeader.title
+    || projectHeader.description
+    || projectHeader.subtitle
+    || projectHeader.createdText
+    || projectHeader.updatedText
+    || projectHeader.count !== undefined
+  ));
+  const projectHeaderTitle = currentProjectId
+    ? (projectHeaderReady ? (projectHeader?.title || '未命名相册') : '正在加载相册')
+    : 'MaMage 图库';
   const projectHeaderDescription = String(projectHeader?.description || projectHeader?.subtitle || '').trim();
-  const projectHeaderDescriptionText = currentProjectId ? (projectHeaderDescription || '暂无描述') : '';
+  const projectHeaderDescriptionText = currentProjectId
+    ? (projectHeaderReady ? (projectHeaderDescription || '暂无描述') : '正在同步照片信息')
+    : '';
   const projectHeaderMeta = React.useMemo(() => {
     if (!projectHeader) return [];
+    if (currentProjectId && !projectHeaderReady) return ['读取照片信息'];
     const items = [];
     const countValue = Number(projectHeader.count);
     if (Number.isFinite(countValue)) {
@@ -617,7 +667,70 @@ function App() {
     items.push(`创建 ${projectHeader.createdText || '-'}`);
     items.push(`更新 ${projectHeader.updatedText || '-'}`);
     return items;
-  }, [projectHeader]);
+  }, [currentProjectId, projectHeader, projectHeaderReady]);
+
+  const userLabel = currentUser && (currentUser.displayName || currentUser.email || currentUser.name);
+  const userInitial = String(userLabel || 'U').trim().charAt(0).toUpperCase() || 'U';
+
+  const closeMobileNav = React.useCallback(() => {
+    setMobileNavVisible(false);
+  }, []);
+
+  const handleNavigateScenery = React.useCallback(() => {
+    setSelectedNav('scenery');
+    setCurrentProjectId(null);
+    try { window.history.pushState({}, '', '/scenery'); } catch (e) { }
+  }, []);
+
+  const handleNavigateFunction = React.useCallback(() => {
+    setSelectedNav('function');
+    setCurrentProjectId(null);
+    setFunctionPage('ai-writer');
+    try { window.history.pushState({}, '', '/function/ai-writer'); } catch (e) { }
+  }, []);
+
+  const handleNavigateAbout = React.useCallback(() => {
+    setSelectedNav('about');
+    setCurrentProjectId(null);
+    try { window.history.pushState({}, '', '/about'); } catch (e) { }
+  }, []);
+
+  const handleNavigateAccount = React.useCallback(() => {
+    try { window.history.pushState({}, '', '/account'); } catch (e) { }
+    setSelectedNav('account');
+    setCurrentProjectId(null);
+  }, []);
+
+  const handleLogout = React.useCallback(async () => {
+    try {
+      await authService.logout();
+      setCurrentUser(null);
+      try { window.history.pushState({}, '', '/login'); } catch (e) { }
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
+
+  const navItems = React.useMemo(() => ([
+    { key: 'projects', label: '项目', onClick: handleBackToList },
+    { key: 'scenery', label: '风景', onClick: handleNavigateScenery },
+    { key: 'function', label: '功能', onClick: handleNavigateFunction },
+    { key: 'about', label: '关于', onClick: handleNavigateAbout },
+  ]), [handleBackToList, handleNavigateAbout, handleNavigateFunction, handleNavigateScenery]);
+
+  const renderNavItem = React.useCallback((item, mobile = false) => (
+    <button
+      key={item.key}
+      type="button"
+      className={`${mobile ? 'mamage-mobile-nav-item' : 'mamage-nav-link'}${selectedNav === item.key ? ' is-active' : ''}`}
+      onClick={() => {
+        item.onClick();
+        if (mobile) closeMobileNav();
+      }}
+    >
+      {item.label}
+    </button>
+  ), [closeMobileNav, selectedNav]);
 
   const showProjectPager = (projectPage > 1) || projectHasMore;
   const projectPageText = projectTotal > 0
@@ -671,267 +784,153 @@ function App() {
   }
 
   return (
-    <Layout className="mamage-shell" style={{ background: 'transparent' }}>
-      <Header
-        className={`mamage-header${currentProjectId ? ' is-project-detail' : ''}`}
-        style={{
-          position: 'sticky',
-          top: 0,
-          zIndex: 1000,
-          padding: 0,
-          background: 'transparent',
-          borderBottom: 'none',
-        }}
-      >
-        {isMobileHeader ? (
-          <div className="mamage-mobile-header" style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                <Button
-                  icon={<IconMenu />}
-                  theme="borderless"
-                  size="small"
-                  onClick={() => setMobileNavVisible(true)}
-                  style={{ flex: '0 0 auto' }}
-                />
+    <div className="mamage-shell">
+      <header className={`mamage-header${currentProjectId ? ' is-project-detail' : ''}`}>
+        <div className={`mamage-topbar${currentProjectId ? ' is-project-detail' : ''}`}>
+          <div className="mamage-brand-area">
+            {isMobileHeader ? (
+              <button
+                type="button"
+                className="mamage-menu-trigger"
+                aria-label="打开导航"
+                onClick={() => setMobileNavVisible(true)}
+              >
+                <span />
+                <span />
+                <span />
+              </button>
+            ) : null}
+
+            <button
+              type="button"
+              onClick={handleBackToList}
+              className={`mamage-brand-button${currentProjectId ? ' is-project-title' : ''}`}
+              title={currentProjectId ? '返回项目列表' : '返回首页'}
+            >
+              {currentProjectId ? (
+                <span className="mamage-project-title-text">{projectHeaderTitle}</span>
+              ) : (
+                <span className="mamage-brand-name">MaMage 图库</span>
+              )}
+            </button>
+
+            {currentProjectId ? (
+              <div className="mamage-project-info-menu">
                 <button
                   type="button"
-                  onClick={handleBackToList}
-                  className={`mamage-mobile-brand-button${currentProjectId ? ' is-project-title' : ''}`}
-                  title={currentProjectId ? '返回项目列表' : '返回首页'}
-                  style={{
-                    fontSize: 24,
-                    fontWeight: 700,
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    border: 'none',
-                    background: 'transparent',
-                    padding: 0,
-                    cursor: 'pointer',
-                    color: 'inherit',
-                  }}
+                  className="mamage-project-info-trigger"
+                  aria-label="查看相册信息"
+                  aria-expanded={projectInfoOpen}
+                  onClick={() => setProjectInfoOpen((prev) => !prev)}
                 >
-                  {currentProjectId ? projectHeaderTitle : 'MaMage 图库'}
+                  i
                 </button>
-              </div>
-              {currentUser ? (
-                <Popover
-                  content={(
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 140 }}>
-                      <Button type="tertiary" onClick={() => { try { window.history.pushState({}, '', '/account'); } catch (e) { } setSelectedNav('account'); }}>账户信息</Button>
-                      <Button type="tertiary" theme="borderless" onClick={async () => { try { await authService.logout(); setCurrentUser(null); try { window.history.pushState({}, '', '/login'); } catch (e) { } } catch (e) { console.error(e); } }}>退出登录</Button>
-                    </div>
-                  )}
-                  trigger="click"
-                  position="bottomRight"
-                >
-                  <Avatar size="small" alt={currentUser?.name || ''} style={{ backgroundColor: '#d9d9d9', cursor: 'pointer' }}>
-                    {(currentUser?.name || currentUser?.displayName || currentUser?.email || 'U')[0]}
-                  </Avatar>
-                </Popover>
-              ) : (
-                <Button size="small" type="primary" onClick={() => { try { window.history.pushState({}, '', '/login'); window.location.reload(); } catch (e) { window.location.href = '/login'; } }}>
-                  管理员登录
-                </Button>
-              )}
-            </div>
-            {currentProjectId ? (
-              <div className="mamage-mobile-project-details">
-                {projectHeaderMeta.length > 0 ? (
-                  <div className="mamage-project-meta-line">
-                    {projectHeaderMeta.map((item) => <span key={item}>{item}</span>)}
+                {projectInfoOpen ? (
+                  <div className="mamage-project-info-panel">
+                    <div className="mamage-project-info-title">{projectHeaderTitle}</div>
+                    {projectHeaderMeta.length > 0 ? (
+                      <div className="mamage-project-info-meta">
+                        {projectHeaderMeta.map((item) => <span key={item}>{item}</span>)}
+                      </div>
+                    ) : null}
+                    <div className="mamage-project-info-desc">描述：{projectHeaderDescriptionText}</div>
                   </div>
                 ) : null}
-                <div className="mamage-project-description">描述：{projectHeaderDescriptionText}</div>
               </div>
             ) : null}
-            <SideSheet
-              title="导航"
-              placement="left"
-              visible={mobileNavVisible}
-              onCancel={() => setMobileNavVisible(false)}
-              width={240}
-              bodyStyle={{ padding: 12 }}
-            >
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <Button
-                  block
-                  type={selectedNav === 'projects' ? 'primary' : 'tertiary'}
-                  onClick={() => { handleBackToList(); setMobileNavVisible(false); }}
-                >
-                  项目
-                </Button>
-                <Button
-                  block
-                  type={selectedNav === 'scenery' ? 'primary' : 'tertiary'}
-                  onClick={() => {
-                    setSelectedNav('scenery');
-                    setCurrentProjectId(null);
-                    try { window.history.pushState({}, '', '/scenery'); } catch (e) { }
-                    setMobileNavVisible(false);
-                  }}
-                >
-                  风景
-                </Button>
-                <Button
-                  block
-                  type={selectedNav === 'function' ? 'primary' : 'tertiary'}
-                  onClick={() => {
-                    setSelectedNav('function');
-                    setCurrentProjectId(null);
-                    setFunctionPage('ai-writer');
-                    try { window.history.pushState({}, '', '/function/ai-writer'); } catch (e) { }
-                    setMobileNavVisible(false);
-                  }}
-                >
-                  功能
-                </Button>
-                <Button
-                  block
-                  type={selectedNav === 'about' ? 'primary' : 'tertiary'}
-                  onClick={() => {
-                    setSelectedNav('about');
-                    setCurrentProjectId(null);
-                    try { window.history.pushState({}, '', '/about'); } catch (e) { }
-                    setMobileNavVisible(false);
-                  }}
-                >
-                  关于
-                </Button>
-              </div>
-            </SideSheet>
+          </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Input
-                placeholder="搜索项目/照片"
-                prefix={<IconSearch />}
-                showClear
-                size="small"
-                style={{ flex: 1, minWidth: 0 }}
+          {!isMobileHeader ? (
+            <nav className="mamage-nav-links" aria-label="主导航">
+              {navItems.map((item) => renderNavItem(item))}
+            </nav>
+          ) : null}
+
+          <div className="mamage-nav-actions">
+            <div className="mamage-nav-search-field">
+              <span className="mamage-search-symbol" aria-hidden="true" />
+              <input
+                className="mamage-nav-search-input"
+                aria-label="搜索项目、照片、标签或摄影师"
+                placeholder={isMobileHeader ? '搜索项目 / 照片' : '搜索项目 / 照片 / 标签 / 摄影师'}
                 value={keyword}
-                onChange={(value) => setKeyword(value)}
-                onEnterPress={handleSearchSubmit}
+                onChange={(event) => setKeyword(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') handleSearchSubmit();
+                }}
               />
-              <Button size="small" theme="solid" type="primary" onClick={handleSearchSubmit}>搜索</Button>
-              {!isDemoPath ? (
-                <IfCan perms={['projects.create']}>
-                  <Button size="small" onClick={() => setShowCreateModal(true)}>新建</Button>
-                </IfCan>
+              {keyword ? (
+                <button
+                  type="button"
+                  className="mamage-search-clear"
+                  aria-label="清空搜索"
+                  onClick={() => setKeyword('')}
+                >
+                  ×
+                </button>
               ) : null}
             </div>
-          </div>
-        ) : (
-          <div className={`mamage-desktop-header${currentProjectId ? ' is-project-detail' : ''}`}>
-            <Nav
-              mode="horizontal"
-              items={[
-                { itemKey: 'projects', text: '项目', onClick: () => { handleBackToList(); } },
-                { itemKey: 'scenery', text: '风景', onClick: () => { setSelectedNav('scenery'); setCurrentProjectId(null); try { window.history.pushState({}, '', '/scenery'); } catch (e) { } } },
-                {
-                  itemKey: 'function', text: (
-                    <Popover
-                      position="bottomLeft"
-                      trigger="hover"
-                      content={(
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 160 }}>
-                          <Button onClick={() => { try { window.history.pushState({}, '', '/function/ai-writer'); } catch (e) { } setSelectedNav('function'); setFunctionPage('ai-writer'); }}>AI 写新闻稿</Button>
-                          <div style={{ color: '#666', fontSize: 13 }}>更多功能入口</div>
-                        </div>
-                      )}
-                    >
-                      <span style={{ cursor: 'pointer' }}>功能</span>
-                    </Popover>
-                  ), onClick: () => { setSelectedNav('function'); setCurrentProjectId(null); try { window.history.pushState({}, '', '/function'); } catch (e) { } }
-                },
-                { itemKey: 'about', text: '关于', onClick: () => { setSelectedNav('about'); setCurrentProjectId(null); try { window.history.pushState({}, '', '/about'); } catch (e) { } } },
-              ]}
-              header={{
-                text: (
-                  <button
-                    type="button"
-                    onClick={handleBackToList}
-                    className={`mamage-brand-button${currentProjectId ? ' mamage-project-title-button' : ''}`}
-                    title={currentProjectId ? '返回项目列表' : '返回首页'}
-                    style={{
-                      border: 'none',
-                      background: 'transparent',
-                      padding: 0,
-                      margin: 0,
-                      fontSize: 18,
-                      fontWeight: 700,
-                      cursor: 'pointer',
-                      color: '#111827',
-                    }}
-                  >
-                    {currentProjectId ? (
-                      <>
-                        <span className="mamage-project-title-text">{projectHeaderTitle}</span>
-                        {projectHeaderMeta.length > 0 ? (
-                          <span className="mamage-project-meta-line">
-                            {projectHeaderMeta.map((item) => <span key={item}>{item}</span>)}
-                          </span>
-                        ) : null}
-                        <span className="mamage-project-description">描述：{projectHeaderDescriptionText}</span>
-                      </>
-                    ) : 'MaMage 图库'}
-                  </button>
-                ),
-              }}
-              footer={(
-                <div className="mamage-nav-footer">
-                  <div className="mamage-nav-actions">
-                    <Input
-                      className="mamage-nav-search-input"
-                      placeholder="搜索项目 / 照片 / 标签 / 摄影师"
-                      prefix={<IconSearch />}
-                      showClear
-                      style={{ width: '100%' }}
-                      value={keyword}
-                      onChange={(value) => setKeyword(value)}
-                      onEnterPress={handleSearchSubmit}
-                    />
-                    <Button className="mamage-nav-search-button" theme="solid" type="primary" onClick={handleSearchSubmit}>
-                      搜索
-                    </Button>
 
-                    {!isDemoPath ? (
-                      <IfCan perms={['projects.create']}>
-                        <Button className="mamage-nav-create-button" onClick={() => setShowCreateModal(true)}>
-                          <span className="mamage-label-full">新建相册</span>
-                          <span className="mamage-label-short">新建</span>
-                        </Button>
-                      </IfCan>
-                    ) : null}
-                  </div>
+            <button type="button" className="mamage-action-button is-primary" onClick={handleSearchSubmit}>
+              搜索
+            </button>
 
-                  <div className="mamage-nav-user-wrap">
-                    {currentUser ? (
-                      <Popover
-                        content={(
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 140 }}>
-                            <Button type="tertiary" onClick={() => { try { const url = new URL(window.location.href); window.history.pushState({}, '', '/account'); setSelectedNav('account'); } catch (e) { } }}>账户信息</Button>
-                            <Button type="tertiary" theme="borderless" onClick={async () => { try { await authService.logout(); setCurrentUser(null); try { window.history.pushState({}, '', '/login'); } catch (e) { } } catch (e) { console.error(e); } }}>退出账号</Button>
-                          </div>
-                        )}
-                        trigger="hover"
-                        position="bottomRight"
-                      >
-                        <div className="mamage-user-chip">
-                          <Avatar size="small" alt={currentUser?.name || ''} style={{ backgroundColor: '#d9d9d9' }}>{(currentUser?.name || currentUser?.displayName || currentUser?.email || 'U')[0]}</Avatar>
-                          <span className="mamage-user-email">{currentUser && (currentUser.displayName || currentUser.email || currentUser.name)}</span>
-                        </div>
-                      </Popover>
-                    ) : null}
-                  </div>
+            {!isDemoPath ? (
+              <IfCan perms={['projects.create']}>
+                <button type="button" className="mamage-action-button is-secondary" onClick={() => setShowCreateModal(true)}>
+                  <span className="mamage-label-full">新建相册</span>
+                  <span className="mamage-label-short">新建</span>
+                </button>
+              </IfCan>
+            ) : null}
+
+            {currentUser ? (
+              <details className="mamage-user-menu">
+                <summary className="mamage-user-chip">
+                  <span className="mamage-avatar" aria-hidden="true">{userInitial}</span>
+                  <span className="mamage-user-email">{userLabel}</span>
+                </summary>
+                <div className="mamage-user-menu-panel">
+                  <button type="button" onClick={handleNavigateAccount}>账户信息</button>
+                  <button type="button" onClick={handleLogout}>退出账号</button>
                 </div>
-              )}
-            />
+              </details>
+            ) : (
+              <button
+                type="button"
+                className="mamage-action-button is-secondary"
+                onClick={() => {
+                  try {
+                    window.history.pushState({}, '', '/login');
+                    window.location.reload();
+                  } catch (e) {
+                    window.location.href = '/login';
+                  }
+                }}
+              >
+                管理员登录
+              </button>
+            )}
           </div>
-        )}
-      </Header>
+        </div>
 
-      <Content className="mamage-content" style={{ padding: 'clamp(10px, 2.5vw, 24px)' }}>
+        {isMobileHeader && mobileNavVisible ? (
+          <>
+            <button type="button" className="mamage-mobile-nav-backdrop" aria-label="关闭导航遮罩" onClick={closeMobileNav} />
+            <aside className="mamage-mobile-nav-panel is-open" aria-hidden={false}>
+              <div className="mamage-mobile-nav-head">
+                <span>导航</span>
+                <button type="button" aria-label="关闭导航" onClick={closeMobileNav}>×</button>
+              </div>
+              <div className="mamage-mobile-nav-list">
+                {navItems.map((item) => renderNavItem(item, true))}
+              </div>
+            </aside>
+          </>
+        ) : null}
+      </header>
+
+      <main className="mamage-content" style={{ padding: 'clamp(10px, 2.5vw, 24px)' }}>
         <div className="project-page">
           {currentProjectId ? (
             <ProjectDetail
@@ -1199,7 +1198,7 @@ function App() {
             )
           )}
         </div>
-      </Content>
+      </main>
 
       <PhotoPreviewOverlay
         visible={photoPreviewVisible}
@@ -1210,9 +1209,9 @@ function App() {
         onClose={closePhotoPreview}
       />
 
-      <Footer className="mamage-footer" style={{ textAlign: 'center' }}>
+      <footer className="mamage-footer" style={{ textAlign: 'center' }}>
         MaMage 校园图库 © {new Date().getFullYear()}
-      </Footer>
+      </footer>
       <TransferStation />
       <CreateAlbumModal
         visible={showCreateModal}
@@ -1223,7 +1222,7 @@ function App() {
           loadProjects(projectQuery, 1, PROJECT_PAGE_SIZE);
         }}
       />
-    </Layout>
+    </div>
   );
 }
 
