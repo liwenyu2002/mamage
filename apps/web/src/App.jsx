@@ -68,7 +68,7 @@ function App() {
       return false;
     }
   });
-  const [isMobileHeader, setIsMobileHeader] = React.useState(() => (typeof window !== 'undefined' ? window.innerWidth <= 768 : false));
+  const [isMobileHeader, setIsMobileHeader] = React.useState(() => (typeof window !== 'undefined' ? window.innerWidth <= 1024 : false));
   const [mobileNavVisible, setMobileNavVisible] = React.useState(false);
   const [shareMode, setShareMode] = React.useState(false);
   const [shareInitialProject, setShareInitialProject] = React.useState(null);
@@ -204,7 +204,7 @@ function App() {
 
   React.useEffect(() => {
     if (typeof window === 'undefined') return undefined;
-    const onResize = () => setIsMobileHeader(window.innerWidth <= 768);
+    const onResize = () => setIsMobileHeader(window.innerWidth <= 1024);
     onResize();
     window.addEventListener('resize', onResize);
     window.addEventListener('orientationchange', onResize);
@@ -753,7 +753,7 @@ function App() {
             </div>
           </div>
         ) : (
-          <div className="mamage-desktop-header" style={{ padding: '0 0px' }}>
+          <div className="mamage-desktop-header">
             <Nav
               mode="horizontal"
               items={[
@@ -782,10 +782,11 @@ function App() {
                   <button
                     type="button"
                     onClick={handleBackToList}
-                    style={{
-                      border: 'none',
-                      background: 'transparent',
-                      padding: 0,
+                      className="mamage-brand-button"
+                      style={{
+                        border: 'none',
+                        background: 'transparent',
+                        padding: 0,
                       margin: 0,
                       fontSize: 18,
                       fontWeight: 700,
@@ -798,31 +799,33 @@ function App() {
                 ),
               }}
               footer={(
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', justifyContent: 'space-between' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: '1 1 auto', minWidth: 0 }}>
+                <div className="mamage-nav-footer">
+                  <div className="mamage-nav-actions">
                     <Input
+                      className="mamage-nav-search-input"
                       placeholder="搜索项目 / 照片 / 标签 / 摄影师"
                       prefix={<IconSearch />}
                       showClear
-                      style={{ width: 'clamp(120px, 30vw, 260px)' }}
+                      style={{ width: '100%' }}
                       value={keyword}
                       onChange={(value) => setKeyword(value)}
                       onEnterPress={handleSearchSubmit}
                     />
-                    <Button theme="solid" type="primary" onClick={handleSearchSubmit}>
+                    <Button className="mamage-nav-search-button" theme="solid" type="primary" onClick={handleSearchSubmit}>
                       搜索
                     </Button>
 
                     {!isDemoPath ? (
                       <IfCan perms={['projects.create']}>
-                        <Button onClick={() => setShowCreateModal(true)}>
-                          新建相册
+                        <Button className="mamage-nav-create-button" onClick={() => setShowCreateModal(true)}>
+                          <span className="mamage-label-full">新建相册</span>
+                          <span className="mamage-label-short">新建</span>
                         </Button>
                       </IfCan>
                     ) : null}
                   </div>
 
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '0 0 auto', minWidth: 0 }}>
+                  <div className="mamage-nav-user-wrap">
                     {currentUser ? (
                       <Popover
                         content={(
@@ -834,9 +837,9 @@ function App() {
                         trigger="hover"
                         position="bottomRight"
                       >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', minWidth: 0 }}>
+                        <div className="mamage-user-chip">
                           <Avatar size="small" alt={currentUser?.name || ''} style={{ backgroundColor: '#d9d9d9' }}>{(currentUser?.name || currentUser?.displayName || currentUser?.email || 'U')[0]}</Avatar>
-                          <span style={{ fontSize: 14, maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block' }}>{currentUser && (currentUser.displayName || currentUser.email || currentUser.name)}</span>
+                          <span className="mamage-user-email">{currentUser && (currentUser.displayName || currentUser.email || currentUser.name)}</span>
                         </div>
                       </Popover>
                     ) : null}

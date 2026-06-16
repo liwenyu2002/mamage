@@ -132,6 +132,184 @@ textarea {
     z-index: 1;
 }
 
+.mamage-desktop-header {
+    padding: 0 16px;
+    min-width: 0;
+}
+
+.mamage-desktop-header .semi-navigation,
+.mamage-desktop-header .semi-navigation-inner {
+    width: 100%;
+    min-width: 0;
+}
+
+.mamage-desktop-header .semi-navigation-inner {
+    min-height: 76px;
+    display: flex;
+    align-items: center;
+    gap: clamp(12px, 2vw, 28px);
+}
+
+.mamage-desktop-header .semi-navigation-header-list-outer {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+}
+
+.mamage-desktop-header .semi-navigation-header {
+    flex: 0 0 auto;
+    min-width: 0;
+}
+
+.mamage-brand-button {
+    max-width: clamp(150px, 18vw, 230px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mamage-desktop-header .semi-navigation-list-wrapper {
+    flex: 0 1 auto;
+    min-width: 0;
+}
+
+.mamage-desktop-header .semi-navigation-list {
+    display: flex;
+    align-items: center;
+    flex-wrap: nowrap;
+    min-width: 0;
+}
+
+.mamage-desktop-header .semi-navigation-item {
+    white-space: nowrap;
+}
+
+.mamage-desktop-header .semi-navigation-footer {
+    flex: 0 1 auto;
+    min-width: 0;
+    margin-left: auto;
+}
+
+.mamage-nav-footer,
+.mamage-nav-actions,
+.mamage-nav-user-wrap,
+.mamage-user-chip {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+}
+
+.mamage-nav-footer {
+    justify-content: flex-end;
+    gap: 12px;
+    flex-wrap: nowrap;
+}
+
+.mamage-nav-actions {
+    flex: 1 1 auto;
+    gap: 10px;
+}
+
+.mamage-nav-search-input {
+    width: clamp(150px, 24vw, 320px) !important;
+    flex: 1 1 auto;
+}
+
+.mamage-nav-search-button,
+.mamage-nav-create-button {
+    flex: 0 0 auto;
+}
+
+.mamage-label-short {
+    display: none;
+}
+
+.mamage-nav-user-wrap {
+    flex: 0 1 auto;
+}
+
+.mamage-user-chip {
+    gap: 8px;
+    cursor: pointer;
+    padding: 4px 8px 4px 4px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.28);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+.mamage-user-email {
+    display: inline-block;
+    max-width: clamp(72px, 11vw, 150px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 14px;
+    line-height: 1.2;
+}
+
+@media (max-width: 1320px) {
+    .mamage-desktop-header {
+        padding: 0 12px;
+    }
+
+    .mamage-desktop-header .semi-navigation-inner {
+        gap: 12px;
+    }
+
+    .mamage-desktop-header .semi-navigation-item {
+        padding-left: 12px !important;
+        padding-right: 12px !important;
+    }
+
+    .mamage-brand-button {
+        max-width: 180px;
+    }
+
+    .mamage-nav-footer {
+        gap: 8px;
+    }
+
+    .mamage-nav-actions {
+        gap: 8px;
+    }
+
+    .mamage-nav-search-input {
+        width: clamp(120px, 19vw, 220px) !important;
+    }
+
+    .mamage-label-full {
+        display: none;
+    }
+
+    .mamage-label-short {
+        display: inline;
+    }
+
+    .mamage-user-email {
+        max-width: 84px;
+    }
+}
+
+@media (max-width: 1120px) {
+    .mamage-desktop-header .semi-navigation-item {
+        padding-left: 9px !important;
+        padding-right: 9px !important;
+    }
+
+    .mamage-nav-search-input {
+        width: 132px !important;
+    }
+
+    .mamage-user-email {
+        display: none;
+    }
+
+    .mamage-user-chip {
+        padding-right: 4px;
+    }
+}
+
 .mamage-content {
     position: relative;
     z-index: 1;
