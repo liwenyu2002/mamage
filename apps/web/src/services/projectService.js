@@ -25,8 +25,12 @@ async function fetchProjectList({ page = 1, pageSize = 24, keyword = '', demo = 
   };
 }
 
-async function getProjectById(id, { demo = false, includeFaces = true } = {}) {
-  return request(`/api/projects/${id}`, { method: 'GET', data: { includeFaces: includeFaces ? 1 : 0, demo: demo ? 1 : undefined } });
+async function getProjectById(id, { demo = false, includeFaces = true, timeoutMs } = {}) {
+  return request(`/api/projects/${id}`, {
+    method: 'GET',
+    data: { includeFaces: includeFaces ? 1 : 0, demo: demo ? 1 : undefined },
+    timeoutMs,
+  });
 }
 
 async function updateProject(id, data) {

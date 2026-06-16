@@ -4,11 +4,11 @@ import { Typography, Button, Tag, Spin, Empty, Modal, Input, DatePicker, TextAre
 import {
   IconAIStrokedLevel1,
   IconClose,
-  IconCloudUploadStroked,
   IconEditStroked,
   IconGridView,
   IconListView,
   IconMoreStroked,
+  IconPlus,
   IconSearch,
 } from '@douyinfe/semi-icons';
 import './ProjectDetail.css';
@@ -27,6 +27,7 @@ const ANALYSIS_POLL_MAX_ATTEMPTS = 45;
 const AI_QUALITY_TAGS = ['AI recommended', 'AI medium', 'AI rejected'];
 const GALLERY_INITIAL_RENDER_LIMIT = 96;
 const GALLERY_RENDER_BATCH_SIZE = 96;
+const PROJECT_DETAIL_TIMEOUT_MS = 12000;
 
 function getAISelectionLabel(label) {
   if (label === 'recommended') return 'AI推荐';
@@ -637,7 +638,11 @@ function ProjectDetail({
       setLoading(true);
       setError(null);
       try {
-        const detail = await getProjectById(projectId, { demo: readOnly });
+        const detail = await getProjectById(projectId, {
+          demo: readOnly,
+          includeFaces: false,
+          timeoutMs: PROJECT_DETAIL_TIMEOUT_MS,
+        });
         if (canceled) return;
 
         setProject(detail);
@@ -723,6 +728,12 @@ function ProjectDetail({
               console.warn('merge photo urls failed', e);
             }
 
+            if (!canceled && nextImages.length) {
+              setPhotoMetas(nextMetas);
+              setImages(nextImages);
+              setLoading(false);
+            }
+
             // 濡傛灉閮ㄥ垎 photo meta 缂哄皯 photographerName锛屼絾鍖呭惈 photographerId锛?
             // 鍓嶇浠嶅彲鍥為€€鍘昏姹傜敤鎴蜂俊鎭苟琛ュ叏 name锛堝彲淇濈暀浠ユ彁鍗囦綋楠岋級銆?
             try {
@@ -759,6 +770,7 @@ function ProjectDetail({
                     return m;
                   });
                   nextMetas = updated;
+                  if (!canceled) setPhotoMetas(updated);
                 }
               }
             } catch (e) {
@@ -791,9 +803,38 @@ function ProjectDetail({
     };
   }, [projectId, initialProject, readOnly]);
 
+  React.useEffect(() => {
+    if (!projectId || !loading || images.length > 0) return undefined;
+    let canceled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const random = await fetchRandomByProject(projectId, 30);
+        if (canceled) return;
+        const randomList = Array.isArray(random?.list) ? random.list : Array.isArray(random) ? random : [];
+        if (!randomList.length) return;
+        const built = buildImagesAndMetas({ images: randomList });
+        if (!built.images.length) return;
+        setPhotoMetas(built.metas);
+        setImages(built.images);
+        setError(null);
+        setLoading(false);
+      } catch (err) {
+        // Keep the primary detail request in charge of the final error state.
+      }
+    }, 1600);
+    return () => {
+      canceled = true;
+      clearTimeout(timer);
+    };
+  }, [projectId, loading, images.length, buildImagesAndMetas]);
+
   const reloadGalleryFromServer = React.useCallback(async () => {
     if (!projectId) return;
-    const detail = await getProjectById(projectId, { demo: readOnly });
+    const detail = await getProjectById(projectId, {
+      demo: readOnly,
+      includeFaces: false,
+      timeoutMs: PROJECT_DETAIL_TIMEOUT_MS,
+    });
     setProject(detail);
     const built = buildImagesAndMetas(detail);
     setImages(built.images);
@@ -1073,7 +1114,7 @@ function ProjectDetail({
         uploadedIds.forEach((photoId) => scheduleAnalysisPolling(photoId));
         cancelUpload();
         // Refresh in background; don't block upload completion feedback.
-        getProjectById(projectId, { demo: readOnly, includeFaces: false })
+        getProjectById(projectId, { demo: readOnly, includeFaces: false, timeoutMs: PROJECT_DETAIL_TIMEOUT_MS })
           .then((detail) => {
             setProject(detail);
             const built = buildImagesAndMetas(detail);
@@ -1127,7 +1168,11 @@ function ProjectDetail({
       Toast.success('已保存');
       setEditVisible(false);
       // reload
-      const detail = await getProjectById(projectId, { demo: readOnly });
+      const detail = await getProjectById(projectId, {
+        demo: readOnly,
+        includeFaces: false,
+        timeoutMs: PROJECT_DETAIL_TIMEOUT_MS,
+      });
       setProject(detail);
       const built = buildImagesAndMetas(detail);
       setImages(built.images);
@@ -1255,7 +1300,11 @@ function ProjectDetail({
           }
           // reload project detail
           try {
-            const detail = await getProjectById(projectId, { demo: readOnly });
+            const detail = await getProjectById(projectId, {
+              demo: readOnly,
+              includeFaces: false,
+              timeoutMs: PROJECT_DETAIL_TIMEOUT_MS,
+            });
             setProject(detail);
             const built = buildImagesAndMetas(detail);
             setImages(built.images);
@@ -1743,6 +1792,12 @@ function ProjectDetail({
   React.useEffect(() => {
     if (viewerVisible) setViewerShowOriginal(false);
   }, [viewerVisible, viewerIndex]);
+
+  React.useEffect(() => {
+    if (typeof document === 'undefined') return undefined;
+    document.body.classList.toggle('mamage-viewer-open', viewerVisible);
+    return () => document.body.classList.remove('mamage-viewer-open');
+  }, [viewerVisible]);
 
   const getViewerTargetSrc = React.useCallback((index, showOriginal = false) => {
     const meta = photoMetas?.[index] || {};
@@ -2317,7 +2372,11 @@ function ProjectDetail({
       setPhotoDescMap(prev => ({ ...prev, [photoId]: newDesc }));
 
       // 鍒锋柊椤圭洰鏁版嵁浠ヤ繚鎸佸悓姝?
-      getProjectById(projectId, { demo: readOnly }).then(detail => {
+      getProjectById(projectId, {
+        demo: readOnly,
+        includeFaces: false,
+        timeoutMs: PROJECT_DETAIL_TIMEOUT_MS,
+      }).then(detail => {
         setProject(detail);
         const built = buildImagesAndMetas(detail);
         setImages(built.images);
@@ -2363,7 +2422,11 @@ function ProjectDetail({
       setViewerEditVisible(false);
       // reload project detail to sync metas
       try {
-        const detail = await getProjectById(projectId, { demo: readOnly });
+        const detail = await getProjectById(projectId, {
+          demo: readOnly,
+          includeFaces: false,
+          timeoutMs: PROJECT_DETAIL_TIMEOUT_MS,
+        });
         setProject(detail);
         const built = buildImagesAndMetas(detail);
         setImages(built.images);
@@ -2848,15 +2911,71 @@ function ProjectDetail({
         </div>
       ) : null}
 
-      <button
-        type="button"
-        className={`detail-actions-fab${actionSheetOpen ? ' is-open' : ''}`}
-        onClick={() => setActionSheetOpen(true)}
-        aria-label="打开相册操作"
-      >
-        <IconMoreStroked />
-        <span>操作</span>
-      </button>
+      <nav className={`detail-bottom-nav${dragActive ? ' is-drag-active' : ''}`} aria-label="相册底部操作">
+        <button
+          type="button"
+          className={`detail-bottom-nav-item detail-bottom-nav-item--select${deleteMode ? ' is-active' : ''}`}
+          onClick={toggleDeleteMode}
+          aria-pressed={deleteMode}
+        >
+          <span className="detail-bottom-nav-icon detail-bottom-nav-icon--select" aria-hidden="true">{deleteMode ? '✓' : ''}</span>
+          <span>{deleteMode ? (selectedCount ? `已选 ${selectedCount}` : '完成') : '选择'}</span>
+        </button>
+
+        {canUploadPhotos ? (
+          <button
+            type="button"
+            className={`detail-bottom-upload${dragActive ? ' is-drag-active' : ''}${uploadHover ? ' is-hovered' : ''}`}
+            onClick={openUploadPicker}
+            onMouseEnter={() => setUploadHover(true)}
+            onMouseLeave={() => setUploadHover(false)}
+            onDragOver={(e) => {
+              e.preventDefault();
+              if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+              setDragActive(true);
+            }}
+            onDragEnter={(e) => {
+              e.preventDefault();
+              setDragActive(true);
+            }}
+            onDragLeave={(e) => {
+              e.preventDefault();
+              setDragActive(false);
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragActive(false);
+              if (e.dataTransfer && e.dataTransfer.files) handleFilesSelected(e.dataTransfer.files);
+            }}
+            aria-label={stagingFiles && stagingFiles.length > 0 ? `${stagingFiles.length} 张待上传` : '上传照片'}
+            title={stagingFiles && stagingFiles.length > 0 ? `${stagingFiles.length} 张待上传` : '点击或拖入图片'}
+          >
+            <IconPlus />
+            <span className="detail-bottom-upload-hint">{dragActive ? '松开上传' : '上传'}</span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="detail-bottom-upload is-disabled"
+            disabled
+            aria-label="上传不可用"
+          >
+            <IconPlus />
+            <span className="detail-bottom-upload-hint">上传</span>
+          </button>
+        )}
+
+        <button
+          type="button"
+          className={`detail-bottom-nav-item detail-bottom-nav-item--actions${actionSheetOpen ? ' is-active' : ''}`}
+          onClick={() => setActionSheetOpen(true)}
+          aria-expanded={actionSheetOpen}
+          aria-label="打开功能"
+        >
+          <span className="detail-bottom-nav-icon" aria-hidden="true"><IconMoreStroked /></span>
+          <span>功能</span>
+        </button>
+      </nav>
 
       {actionSheetOpen ? (
         <button
@@ -2884,35 +3003,6 @@ function ProjectDetail({
         </div>
 
         <div className="detail-actions-grid">
-          {canUploadPhotos ? (
-            <Button
-              className={`detail-action-tile detail-action-tile--upload${dragActive ? ' is-drag-active' : ''}${uploadHover ? ' is-hovered' : ''}`}
-              theme="borderless"
-              onClick={() => {
-                setActionSheetOpen(false);
-                openUploadPicker();
-              }}
-              onMouseEnter={() => setUploadHover(true)}
-              onMouseLeave={() => setUploadHover(false)}
-              onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
-              onDragEnter={(e) => { e.preventDefault(); setDragActive(true); }}
-              onDragLeave={(e) => { e.preventDefault(); setDragActive(false); }}
-              onDrop={(e) => {
-                e.preventDefault();
-                setDragActive(false);
-                setActionSheetOpen(false);
-                if (e.dataTransfer && e.dataTransfer.files) handleFilesSelected(e.dataTransfer.files);
-              }}
-              aria-label="补充照片"
-            >
-              <span className="detail-action-icon" aria-hidden="true"><IconCloudUploadStroked /></span>
-              <span className="detail-action-copy">
-                <span className="detail-action-title">补充照片</span>
-                <span className="detail-action-desc">{stagingFiles && stagingFiles.length > 0 ? `${stagingFiles.length} 张待上传` : '点击或拖入图片'}</span>
-              </span>
-            </Button>
-          ) : null}
-
           <Button
             className="detail-action-tile"
             theme="borderless"
@@ -3085,25 +3175,15 @@ function ProjectDetail({
             </Button>
           </div>
         ) : null}
-        {(canDeletePhotos || canPackDownload) ? (
-          <div className={`detail-selection-inline ${deleteMode ? 'is-expanded' : ''}`}>
-            <button
-              type="button"
-              className="detail-select-fab"
-              onClick={toggleDeleteMode}
-            >
-              {deleteMode ? '完成选择' : '选择照片'}
-            </button>
-
-            {deleteMode ? (
-              <div className="detail-selection-actions">
-                <Button className="detail-selection-btn detail-selection-btn--select" onClick={toggleSelectAll}>{allSelected ? '取消全选' : '全选'}</Button>
-                {canPackDownload ? <Button className="detail-selection-btn detail-selection-btn--download" onClick={packDownloadSelected} type="tertiary">直接下载</Button> : null}
-                {canDeletePhotos ? (
-                  <PermButton className="detail-selection-btn detail-selection-btn--danger" perms={['photos.delete']} onClick={confirmDelete} type="danger" loading={deletingPhotos} disabled={deletingPhotos}>删除 ({selectedCount})</PermButton>
-                ) : null}
-              </div>
-            ) : null}
+        {deleteMode ? (
+          <div className="detail-selection-inline is-expanded">
+            <div className="detail-selection-actions">
+              <Button className="detail-selection-btn detail-selection-btn--select" onClick={toggleSelectAll}>{allSelected ? '取消全选' : '全选'}</Button>
+              {canPackDownload ? <Button className="detail-selection-btn detail-selection-btn--download" onClick={packDownloadSelected} type="tertiary">直接下载</Button> : null}
+              {canDeletePhotos ? (
+                <PermButton className="detail-selection-btn detail-selection-btn--danger" perms={['photos.delete']} onClick={confirmDelete} type="danger" loading={deletingPhotos} disabled={deletingPhotos}>删除 ({selectedCount})</PermButton>
+              ) : null}
+            </div>
           </div>
         ) : null}
 
@@ -3169,9 +3249,9 @@ function ProjectDetail({
           width={isMobile ? 'calc(100vw - 16px)' : undefined}
           bodyStyle={isMobile ? { maxHeight: '72vh', overflowY: 'auto', padding: '10px 12px 12px' } : undefined}
         >
-          <div style={{ minHeight: 160 }}>
+          <div className="similarity-modal-body">
             {canDeletePhotos ? (
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 8 }}>
+              <div className="similarity-toolbar">
                 {!simDeleteMode ? (
                   <Button onClick={() => setSimDeleteMode(true)} type="tertiary">选择</Button>
                 ) : (
@@ -3183,19 +3263,22 @@ function ProjectDetail({
               </div>
             ) : null}
             {simLoading ? (
-              <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '40px 0' }}>
+              <div className="similarity-state">
                 <Spin tip="正在分析相似照片" />
               </div>
             ) : simError ? (
-              <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '40px 0' }}>
+              <div className="similarity-state">
                 <Text type="danger">{simError}</Text>
               </div>
             ) : (simGroups && simGroups.length) ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div className="similarity-list">
                 {simGroups.map((g, gi) => (
                   <div key={gi} className="similarity-group">
-                    <div style={{ fontWeight: 'bold' }}>Group #{gi + 1} ({g.length} 张照片)</div>
-                    <div className="similarity-group-images" style={{ marginTop: 8, display: 'flex', gap: 12, flexWrap: isMobile ? 'nowrap' : 'wrap', overflowX: isMobile ? 'auto' : 'visible', paddingBottom: isMobile ? 4 : 0 }}>
+                    <div className="similarity-group-head">
+                      <span>相似组 {gi + 1}</span>
+                      <span>{g.length} 张照片</span>
+                    </div>
+                    <div className="similarity-group-images">
                       {g.map((id) => {
                         const p = simPhotos[id];
                         const thumb = p ? (p.thumbUrl || p.url || p.thumbSrc || p.originalSrc) : null;
@@ -3203,9 +3286,9 @@ function ProjectDetail({
                         const url = thumb || (p && (p.url || p.originalSrc)) || (BASE_URL ? `${BASE_URL}/photos/${id}` : `/api/photos/${id}`);
                         const selected = !!simSelectedMap[String(id)];
                         return (
-                          <div key={id} className="similarity-thumb" style={{ width: isMobile ? 152 : 180, minWidth: isMobile ? 152 : undefined, flex: isMobile ? '0 0 auto' : undefined, position: 'relative' }}>
+                          <div key={id} className={`similarity-thumb${selected ? ' is-selected' : ''}`}>
                             {thumb ? (
-                              <img src={thumb} alt={titleText} style={{ width: '100%', height: 120, objectFit: 'cover', display: 'block', cursor: simDeleteMode ? 'pointer' : 'zoom-in' }} onClick={() => {
+                              <img src={thumb} alt={titleText} className="similarity-thumb-img" onClick={() => {
                                 if (simDeleteMode) {
                                   toggleSimSelect(String(id));
                                   return;
@@ -3222,12 +3305,12 @@ function ProjectDetail({
                                 }
                               }} />
                             ) : (
-                              <div style={{ width: '100%', height: 120, background: '#eee' }} />
+                              <div className="similarity-thumb-empty" />
                             )}
                             {canDeletePhotos && simDeleteMode && (
-                              <div onClick={(e) => { e.stopPropagation(); toggleSimSelect(String(id)); }} style={{ position: 'absolute', right: 8, top: 8, width: 28, height: 28, borderRadius: 14, background: selected ? '#ff5252' : 'rgba(0,0,0,0.45)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>{selected ? '✓' : ''}</div>
+                              <button type="button" className="similarity-select-mark" onClick={(e) => { e.stopPropagation(); toggleSimSelect(String(id)); }}>{selected ? '✓' : ''}</button>
                             )}
-                            <div style={{ fontSize: 12, marginTop: 6 }}>{titleText}</div>
+                            <div className="similarity-thumb-title">{titleText}</div>
                           </div>
                         );
                       })}
@@ -3236,7 +3319,7 @@ function ProjectDetail({
                 ))}
               </div>
             ) : (
-              <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '40px 0' }}>
+              <div className="similarity-state">
                 <Empty description="未发现相似分组" />
               </div>
             )}
@@ -3267,6 +3350,7 @@ function ProjectDetail({
 
         <Modal
           title="人物信息"
+          className="person-sheet-modal"
           visible={facePersonVisible}
           onCancel={closeFacePersonModal}
           footer={null}
@@ -3275,13 +3359,26 @@ function ProjectDetail({
           bodyStyle={{ maxHeight: isMobile ? '72vh' : '70vh', overflowY: 'auto' }}
         >
           {facePersonLoading ? (
-            <div style={{ display: 'flex', justifyContent: 'center', padding: '24px 0' }}>
-              <Spin size="large" tip="加载人物信息中..." />
+            <div className="person-sheet-loading">
+              <div className="person-loading-visual" aria-hidden="true">
+                <span />
+                <span />
+                <span />
+              </div>
+              <div className="person-loading-copy">
+                <div className="person-loading-title">正在同步人物信息</div>
+                <div className="person-loading-subtitle">整理人脸与关联照片</div>
+              </div>
+              <div className="person-loading-skeleton">
+                <span />
+                <span />
+                <span />
+              </div>
             </div>
           ) : null}
 
           {facePersonError ? (
-            <div style={{ marginBottom: 12 }}>
+            <div className="person-sheet-error">
               <Text type="danger">{facePersonError}</Text>
             </div>
           ) : null}
@@ -3497,7 +3594,7 @@ function ProjectDetail({
                         </div>
                       );
                     })()}
-                    <div style={{ position: 'absolute', right: 16, bottom: 16 }}>
+                    <div className="viewer-original-toggle">
                       <button type="button" className="viewer-original-btn" onClick={(e) => { e.stopPropagation(); setViewerEnableOpenZoom(false); setViewerShowOriginal((v) => !v); }}>
                         {viewerShowOriginal ? '查看缩略图' : '查看原图'}
                       </button>
@@ -3530,40 +3627,36 @@ function ProjectDetail({
 	                      if (!hasDesc && !hasTags && !pending && !viewerEditVisible) return null;
 	                      return (
 	                        <div
-	                          className="viewer-info-card"
-                          style={{
-                            background: viewerEditVisible ? 'rgba(255,255,255,0.98)' : 'rgba(0,0,0,0.45)',
-                            color: viewerEditVisible ? '#111' : '#fff',
-                          }}
-                          onClick={(e) => e.stopPropagation()}
+	                          className={`viewer-info-card${viewerEditVisible ? ' is-editing' : ''}`}
+                          onClick={viewerEditVisible ? (e) => e.stopPropagation() : undefined}
                         >
                           {viewerEditVisible ? (
-                            <div style={{ pointerEvents: 'auto' }}>
-                              <TextArea value={viewerEditDescription} onChange={(v) => setViewerEditDescription(v)} rows={4} placeholder="照片描述" style={{ background: '#fff', color: '#111' }} />
-                              <div style={{ marginTop: 8, marginBottom: 6 }}>照片标签（按回车添加）</div>
-                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                            <div className="viewer-edit-panel">
+                              <TextArea className="viewer-edit-textarea" value={viewerEditDescription} onChange={(v) => setViewerEditDescription(v)} rows={4} placeholder="照片描述" />
+                              <div className="viewer-edit-label">照片标签（按回车添加）</div>
+                              <div className="viewer-edit-tags">
                                 {(viewerEditTags || []).map((t, i) => (
                                   <Tag key={t + i} size="small" type="light">{t}
-                                    <button style={{ marginLeft: 6, border: 'none', background: 'transparent', cursor: 'pointer', color: '#333' }} onClick={(e) => { e.stopPropagation(); setViewerEditTags((s) => s.filter(x => x !== t)); }}>×</button>
+                                    <button className="viewer-edit-tag-remove" onClick={(e) => { e.stopPropagation(); setViewerEditTags((s) => s.filter(x => x !== t)); }}>×</button>
                                   </Tag>
                                 ))}
-                                <input value={viewerEditTagInput} onChange={(e) => setViewerEditTagInput(e.target.value)} onKeyDown={(e) => {
+                                <input className="viewer-edit-tag-input" value={viewerEditTagInput} onChange={(e) => setViewerEditTagInput(e.target.value)} onKeyDown={(e) => {
                                   if (e.key === 'Enter' || e.key === ',') {
                                     e.preventDefault();
                                     const v = (viewerEditTagInput || '').trim();
                                     if (v && !(viewerEditTags || []).includes(v)) setViewerEditTags((s) => [...(s || []), v]);
                                     setViewerEditTagInput('');
                                   }
-                                }} placeholder="输入标签并回车" style={{ minWidth: 160, padding: '6px 8px' }} />
+                                }} placeholder="输入标签并回车" />
 
-                                <div style={{ width: '100%', display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
-                                  <button type="button" className="viewer-original-btn" onClick={(e) => { e.stopPropagation(); saveViewerPhotoEdit(); }} style={{ padding: '8px 12px', background: '#1890ff', color: '#fff' }}>保存</button>
-                                  <button type="button" className="viewer-original-btn" onClick={(e) => { e.stopPropagation(); setViewerEditVisible(false); }} style={{ padding: '8px 12px', background: '#f0f0f0', color: '#333' }}>取消</button>
+                                <div className="viewer-edit-actions">
+                                  <button type="button" className="viewer-original-btn viewer-action-primary" onClick={(e) => { e.stopPropagation(); saveViewerPhotoEdit(); }}>保存</button>
+                                  <button type="button" className="viewer-original-btn viewer-action-muted" onClick={(e) => { e.stopPropagation(); setViewerEditVisible(false); }}>取消</button>
                                 </div>
                               </div>
                             </div>
 	                          ) : (
-	                            <div style={{ pointerEvents: 'none' }}>
+	                            <div className="viewer-semantic-panel">
 	                              {pending && !hasDesc && !hasTags && (
 	                                <div className="viewer-analysis-pending">
 	                                  <span className="detail-analysis-dot" />
@@ -3571,12 +3664,12 @@ function ProjectDetail({
 	                                </div>
 	                              )}
 	                              {hasDesc && (
-	                                <div style={{ marginBottom: hasTags ? '8px' : 0, fontSize: '14px' }}>{description}</div>
+	                                <div className="viewer-description">{description}</div>
 	                              )}
 	                              {hasTags && (
-	                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+	                                <div className="viewer-semantic-tags">
 	                                  {tags.map((tag, i) => (
-	                                    <span key={i} style={{ background: '#1890ff', padding: '4px 8px', borderRadius: '3px', whiteSpace: 'nowrap', fontSize: '12px' }}>{tag}</span>
+	                                    <span key={i} className="viewer-semantic-tag">{tag}</span>
 	                                  ))}
 	                                </div>
                               )}
@@ -3610,17 +3703,15 @@ function ProjectDetail({
                   type="button"
                   className="viewer-original-btn"
                   onClick={(e) => { e.stopPropagation(); downloadCurrentPhoto(); }}
-                  style={{ padding: '10px 16px', minWidth: 140 }}
                 >
                   下载该照片
                 </button>
 
                 {!readOnly && (photoMetas && photoMetas[viewerIndex]) && (
                   <button
-                    type="button"
-                    className="viewer-original-btn"
+                  type="button"
+                    className="viewer-original-btn viewer-action-teal"
                     onClick={(e) => { e.stopPropagation(); handleDetectViewerFaces(); }}
-                    style={{ padding: '10px 16px', minWidth: 120, background: '#0f766e', color: '#fff' }}
                   >
                     {viewerFaceOverlayVisible ? '隐藏人脸框' : '显示人脸框'}
                   </button>
@@ -3628,10 +3719,9 @@ function ProjectDetail({
 
                 {(photoMetas && photoMetas[viewerIndex]) && (
                   <button
-                    type="button"
-                    className="viewer-original-btn"
+                  type="button"
+                    className="viewer-original-btn viewer-action-primary"
                     onClick={(e) => { e.stopPropagation(); openPhotoEditModal(); }}
-                    style={{ padding: '10px 16px', minWidth: 140, background: '#1890ff', color: '#fff' }}
                   >
                     修改照片信息
                   </button>
@@ -3646,9 +3736,8 @@ function ProjectDetail({
                   return (
                     <button
                       type="button"
-                      className="viewer-original-btn"
+                      className="viewer-original-btn viewer-action-success"
                       onClick={(e) => { e.stopPropagation(); addRecommendationTag(); }}
-                      style={{ padding: '10px 16px', minWidth: 100, background: '#4caf50', color: '#fff' }}
                     >
                       推荐标记
                     </button>
@@ -3656,7 +3745,7 @@ function ProjectDetail({
                 })()}
 
                 {currentViewerFaceError ? (
-                  <span style={{ color: '#fecaca', fontSize: 12, maxWidth: 220, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={currentViewerFaceError}>
+                  <span className="viewer-face-error" title={currentViewerFaceError}>
                     {currentViewerFaceError}
                   </span>
                 ) : null}

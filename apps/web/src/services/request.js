@@ -45,6 +45,14 @@ async function request(path, options = {}) {
   }
 
   const fetchOpts = { method, headers, credentials: options.credentials || 'same-origin' };
+  let timeoutId = null;
+  if (options.timeoutMs && typeof AbortController !== 'undefined') {
+    const controller = new AbortController();
+    fetchOpts.signal = controller.signal;
+    timeoutId = setTimeout(() => controller.abort(), Number(options.timeoutMs));
+  } else if (options.signal) {
+    fetchOpts.signal = options.signal;
+  }
 
   const sanitizeHeadersForLog = (input) => {
     const out = Object.assign({}, input || {});
@@ -95,7 +103,20 @@ async function request(path, options = {}) {
     }
   }
 
-  const res = await fetch(url, fetchOpts);
+  let res;
+  try {
+    res = await fetch(url, fetchOpts);
+  } catch (err) {
+    if (err && err.name === 'AbortError') {
+      const timeoutErr = new Error('请求超时，请稍后重试');
+      timeoutErr.status = 408;
+      timeoutErr.cause = err;
+      throw timeoutErr;
+    }
+    throw err;
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
   if (!res.ok) {
     const text = await res.text();
     const err = new Error(`Request failed ${res.status} ${res.statusText}`);
