@@ -234,18 +234,18 @@ textarea {
     .mamage-header,
     .mamage-header.is-desktop-header.is-project-detail::after,
     .mamage-mobile-nav-panel,
-    .semi-modal-content,
-    .semi-popover-content,
-    .semi-sidesheet-content,
+    .mamage-modal-content,
+    .mamage-popover-content,
+    .mamage-sidesheet-content,
     .liquid-glass-panel {
         backdrop-filter: var(--lg-blur-rich);
     }
 }
 
 .mamage-header::before,
-.semi-modal-content::before,
-.semi-popover-content::before,
-.semi-sidesheet-content::before {
+.mamage-modal-content::before,
+.mamage-popover-content::before,
+.mamage-sidesheet-content::before {
     content: '';
     position: absolute;
     inset: 0;
@@ -284,7 +284,7 @@ textarea {
 }
 
 .mamage-topbar.is-project-detail {
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: minmax(170px, auto) auto minmax(280px, 1fr);
     min-height: 52px;
     padding-block: 7px;
 }
@@ -591,8 +591,9 @@ textarea {
 }
 
 .mamage-nav-links {
-    justify-content: center;
+    justify-content: flex-start;
     gap: 3px;
+    justify-self: start;
 }
 
 .mamage-header.is-desktop-header.is-project-detail .mamage-nav-links {
@@ -637,6 +638,7 @@ textarea {
 .mamage-header.is-desktop-header.is-project-detail .mamage-nav-actions {
     flex: 0 1 auto;
     justify-self: end;
+    max-width: min(38vw, 560px);
 }
 
 .mamage-header.is-desktop-header.is-project-detail .mamage-nav-search-field {
@@ -1090,7 +1092,7 @@ textarea {
     }
 
     .mamage-topbar.is-project-detail {
-        grid-template-columns: auto minmax(0, 1fr) auto;
+        grid-template-columns: minmax(150px, auto) auto minmax(250px, 1fr);
     }
 
     .mamage-brand-button {
@@ -1339,9 +1341,9 @@ textarea {
     .mamage-shell::after,
     .mamage-header::before,
     .mamage-desktop-project-notch::before,
-    .semi-modal-content::before,
-    .semi-popover-content::before,
-    .semi-sidesheet-content::before,
+    .mamage-modal-content::before,
+    .mamage-popover-content::before,
+    .mamage-sidesheet-content::before,
     .mamage-mobile-nav-backdrop,
     .mamage-mobile-nav-panel.is-open {
         animation: none;
@@ -1371,34 +1373,34 @@ textarea {
     background: transparent !important;
 }
 
-.semi-button {
+.mamage-button {
     border-radius: 999px !important;
     border-color: rgba(255, 255, 255, 0.62) !important;
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.68);
     transition: transform 140ms ease, box-shadow 140ms ease, background 140ms ease, border-color 140ms ease !important;
 }
 
-.semi-button:not(.semi-button-disabled):hover {
+.mamage-button:not(.mamage-button-disabled):hover {
     transform: translateY(-1px);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.74), 0 10px 24px rgba(30, 80, 130, 0.14);
 }
 
-.semi-button-primary,
-.semi-button-solid.semi-button-primary {
+.mamage-button-primary,
+.mamage-button-solid.mamage-button-primary {
     color: #fff !important;
     background: linear-gradient(135deg, rgba(22, 119, 255, 0.96), rgba(0, 166, 166, 0.88)) !important;
     border-color: rgba(255, 255, 255, 0.54) !important;
 }
 
-.semi-button-tertiary,
-.semi-button-borderless {
+.mamage-button-tertiary,
+.mamage-button-borderless {
     color: var(--lg-text) !important;
     background: rgba(255, 255, 255, 0.34) !important;
 }
 
-.semi-input-wrapper,
-.semi-select-selection,
-.semi-textarea-wrapper {
+.mamage-input-wrapper,
+.mamage-select-selection,
+.mamage-textarea-wrapper {
     border-radius: 14px !important;
     border: 1px solid rgba(255, 255, 255, 0.64) !important;
     background: rgba(255, 255, 255, 0.46) !important;
@@ -1407,19 +1409,19 @@ textarea {
     -webkit-backdrop-filter: blur(14px) saturate(1.25);
 }
 
-.semi-input-wrapper:hover,
-.semi-input-wrapper-focus,
-.semi-select-selection:hover,
-.semi-select-selection-focus,
-.semi-textarea-wrapper:hover,
-.semi-textarea-wrapper-focus {
+.mamage-input-wrapper:hover,
+.mamage-input-wrapper-focus,
+.mamage-select-selection:hover,
+.mamage-select-selection-focus,
+.mamage-textarea-wrapper:hover,
+.mamage-textarea-wrapper-focus {
     border-color: rgba(22, 119, 255, 0.34) !important;
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72), 0 0 0 3px rgba(22, 119, 255, 0.09), 0 10px 26px rgba(30, 80, 130, 0.12);
 }
 
-.semi-modal-content,
-.semi-popover-content,
-.semi-sidesheet-content {
+.mamage-modal-content,
+.mamage-popover-content,
+.mamage-sidesheet-content {
     position: relative;
     overflow: hidden;
     border: 1px solid var(--liquid-glass-border, rgba(255, 255, 255, 0.68)) !important;
@@ -1430,24 +1432,24 @@ textarea {
     -webkit-backdrop-filter: var(--lg-blur);
 }
 
-.semi-modal-header,
-.semi-modal-body,
-.semi-modal-footer,
-.semi-popover-content > *,
-.semi-sidesheet-body,
-.semi-sidesheet-header {
+.mamage-modal-header,
+.mamage-modal-body,
+.mamage-modal-footer,
+.mamage-popover-content > *,
+.mamage-sidesheet-body,
+.mamage-sidesheet-header {
     position: relative;
     z-index: 1;
 }
 
-.semi-modal-mask,
-.semi-sidesheet-mask {
+.mamage-modal-mask,
+.mamage-sidesheet-mask {
     background: rgba(229, 240, 252, 0.34) !important;
     backdrop-filter: blur(10px) saturate(1.2);
     -webkit-backdrop-filter: blur(10px) saturate(1.2);
 }
 
-.semi-tag {
+.mamage-tag {
     border-radius: 999px !important;
     border-color: rgba(255, 255, 255, 0.56) !important;
     background: rgba(255, 255, 255, 0.4) !important;
@@ -1480,9 +1482,9 @@ textarea {
 
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
     .mamage-header,
-    .semi-modal-content,
-    .semi-popover-content,
-    .semi-sidesheet-content,
+    .mamage-modal-content,
+    .mamage-popover-content,
+    .mamage-sidesheet-content,
     .liquid-glass-panel,
     .project-card,
     .detail-header,
@@ -1491,7 +1493,7 @@ textarea {
     .detail-upload-trigger,
     .detail-photo,
     .selection-bar,
-    .detail-modal .semi-modal-content,
+    .detail-modal .mamage-modal-content,
     .upload-preview-wrap,
     .similarity-group,
     .viewer-main,

@@ -1,5 +1,6 @@
 // src/services/photoService.js
 import { request, BASE_URL } from './request';
+import { fetchLatestByType, fetchRandomByProject, searchPhotos } from './photoQueryService';
 
 const DEFAULT_UPLOAD_CONCURRENCY = Math.max(1, Number(
   (typeof window !== 'undefined' && window.__MAMAGE_UPLOAD_CONCURRENCY__) || 4
@@ -8,34 +9,6 @@ const DEFAULT_UPLOAD_CONCURRENCY = Math.max(1, Number(
 function getAuthHeaders(extra = {}) {
   const token = (typeof window !== 'undefined') ? (localStorage.getItem('mamage_jwt_token') || '') : '';
   return Object.assign({}, extra, token ? { Authorization: `Bearer ${token}` } : {});
-}
-
-function fetchLatestByType(type, limit = 10) {
-  const data = { limit };
-  if (type) data.type = type;
-  return request('/api/photos', {
-    method: 'GET',
-    data
-  });
-}
-
-function fetchRandomByProject(projectId, limit = 4) {
-  return request('/api/photos', {
-    method: 'GET',
-    data: { projectId, limit, random: 1 }
-  });
-}
-
-function searchPhotos({ q = '', projectId, page = 1, pageSize = 20, sort = 'relevance', demo = false } = {}) {
-  const data = { q, page, pageSize, sort };
-  if (projectId !== undefined && projectId !== null && String(projectId).trim() !== '') {
-    data.projectId = projectId;
-  }
-  if (demo) data.demo = 1;
-  return request('/api/photos/search', {
-    method: 'GET',
-    data
-  });
 }
 
 async function getPhotoById(photoId) {

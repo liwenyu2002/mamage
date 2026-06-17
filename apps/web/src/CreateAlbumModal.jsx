@@ -1,6 +1,5 @@
 ﻿import React from 'react';
-import { Modal, Input, TextArea, DatePicker, Toast } from '@douyinfe/semi-ui';
-import './semiTheme';
+import { Modal, Input, TextArea, DatePicker, Toast } from './ui';
 import './CreateAlbumModal.css';
 import { uploadPhotoFiles } from './services/photoService';
 import { getProjectById } from './services/projectService';

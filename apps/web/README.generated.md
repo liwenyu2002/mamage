@@ -16,7 +16,7 @@
 
 **环境与依赖**
 - **Node / npm**: 使用 Node LTS（文档中测试为 Node v24.x，通常 Node 18+ 可用）。
-- **前端依赖**: `react`, `react-dom`, `@douyinfe/semi-ui`, `@douyinfe/semi-icons` 等，详见 `package.json`。
+- **前端依赖**: `react`, `react-dom`, `html-to-image`, `marked` 等，详见 `package.json`。
 - **开发工具**: `webpack` + `webpack-dev-server`（开发服务器配置见 `webpack.config.js`）。
 
 **运行与开发**

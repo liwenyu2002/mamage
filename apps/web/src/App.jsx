@@ -3,7 +3,7 @@ import React from 'react';
 import ProjectCard from './ProjectCard';
 import * as authService from './services/authService';
 import { fetchProjectList, createProject } from './services/projectService';
-import { searchPhotos } from './services/photoService';
+import { searchPhotos } from './services/photoQueryService';
 import { resolveAssetUrl } from './services/request';
 import IfCan from './permissions/IfCan';
 import { LiquidGlassDefs } from './liquidGlass';

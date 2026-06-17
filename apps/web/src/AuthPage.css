@@ -35,13 +35,13 @@
   animation: mamageGlassCaustic var(--liquid-glass-caustic-speed, 2.2s) ease-in-out infinite alternate;
 }
 
-.auth-card .semi-card-header,
-.auth-card .semi-card-body {
+.auth-card .mamage-card-header,
+.auth-card .mamage-card-body {
   position: relative;
   z-index: 1;
 }
 
-.auth-card .semi-card-header-title {
+.auth-card .mamage-card-header-title {
   color: var(--lg-text);
   font-weight: 750;
 }

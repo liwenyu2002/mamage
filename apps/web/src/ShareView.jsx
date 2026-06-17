@@ -1,7 +1,6 @@
 import React from 'react';
-import { Typography, Button, Card, ButtonGroup } from '@douyinfe/semi-ui';
+import { Typography, Button, Card, ButtonGroup } from './ui';
 import { resolveAssetUrl } from './services/request';
-import './semiTheme';
 import './ProjectDetail.css';
 
 const { Text } = Typography;

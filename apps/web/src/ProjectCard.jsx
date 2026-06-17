@@ -1,6 +1,6 @@
 // src/ProjectCard.jsx
 import React from 'react';
-import { fetchRandomByProject } from './services/photoService';
+import { fetchRandomByProject } from './services/photoQueryService';
 import { resolveAssetUrl } from './services/request';
 import './ProjectCard.css';
 

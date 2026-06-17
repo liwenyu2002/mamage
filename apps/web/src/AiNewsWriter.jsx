@@ -1,19 +1,5 @@
 import React from 'react';
-import {
-  Layout,
-  Card,
-  Input,
-  TextArea,
-  Modal,
-  Select,
-  DatePicker,
-  Button,
-  Tag,
-  Tabs,
-  List,
-  Toast,
-} from '@douyinfe/semi-ui';
-import './semiTheme';
+import { Layout, Card, Input, TextArea, Modal, Select, DatePicker, Button, Tag, Tabs, List, Toast } from './ui';
 import { getAll as getTransferAll } from './services/transferStore';
 import { request, resolveAssetUrl } from './services/request';
 import { getToken } from './services/authService';

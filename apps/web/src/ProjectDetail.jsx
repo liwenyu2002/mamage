@@ -1,6 +1,6 @@
 ﻿// src/ProjectDetail.jsx
 import React from 'react';
-import { Typography, Button, Tag, Spin, Empty, Modal, Input, DatePicker, TextArea, Toast } from '@douyinfe/semi-ui';
+import { Typography, Button, Tag, Spin, Empty, Modal, Input, DatePicker, TextArea, Toast } from './ui';
 import {
   IconAIStrokedLevel1,
   IconClose,
@@ -10,8 +10,7 @@ import {
   IconMoreStroked,
   IconPlus,
   IconSearch,
-} from '@douyinfe/semi-icons';
-import './semiTheme';
+} from './ui/icons';
 import './ProjectDetail.css';
 import { getProjectById, updateProject, deleteProject } from './services/projectService';
 import { getToken } from './services/authService';

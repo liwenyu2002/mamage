@@ -1,7 +1,6 @@
 ﻿import React from 'react';
 import ReactDOM from 'react-dom';
-import { Toast, Tooltip } from '@douyinfe/semi-ui';
-import './semiTheme';
+import { Toast, Tooltip } from './ui';
 import { getAll, getCount, add, clear, subscribe, removeById } from './services/transferStore';
 import { resolveAssetUrl } from './services/request';
 

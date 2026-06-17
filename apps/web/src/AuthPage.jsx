@@ -1,6 +1,5 @@
 import React from 'react';
-import { Card, Input, Button, Toast, Select } from '@douyinfe/semi-ui';
-import './semiTheme';
+import { Card, Input, Button, Toast, Select } from './ui';
 import './AuthPage.css';
 import * as authService from './services/authService';
 

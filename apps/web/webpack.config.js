@@ -6,6 +6,14 @@ const HtmlWebpackPlugin = require('html-webpack-plugin');
 const devProxyTarget = process.env.MAMAGE_BACKEND_URL || 'http://localhost:8001';
 const devProxyContexts = ['/api', '/uploads', '/static'];
 
+const nodeModulePackageTest = (packages) => (module) => {
+  const resource = module.nameForCondition && module.nameForCondition();
+  if (!resource) return false;
+
+  const normalized = resource.replace(/\\/g, '/');
+  return packages.some((pkg) => normalized.includes(`/node_modules/${pkg}/`));
+};
+
 const publicAssets = [
   'favicon.svg',
   'favicon.png',
@@ -35,10 +43,47 @@ module.exports = {
   output: {
     path: path.resolve(__dirname, 'dist'),
     filename: 'bundle.[contenthash].js',
+    chunkFilename: 'bundle.[name].[contenthash].js',
     publicPath: '/',
     clean: true,
   },
   mode: 'development',
+  optimization: {
+    moduleIds: 'deterministic',
+    chunkIds: 'deterministic',
+    runtimeChunk: 'single',
+    splitChunks: {
+      chunks: 'all',
+      maxInitialRequests: 12,
+      maxAsyncRequests: 12,
+      minSize: 20000,
+      cacheGroups: {
+        react: {
+          test: nodeModulePackageTest(['react', 'react-dom', 'scheduler']),
+          name: 'vendor-react',
+          priority: 40,
+          enforce: true,
+          reuseExistingChunk: true,
+        },
+        exportTools: {
+          test: nodeModulePackageTest(['html-to-image', 'marked']),
+          name: 'vendor-export-tools',
+          chunks: 'async',
+          priority: 30,
+          enforce: true,
+          reuseExistingChunk: true,
+        },
+        vendors: {
+          test: /[\\/]node_modules[\\/]/,
+          name: 'vendor-async-common',
+          chunks: 'async',
+          priority: -10,
+          maxSize: 180000,
+          reuseExistingChunk: true,
+        },
+      },
+    },
+  },
   resolve: {
     extensions: ['.js', '.jsx'],
   },
