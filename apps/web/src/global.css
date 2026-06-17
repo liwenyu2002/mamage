@@ -1517,6 +1517,19 @@ textarea {
     color: #111827;
 }
 
+.mamage-route-loading {
+    width: 100%;
+    min-height: clamp(280px, calc(100vh - 180px), 620px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    grid-column: 1 / -1;
+}
+
+.mamage-route-loading .app-loading-state {
+    margin: 0 auto;
+}
+
 .app-text {
     color: var(--lg-text);
     font-size: 14px;

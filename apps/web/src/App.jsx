@@ -58,7 +58,13 @@ function AppLoadingState({ title = '正在加载', subtitle = '请稍候', compa
 
 function LazyPanel({ children, title = '正在加载功能' }) {
   return (
-    <React.Suspense fallback={<AppLoadingState title={title} subtitle="马上打开" compact />}>
+    <React.Suspense
+      fallback={(
+        <div className="mamage-route-loading" role="status" aria-live="polite">
+          <AppLoadingState title={title} subtitle="马上打开" compact />
+        </div>
+      )}
+    >
       {children}
     </React.Suspense>
   );
