@@ -4,6 +4,7 @@ import ProjectDetail from './ProjectDetail';
 import './Scenery.css';
 import { getToken } from './services/authService';
 import { Button, ButtonGroup } from '@douyinfe/semi-ui';
+import './semiTheme';
 
 export default function Scenery() {
   const [loading, setLoading] = React.useState(true);

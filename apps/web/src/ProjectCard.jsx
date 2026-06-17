@@ -1,13 +1,35 @@
 // src/ProjectCard.jsx
 import React from 'react';
-import { Typography, Tag } from '@douyinfe/semi-ui';
 import { fetchRandomByProject } from './services/photoService';
 import { resolveAssetUrl } from './services/request';
 import './ProjectCard.css';
 
-const { Text } = Typography;
 const FALLBACK_THUMB_CACHE = new Map();
 const FALLBACK_THUMB_IN_FLIGHT = new Map();
+const FALLBACK_THUMB_MAX_CONCURRENT = 3;
+let fallbackThumbActiveCount = 0;
+const fallbackThumbQueue = [];
+
+function runFallbackThumbQueue() {
+  if (fallbackThumbActiveCount >= FALLBACK_THUMB_MAX_CONCURRENT) return;
+  const next = fallbackThumbQueue.shift();
+  if (!next) return;
+  fallbackThumbActiveCount += 1;
+  Promise.resolve()
+    .then(next.task)
+    .then(next.resolve, next.reject)
+    .finally(() => {
+      fallbackThumbActiveCount = Math.max(0, fallbackThumbActiveCount - 1);
+      runFallbackThumbQueue();
+    });
+}
+
+function scheduleFallbackThumbFetch(task) {
+  return new Promise((resolve, reject) => {
+    fallbackThumbQueue.push({ task, resolve, reject });
+    runFallbackThumbQueue();
+  });
+}
 
 const truncateText = (text, maxLength = 30) => {
   const safe = String(text || '');
@@ -31,6 +53,14 @@ const pickThumbSrc = (item) => {
   return item.thumbSrc || item.thumbUrl || item.thumbnail || item.thumb || item.coverUrl || item.url || item.fileUrl || item.imageUrl || null;
 };
 
+function CardText({ children, className = '', strong = false, size = '' }) {
+  return (
+    <span className={`${className}${strong ? ' is-strong' : ''}${size ? ` is-${size}` : ''}`}>
+      {children}
+    </span>
+  );
+}
+
 function ProjectCard({
   id,
   title,
@@ -44,6 +74,7 @@ function ProjectCard({
   cover = null,
   thumbnails = [],
   onClick,
+  onHoverIntent,
 }) {
   const main = cover || images[0];
   const resolvedMain = main ? resolveAssetUrl(pickThumbSrc(main) || main) : null;
@@ -66,21 +97,16 @@ function ProjectCard({
   const cardRef = React.useRef(null);
 
   React.useEffect(() => {
-    if (isVisible) return undefined;
     const node = cardRef.current;
-    if (!node || typeof IntersectionObserver === 'undefined') {
-      setIsVisible(true);
-      return undefined;
-    }
-    const observer = new IntersectionObserver((entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) {
-        setIsVisible(true);
-        observer.disconnect();
-      }
-    }, { rootMargin: '480px 0px' });
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [isVisible]);
+    if (!node || typeof onHoverIntent !== 'function') return undefined;
+    const run = () => onHoverIntent();
+    node.addEventListener('pointerenter', run, { passive: true });
+    node.addEventListener('focusin', run);
+    return () => {
+      node.removeEventListener('pointerenter', run);
+      node.removeEventListener('focusin', run);
+    };
+  }, [onHoverIntent]);
 
   React.useEffect(() => {
     let canceled = false;
@@ -113,7 +139,7 @@ function ProjectCard({
 
     let promise = FALLBACK_THUMB_IN_FLIGHT.get(cacheKey);
     if (!promise) {
-      promise = fetchRandomByProject(id, 6)
+      promise = scheduleFallbackThumbFetch(() => fetchRandomByProject(id, 6))
         .then((res) => {
           const list = Array.isArray(res?.list) ? res.list : (Array.isArray(res) ? res : []);
           const srcs = list.map((it) => resolveAssetUrl(pickThumbSrc(it) || it)).filter(Boolean);
@@ -133,6 +159,24 @@ function ProjectCard({
       canceled = true;
     };
   }, [id, isVisible, normalizedThumbnails, normalizedImages, resolvedMain]);
+
+  React.useEffect(() => {
+    if (isVisible) return undefined;
+    const node = cardRef.current;
+    if (!node || typeof IntersectionObserver === 'undefined') {
+      setIsVisible(true);
+      return undefined;
+    }
+    const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        setIsVisible(true);
+        observer.disconnect();
+      }
+    }, { rootMargin: isMobile ? '220px 0px' : '360px 0px' });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [isVisible]);
 
   const pickByMaxId = () => {
     const candidates = [];
@@ -252,12 +296,12 @@ function ProjectCard({
               ) : null}
               <span className="project-card__mobile-count">{count} 作品</span>
             </div>
-            <Text strong className="project-card__mobile-title">
+            <CardText strong className="project-card__mobile-title">
               {`《${title}》`}
-            </Text>
-            <Text size="small" className="project-card__mobile-description">
+            </CardText>
+            <CardText size="small" className="project-card__mobile-description">
               {descText}
-            </Text>
+            </CardText>
           </div>
         </div>
       </div>
@@ -294,27 +338,27 @@ function ProjectCard({
               )}
             </div>
             <div className="project-card__meta-top-right">
-              <Text size="small" className="project-card__count">
+              <CardText size="small" className="project-card__count">
                 {count} 作品
-              </Text>
+              </CardText>
             </div>
           </div>
           <div className="project-card__meta-left">
             <div className="project-card__meta-middle">
-              <Text strong className="project-card__title">
+              <CardText strong className="project-card__title">
                 {`《${title}》`}
-              </Text>
+              </CardText>
 
               {subtitle && (
-                <Tag size="small" type="solid" className="project-card__tag">
+                <span className="project-card__tag">
                   {subtitle}
-                </Tag>
+                </span>
               )}
             </div>
             <div className="project-card__meta-down">
-              <Text size="small" className="project-card__description">
+              <CardText size="small" className="project-card__description">
                 {descText}
-              </Text>
+              </CardText>
             </div>
           </div>
         </div>

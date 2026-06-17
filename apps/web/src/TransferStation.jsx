@@ -1,6 +1,7 @@
 ﻿import React from 'react';
 import ReactDOM from 'react-dom';
 import { Toast, Tooltip } from '@douyinfe/semi-ui';
+import './semiTheme';
 import { getAll, getCount, add, clear, subscribe, removeById } from './services/transferStore';
 import { resolveAssetUrl } from './services/request';
 
@@ -91,19 +92,30 @@ export default function TransferStation() {
 
   React.useEffect(() => {
     if (typeof window === 'undefined') return undefined;
-    const apply = () => setIsMobile(detectMobile());
+    let frame = 0;
+    const apply = () => {
+      frame = 0;
+      setIsMobile(detectMobile());
+    };
+    const schedule = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(apply);
+    };
     apply();
-    window.addEventListener('resize', apply);
-    window.addEventListener('orientationchange', apply);
+    window.addEventListener('resize', schedule);
+    window.addEventListener('orientationchange', schedule);
     return () => {
-      window.removeEventListener('resize', apply);
-      window.removeEventListener('orientationchange', apply);
+      if (frame) window.cancelAnimationFrame(frame);
+      window.removeEventListener('resize', schedule);
+      window.removeEventListener('orientationchange', schedule);
     };
   }, [detectMobile]);
 
   React.useEffect(() => {
     if (typeof window === 'undefined') return undefined;
+    let frame = 0;
     const applyInset = () => {
+      frame = 0;
       try {
         const vv = window.visualViewport;
         if (!vv) {
@@ -117,20 +129,25 @@ export default function TransferStation() {
         setVvInset({ right: 0, bottom: 0 });
       }
     };
+    const scheduleInset = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(applyInset);
+    };
 
     applyInset();
-    window.addEventListener('resize', applyInset);
-    window.addEventListener('orientationchange', applyInset);
+    window.addEventListener('resize', scheduleInset);
+    window.addEventListener('orientationchange', scheduleInset);
     if (window.visualViewport) {
-      window.visualViewport.addEventListener('resize', applyInset);
-      window.visualViewport.addEventListener('scroll', applyInset);
+      window.visualViewport.addEventListener('resize', scheduleInset);
+      window.visualViewport.addEventListener('scroll', scheduleInset);
     }
     return () => {
-      window.removeEventListener('resize', applyInset);
-      window.removeEventListener('orientationchange', applyInset);
+      if (frame) window.cancelAnimationFrame(frame);
+      window.removeEventListener('resize', scheduleInset);
+      window.removeEventListener('orientationchange', scheduleInset);
       if (window.visualViewport) {
-        window.visualViewport.removeEventListener('resize', applyInset);
-        window.visualViewport.removeEventListener('scroll', applyInset);
+        window.visualViewport.removeEventListener('resize', scheduleInset);
+        window.visualViewport.removeEventListener('scroll', scheduleInset);
       }
     };
   }, []);
@@ -600,8 +617,10 @@ export default function TransferStation() {
     width: 58,
     height: 58,
     borderRadius: 999,
-    border: dragOver ? '1px solid #4c9eff' : '1px solid rgba(15,23,42,0.08)',
-    background: dragOver ? '#e8f3ff' : '#fff',
+    border: dragOver ? '1px solid rgba(22,119,255,0.55)' : '1px solid var(--liquid-glass-border)',
+    background: dragOver
+      ? 'var(--liquid-glass-material-readable)'
+      : 'var(--liquid-glass-material)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -611,14 +630,18 @@ export default function TransferStation() {
     transition: 'transform 140ms ease, box-shadow 140ms ease, background 140ms ease',
     willChange: 'transform',
     transform: getInteractiveTransform('trigger'),
-    boxShadow: open ? '0 10px 22px rgba(37,99,235,0.28)' : '0 8px 20px rgba(15,23,42,0.2)',
+    boxShadow: open ? '0 14px 30px rgba(37,99,235,0.24), var(--liquid-glass-edge)' : 'var(--liquid-glass-shadow-tight), var(--liquid-glass-edge)',
+    backdropFilter: 'var(--liquid-glass-backdrop-rich)',
+    WebkitBackdropFilter: 'var(--liquid-glass-backdrop-rich)',
     position: 'relative',
   } : {
     width: isDraggingPhoto ? 132 : 116,
     height: isDraggingPhoto ? 64 : 56,
     borderRadius: 14,
-    border: dragOver ? '1px solid #4c9eff' : '1px solid rgba(15,23,42,0.12)',
-    background: dragOver ? '#e8f3ff' : '#fff',
+    border: dragOver ? '1px solid rgba(22,119,255,0.55)' : '1px solid var(--liquid-glass-border)',
+    background: dragOver
+      ? 'var(--liquid-glass-material-readable)'
+      : 'var(--liquid-glass-material)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -629,7 +652,9 @@ export default function TransferStation() {
     transition: 'transform 140ms ease, box-shadow 140ms ease, background 140ms ease',
     willChange: 'transform',
     transform: getInteractiveTransform('trigger'),
-    boxShadow: dragOver ? '0 8px 20px rgba(76,158,255,0.35)' : '0 6px 16px rgba(15,23,42,0.14)',
+    boxShadow: dragOver ? '0 14px 30px rgba(76,158,255,0.26), var(--liquid-glass-edge)' : 'var(--liquid-glass-shadow-tight), var(--liquid-glass-edge)',
+    backdropFilter: 'var(--liquid-glass-backdrop-rich)',
+    WebkitBackdropFilter: 'var(--liquid-glass-backdrop-rich)',
   };
 
   const actionButtonStyle = (key, extra = {}) => ({
@@ -639,8 +664,8 @@ export default function TransferStation() {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    boxShadow: '0 1px 3px rgba(15,23,42,0.08)',
-    background: hoverKey === key ? '#e9f2ff' : '#f8fafc',
+    boxShadow: 'var(--liquid-glass-edge), 0 8px 18px rgba(15,23,42,0.08)',
+    background: hoverKey === key ? 'var(--liquid-glass-material-readable)' : 'var(--liquid-glass-material)',
     color: '#0f172a',
     fontSize: isMobile ? 12 : 13,
     fontWeight: 600,
@@ -656,17 +681,18 @@ export default function TransferStation() {
     position: 'fixed',
     left: 12,
     right: 12,
-    bottom: 'calc(max(12px, env(safe-area-inset-bottom)) + 70px)',
+    bottom: 'calc(max(12px, env(safe-area-inset-bottom)) + 142px)',
     display: 'flex',
     flexDirection: 'column',
     gap: 10,
     alignItems: 'stretch',
     padding: 12,
-    borderRadius: 16,
-    background: 'rgba(255,255,255,0.98)',
-    border: '1px solid rgba(16,24,40,0.08)',
-    boxShadow: '0 18px 36px rgba(15,23,42,0.2)',
-    backdropFilter: 'blur(8px)',
+    borderRadius: 20,
+    background: 'var(--liquid-glass-material-readable)',
+    border: '1px solid var(--liquid-glass-border)',
+    boxShadow: 'var(--liquid-glass-shadow), var(--liquid-glass-edge)',
+    backdropFilter: 'var(--liquid-glass-backdrop-rich)',
+    WebkitBackdropFilter: 'var(--liquid-glass-backdrop-rich)',
     overflow: 'visible',
     opacity: panelVisible ? 1 : 0,
     pointerEvents: panelVisible ? 'auto' : 'none',
@@ -686,10 +712,11 @@ export default function TransferStation() {
     width: 120,
     padding: 10,
     borderRadius: 14,
-    background: 'rgba(255,255,255,0.96)',
-    border: '1px solid rgba(16,24,40,0.08)',
-    boxShadow: '0 12px 28px rgba(15,23,42,0.16)',
-    backdropFilter: 'blur(6px)',
+    background: 'var(--liquid-glass-material-readable)',
+    border: '1px solid var(--liquid-glass-border)',
+    boxShadow: 'var(--liquid-glass-shadow-tight), var(--liquid-glass-edge)',
+    backdropFilter: 'var(--liquid-glass-backdrop-rich)',
+    WebkitBackdropFilter: 'var(--liquid-glass-backdrop-rich)',
     overflow: 'visible',
     opacity: panelVisible ? 1 : 0,
     pointerEvents: panelVisible ? 'auto' : 'none',
@@ -799,8 +826,8 @@ export default function TransferStation() {
 
   if (isMobile) {
     const mobileRight = 12 + vvInset.right;
-    const mobileBottom = 12 + vvInset.bottom;
-    const mobilePanelBottom = mobileBottom + 168;
+    const mobileBottom = 94 + vvInset.bottom;
+    const mobilePanelBottom = mobileBottom + 76;
     const mobileActions = [
       { key: 'store', label: '存入', onClick: () => { handleStore(); setOpen(false); } },
       { key: 'preview', label: expanded ? '收起' : '预览', onClick: () => { setExpanded((v) => !v); setShareOptionsOpen(false); } },
@@ -889,11 +916,13 @@ export default function TransferStation() {
                     bottom: 6,
                     width: 42,
                     height: 42,
-                    border: 'none',
+                    border: '1px solid var(--liquid-glass-border-soft)',
                     borderRadius: 999,
-                    background: a.key === 'clear' ? '#fff1f2' : '#ffffff',
+                    background: a.key === 'clear' ? 'rgba(255,241,242,0.78)' : 'var(--liquid-glass-material-readable)',
                     color: a.key === 'clear' ? '#b91c1c' : '#0f172a',
-                    boxShadow: '0 8px 16px rgba(15,23,42,0.22)',
+                    boxShadow: 'var(--liquid-glass-shadow-tight), var(--liquid-glass-edge)',
+                    backdropFilter: 'var(--liquid-glass-backdrop-rich)',
+                    WebkitBackdropFilter: 'var(--liquid-glass-backdrop-rich)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -929,11 +958,13 @@ export default function TransferStation() {
                     bottom: 6,
                     width: 46,
                     height: 46,
-                    border: '1px solid rgba(37,99,235,0.2)',
+                    border: '1px solid rgba(37,99,235,0.24)',
                     borderRadius: 999,
-                    background: '#eff6ff',
+                    background: 'var(--liquid-glass-material-readable)',
                     color: '#1d4ed8',
-                    boxShadow: '0 8px 16px rgba(15,23,42,0.2)',
+                    boxShadow: 'var(--liquid-glass-shadow-tight), var(--liquid-glass-edge)',
+                    backdropFilter: 'var(--liquid-glass-backdrop-rich)',
+                    WebkitBackdropFilter: 'var(--liquid-glass-backdrop-rich)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -961,9 +992,11 @@ export default function TransferStation() {
                 width: fabSize,
                 height: fabSize,
                 borderRadius: 999,
-                border: dragOver ? '1px solid #4c9eff' : '1px solid rgba(15,23,42,0.08)',
-                background: '#fff',
-                boxShadow: open ? '0 12px 24px rgba(37,99,235,0.3)' : '0 8px 20px rgba(15,23,42,0.24)',
+                border: dragOver ? '1px solid #4c9eff' : '1px solid var(--liquid-glass-border)',
+                background: 'var(--liquid-glass-material-readable)',
+                boxShadow: open ? '0 12px 24px rgba(37,99,235,0.3), var(--liquid-glass-edge)' : 'var(--liquid-glass-shadow-tight), var(--liquid-glass-edge)',
+                backdropFilter: 'var(--liquid-glass-backdrop-rich)',
+                WebkitBackdropFilter: 'var(--liquid-glass-backdrop-rich)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',

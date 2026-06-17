@@ -1,0 +1,142 @@
+:root {
+  /*
+   * MaMage liquid glass library.
+   * Tune the material here first; existing --lg-* and --mamage-glass-* tokens
+   * are aliases so older components inherit the same glass language.
+   */
+  --liquid-glass-surface-a: rgba(255, 255, 255, 0.46);
+  --liquid-glass-surface-b: rgba(255, 255, 255, 0.18);
+  --liquid-glass-readable-a: rgba(255, 255, 255, 0.66);
+  --liquid-glass-readable-b: rgba(255, 255, 255, 0.34);
+  --liquid-glass-border: rgba(255, 255, 255, 0.68);
+  --liquid-glass-border-soft: rgba(255, 255, 255, 0.36);
+  --liquid-glass-blur: 18px;
+  --liquid-glass-backdrop-blur: 22px;
+  --liquid-glass-saturation: 1.58;
+  --liquid-glass-caustic-opacity: 0.86;
+  --liquid-glass-caustic-speed: 1.75s;
+  --liquid-glass-shadow: 0 22px 70px rgba(58, 78, 104, 0.16), 0 6px 22px rgba(18, 32, 52, 0.07);
+  --liquid-glass-shadow-tight: 0 10px 30px rgba(58, 78, 104, 0.12), 0 2px 10px rgba(18, 32, 52, 0.07);
+  --liquid-glass-edge:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    inset 1px 0 0 rgba(255, 255, 255, 0.4),
+    inset -1px 0 0 rgba(255, 255, 255, 0.28),
+    inset 0 -1px 0 rgba(31, 41, 55, 0.1);
+  --liquid-glass-material:
+    linear-gradient(135deg, var(--liquid-glass-surface-a), var(--liquid-glass-surface-b));
+  --liquid-glass-material-readable:
+    linear-gradient(135deg, var(--liquid-glass-readable-a), var(--liquid-glass-readable-b));
+  --liquid-glass-caustic:
+    radial-gradient(78% 145% at 17% -5%, rgba(255, 255, 255, 1), transparent 34%),
+    radial-gradient(82% 150% at 92% 8%, rgba(255, 255, 255, 0.48), transparent 40%),
+    linear-gradient(112deg, transparent 0 18%, rgba(255, 255, 255, 0.68) 39%, transparent 58% 100%);
+  --liquid-glass-backdrop: blur(var(--liquid-glass-blur)) saturate(var(--liquid-glass-saturation));
+  --liquid-glass-backdrop-rich: url("#mamage-liquid-glass") blur(var(--liquid-glass-backdrop-blur)) saturate(var(--liquid-glass-saturation));
+
+  --lg-surface: var(--liquid-glass-surface-a);
+  --lg-surface-strong: var(--liquid-glass-readable-a);
+  --lg-surface-soft: var(--liquid-glass-surface-b);
+  --lg-stroke: var(--liquid-glass-border);
+  --lg-shadow: var(--liquid-glass-shadow);
+  --lg-shadow-tight: var(--liquid-glass-shadow-tight);
+  --lg-blur: var(--liquid-glass-backdrop);
+  --lg-blur-rich: var(--liquid-glass-backdrop-rich);
+  --mamage-glass-bg: var(--liquid-glass-material);
+  --mamage-glass-bg-readable: var(--liquid-glass-material-readable);
+  --mamage-glass-caustic: var(--liquid-glass-caustic);
+  --mamage-glass-edge-shadow: var(--liquid-glass-edge);
+  --mamage-glass-border: var(--liquid-glass-border);
+  --mamage-glass-border-soft: var(--liquid-glass-border-soft);
+}
+
+.liquid-glass-panel,
+.liquid-glass-surface,
+[data-liquid-glass='surface'] {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  border: 1px solid var(--liquid-glass-border);
+  background: var(--liquid-glass-material);
+  box-shadow: var(--liquid-glass-shadow), var(--liquid-glass-edge);
+  backdrop-filter: var(--liquid-glass-backdrop);
+  -webkit-backdrop-filter: var(--liquid-glass-backdrop);
+}
+
+.liquid-glass-panel::before,
+.liquid-glass-surface::before,
+[data-liquid-glass='surface']::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: var(--liquid-glass-caustic);
+  background-size: 180% 180%;
+  opacity: var(--liquid-glass-caustic-opacity);
+  mix-blend-mode: screen;
+  animation: mamageGlassCaustic var(--liquid-glass-caustic-speed) ease-in-out infinite alternate;
+}
+
+.liquid-glass-panel > *,
+.liquid-glass-surface > *,
+[data-liquid-glass='surface'] > * {
+  position: relative;
+  z-index: 1;
+}
+
+@supports (backdrop-filter: url("#mamage-liquid-glass")) {
+  .liquid-glass-panel,
+  .liquid-glass-surface,
+  [data-liquid-glass='surface'],
+  .mamage-header,
+  .mamage-header.is-desktop-header.is-project-detail::after,
+  .mamage-mobile-nav-panel,
+  .semi-modal-content,
+  .semi-popover-content,
+  .semi-sidesheet-content,
+  .project-card,
+  .auth-card,
+  .scenery-toolbar,
+  .cam-tag,
+  .cam-file-picker,
+  .detail-bottom-nav,
+  .detail-bottom-upload,
+  .detail-actions-sheet,
+  .detail-selection-inline.is-expanded,
+  .viewer-tone-panel,
+  .detail-sim-modal .semi-modal-content,
+  .person-sheet-modal .semi-modal-content {
+    backdrop-filter: var(--liquid-glass-backdrop-rich) !important;
+    -webkit-backdrop-filter: var(--liquid-glass-backdrop-rich) !important;
+  }
+}
+
+@supports (backdrop-filter: url("#mamage-liquid-glass")) {
+  .detail-header,
+  .detail-toolbar-main,
+  .detail-search-row,
+  .viewer-chip,
+  .viewer-info-card,
+  .viewer-nav,
+  .viewer-close-btn,
+  .viewer-original-btn,
+  .person-sheet-hero,
+  .person-sheet-card,
+  .similarity-group,
+  .detail-actions-fab {
+    backdrop-filter: var(--liquid-glass-backdrop-rich) !important;
+    -webkit-backdrop-filter: var(--liquid-glass-backdrop-rich) !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .liquid-glass-panel::before,
+  .liquid-glass-surface::before,
+  [data-liquid-glass='surface']::before,
+  .auth-card::before,
+  .project-card::before,
+  .detail-header::before {
+    animation: none;
+  }
+}

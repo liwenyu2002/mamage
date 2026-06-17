@@ -1,9 +1,9 @@
 :root {
     --lg-page-bg: linear-gradient(128deg, #fff7fb 0%, #fffbed 28%, #f7fff4 52%, #fff1e6 74%, #f7f0ff 100%);
-    --lg-surface: rgba(255, 255, 255, 0.42);
-    --lg-surface-strong: rgba(255, 255, 255, 0.62);
-    --lg-surface-soft: rgba(255, 255, 255, 0.24);
-    --lg-stroke: rgba(255, 255, 255, 0.72);
+    --lg-surface: rgba(255, 255, 255, 0.44);
+    --lg-surface-strong: rgba(255, 255, 255, 0.68);
+    --lg-surface-soft: rgba(255, 255, 255, 0.28);
+    --lg-stroke: rgba(255, 255, 255, 0.74);
     --lg-stroke-dark: rgba(53, 79, 113, 0.14);
     --lg-shadow: 0 22px 70px rgba(58, 78, 104, 0.16), 0 6px 22px rgba(18, 32, 52, 0.07);
     --lg-shadow-tight: 0 10px 30px rgba(58, 78, 104, 0.12), 0 2px 10px rgba(18, 32, 52, 0.07);
@@ -15,10 +15,22 @@
     --lg-radius: 20px;
     --lg-radius-sm: 12px;
     --lg-blur: blur(22px) saturate(1.45);
-    --mamage-glass-bg: linear-gradient(135deg, rgba(255, 255, 255, 0.74), rgba(255, 255, 255, 0.46));
+    --lg-blur-rich: url("#mamage-liquid-glass") blur(22px) saturate(1.45);
+    --mamage-glass-bg: linear-gradient(135deg, rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.34));
+    --mamage-glass-bg-readable: linear-gradient(135deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.5));
     --mamage-glass-shine:
-        linear-gradient(135deg, rgba(255, 255, 255, 0.62), transparent 34%),
-        linear-gradient(315deg, rgba(255, 255, 255, 0.24), transparent 44%);
+        linear-gradient(135deg, rgba(255, 255, 255, 0.72), transparent 33%),
+        linear-gradient(315deg, rgba(255, 255, 255, 0.28), transparent 44%),
+        radial-gradient(circle at 18% 0%, rgba(255, 255, 255, 0.52), transparent 28%);
+    --mamage-glass-caustic:
+        radial-gradient(68% 130% at 18% 0%, rgba(255, 255, 255, 0.88), transparent 36%),
+        radial-gradient(92% 160% at 88% 18%, rgba(255, 255, 255, 0.36), transparent 42%),
+        linear-gradient(112deg, transparent 0 24%, rgba(255, 255, 255, 0.52) 38%, transparent 54% 100%);
+    --mamage-glass-edge-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.82),
+        inset 1px 0 0 rgba(255, 255, 255, 0.34),
+        inset -1px 0 0 rgba(255, 255, 255, 0.26),
+        inset 0 -1px 0 rgba(31, 41, 55, 0.08);
     --mamage-glass-border: rgba(255, 255, 255, 0.62);
     --mamage-glass-border-soft: rgba(255, 255, 255, 0.34);
 }
@@ -49,6 +61,14 @@ body {
     z-index: 1;
 }
 
+.mamage-liquid-glass-defs {
+    position: fixed;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+    pointer-events: none;
+}
+
 body::before {
     content: '';
     position: fixed;
@@ -61,6 +81,7 @@ body::before {
         linear-gradient(25deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0));
     opacity: 0.5;
     transform: translate3d(-4vw, -2vh, 0) scale(1.05);
+    animation: mamagePastelFlow 2.4s ease-in-out infinite alternate;
     will-change: transform;
 }
 
@@ -209,6 +230,18 @@ textarea {
     isolation: isolate;
 }
 
+@supports (backdrop-filter: url("#mamage-liquid-glass")) {
+    .mamage-header,
+    .mamage-header.is-desktop-header.is-project-detail::after,
+    .mamage-mobile-nav-panel,
+    .semi-modal-content,
+    .semi-popover-content,
+    .semi-sidesheet-content,
+    .liquid-glass-panel {
+        backdrop-filter: var(--lg-blur-rich);
+    }
+}
+
 .mamage-header::before,
 .semi-modal-content::before,
 .semi-popover-content::before,
@@ -219,8 +252,23 @@ textarea {
     z-index: 0;
     pointer-events: none;
     border-radius: inherit;
-    background: var(--mamage-glass-shine);
-    opacity: 0.58;
+    background: var(--mamage-glass-caustic);
+    background-size: 180% 180%;
+    opacity: 0.72;
+    animation: mamageGlassCaustic var(--liquid-glass-caustic-speed, 2.2s) ease-in-out infinite alternate;
+    mix-blend-mode: screen;
+}
+
+@keyframes mamageGlassCaustic {
+    from {
+        background-position: 0% 20%, 100% 0%, 0% 50%;
+        transform: translate3d(-1.2%, -0.8%, 0) scale(1.02);
+    }
+
+    to {
+        background-position: 100% 84%, 0% 100%, 100% 50%;
+        transform: translate3d(1.2%, 0.8%, 0) scale(1.025);
+    }
 }
 
 .mamage-topbar {
@@ -244,32 +292,33 @@ textarea {
 .mamage-header.is-desktop-header.is-project-detail {
     --mamage-notch-width: min(560px, calc(100% - 520px));
     --mamage-notch-min-width: 320px;
-    --mamage-notch-height: 32px;
+    --mamage-notch-height: 34px;
     border-color: var(--mamage-glass-border) !important;
-    border-bottom-color: transparent !important;
+    border-bottom-color: rgba(255, 255, 255, 0.48) !important;
     border-radius: 18px;
     background: var(--mamage-glass-bg) !important;
     box-shadow: 0 8px 24px rgba(50, 82, 112, 0.12), 0 1px 8px rgba(18, 32, 52, 0.05);
     backdrop-filter: var(--lg-blur);
     -webkit-backdrop-filter: var(--lg-blur);
-    margin-bottom: 34px;
+    margin-bottom: calc(var(--mamage-notch-height) + 10px);
 }
 
 .mamage-header.is-desktop-header.is-project-detail::after {
     content: '';
     position: absolute;
     left: 50%;
-    top: 100%;
+    top: calc(100% - 1px);
     z-index: 1;
     width: var(--mamage-notch-width);
     min-width: var(--mamage-notch-min-width);
-    height: var(--mamage-notch-height);
+    height: calc(var(--mamage-notch-height) + 1px);
+    border-top: 0;
     border-right: 1px solid var(--mamage-glass-border);
     border-bottom: 1px solid var(--mamage-glass-border);
     border-left: 1px solid var(--mamage-glass-border);
-    border-radius: 0 0 18px 18px;
-    background: var(--mamage-glass-bg);
-    box-shadow: 0 14px 24px rgba(30, 80, 130, 0.06);
+    border-radius: 0 0 20px 20px;
+    background: var(--mamage-glass-bg) !important;
+    box-shadow: 0 16px 26px rgba(30, 80, 130, 0.06), var(--mamage-glass-edge-shadow);
     transform: translateX(-50%);
     pointer-events: none;
     backdrop-filter: var(--lg-blur);
@@ -280,12 +329,13 @@ textarea {
     content: '';
     position: absolute;
     left: 50%;
-    bottom: -1px;
-    z-index: 0;
-    width: var(--mamage-notch-width);
+    bottom: -2px;
+    z-index: 2;
+    width: calc(var(--mamage-notch-width) - 2px);
     min-width: var(--mamage-notch-min-width);
-    height: 2px;
-    background: var(--mamage-glass-bg);
+    height: 4px;
+    border-radius: 999px 999px 0 0;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.74) 10% 90%, transparent);
     transform: translateX(-50%);
     pointer-events: none;
 }
@@ -472,19 +522,19 @@ textarea {
 .mamage-desktop-project-notch {
     position: absolute;
     left: 50%;
-    top: 100%;
-    z-index: 2;
+    top: calc(100% - 1px);
+    z-index: 3;
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 9px;
     width: var(--mamage-notch-width);
     min-width: var(--mamage-notch-min-width);
-    height: 32px;
+    height: var(--mamage-notch-height);
     padding: 0 14px;
-    overflow: visible;
+    overflow: hidden;
     border: 0;
-    border-radius: 0 0 16px 16px;
+    border-radius: 0 0 20px 20px;
     background: transparent;
     box-shadow: none;
     color: #000;
@@ -500,9 +550,12 @@ textarea {
     inset: 0;
     z-index: 0;
     border-radius: 0 0 18px 18px;
-    background: var(--mamage-glass-shine);
-    opacity: 0.58;
+    background: var(--mamage-glass-caustic);
+    background-size: 180% 180%;
+    opacity: 0.76;
+    animation: mamageGlassCaustic var(--liquid-glass-caustic-speed, 2.2s) ease-in-out infinite alternate;
     pointer-events: none;
+    mix-blend-mode: screen;
 }
 
 .mamage-desktop-project-notch > * {
@@ -1284,6 +1337,11 @@ textarea {
     body::before,
     .mamage-shell::before,
     .mamage-shell::after,
+    .mamage-header::before,
+    .mamage-desktop-project-notch::before,
+    .semi-modal-content::before,
+    .semi-popover-content::before,
+    .semi-sidesheet-content::before,
     .mamage-mobile-nav-backdrop,
     .mamage-mobile-nav-panel.is-open {
         animation: none;
@@ -1364,10 +1422,10 @@ textarea {
 .semi-sidesheet-content {
     position: relative;
     overflow: hidden;
-    border: 1px solid rgba(255, 255, 255, 0.68) !important;
+    border: 1px solid var(--liquid-glass-border, rgba(255, 255, 255, 0.68)) !important;
     border-radius: 22px !important;
-    background: linear-gradient(135deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.42)) !important;
-    box-shadow: var(--lg-shadow) !important;
+    background: var(--liquid-glass-material-readable, linear-gradient(135deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.42))) !important;
+    box-shadow: var(--liquid-glass-shadow, var(--lg-shadow)), var(--liquid-glass-edge, inset 0 1px 0 rgba(255, 255, 255, 0.72)) !important;
     backdrop-filter: var(--lg-blur);
     -webkit-backdrop-filter: var(--lg-blur);
 }
@@ -1400,9 +1458,9 @@ textarea {
 .liquid-glass-panel {
     position: relative;
     overflow: hidden;
-    border: 1px solid var(--lg-stroke);
-    background: linear-gradient(135deg, var(--lg-surface-strong), var(--lg-surface-soft));
-    box-shadow: var(--lg-shadow);
+    border: 1px solid var(--liquid-glass-border, var(--lg-stroke));
+    background: var(--liquid-glass-material, linear-gradient(135deg, var(--lg-surface-strong), var(--lg-surface-soft)));
+    box-shadow: var(--liquid-glass-shadow, var(--lg-shadow)), var(--liquid-glass-edge, none);
     backdrop-filter: var(--lg-blur);
     -webkit-backdrop-filter: var(--lg-blur);
 }
@@ -1413,11 +1471,11 @@ textarea {
     inset: 0;
     pointer-events: none;
     border-radius: inherit;
-    background:
-        linear-gradient(130deg, rgba(255, 255, 255, 0.82), transparent 31%),
-        linear-gradient(300deg, rgba(255, 255, 255, 0.38), transparent 46%),
-        linear-gradient(90deg, transparent, rgba(22, 119, 255, 0.08), transparent);
-    opacity: 0.8;
+    background: var(--liquid-glass-caustic, var(--mamage-glass-caustic));
+    background-size: 180% 180%;
+    opacity: var(--liquid-glass-caustic-opacity, 0.8);
+    animation: mamageGlassCaustic var(--liquid-glass-caustic-speed, 2.2s) ease-in-out infinite alternate;
+    mix-blend-mode: screen;
 }
 
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
@@ -1543,41 +1601,61 @@ textarea {
 }
 
 .app-loading-mark {
+    position: relative;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 6px;
-    height: 24px;
+    gap: 5px;
+    width: 66px;
+    height: 34px;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.68);
+    border-radius: 999px;
+    background: var(--mamage-glass-bg);
+    box-shadow: var(--lg-shadow-tight), inset 0 1px 0 rgba(255, 255, 255, 0.72);
+    backdrop-filter: blur(18px) saturate(1.35);
+    -webkit-backdrop-filter: blur(18px) saturate(1.35);
+}
+
+.app-loading-mark::before {
+    content: '';
+    position: absolute;
+    inset: 1px;
+    border-radius: inherit;
+    background: var(--mamage-glass-shine);
+    opacity: 0.72;
 }
 
 .app-loading-mark span {
+    position: relative;
+    z-index: 1;
     width: 7px;
     height: 7px;
     border-radius: 999px;
-    background: #2563eb;
-    opacity: 0.35;
-    animation: app-loading-dot 1.1s ease-in-out infinite;
+    background: #000;
+    opacity: 0.44;
+    animation: app-loading-dot 780ms ease-in-out infinite;
 }
 
 .app-loading-mark span:nth-child(2) {
-    background: #0f766e;
     animation-delay: 120ms;
 }
 
 .app-loading-mark span:nth-child(3) {
-    background: #f59e0b;
     animation-delay: 240ms;
 }
 
 .app-loading-title {
+    color: #000;
     font-size: 15px;
-    font-weight: 650;
+    font-weight: 850;
     line-height: 1.4;
 }
 
 .app-loading-subtitle {
-    color: #6b7280;
-    font-size: 13px;
+    color: #000;
+    font-size: 12px;
+    font-weight: 650;
     line-height: 1.4;
 }
 

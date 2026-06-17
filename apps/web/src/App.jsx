@@ -1,22 +1,28 @@
 ﻿// src/App.jsx
 import React from 'react';
-import '@semi-bot/semi-theme-mamage_day/semi.css';
 import ProjectCard from './ProjectCard';
-import ProjectDetail from './ProjectDetail';
-import ShareView from './ShareView';
-import AuthPage from './AuthPage';
 import * as authService from './services/authService';
 import { fetchProjectList, createProject } from './services/projectService';
 import { searchPhotos } from './services/photoService';
-import CreateAlbumModal from './CreateAlbumModal';
 import { resolveAssetUrl } from './services/request';
-import TransferStation from './TransferStation';
 import IfCan from './permissions/IfCan';
-import PhotoPreviewOverlay from './PhotoPreviewOverlay.jsx';
+import { LiquidGlassDefs } from './liquidGlass';
 
-const Scenery = React.lazy(() => import('./Scenery'));
-const AccountPage = React.lazy(() => import('./AccountPage'));
-const AiNewsWriter = React.lazy(() => import('./AiNewsWriter.jsx'));
+const lazyWithPreload = (loader) => {
+  const Component = React.lazy(loader);
+  Component.preload = loader;
+  return Component;
+};
+
+const ProjectDetail = lazyWithPreload(() => import(/* webpackChunkName: "project-detail" */ './ProjectDetail'));
+const ShareView = lazyWithPreload(() => import(/* webpackChunkName: "share-view" */ './ShareView'));
+const AuthPage = lazyWithPreload(() => import(/* webpackChunkName: "auth-page" */ './AuthPage'));
+const CreateAlbumModal = lazyWithPreload(() => import(/* webpackChunkName: "create-album" */ './CreateAlbumModal'));
+const TransferStation = lazyWithPreload(() => import(/* webpackChunkName: "transfer-station" */ './TransferStation'));
+const PhotoPreviewOverlay = lazyWithPreload(() => import(/* webpackChunkName: "photo-preview" */ './PhotoPreviewOverlay.jsx'));
+const Scenery = lazyWithPreload(() => import(/* webpackChunkName: "scenery" */ './Scenery'));
+const AccountPage = lazyWithPreload(() => import(/* webpackChunkName: "account-page" */ './AccountPage'));
+const AiNewsWriter = lazyWithPreload(() => import(/* webpackChunkName: "ai-news-writer" */ './AiNewsWriter.jsx'));
 
 const PROJECT_PAGE_SIZE = 24;
 
@@ -53,6 +59,14 @@ function AppLoadingState({ title = '正在加载', subtitle = '请稍候', compa
 function LazyPanel({ children, title = '正在加载功能' }) {
   return (
     <React.Suspense fallback={<AppLoadingState title={title} subtitle="马上打开" compact />}>
+      {children}
+    </React.Suspense>
+  );
+}
+
+function LazySilent({ children }) {
+  return (
+    <React.Suspense fallback={null}>
       {children}
     </React.Suspense>
   );
@@ -138,6 +152,7 @@ function App() {
   const [photoPreviewTitle, setPhotoPreviewTitle] = React.useState('');
   const [photoPreviewDescription, setPhotoPreviewDescription] = React.useState('');
   const [photoPreviewTags, setPhotoPreviewTags] = React.useState([]);
+  const [mountTransferStation, setMountTransferStation] = React.useState(false);
   const isSharePath = (() => {
     try {
       return typeof window !== 'undefined' && window.location && window.location.pathname && window.location.pathname.startsWith('/share/');
@@ -158,6 +173,19 @@ function App() {
 
   const latestRequestRef = React.useRef(0);
   const latestPhotoSearchReqRef = React.useRef(0);
+
+  const preloadProjectDetail = React.useCallback(() => {
+    if (ProjectDetail.preload) ProjectDetail.preload();
+  }, []);
+
+  const preloadCreateAlbum = React.useCallback(() => {
+    if (CreateAlbumModal.preload) CreateAlbumModal.preload();
+  }, []);
+
+  const preloadNavItem = React.useCallback((key) => {
+    if (key === 'scenery' && Scenery.preload) Scenery.preload();
+    if (key === 'function' && AiNewsWriter.preload) AiNewsWriter.preload();
+  }, []);
 
   const loadProjects = React.useCallback(async (kw = '', page = 1, pageSize = PROJECT_PAGE_SIZE) => {
     const currentToken = latestRequestRef.current + 1;
@@ -262,13 +290,44 @@ function App() {
 
   React.useEffect(() => {
     if (typeof window === 'undefined') return undefined;
-    const onResize = () => setIsMobileHeader(window.innerWidth <= 1024);
-    onResize();
+    let frame = 0;
+    const apply = () => {
+      frame = 0;
+      setIsMobileHeader(window.innerWidth <= 1024);
+    };
+    const onResize = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(apply);
+    };
+    apply();
     window.addEventListener('resize', onResize);
     window.addEventListener('orientationchange', onResize);
     return () => {
+      if (frame) window.cancelAnimationFrame(frame);
       window.removeEventListener('resize', onResize);
       window.removeEventListener('orientationchange', onResize);
+    };
+  }, []);
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') {
+      setMountTransferStation(true);
+      return undefined;
+    }
+    let canceled = false;
+    const mount = () => {
+      if (!canceled) setMountTransferStation(true);
+    };
+    const idleId = typeof window.requestIdleCallback === 'function'
+      ? window.requestIdleCallback(mount, { timeout: 1600 })
+      : window.setTimeout(mount, 900);
+    return () => {
+      canceled = true;
+      if (typeof window.cancelIdleCallback === 'function') {
+        window.cancelIdleCallback(idleId);
+      } else {
+        window.clearTimeout(idleId);
+      }
     };
   }, []);
 
@@ -739,6 +798,8 @@ function App() {
       key={item.key}
       type="button"
       className={`${mobile ? 'mamage-mobile-nav-item' : 'mamage-nav-link'}${selectedNav === item.key ? ' is-active' : ''}`}
+      onPointerEnter={() => preloadNavItem(item.key)}
+      onFocus={() => preloadNavItem(item.key)}
       onClick={() => {
         item.onClick();
         if (mobile) closeMobileNav();
@@ -746,7 +807,7 @@ function App() {
     >
       {item.label}
     </button>
-  ), [closeMobileNav, selectedNav]);
+  ), [closeMobileNav, preloadNavItem, selectedNav]);
 
   const showProjectPager = (projectPage > 1) || projectHasMore;
   const projectPageText = projectTotal > 0
@@ -773,10 +834,12 @@ function App() {
     if (shareMode && shareInitialProject) {
       return (
         <div style={{ minHeight: '100vh' }}>
-          <ShareView
-            share={shareInitialProject}
-            onBack={() => { try { window.history.replaceState({}, '', '/'); window.location.reload(); } catch (e) { window.location.href = '/'; } }}
-          />
+          <LazyPanel title="正在打开分享内容">
+            <ShareView
+              share={shareInitialProject}
+              onBack={() => { try { window.history.replaceState({}, '', '/'); window.location.reload(); } catch (e) { window.location.href = '/'; } }}
+            />
+          </LazyPanel>
         </div>
       );
     }
@@ -796,11 +859,16 @@ function App() {
   }
 
   if (!currentUser && !isDemoPath) {
-    return <AuthPage onAuthenticated={(u) => { setCurrentUser(u); loadProjects(); }} />;
+    return (
+      <LazyPanel title="正在打开登录页">
+        <AuthPage onAuthenticated={(u) => { setCurrentUser(u); loadProjects(); }} />
+      </LazyPanel>
+    );
   }
 
   return (
     <div className="mamage-shell">
+      <LiquidGlassDefs />
       <header className={`mamage-header${currentProjectId ? ' is-project-detail' : ''}${isMobileHeader ? ' is-mobile-header' : ' is-desktop-header'}`}>
         <div className={`mamage-topbar${currentProjectId ? ' is-project-detail' : ''}`}>
           <div className="mamage-brand-area">
@@ -904,7 +972,13 @@ function App() {
 
             {!isDemoPath && !currentProjectId ? (
               <IfCan perms={['projects.create']}>
-                <button type="button" className="mamage-action-button is-secondary" onClick={() => setShowCreateModal(true)}>
+                <button
+                  type="button"
+                  className="mamage-action-button is-secondary"
+                  onPointerEnter={preloadCreateAlbum}
+                  onFocus={preloadCreateAlbum}
+                  onClick={() => setShowCreateModal(true)}
+                >
                   <span className="mamage-label-full">新建相册</span>
                   <span className="mamage-label-short">新建</span>
                 </button>
@@ -971,16 +1045,18 @@ function App() {
       <main className="mamage-content" style={{ padding: 'clamp(10px, 2.5vw, 24px)' }}>
         <div className="project-page">
           {currentProjectId ? (
-            <ProjectDetail
-              key={`project-${currentProjectId}`}
-              projectId={currentProjectId}
-              initialProject={currentProject || null}
-              onBack={handleBackToList}
-              readOnly={isDemoPath}
-              initialOpenPhotoId={pendingOpenPhotoId}
-              onInitialOpenPhotoHandled={handleInitialPhotoOpened}
-              onProjectHeaderChange={setActiveProjectHeader}
-            />
+            <LazyPanel title="正在加载相册">
+              <ProjectDetail
+                key={`project-${currentProjectId}`}
+                projectId={currentProjectId}
+                initialProject={currentProject || null}
+                onBack={handleBackToList}
+                readOnly={isDemoPath}
+                initialOpenPhotoId={pendingOpenPhotoId}
+                onInitialOpenPhotoHandled={handleInitialPhotoOpened}
+                onProjectHeaderChange={setActiveProjectHeader}
+              />
+            </LazyPanel>
           ) : (
             selectedNav === 'projects' ? (
               photoSearchMode ? (
@@ -1193,6 +1269,7 @@ function App() {
                         <ProjectCard
                           key={project.id}
                           {...project}
+                          onHoverIntent={preloadProjectDetail}
                           onClick={() => handleSelectProject(project.id)}
                         />
                       ))}
@@ -1238,28 +1315,42 @@ function App() {
         </div>
       </main>
 
-      <PhotoPreviewOverlay
-        visible={photoPreviewVisible}
-        src={photoPreviewSrc}
-        title={photoPreviewTitle}
-        description={photoPreviewDescription}
-        tags={photoPreviewTags}
-        onClose={closePhotoPreview}
-      />
+      {photoPreviewVisible ? (
+        <LazySilent>
+          <PhotoPreviewOverlay
+            visible={photoPreviewVisible}
+            src={photoPreviewSrc}
+            title={photoPreviewTitle}
+            description={photoPreviewDescription}
+            tags={photoPreviewTags}
+            onClose={closePhotoPreview}
+          />
+        </LazySilent>
+      ) : null}
 
-      <footer className="mamage-footer" style={{ textAlign: 'center' }}>
-        MaMage 校园图库 © {new Date().getFullYear()}
-      </footer>
-      <TransferStation />
-      <CreateAlbumModal
-        visible={showCreateModal}
-        onClose={() => setShowCreateModal(false)}
-        createProject={createProject}
-        onCreated={() => {
-          setShowCreateModal(false);
-          loadProjects(projectQuery, 1, PROJECT_PAGE_SIZE);
-        }}
-      />
+      {!currentProjectId ? (
+        <footer className="mamage-footer" style={{ textAlign: 'center' }}>
+          MaMage 校园图库 © {new Date().getFullYear()}
+        </footer>
+      ) : null}
+      {mountTransferStation ? (
+        <LazySilent>
+          <TransferStation />
+        </LazySilent>
+      ) : null}
+      {showCreateModal ? (
+        <LazySilent>
+          <CreateAlbumModal
+            visible={showCreateModal}
+            onClose={() => setShowCreateModal(false)}
+            createProject={createProject}
+            onCreated={() => {
+              setShowCreateModal(false);
+              loadProjects(projectQuery, 1, PROJECT_PAGE_SIZE);
+            }}
+          />
+        </LazySilent>
+      ) : null}
     </div>
   );
 }

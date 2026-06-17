@@ -1,5 +1,6 @@
 import React from 'react';
 import { Button } from '@douyinfe/semi-ui';
+import '../semiTheme';
 import { canAll } from './permissionStore';
 
 // Disabled (not hidden) if lacking permission

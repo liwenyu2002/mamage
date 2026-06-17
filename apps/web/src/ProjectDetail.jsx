@@ -11,6 +11,7 @@ import {
   IconPlus,
   IconSearch,
 } from '@douyinfe/semi-icons';
+import './semiTheme';
 import './ProjectDetail.css';
 import { getProjectById, updateProject, deleteProject } from './services/projectService';
 import { getToken } from './services/authService';

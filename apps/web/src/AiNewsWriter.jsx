@@ -13,6 +13,7 @@ import {
   List,
   Toast,
 } from '@douyinfe/semi-ui';
+import './semiTheme';
 import { getAll as getTransferAll } from './services/transferStore';
 import { request, resolveAssetUrl } from './services/request';
 import { getToken } from './services/authService';

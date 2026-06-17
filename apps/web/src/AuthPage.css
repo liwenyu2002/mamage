@@ -15,11 +15,11 @@
   width: min(420px, calc(100vw - 32px));
   overflow: hidden;
   border-radius: 26px !important;
-  border: 1px solid rgba(255, 255, 255, 0.68) !important;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.68), rgba(255, 255, 255, 0.32)) !important;
-  box-shadow: var(--lg-shadow) !important;
-  backdrop-filter: blur(24px) saturate(1.45);
-  -webkit-backdrop-filter: blur(24px) saturate(1.45);
+  border: 1px solid var(--liquid-glass-border, rgba(255, 255, 255, 0.68)) !important;
+  background: var(--liquid-glass-material-readable, linear-gradient(135deg, rgba(255, 255, 255, 0.68), rgba(255, 255, 255, 0.32))) !important;
+  box-shadow: var(--liquid-glass-shadow, var(--lg-shadow)), var(--liquid-glass-edge, none) !important;
+  backdrop-filter: var(--liquid-glass-backdrop, blur(24px) saturate(1.45));
+  -webkit-backdrop-filter: var(--liquid-glass-backdrop, blur(24px) saturate(1.45));
 }
 
 .auth-card::before {
@@ -28,10 +28,11 @@
   inset: 0;
   pointer-events: none;
   border-radius: inherit;
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.86), transparent 34%),
-    linear-gradient(315deg, rgba(255, 255, 255, 0.34), transparent 50%);
-  opacity: 0.82;
+  background: var(--liquid-glass-caustic, var(--mamage-glass-caustic));
+  background-size: 180% 180%;
+  opacity: var(--liquid-glass-caustic-opacity, 0.82);
+  mix-blend-mode: screen;
+  animation: mamageGlassCaustic var(--liquid-glass-caustic-speed, 2.2s) ease-in-out infinite alternate;
 }
 
 .auth-card .semi-card-header,

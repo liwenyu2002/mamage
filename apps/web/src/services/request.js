@@ -20,8 +20,8 @@ async function request(path, options = {}) {
   let url = `${BASE_URL}${path}`;
   const headers = Object.assign({ 'Content-Type': 'application/json' }, options.headers || {});
 
-  // Development logging: if enabled (or running on localhost), record request payloads
-  const LOG_REQUESTS = typeof window !== 'undefined' && (window.__MAMAGE_LOG_REQUESTS || isLocalHost);
+  // Request body logging is opt-in; uploads and batch edits should stay quiet by default.
+  const LOG_REQUESTS = typeof window !== 'undefined' && Boolean(window.__MAMAGE_LOG_REQUESTS);
   const pushRequestLog = async (entry) => {
     try {
       if (typeof window === 'undefined') return;

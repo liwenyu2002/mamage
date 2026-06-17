@@ -1,5 +1,6 @@
 import React from 'react';
 import { Card, Input, Button, Toast, Typography, Select, Divider } from '@douyinfe/semi-ui';
+import './semiTheme';
 import * as authService from './services/authService';
 
 const { Text } = Typography;
