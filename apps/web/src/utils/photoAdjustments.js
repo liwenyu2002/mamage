@@ -1,13 +1,13 @@
-const ENGINE = 'mamage-tone-v1';
+const ENGINE = 'mamage-tone-v2-acr-like';
 
 const DEFAULT_PHOTO_ADJUSTMENTS = Object.freeze({
-  version: 1,
+  version: 2,
   engine: ENGINE,
   brightness: 0,
   contrast: 0,
-  whites: 0,
   highlights: 0,
   shadows: 0,
+  whites: 0,
   blacks: 0,
   temperature: 0,
   tint: 0,
@@ -44,9 +44,9 @@ function normalizePhotoAdjustments(input) {
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) parsed = {};
   const brightness = clamp(parsed.brightness, -100, 100, 0);
   const contrast = clamp(parsed.contrast, -100, 100, 0);
-  const whites = clamp(parsed.whites, -100, 100, 0);
   const highlights = clamp(parsed.highlights, -100, 100, 0);
   const shadows = clamp(parsed.shadows, -100, 100, 0);
+  const whites = clamp(parsed.whites, -100, 100, 0);
   const blacks = clamp(parsed.blacks, -100, 100, 0);
   const temperature = clamp(parsed.temperature, -100, 100, 0);
   const tint = clamp(parsed.tint, -100, 100, 0);
@@ -54,13 +54,13 @@ function normalizePhotoAdjustments(input) {
     ? parsed.wbGains
     : computeWbGains(temperature, tint);
   return {
-    version: 1,
+    version: 2,
     engine: ENGINE,
     brightness,
     contrast,
-    whites,
     highlights,
     shadows,
+    whites,
     blacks,
     temperature,
     tint,
@@ -96,14 +96,14 @@ function isDefaultPhotoAdjustments(input) {
 function getPhotoAdjustmentStyle(input) {
   const a = normalizePhotoAdjustments(input);
   if (isDefaultPhotoAdjustments(a)) return undefined;
-  const zoneExposure = (a.whites * 0.002)
-    + (a.highlights * 0.0012)
-    + (a.shadows * 0.0008)
-    + (a.blacks * 0.0005);
-  const zoneContrast = ((a.whites - a.blacks) * 0.0018)
-    + ((a.highlights - a.shadows) * 0.0012);
-  const exposure = Math.pow(2, ((a.brightness / 100) * 1.25) + zoneExposure);
-  const contrast = clamp(1 + (a.contrast / 100) * 0.72 + zoneContrast, 0.25, 2.2, 1);
+  const zoneExposure = (a.highlights * 0.00075)
+    + (a.shadows * 0.00065)
+    + (a.whites * 0.00095)
+    + (a.blacks * 0.00035);
+  const zoneContrast = ((a.whites - a.blacks) * 0.00095)
+    + ((a.highlights - a.shadows) * 0.00055);
+  const exposure = Math.pow(2, ((a.brightness / 100) * 1.12) + zoneExposure);
+  const contrast = clamp(1 + (a.contrast / 100) * 0.54 + zoneContrast, 0.45, 1.85, 1);
   const temp = a.temperature / 100;
   const tint = a.tint / 100;
   const sepia = Math.max(0, temp) * 0.14;
@@ -119,10 +119,10 @@ function srgbToLinear(v) {
   return x <= 0.04045 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4);
 }
 
-function linearToSrgb(v) {
+function linearToSrgb(v, dither = 0) {
   const x = clamp(v, 0, 1);
   const y = x <= 0.0031308 ? x * 12.92 : (1.055 * Math.pow(x, 1 / 2.4)) - 0.055;
-  return clamp(Math.round(y * 255), 0, 255);
+  return clamp(Math.round((y * 255) + dither), 0, 255);
 }
 
 function smoothstep(edge0, edge1, value) {
@@ -131,35 +131,68 @@ function smoothstep(edge0, edge1, value) {
   return x * x * (3 - (2 * x));
 }
 
-function zoneDeltaForLuma(luma, adjustments) {
-  const blacksMask = 1 - smoothstep(0.03, 0.28, luma);
-  const shadowsMask = 1 - smoothstep(0.18, 0.56, luma);
-  const highlightsMask = smoothstep(0.48, 0.86, luma);
-  const whitesMask = smoothstep(0.72, 0.98, luma);
-
-  return ((adjustments.blacks / 100) * 0.12 * blacksMask)
-    + ((adjustments.shadows / 100) * 0.18 * shadowsMask)
-    + ((adjustments.highlights / 100) * 0.16 * highlightsMask)
-    + ((adjustments.whites / 100) * 0.11 * whitesMask);
+function curvePushPull(luma, sliderValue, mask, scale) {
+  const amount = (clamp(sliderValue, -100, 100, 0) / 100) * clamp(mask, 0, 1, 0) * scale;
+  if (Math.abs(amount) < 0.00001) return luma;
+  const strength = 1 - Math.exp(-Math.abs(amount) * 2.2);
+  if (amount > 0) {
+    return clamp(luma + (1 - luma) * strength, 0, 1, luma);
+  }
+  return clamp(luma - luma * strength, 0, 1, luma);
 }
 
-function applyToneToRgbNormalized(r, g, b, a) {
-  const exposure = Math.pow(2, (a.brightness / 100) * 1.25);
-  const contrast = (a.contrast / 100) * 0.65;
+function applyMidtoneContrast(luma, contrastValue) {
+  const amount = (clamp(contrastValue, -100, 100, 0) / 100) * 0.58;
+  if (Math.abs(amount) < 0.00001) return luma;
+  const midMask = Math.pow(clamp(4 * luma * (1 - luma), 0, 1, 0), 0.72);
+  return clamp(luma + amount * (luma - 0.5) * midMask, 0, 1, luma);
+}
+
+function acrLikeToneMapLuma(luma, adjustments) {
+  let y = clamp(luma, 0, 1, 0);
+  const highlightsMask = smoothstep(0.44, 0.82, y) * (1 - smoothstep(0.96, 1, y) * 0.42);
+  y = curvePushPull(y, adjustments.highlights, highlightsMask, 0.34);
+
+  const shadowsMask = (1 - smoothstep(0.18, 0.58, y)) * (0.38 + smoothstep(0.012, 0.11, y) * 0.62);
+  y = curvePushPull(y, adjustments.shadows, shadowsMask, 0.36);
+
+  const whitesMask = smoothstep(0.68, 0.985, y);
+  y = curvePushPull(y, adjustments.whites, whitesMask, 0.3);
+
+  const blacksMask = 1 - smoothstep(0.012, 0.32, y);
+  y = curvePushPull(y, adjustments.blacks, blacksMask, 0.28);
+
+  return applyMidtoneContrast(y, adjustments.contrast);
+}
+
+function fitRgbToLuma(lr, lg, lb, sourceLuma, targetLuma) {
+  const y = clamp(targetLuma, 0, 1, 0);
+  if (sourceLuma <= 0.000001) return [y, y, y];
+  const ratio = clamp(y / sourceLuma, 0, 8, 1);
+  let nr = lr * ratio;
+  let ng = lg * ratio;
+  let nb = lb * ratio;
+  const maxChannel = Math.max(nr, ng, nb);
+  if (maxChannel > 1) {
+    const overshoot = maxChannel - 1;
+    const blendToGray = smoothstep(0, 0.42, overshoot) * 0.72;
+    nr += (y - nr) * blendToGray;
+    ng += (y - ng) * blendToGray;
+    nb += (y - nb) * blendToGray;
+  }
+  return [clamp(nr, 0, 1), clamp(ng, 0, 1), clamp(nb, 0, 1)];
+}
+
+function applyToneToRgbNormalized(r, g, b, a, dither = 0) {
+  const exposure = Math.pow(2, (a.brightness / 100) * 1.12);
   const gains = Array.isArray(a.wbGains) ? a.wbGains : [1, 1, 1];
   let lr = srgbToLinear(r) * gains[0] * exposure;
   let lg = srgbToLinear(g) * gains[1] * exposure;
   let lb = srgbToLinear(b) * gains[2] * exposure;
   const luma = clamp((0.2126 * lr) + (0.7152 * lg) + (0.0722 * lb), 0, 1, 0);
-  const zoneDelta = zoneDeltaForLuma(luma, a);
-  lr = clamp(lr + zoneDelta, 0, 1);
-  lg = clamp(lg + zoneDelta, 0, 1);
-  lb = clamp(lb + zoneDelta, 0, 1);
-  const applyContrast = (x) => clamp(x + contrast * (x - 0.5) * 4 * x * (1 - x), 0, 1);
-  lr = applyContrast(lr);
-  lg = applyContrast(lg);
-  lb = applyContrast(lb);
-  return [linearToSrgb(lr), linearToSrgb(lg), linearToSrgb(lb)];
+  const mappedLuma = acrLikeToneMapLuma(luma, a);
+  [lr, lg, lb] = fitRgbToLuma(lr, lg, lb, luma, mappedLuma);
+  return [linearToSrgb(lr, dither), linearToSrgb(lg, dither), linearToSrgb(lb, dither)];
 }
 
 function applyToneToRgb(r, g, b, input) {
@@ -192,7 +225,7 @@ function histogramRangeRatio(histogram, start, end) {
   return count / total;
 }
 
-function previewTonePercentiles(data, adjustments, sampleStep = 12) {
+function previewToneStats(data, adjustments, sampleStep = 12) {
   const histogram = Array(256).fill(0);
   const step = Math.max(1, Math.floor(sampleStep));
   for (let i = 0; i < data.length; i += 4 * step) {
@@ -200,10 +233,28 @@ function previewTonePercentiles(data, adjustments, sampleStep = 12) {
     const [r, g, b] = applyToneToRgb(data[i], data[i + 1], data[i + 2], adjustments);
     histogram[getLuma(r, g, b)] += 1;
   }
+  const total = histogram.reduce((sum, v) => sum + v, 0) || 1;
   return {
+    p005: percentileFromHistogram(histogram, 0.005),
     p01: percentileFromHistogram(histogram, 0.01),
+    p50: percentileFromHistogram(histogram, 0.5),
     p99: percentileFromHistogram(histogram, 0.99),
+    p995: percentileFromHistogram(histogram, 0.995),
+    shadows: (histogram[0] || 0) / total,
+    highlights: (histogram[255] || 0) / total,
   };
+}
+
+const BAYER_4 = [
+  0, 8, 2, 10,
+  12, 4, 14, 6,
+  3, 11, 1, 9,
+  15, 7, 13, 5,
+];
+
+function orderedDither(x, y, strength = 0.55) {
+  const idx = ((y & 3) * 4) + (x & 3);
+  return ((BAYER_4[idx] / 15) - 0.5) * strength;
 }
 
 function loadImage(src) {
@@ -291,64 +342,80 @@ async function analyzePhotoTone(src, adjustments, options = {}) {
     autoTint = clamp(((avgG - ((avgR + avgB) / 2)) / 255) * 150, -28, 28);
   }
 
-  const brightTail = histogramRangeRatio(sourceHistogram, 240, 255);
+  const brightTail = histogramRangeRatio(sourceHistogram, 238, 255);
   const clippedBright = histogramRangeRatio(sourceHistogram, 252, 255);
-  const lowKeyPressure = clamp((92 - p50) / 58, 0, 1, 0) * clamp((188 - p90) / 128, 0, 1, 0);
+  const darkTail = histogramRangeRatio(sourceHistogram, 0, 18);
+  const clippedDark = histogramRangeRatio(sourceHistogram, 0, 3);
+  const lowKeyPressure = clamp((90 - p50) / 62, 0, 1, 0) * clamp((184 - p90) / 132, 0, 1, 0);
   const tonalRange = p90 - p10;
-  const highDynamicRange = clamp((tonalRange - 135) / 85, 0, 0.7, 0);
-  const targetMedian = 104 - lowKeyPressure * 24 + clamp((p50 - 142) / 80, 0, 1, 0) * 10;
-  const maxLiftEv = 0.26 - lowKeyPressure * 0.08;
-  const maxDropEv = -0.32 + highDynamicRange * 0.18;
+  const highDynamicRange = clamp((tonalRange - 132) / 88, 0, 0.8, 0);
+  const targetMedian = 108 - lowKeyPressure * 22 + clamp((p50 - 148) / 86, 0, 1, 0) * 8;
+  const maxLiftEv = 0.2 - lowKeyPressure * 0.06;
+  const maxDropEv = -0.24 + highDynamicRange * 0.12;
   const median = Math.max(10, p50);
   let ev = Math.log2(targetMedian / median) * (1 - highDynamicRange * 0.75);
   ev = clamp(ev, maxDropEv, maxLiftEv);
-  let brightness = clamp((ev / 1.25) * 100, -28, 24);
-  let contrast = clamp((112 - tonalRange) * 0.14, -8, 12);
-  let whites = clamp(
-    sourceP99 > 246 ? -((sourceP99 - 246) * 0.42) - (clippedBright * 70) : (sourceP99 < 220 ? (220 - sourceP99) * 0.16 : 0),
-    -12,
-    8,
-  );
-  const protectHighlights = sourceP99 > 246 || p97 > 230 || brightTail > 0.08;
+  let brightness = clamp((ev / 1.12) * 100, -22, 18);
+  let contrast = clamp((118 - tonalRange) * 0.08, -6, 10);
+  const protectHighlights = sourceP99 > 246 || p97 > 232 || brightTail > 0.08 || clippedBright > 0.003;
   const highlightsBase = protectHighlights
-    ? -((Math.max(0, sourceP99 - 245) * 0.22) + (Math.max(0, p97 - 228) * 0.13) + (brightTail * 24))
-    : (p90 > 210 ? -((p90 - 210) * 0.22) : (p90 < 155 ? (155 - p90) * 0.12 : 0));
-  let highlights = clamp(highlightsBase, -16, protectHighlights ? 0 : 10);
-  const shadowLiftScale = 1 - lowKeyPressure * 0.5;
-  const shadowsBase = p10 < 42 ? (42 - p10) * 0.24 : (p10 > 78 ? -((p10 - 78) * 0.12) : 0);
-  let shadows = clamp(shadowsBase * shadowLiftScale, -10, 18);
-  const blacksBase = p02 < 8 ? (8 - p02) * 0.06 : (p02 > 28 ? -((p02 - 28) * 0.18) : 0);
-  let blacks = clamp(blacksBase - lowKeyPressure * 7, -10, 8);
+    ? -((Math.max(0, sourceP99 - 246) * 0.13) + (Math.max(0, p97 - 232) * 0.11) + (brightTail * 16) + (clippedBright * 44))
+    : (p90 > 212 ? -((p90 - 212) * 0.12) : (p90 < 156 ? (156 - p90) * 0.06 : 0));
+  let highlights = clamp(highlightsBase, -22, protectHighlights ? 0 : 8);
+  const shadowsBase = p10 < 44
+    ? ((44 - p10) * 0.16) + (darkTail * 10)
+    : (p10 > 82 ? -((p10 - 82) * 0.07) : 0);
+  let shadows = clamp(shadowsBase * (1 - lowKeyPressure * 0.45), -8, 20);
+  let whites = clamp(
+    sourceP99 > 250 ? -((sourceP99 - 250) * 0.16) - (clippedBright * 36) : (sourceP99 < 226 && brightTail < 0.035 ? (226 - sourceP99) * 0.07 : 0),
+    -10,
+    10,
+  );
+  const blacksBase = p02 < 5
+    ? ((5 - p02) * 0.18) + (clippedDark * 32)
+    : (p02 > 22 && darkTail < 0.035 ? -((p02 - 22) * 0.11) : 0);
+  let blacks = clamp(blacksBase - lowKeyPressure * 4, -10, 8);
 
-  const protectTone = previewTonePercentiles(data, {
+  const protectTone = previewToneStats(data, {
     brightness,
     contrast,
-    whites,
     highlights,
     shadows,
+    whites,
     blacks,
     temperature: autoTemperature,
     tint: autoTint,
   });
-  const darkGap = clamp((protectTone.p01 - Math.max(5, p02 + 4)) / 24, 0, 0.65, 0);
+  const darkGap = clamp((protectTone.p01 - Math.max(4, Math.min(18, p02 + 5))) / 28, 0, 0.65, 0);
   if (darkGap > 0) {
     if (brightness > 0) brightness *= (1 - darkGap);
     if (shadows > 0) shadows *= (1 - darkGap);
-    blacks = clamp(blacks - darkGap * 8, -10, 8);
+    blacks = clamp(blacks - darkGap * 7, -10, 8);
   }
-  const highlightGap = clamp((Math.min(248, sourceP99) - protectTone.p99) / 24, 0, 0.65, 0);
+  const highlightGap = clamp((Math.min(250, Math.max(236, sourceP99 - 3)) - protectTone.p99) / 28, 0, 0.65, 0);
   if (highlightGap > 0) {
     if (brightness < 0) brightness *= (1 - highlightGap);
     if (highlights < 0) highlights *= (1 - highlightGap);
     if (whites < 0) whites *= (1 - highlightGap);
     contrast *= (1 - highlightGap * 0.35);
   }
+  if (protectTone.shadows > 0.003) {
+    const clipGuard = clamp(protectTone.shadows / 0.012, 0, 0.75, 0);
+    if (blacks < 0) blacks *= (1 - clipGuard);
+    if (contrast > 0) contrast *= (1 - clipGuard * 0.35);
+  }
+  if (protectTone.highlights > 0.003) {
+    const clipGuard = clamp(protectTone.highlights / 0.012, 0, 0.75, 0);
+    if (whites > 0) whites *= (1 - clipGuard);
+    if (highlights > 0) highlights *= (1 - clipGuard);
+    if (brightness > 0) brightness *= (1 - clipGuard * 0.4);
+  }
   const autoAdjustments = buildPhotoAdjustments({
     brightness: Math.round(brightness),
     contrast: Math.round(contrast),
-    whites: Math.round(whites),
     highlights: Math.round(highlights),
     shadows: Math.round(shadows),
+    whites: Math.round(whites),
     blacks: Math.round(blacks),
     temperature: autoTemperature,
     tint: autoTint,
@@ -385,9 +452,14 @@ async function renderPhotoAdjustmentsToCanvas(canvas, src, adjustments, options 
   const normalized = normalizePhotoAdjustments(adjustments);
   const image = ctx.getImageData(0, 0, width, height);
   const data = image.data;
+  const ditherStrength = clamp(options.ditherStrength, 0, 1.2, 0.56);
   for (let i = 0; i < data.length; i += 4) {
     if (data[i + 3] < 10) continue;
-    const [r, g, b] = applyToneToRgbNormalized(data[i], data[i + 1], data[i + 2], normalized);
+    const pixelIndex = i / 4;
+    const x = pixelIndex % width;
+    const y = Math.floor(pixelIndex / width);
+    const dither = orderedDither(x, y, ditherStrength);
+    const [r, g, b] = applyToneToRgbNormalized(data[i], data[i + 1], data[i + 2], normalized, dither);
     data[i] = r;
     data[i + 1] = g;
     data[i + 2] = b;

@@ -79,10 +79,14 @@ function ViewerToneImage({
   photoId,
   adjustments,
   exact,
+  maxSize = 1600,
+  pixelVariant = 'thumb',
+  hiddenImageInteractive = false,
   alt,
   className,
   style,
   onLoad,
+  ...imgProps
 }) {
   const canvasRef = React.useRef(null);
   const normalized = React.useMemo(() => normalizePhotoAdjustments(adjustments), [adjustments]);
@@ -112,7 +116,7 @@ function ViewerToneImage({
         let renderSrc = src;
         if (photoId) {
           const token = getToken();
-          const pixelUrl = `${BASE_URL || ''}/api/photos/${encodeURIComponent(String(photoId))}/pixel-source?variant=thumb`;
+          const pixelUrl = `${BASE_URL || ''}/api/photos/${encodeURIComponent(String(photoId))}/pixel-source?variant=${encodeURIComponent(pixelVariant)}`;
           const response = await fetch(pixelUrl, {
             method: 'GET',
             headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -123,7 +127,7 @@ function ViewerToneImage({
           objectUrl = URL.createObjectURL(blob);
           renderSrc = objectUrl;
         }
-        const result = await renderPhotoAdjustmentsToCanvas(canvasRef.current, renderSrc, normalizedRef.current, { maxSize: 1600 });
+        const result = await renderPhotoAdjustmentsToCanvas(canvasRef.current, renderSrc, normalizedRef.current, { maxSize });
         if (cancelled) return;
         setCanvasReady(true);
         if (typeof onLoadRef.current === 'function') {
@@ -139,11 +143,15 @@ function ViewerToneImage({
       window.clearTimeout(timer);
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [adjustmentKey, photoId, shouldRenderCanvas, src]);
+  }, [adjustmentKey, maxSize, photoId, pixelVariant, shouldRenderCanvas, src]);
 
   const fallbackStyle = shouldRenderCanvas && canvasReady
-    ? { ...(style || {}), position: 'absolute', inset: 0, opacity: 0, pointerEvents: 'none' }
+    ? { ...(style || {}), position: 'absolute', inset: 0, opacity: 0, pointerEvents: hiddenImageInteractive ? undefined : 'none' }
     : style;
+  const canvasStyle = { ...(style || {}) };
+  delete canvasStyle.filter;
+  delete canvasStyle.opacity;
+  canvasStyle.display = canvasReady ? 'block' : 'none';
 
   return (
     <>
@@ -151,7 +159,7 @@ function ViewerToneImage({
         <canvas
           ref={canvasRef}
           className={`${className || ''} viewer-adjusted-canvas`}
-          style={{ display: canvasReady ? 'block' : 'none' }}
+          style={canvasStyle}
           aria-hidden="true"
         />
       ) : null}
@@ -161,6 +169,7 @@ function ViewerToneImage({
         className={className}
         style={fallbackStyle}
         onLoad={onLoad}
+        {...imgProps}
       />
     </>
   );
@@ -3103,7 +3112,9 @@ function ProjectDetail({
     const ratio = imageRatios[src] || 1.5;
     const meta = photoMetas?.[overallIndex] || {};
     const semanticState = getPhotoSemanticState(meta);
-    const adjustmentStyle = getPhotoAdjustmentStyle(getAdjustmentForPhoto(meta));
+    const adjustments = getAdjustmentForPhoto(meta);
+    const adjustmentStyle = getPhotoAdjustmentStyle(adjustments);
+    const useExactThumbnailTone = !isDefaultPhotoAdjustments(adjustments);
     const rippleStyle = getRippleStyle(overallIndex) || {};
     const itemStyle = galleryMode === 'grid'
       ? { ...rippleStyle, aspectRatio: '1 / 1' }
@@ -3112,8 +3123,14 @@ function ProjectDetail({
     <div className="detail-photo-item" key={overallIndex} style={itemStyle}>
       <div className="detail-photo">
         <div style={{ position: 'relative' }}>
-          <img
+          <ViewerToneImage
             src={src}
+            photoId={getPhotoRecordId(meta)}
+            adjustments={adjustments}
+            exact={useExactThumbnailTone}
+            maxSize={720}
+            pixelVariant="thumb"
+            hiddenImageInteractive
             alt={`${title}-${overallIndex}`}
             loading="lazy"
             decoding="async"
@@ -3900,7 +3917,7 @@ function ProjectDetail({
                           const showFaceBoxes = idx === viewerIndex && viewerFaceOverlayVisible && slideFaces.length > 0;
                           const slideAdjustments = idx === viewerIndex && viewerToneVisible ? viewerToneDraft : getAdjustmentForPhoto(slideMeta);
                           const slideAdjustmentStyle = getPhotoAdjustmentStyle(slideAdjustments);
-                          const useExactTonePreview = idx === viewerIndex && !viewerShowOriginal && !isDefaultPhotoAdjustments(slideAdjustments);
+                          const useExactTonePreview = idx === viewerIndex && !isDefaultPhotoAdjustments(slideAdjustments);
                           return (
                             <div className={`viewer-slide${idx === viewerIndex ? ' is-active' : ''}`} style={viewerSlideStyle} key={`viewer-slide-${idx}`}>
                               <div className="viewer-face-image-surface">
@@ -3909,6 +3926,8 @@ function ProjectDetail({
                                   photoId={slidePhotoId}
                                   adjustments={slideAdjustments}
                                   exact={useExactTonePreview}
+                                  maxSize={viewerShowOriginal ? 2600 : 1600}
+                                  pixelVariant={viewerShowOriginal ? 'original' : 'thumb'}
                                   alt={`viewer-${idx}`}
                                   className={`viewer-carousel-img${idx === viewerIndex && viewerEnableOpenZoom ? ' viewer-img--open-zoom' : ''}`}
                                   style={slideAdjustmentStyle}
