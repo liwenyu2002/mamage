@@ -1822,6 +1822,16 @@ function ProjectDetail({
   const createdText = formatToMinute(createdRaw);
   const updatedText = formatToMinute(updatedRaw);
   const count = resolvedProject?.photoCount ?? resolvedProject?.count ?? images.length;
+  const coverSrc = resolvedProject?.coverSrc
+    || resolvedProject?.coverThumbUrl
+    || resolvedProject?.coverUrl
+    || resolvedProject?.cover
+    || photoMetas?.[0]?.thumbSrc
+    || photoMetas?.[0]?.thumbUrl
+    || photoMetas?.[0]?.thumbnail
+    || photoMetas?.[0]?.url
+    || images?.[0]
+    || '';
   const masonryColumns = React.useMemo(() => {
     const w = galleryWidth || 0;
     if (!w) return 3;
@@ -1857,8 +1867,9 @@ function ProjectDetail({
       createdText,
       updatedText,
       tags,
+      coverSrc: coverSrc ? resolveAssetUrl(coverSrc) : '',
     });
-  }, [onProjectHeaderChange, projectId, title, subtitle, description, count, createdText, updatedText, tags]);
+  }, [onProjectHeaderChange, projectId, title, subtitle, description, count, createdText, updatedText, tags, coverSrc]);
   React.useEffect(() => () => {
     if (typeof onProjectHeaderChange === 'function') onProjectHeaderChange(null);
   }, [onProjectHeaderChange]);
