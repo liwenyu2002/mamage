@@ -8,20 +8,22 @@
   --liquid-glass-surface-b: rgba(255, 255, 255, 0.18);
   --liquid-glass-readable-a: rgba(255, 255, 255, 0.66);
   --liquid-glass-readable-b: rgba(255, 255, 255, 0.34);
-  --liquid-glass-border: rgba(255, 255, 255, 0.68);
-  --liquid-glass-border-soft: rgba(255, 255, 255, 0.36);
-  --liquid-glass-blur: 18px;
-  --liquid-glass-backdrop-blur: 22px;
+  --liquid-glass-stroke-width: 0.5px;
+  --liquid-glass-border: rgba(255, 255, 255, 0.46);
+  --liquid-glass-border-soft: rgba(255, 255, 255, 0.22);
+  --liquid-glass-blur: 14px;
+  --liquid-glass-backdrop-blur: 16px;
   --liquid-glass-saturation: 1.58;
   --liquid-glass-caustic-opacity: 0.86;
   --liquid-glass-caustic-speed: 1.75s;
+  --liquid-glass-caustic-animation: none;
   --liquid-glass-shadow: 0 22px 70px rgba(58, 78, 104, 0.16), 0 6px 22px rgba(18, 32, 52, 0.07);
   --liquid-glass-shadow-tight: 0 10px 30px rgba(58, 78, 104, 0.12), 0 2px 10px rgba(18, 32, 52, 0.07);
   --liquid-glass-edge:
-    inset 0 1px 0 rgba(255, 255, 255, 0.9),
-    inset 1px 0 0 rgba(255, 255, 255, 0.4),
-    inset -1px 0 0 rgba(255, 255, 255, 0.28),
-    inset 0 -1px 0 rgba(31, 41, 55, 0.1);
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.68),
+    inset 0.5px 0 0 rgba(255, 255, 255, 0.24),
+    inset -0.5px 0 0 rgba(255, 255, 255, 0.18),
+    inset 0 -0.5px 0 rgba(31, 41, 55, 0.08);
   --liquid-glass-material:
     linear-gradient(135deg, var(--liquid-glass-surface-a), var(--liquid-glass-surface-b));
   --liquid-glass-material-readable:
@@ -55,11 +57,46 @@
   position: relative;
   overflow: hidden;
   isolation: isolate;
-  border: 1px solid var(--liquid-glass-border);
+  border: var(--liquid-glass-stroke-width) solid var(--liquid-glass-border);
   background: var(--liquid-glass-material);
   box-shadow: var(--liquid-glass-shadow), var(--liquid-glass-edge);
   backdrop-filter: var(--liquid-glass-backdrop);
   -webkit-backdrop-filter: var(--liquid-glass-backdrop);
+}
+
+.mamage-header,
+.mamage-header.is-desktop-header.is-project-detail::after,
+.mamage-mobile-nav-panel,
+.semi-modal-content,
+.semi-popover-content,
+.semi-sidesheet-content,
+.project-card,
+.auth-card,
+.scenery-toolbar,
+.cam-tag,
+.cam-tag-input,
+.cam-file-picker,
+.detail-header,
+.detail-toolbar-main,
+.detail-search-row,
+.detail-bottom-nav,
+.detail-bottom-upload,
+.detail-actions-sheet,
+.detail-selection-inline.is-expanded,
+.detail-select-fab,
+.detail-selection-btn.semi-button,
+.detail-action-tile.semi-button,
+.viewer-chip,
+.viewer-info-card,
+.viewer-nav,
+.viewer-close-btn,
+.viewer-original-btn,
+.viewer-tone-panel,
+.person-sheet-hero,
+.person-sheet-card,
+.similarity-group,
+.detail-actions-fab {
+  border-width: var(--liquid-glass-stroke-width) !important;
 }
 
 .liquid-glass-panel::before,
@@ -75,7 +112,7 @@
   background-size: 180% 180%;
   opacity: var(--liquid-glass-caustic-opacity);
   mix-blend-mode: screen;
-  animation: mamageGlassCaustic var(--liquid-glass-caustic-speed) ease-in-out infinite alternate;
+  animation: var(--liquid-glass-caustic-animation);
 }
 
 .liquid-glass-panel > *,
@@ -95,11 +132,6 @@
   .semi-modal-content,
   .semi-popover-content,
   .semi-sidesheet-content,
-  .project-card,
-  .auth-card,
-  .scenery-toolbar,
-  .cam-tag,
-  .cam-file-picker,
   .detail-bottom-nav,
   .detail-bottom-upload,
   .detail-actions-sheet,
@@ -107,24 +139,6 @@
   .viewer-tone-panel,
   .detail-sim-modal .semi-modal-content,
   .person-sheet-modal .semi-modal-content {
-    backdrop-filter: var(--liquid-glass-backdrop-rich) !important;
-    -webkit-backdrop-filter: var(--liquid-glass-backdrop-rich) !important;
-  }
-}
-
-@supports (backdrop-filter: url("#mamage-liquid-glass")) {
-  .detail-header,
-  .detail-toolbar-main,
-  .detail-search-row,
-  .viewer-chip,
-  .viewer-info-card,
-  .viewer-nav,
-  .viewer-close-btn,
-  .viewer-original-btn,
-  .person-sheet-hero,
-  .person-sheet-card,
-  .similarity-group,
-  .detail-actions-fab {
     backdrop-filter: var(--liquid-glass-backdrop-rich) !important;
     -webkit-backdrop-filter: var(--liquid-glass-backdrop-rich) !important;
   }
