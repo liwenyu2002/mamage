@@ -412,6 +412,20 @@ function shouldFallbackToApi(err) {
   return true;
 }
 
+function parseErrorBody(err) {
+  if (!err || !err.body || typeof err.body !== 'string') return null;
+  try {
+    return JSON.parse(err.body);
+  } catch (e) {
+    return null;
+  }
+}
+
+function isDirectUploadUnavailable(err) {
+  const payload = parseErrorBody(err);
+  return err && err.status === 409 && payload && payload.error === 'DIRECT_UPLOAD_UNAVAILABLE';
+}
+
 // 上传图片，参数为 FormData 或者一个包含 { file, projectId, title, type, tags } 的对象
 // 如果 tags 为数组，会自动转为 JSON 字符串
 async function uploadPhotos(formDataOrObj) {
@@ -421,8 +435,12 @@ async function uploadPhotos(formDataOrObj) {
       try {
         return await uploadViaDirectCos(file, fields);
       } catch (directErr) {
-        // eslint-disable-next-line no-console
-        console.warn('[photoService] direct upload failed, fallback to API upload:', directErr);
+        if (isDirectUploadUnavailable(directErr)) {
+          if (typeof window !== 'undefined') window.__MAMAGE_DISABLE_DIRECT_UPLOAD__ = true;
+        } else {
+          // eslint-disable-next-line no-console
+          console.warn('[photoService] direct upload failed, fallback to API upload:', directErr);
+        }
         if (!shouldFallbackToApi(directErr)) throw directErr;
       }
     }
