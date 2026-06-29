@@ -417,10 +417,24 @@
   background: linear-gradient(180deg, transparent, rgba(15, 23, 42, 0.62));
 }
 
+.detail-tag-overlay.is-analysis-pending,
+.detail-tag-overlay.is-analysis-failed {
+  opacity: 1;
+}
+
 .detail-tag-strip {
   display: flex;
   flex-wrap: wrap-reverse;
   gap: 4px;
+}
+
+.detail-tag-chip--analysis {
+  gap: 6px;
+  background: rgba(37, 99, 235, 0.74);
+}
+
+.detail-tag-chip--failed {
+  background: rgba(220, 38, 38, 0.76);
 }
 
 .detail-tag-chip {

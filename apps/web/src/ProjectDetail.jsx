@@ -34,6 +34,7 @@ const ANALYSIS_POLL_INITIAL_DELAY_MS = 900;
 const ANALYSIS_POLL_INTERVAL_MS = 1800;
 const ANALYSIS_POLL_MAX_ATTEMPTS = 45;
 const AI_QUALITY_TAGS = ['AI recommended', 'AI medium', 'AI rejected'];
+const ACTIVE_ANALYSIS_STATUSES = new Set(['pending', 'queued', 'running', 'processing']);
 const GALLERY_INITIAL_RENDER_LIMIT = 96;
 const GALLERY_RENDER_BATCH_SIZE = 96;
 const PROJECT_DETAIL_TIMEOUT_MS = 12000;
@@ -315,12 +316,33 @@ function extractPhotoSemantic(photo) {
   else if (allTags.includes('AI rejected')) aiLabel = 'rejected';
   const tags = allTags.filter((tag) => !AI_QUALITY_TAGS.includes(tag));
   const description = String((photo && (photo.description || photo.desc)) || '').trim();
+  const aiStatus = normalizePhotoAiStatus(photo && (
+    photo.aiStatus
+    || photo.ai_status
+    || photo.analysisStatus
+    || photo.analysis_status
+    || photo.semanticStatus
+    || photo.semantic_status
+  ));
   return {
     tags,
     description,
     aiLabel,
+    aiStatus,
+    analysisPending: ACTIVE_ANALYSIS_STATUSES.has(aiStatus),
+    analysisFailed: aiStatus === 'failed',
     hasAnalysis: Boolean(description || tags.length)
   };
+}
+
+function normalizePhotoAiStatus(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return '';
+  if (raw === 'queued' || raw === 'pending') return 'pending';
+  if (raw === 'processing' || raw === 'running') return 'running';
+  if (raw === 'succeeded' || raw === 'success' || raw === 'complete' || raw === 'completed') return 'done';
+  if (raw === 'error') return 'failed';
+  return raw;
 }
 
 function normalizePhotoForGallery(photo) {
@@ -1114,16 +1136,18 @@ function ProjectDetail({
       });
     }
 
-    if (semantic.hasAnalysis) {
+    if (!semantic.analysisPending) {
       setPhotoAnalysisPendingMap((prev) => {
         if (!prev || !prev[photoId]) return prev || {};
         const next = { ...prev };
         delete next[photoId];
         return next;
       });
+    } else {
+      setPhotoAnalysisPendingMap((prev) => ({ ...(prev || {}), [photoId]: true }));
     }
 
-    return semantic.hasAnalysis;
+    return semantic.hasAnalysis || !semantic.analysisPending;
   }, []);
 
   const prependUploadedPhotos = React.useCallback((photos) => {
@@ -1141,6 +1165,9 @@ function ProjectDetail({
       setPhotoTagsMap((prev) => ({ ...(prev || {}), [photoId]: semantic.tags }));
       setPhotoDescMap((prev) => ({ ...(prev || {}), [photoId]: semantic.description }));
       setPhotoAILabelMap((prev) => ({ ...(prev || {}), [photoId]: semantic.aiLabel }));
+      if (semantic.analysisPending) {
+        setPhotoAnalysisPendingMap((prev) => ({ ...(prev || {}), [photoId]: true }));
+      }
       if (meta.adjustments) {
         setPhotoAdjustmentsMap((prev) => ({ ...(prev || {}), [photoId]: normalizePhotoAdjustments(meta.adjustments) }));
       }
@@ -1164,7 +1191,7 @@ function ProjectDetail({
   const scheduleAnalysisPolling = React.useCallback((photoId) => {
     const key = String(photoId || '').trim();
     if (!key) return;
-    clearAnalysisPollTimer(key);
+    if (analysisPollTimersRef.current[key]) return;
     setPhotoAnalysisPendingMap((prev) => ({ ...(prev || {}), [key]: true }));
 
     let attempts = 0;
@@ -1191,6 +1218,18 @@ function ProjectDetail({
     analysisPollTimersRef.current[key] = setTimeout(poll, ANALYSIS_POLL_INITIAL_DELAY_MS);
   }, [clearAnalysisPollTimer, mergePhotoAnalysisResult]);
 
+  React.useEffect(() => {
+    const metas = Array.isArray(photoMetas) ? photoMetas : [];
+    metas.forEach((meta) => {
+      const photoId = getPhotoRecordId(meta);
+      if (!photoId) return;
+      const semantic = extractPhotoSemantic(meta);
+      if (semantic.analysisPending && !semantic.hasAnalysis) {
+        scheduleAnalysisPolling(photoId);
+      }
+    });
+  }, [photoMetas, scheduleAnalysisPolling]);
+
   const getPhotoSemanticState = React.useCallback((meta) => {
     const photoId = getPhotoRecordId(meta);
     const semantic = extractPhotoSemantic(meta);
@@ -1200,12 +1239,16 @@ function ProjectDetail({
     const description = hasMappedDesc ? String(photoDescMap[photoId] || '').trim() : semantic.description;
     const tags = Array.isArray(mappedTags) ? mappedTags : semantic.tags;
     const hasAnalysis = Boolean(description || (Array.isArray(tags) && tags.length));
+    const aiStatus = semantic.aiStatus;
+    const statusPending = ACTIVE_ANALYSIS_STATUSES.has(aiStatus);
     return {
       photoId,
       description,
       tags: Array.isArray(tags) ? tags : [],
       hasAnalysis,
-      pending: Boolean(photoId && photoAnalysisPendingMap[photoId] && !hasAnalysis)
+      aiStatus,
+      failed: semantic.analysisFailed,
+      pending: Boolean(photoId && (photoAnalysisPendingMap[photoId] || statusPending) && !hasAnalysis)
     };
   }, [photoTagsMap, photoDescMap, photoAnalysisPendingMap]);
 
@@ -3291,28 +3334,35 @@ function ProjectDetail({
               </div>
             );
           })()}
-          {semanticState.pending && !deleteMode && (
-            <div className="detail-analysis-badge">
-              <span className="detail-analysis-dot" />
-              分析中
-            </div>
-          )}
           {deleteMode && (
             <div style={{ position: 'absolute', right: 8, top: 8, width: 32, height: 32, borderRadius: 16, background: selectedMap[String(overallIndex)] ? '#ff5252' : 'rgba(0,0,0,0.45)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); toggleSelect(overallIndex); }}>
               {selectedMap[String(overallIndex)] ? '✓' : ''}
             </div>
           )}
-          {hoveredPhotoIdx === overallIndex && !deleteMode && (
-            <div className="detail-tag-overlay">
+          {(hoveredPhotoIdx === overallIndex || semanticState.pending || semanticState.failed) && !deleteMode && (
+            <div className={`detail-tag-overlay${semanticState.pending ? ' is-analysis-pending' : ''}${semanticState.failed ? ' is-analysis-failed' : ''}`}>
               {(() => {
                 const tags = semanticState.tags;
-                return tags && tags.length > 0 ? (
-                  <div className="detail-tag-strip">
+                const hasTags = tags && tags.length > 0;
+                if (semanticState.pending || semanticState.failed || hasTags) {
+                  return (
+                    <div className="detail-tag-strip">
+                      {semanticState.pending && (
+                        <span className="detail-tag-chip detail-tag-chip--analysis">
+                          <span className="detail-analysis-dot" />
+                          分析中
+                        </span>
+                      )}
+                      {semanticState.failed && !hasTags && (
+                        <span className="detail-tag-chip detail-tag-chip--failed">分析失败</span>
+                      )}
                     {tags.slice(0, 5).map((tag, i) => (
                       <span key={i} className="detail-tag-chip">{tag}</span>
                     ))}
-                  </div>
-                ) : <span className="detail-tag-empty">{semanticState.pending ? '分析中' : '暂无标签'}</span>;
+                    </div>
+                  );
+                }
+                return <span className="detail-tag-empty">暂无标签</span>;
               })()}
             </div>
           )}
