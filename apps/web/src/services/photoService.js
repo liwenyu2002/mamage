@@ -6,8 +6,7 @@ const DEFAULT_UPLOAD_CONCURRENCY = Math.max(1, Number(
   (typeof window !== 'undefined' && window.__MAMAGE_UPLOAD_CONCURRENCY__) || 4
 ));
 const DEFAULT_LAN_UPLOAD_API_BASES = [
-  'https://10.11.12.63:3443',
-  'http://10.11.12.63:3000',
+  'https://lan.mamage.wenyuli.site:3443',
   'http://10.100.83.67:3000',
 ];
 const UPLOAD_PROBE_TIMEOUT_MS = Math.max(250, Number(
