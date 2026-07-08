@@ -21,6 +21,13 @@ function TagChip({ tag, onRemove }) {
   );
 }
 
+function isVideoFile(file) {
+  const mime = String(file && file.type || '').toLowerCase();
+  if (mime.startsWith('video/')) return true;
+  const name = String(file && file.name || '').toLowerCase();
+  return /\.(mp4|m4v|mov|webm|ogv|ogg)$/i.test(name);
+}
+
 export default function CreateAlbumModal({ visible, onClose, onCreated, createProject }) {
   const [name, setName] = React.useState('');
   const [description, setDescription] = React.useState('');
@@ -142,7 +149,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
       }
 
       if (dupCount > 0) {
-        try { Toast.warning(`已跳过 ${dupCount} 张重复图片`); } catch (e) {}
+        try { Toast.warning(`已跳过 ${dupCount} 个重复文件`); } catch (e) {}
       }
 
       const combined = [...prevFiles, ...toAdd];
@@ -228,7 +235,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
 
         if (filesToUpload.length > 0) {
           if (!projectId) {
-            Toast.warning('已创建相册，但未获取到相册 ID，照片未自动上传');
+            Toast.warning('已创建相册，但未获取到相册 ID，媒体未自动上传');
           } else {
             try {
               const token = (typeof window !== 'undefined') ? (localStorage.getItem('mamage_jwt_token') || '') : '';
@@ -259,13 +266,13 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
               const rejected = results.filter((r) => r.status === 'rejected');
               if (rejected.length > 0) {
                 console.error('[CreateAlbumModal] some uploads failed', rejected);
-                try { Toast.error(`部分图片上传失败：${rejected.length} 张`); } catch (e) {}
+                try { Toast.error(`部分媒体上传失败：${rejected.length} 个`); } catch (e) {}
               } else {
-                try { Toast.success('已上传所选照片'); } catch (e) {}
+                try { Toast.success('已上传所选媒体'); } catch (e) {}
               }
             } catch (e) {
               console.error('parallel uploads failed unexpectedly', e);
-              try { Toast.error('图片上传失败'); } catch (ee) {}
+              try { Toast.error('媒体上传失败'); } catch (ee) {}
             }
 
             try {
@@ -318,7 +325,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
             />
             <span>
               <strong>添加时间轴</strong>
-              <em>用于按活动环节上传和浏览照片</em>
+              <em>用于按活动环节上传和浏览媒体</em>
             </span>
           </label>
 
@@ -349,10 +356,10 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
         </div>
 
         <div className="cam-upload-block">
-          <div className="cam-section-label">添加照片（可选，不限数量）</div>
+          <div className="cam-section-label">添加照片/视频（可选，不限数量）</div>
           {timelineEnabled && normalizedTimelineSections.length > 0 ? (
             <label className="cam-upload-section">
-              <span>首批照片环节</span>
+              <span>首批媒体环节</span>
               <select value={initialUploadSectionKey} onChange={(e) => setInitialUploadSectionKey(e.target.value)}>
                 {normalizedTimelineSections.map((section) => (
                   <option key={section.sourceKey} value={section.sourceKey}>
@@ -366,7 +373,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
             <label className="cam-file-label">
               <input
                 type="file"
-                accept="image/*"
+                accept="image/*,video/*"
                 multiple
                 style={{ display: 'none' }}
                 disabled={submitting}
@@ -375,17 +382,26 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
                   try { e.target.value = ''; } catch (err) {}
                 }}
               />
-              <div className="cam-file-picker">选择照片</div>
+              <div className="cam-file-picker">选择照片/视频</div>
             </label>
             <div className="cam-preview-row">
-              {stagingPreviews.map((p, i) => (
+              {stagingPreviews.map((p, i) => {
+                const isVideo = isVideoFile(stagingFiles[i]);
+                return (
                 <div key={i} className="cam-preview-item">
-                  <img src={p} alt={`preview-${i}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                  {isVideo ? (
+                    <>
+                      <video src={p} className="cam-preview-media" muted playsInline preload="metadata" />
+                      <span className="cam-preview-video-badge">视频</span>
+                    </>
+                  ) : (
+                    <img src={p} alt={`preview-${i}`} className="cam-preview-media" />
+                  )}
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); removeStagingFile(i); }}
                     disabled={submitting}
-                    aria-label="移除照片"
+                    aria-label="移除媒体"
                     title="移除"
                     style={{
                       position: 'absolute',
@@ -408,16 +424,16 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
                     ×
                   </button>
                 </div>
-              ))}
+              );})}
             </div>
           </div>
           {uploadProgress ? (
             <div className="cam-upload-progress" aria-live="polite">
               <div className="cam-upload-progress-head">
                 <div>
-                  <strong>{uploadProgress.failedFiles ? '上传有失败' : '正在上传照片'}</strong>
+                  <strong>{uploadProgress.failedFiles ? '上传有失败' : '正在上传'}</strong>
                   <span>
-                    {uploadProgress.completedFiles + uploadProgress.failedFiles} / {uploadProgress.totalFiles} 张
+                    {uploadProgress.completedFiles + uploadProgress.failedFiles} / {uploadProgress.totalFiles} 个
                     {uploadProgress.activeFileName ? ` · ${getUploadPhaseLabel(uploadProgress.activePhase)}：${uploadProgress.activeFileName}` : ''}
                   </span>
                 </div>
@@ -428,7 +444,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
               </div>
               <div className="cam-upload-progress-meta">
                 <span>{formatUploadBytes(uploadProgress.loadedBytes)} / {formatUploadBytes(uploadProgress.totalBytes)}</span>
-                {uploadProgress.failedFiles ? <span>{uploadProgress.failedFiles} 张失败</span> : null}
+                {uploadProgress.failedFiles ? <span>{uploadProgress.failedFiles} 个失败</span> : null}
               </div>
               <div className="cam-upload-progress-list">
                 {uploadProgressItems.map((item) => (

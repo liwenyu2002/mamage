@@ -229,6 +229,27 @@
   box-shadow: var(--liquid-glass-edge, inset 0 1px 0 rgba(255, 255, 255, 0.56)), 0 8px 18px rgba(30, 80, 130, 0.1);
 }
 
+.cam-preview-media {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  background: #050816;
+}
+
+.cam-preview-video-badge {
+  position: absolute;
+  left: 5px;
+  bottom: 5px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.58);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 850;
+  pointer-events: none;
+}
+
 .cam-upload-progress {
   display: flex;
   flex-direction: column;

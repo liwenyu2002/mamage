@@ -6,6 +6,13 @@ const DEFAULT_UPLOAD_CONCURRENCY = Math.max(1, Number(
   (typeof window !== 'undefined' && window.__MAMAGE_UPLOAD_CONCURRENCY__) || 4
 ));
 
+function isVideoFile(file) {
+  const mime = String(file && file.type || '').toLowerCase();
+  if (mime.startsWith('video/')) return true;
+  const name = String(file && file.name || '').toLowerCase();
+  return /\.(mp4|m4v|mov|webm|ogv|ogg)$/i.test(name);
+}
+
 function getAuthHeaders(extra = {}) {
   const token = (typeof window !== 'undefined') ? (localStorage.getItem('mamage_jwt_token') || '') : '';
   return Object.assign({}, extra, token ? { Authorization: `Bearer ${token}` } : {});
@@ -560,6 +567,51 @@ async function uploadViaApi(formData, { onProgress, file } = {}) {
   return { data: text };
 }
 
+async function uploadViaVideoApi(formData, { onProgress, file } = {}) {
+  const uploadUrl = '/api/upload/video';
+  let uploadTotal = (file && file.size) || 0;
+  emitUploadProgress(onProgress, {
+    file: file || formData.get('file'),
+    phase: 'uploading',
+    loaded: 0,
+    total: uploadTotal,
+  });
+  const resp = await requestWithUploadProgress({
+    url: uploadUrl,
+    method: 'POST',
+    body: formData,
+    headers: getAuthHeaders(),
+    withCredentials: true,
+    onProgress: (event) => {
+      if (event.total) uploadTotal = event.total;
+      emitUploadProgress(onProgress, {
+        file: file || formData.get('file'),
+        phase: 'uploading',
+        loaded: event.loaded,
+        total: event.total || uploadTotal,
+      });
+    },
+  });
+  if (resp.status < 200 || resp.status >= 300) {
+    const err = new Error(`video upload failed ${resp.status} for ${uploadUrl}`);
+    err.status = resp.status;
+    err.body = resp.responseText || '';
+    throw err;
+  }
+  const ct = readHeader(resp.headers, 'content-type') || '';
+  const text = resp.responseText || '';
+  const total = uploadTotal || Math.max(Number(file && file.size) || 0, text.length || 0);
+  emitUploadProgress(onProgress, {
+    file: file || formData.get('file'),
+    phase: 'done',
+    status: 'fulfilled',
+    loaded: total,
+    total,
+  });
+  if (ct.includes('application/json')) return text ? JSON.parse(text) : {};
+  return { data: text };
+}
+
 function shouldFallbackToApi(err) {
   if (!err) return true;
   if (err.status === 413 || err.status === 415) return false;
@@ -586,6 +638,9 @@ function isDirectUploadUnavailable(err) {
 async function uploadPhotos(formDataOrObj, { onProgress } = {}) {
   const { file, fields, formData } = normalizeUploadPayload(formDataOrObj);
   try {
+    if (isVideoFile(file)) {
+      return await uploadViaVideoApi(formData, { onProgress, file });
+    }
     if (canTryDirectUpload(file)) {
       try {
         return await uploadViaDirectCos(file, fields, { onProgress });

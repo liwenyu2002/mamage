@@ -274,9 +274,37 @@ function safeParseTags(tags) {
   }
 }
 
+function isVideoUrl(url) {
+  try {
+    const pathname = new URL(String(url || ''), window.location.origin).pathname;
+    return /\.(mp4|m4v|mov|webm|ogv|ogg)$/i.test(pathname);
+  } catch (e) {
+    return /\.(mp4|m4v|mov|webm|ogv|ogg)(?:[?#].*)?$/i.test(String(url || ''));
+  }
+}
+
+function getMediaTypeFromItem(item) {
+  if (!item) return 'image';
+  if (typeof item === 'string') return isVideoUrl(item) ? 'video' : 'image';
+  const raw = String(item.mediaType || item.media_type || item.kind || item.fileType || '').toLowerCase();
+  if (raw.startsWith('video')) return 'video';
+  const type = String(item.type || '').toLowerCase();
+  if (type.startsWith('video/')) return 'video';
+  if (type === 'video') return 'video';
+  const mime = String(item.mimeType || item.mime_type || item.contentType || item.content_type || '').toLowerCase();
+  if (mime.startsWith('video/')) return 'video';
+  const url = item.url || item.originalSrc || item.originalUrl || item.src || item.fileUrl || item.thumbUrl || item.thumbSrc || '';
+  return isVideoUrl(url) ? 'video' : 'image';
+}
+
+function isVideoMeta(meta) {
+  return getMediaTypeFromItem(meta) === 'video';
+}
+
 function getPhotoThumbCandidate(item) {
   if (!item) return '';
   if (typeof item === 'string') return item;
+  if (getMediaTypeFromItem(item) === 'video') return item.thumbSrc || item.thumbUrl || item.posterUrl || item.poster || item.thumbnail || item.url || item.originalSrc || item.originalUrl || item.src || item.fileUrl || '';
   return item.thumbSrc || item.thumbUrl || item.thumbnail || item.thumb || item.url || item.imageUrl || item.src || item.fileUrl || item.originalSrc || item.originalUrl || item.original || item.full || item.large || '';
 }
 
@@ -900,13 +928,15 @@ function ProjectDetail({
       if (typeof item === 'string') {
         const meta = { url: item };
         if (photoIds && photoIds[idx] !== undefined) meta.id = photoIds[idx];
+        const mediaType = getMediaTypeFromItem(item);
+        meta.mediaType = mediaType;
         // determine thumbnail and original candidates
         let thumbCandidate = meta.thumbUrl || meta.thumbnail || meta.thumb || item;
         const origCandidate = meta.originalUrl || meta.original || meta.full || meta.large || item;
         // If thumb candidate equals original, try to infer a thumbnail path in the same directory
         // common pattern: /uploads/2025/12/01/<filename>.jpg -> /uploads/2025/12/01/thumbs/thumb_<filename>.jpg
         try {
-          if (thumbCandidate === origCandidate) {
+          if (mediaType !== 'video' && thumbCandidate === origCandidate) {
             const m = String(origCandidate).match(/^(.*\/)([^\/]+)$/);
             if (m) {
               const dir = m[1];
@@ -919,7 +949,7 @@ function ProjectDetail({
           }
         } catch (e) { }
 
-        const metaFinal = Object.assign({}, meta, { thumbSrc: resolveAssetUrl(thumbCandidate), originalSrc: resolveAssetUrl(origCandidate) });
+        const metaFinal = Object.assign({}, meta, { mediaType, thumbSrc: resolveAssetUrl(thumbCandidate), originalSrc: resolveAssetUrl(origCandidate) });
         if (metaFinal.id) {
           const semantic = extractPhotoSemantic(item);
           if (semantic.hasAnalysis) {
@@ -962,10 +992,12 @@ function ProjectDetail({
       const meta = Object.assign({}, item);
       if (!meta.id && photoIds && photoIds[idx] !== undefined) meta.id = photoIds[idx];
       if (!src) return null;
+      const mediaType = getMediaTypeFromItem(item);
+      meta.mediaType = mediaType;
       let thumbCandidate = meta.thumbUrl || meta.thumbnail || meta.thumb || src;
       const origCandidate = meta.originalUrl || meta.original || meta.full || meta.large || src;
       try {
-        if (thumbCandidate === origCandidate) {
+        if (mediaType !== 'video' && thumbCandidate === origCandidate) {
           const m = String(origCandidate).match(/^(.*\/)([^\/]+)$/);
           if (m) {
             const dir = m[1];
@@ -976,7 +1008,7 @@ function ProjectDetail({
           }
         }
       } catch (e) { }
-      const metaFinal = Object.assign({}, meta, { thumbSrc: resolveAssetUrl(thumbCandidate), originalSrc: resolveAssetUrl(origCandidate) });
+      const metaFinal = Object.assign({}, meta, { mediaType, thumbSrc: resolveAssetUrl(thumbCandidate), originalSrc: resolveAssetUrl(origCandidate) });
       if (metaFinal.id) {
         const semantic = extractPhotoSemantic(item);
         if (semantic.hasAnalysis) {
@@ -1987,11 +2019,11 @@ function ProjectDetail({
 
   const downloadRenderedPhoto = React.useCallback(async (meta, index, options = {}) => {
     const url = meta?.originalSrc || meta?.url || meta?.thumbSrc || images[index];
-    if (!url) throw new Error('无法获取图片资源');
+    if (!url) throw new Error('无法获取媒体资源');
     const adjustments = getDownloadAdjustmentForMeta(meta);
     const baseName = buildDownloadBaseName(meta, index);
 
-    if (options.forceOriginal || isDefaultPhotoAdjustments(adjustments)) {
+    if (isVideoMeta(meta) || options.forceOriginal || isDefaultPhotoAdjustments(adjustments)) {
       triggerUrlDownload(url, `${baseName}${inferDownloadExt(url)}`);
       return { rendered: false };
     }
@@ -2037,15 +2069,15 @@ function ProjectDetail({
     const idx = viewerIndex;
     const meta = (photoMetas && photoMetas[idx]) || {};
     const url = meta.originalSrc || meta.url || meta.thumbSrc || images[idx];
-    if (!url) return Toast.warning('鏃犳硶鑾峰彇鍥剧墖璧勬簮');
+    if (!url) return Toast.warning('无法获取媒体资源');
     try {
       const result = await downloadRenderedPhoto(meta, idx);
-      Toast.success(result.rendered ? '已下载调色后的照片' : '已开始下载原图');
+      Toast.success(currentViewerIsVideo ? '已开始下载视频' : (result.rendered ? '已下载调色后的照片' : '已开始下载原图'));
     } catch (err) {
       console.error('downloadCurrentPhoto error', err);
-      Toast.error(err?.message || '下载照片失败');
+      Toast.error(err?.message || '下载失败');
     }
-  }, [viewerIndex, photoMetas, images, downloadRenderedPhoto]);
+  }, [viewerIndex, photoMetas, images, downloadRenderedPhoto, currentViewerIsVideo]);
 
   // Expose a global getter so the floating TransferStation can read current selection
   React.useEffect(() => {
@@ -2398,6 +2430,17 @@ function ProjectDetail({
     });
   }, []);
 
+  const handleVideoMetadataLoad = React.useCallback((src, event) => {
+    const { videoWidth, videoHeight } = event.target;
+    if (!videoWidth || !videoHeight) return;
+    setImageRatios((prev) => {
+      if (prev[src]) return prev;
+      const nextRatio = videoWidth / videoHeight;
+      ratioCacheRef.current[src] = nextRatio;
+      return { ...prev, [src]: nextRatio };
+    });
+  }, []);
+
   React.useEffect(() => {
     const list = Array.isArray(visibleImages) ? visibleImages.filter(Boolean) : [];
     if (!list.length) {
@@ -2554,6 +2597,7 @@ function ProjectDetail({
   }, []);
 
   const currentViewerPhotoId = React.useMemo(() => getMetaPhotoId(photoMetas?.[viewerIndex]), [photoMetas, viewerIndex, getMetaPhotoId]);
+  const currentViewerIsVideo = React.useMemo(() => isVideoMeta(photoMetas?.[viewerIndex]), [photoMetas, viewerIndex]);
   const currentViewerFaces = React.useMemo(() => (currentViewerPhotoId ? (viewerFaceMap[currentViewerPhotoId] || []) : []), [currentViewerPhotoId, viewerFaceMap]);
   const currentViewerFaceError = currentViewerPhotoId ? (viewerFaceErrorMap[currentViewerPhotoId] || '') : '';
   const getAdjustmentForPhoto = React.useCallback((meta) => {
@@ -3603,7 +3647,9 @@ function ProjectDetail({
     const isReady = !!detailImageReadyMap[readyKey];
     const ratio = imageRatios[src] || 1.5;
     const meta = photoMetas?.[overallIndex] || {};
-    const semanticState = getPhotoSemanticState(meta);
+    const isVideo = isVideoMeta(meta);
+    const mediaSrc = isVideo ? (meta.originalSrc || meta.url || src) : src;
+    const semanticState = isVideo ? { tags: [], description: '', pending: false, failed: false } : getPhotoSemanticState(meta);
     const timelineLabel = getPhotoTimelineSectionLabel(meta, uploadTimelineSections);
     const adjustments = getAdjustmentForPhoto(meta);
     const adjustmentStyle = getPhotoAdjustmentStyle(adjustments);
@@ -3616,49 +3662,84 @@ function ProjectDetail({
     <div className="detail-photo-item" key={overallIndex} style={itemStyle}>
       <div className="detail-photo">
         <div style={{ position: 'relative' }}>
-          <ViewerToneImage
-            src={src}
-            photoId={getPhotoRecordId(meta)}
-            adjustments={adjustments}
-            exact={useExactThumbnailTone}
-            maxSize={720}
-            pixelVariant="thumb"
-            hiddenImageInteractive
-            alt={`${title}-${overallIndex}`}
-            loading="lazy"
-            decoding="async"
-            className={`detail-photo-img${isReady ? ' is-ready' : ''}`}
-            draggable
-            onDragStart={(e) => handlePhotoDragStart(e, overallIndex)}
-            onDragEnd={handlePhotoDragEnd}
-            onLoad={(event) => {
-              handleImageLoad(src, event);
-              setDetailImageReadyMap((prev) => (prev[readyKey] ? prev : { ...prev, [readyKey]: true }));
-            }}
-            style={{ display: 'block', cursor: deleteMode ? 'pointer' : 'zoom-in', aspectRatio: galleryMode === 'masonry' ? `${ratio}` : undefined, ...(adjustmentStyle || {}) }}
-            data-original={photoMetas && photoMetas[overallIndex] ? (photoMetas[overallIndex].originalSrc || images[overallIndex]) : images[overallIndex]}
-            data-tried="0"
-            onError={(e) => {
-              try {
-                const img = e.target;
-                const tried = img.getAttribute('data-tried');
-                if (tried === '0') {
-                  img.setAttribute('data-tried', '1');
-                  const original = img.getAttribute('data-original');
-                  if (original) img.src = original;
+          {isVideo ? (
+            <button
+              type="button"
+              className="detail-video-thumb"
+              draggable
+              onDragStart={(e) => handlePhotoDragStart(e, overallIndex)}
+              onDragEnd={handlePhotoDragEnd}
+              onMouseEnter={() => setHoveredPhotoIdx(overallIndex)}
+              onMouseLeave={() => setHoveredPhotoIdx(-1)}
+              onClick={(e) => {
+                if (deleteMode) {
+                  toggleSelect(overallIndex);
+                } else if (overallIndex >= 0) {
+                  openViewerAt(overallIndex, mediaSrc || images[overallIndex] || '');
                 }
-              } catch (err) { }
-            }}
-            onMouseEnter={() => setHoveredPhotoIdx(overallIndex)}
-            onMouseLeave={() => setHoveredPhotoIdx(-1)}
-            onClick={(e) => {
-              if (deleteMode) {
-                toggleSelect(overallIndex);
-              } else if (overallIndex >= 0) {
-                openViewerAt(overallIndex, e.currentTarget.currentSrc || e.currentTarget.src || images[overallIndex] || '');
-              }
-            }}
-          />
+              }}
+              style={{ cursor: deleteMode ? 'pointer' : 'zoom-in', aspectRatio: galleryMode === 'masonry' ? `${ratio}` : undefined }}
+              aria-label="打开视频"
+            >
+              <video
+                src={mediaSrc}
+                className={`detail-photo-img detail-video-thumb-media${isReady ? ' is-ready' : ''}`}
+                muted
+                playsInline
+                preload="metadata"
+                onLoadedMetadata={(event) => {
+                  handleVideoMetadataLoad(src, event);
+                  setDetailImageReadyMap((prev) => (prev[readyKey] ? prev : { ...prev, [readyKey]: true }));
+                }}
+              />
+              <span className="detail-video-play" aria-hidden="true">▶</span>
+              <span className="detail-video-badge">视频</span>
+            </button>
+          ) : (
+            <ViewerToneImage
+              src={src}
+              photoId={getPhotoRecordId(meta)}
+              adjustments={adjustments}
+              exact={useExactThumbnailTone}
+              maxSize={720}
+              pixelVariant="thumb"
+              hiddenImageInteractive
+              alt={`${title}-${overallIndex}`}
+              loading="lazy"
+              decoding="async"
+              className={`detail-photo-img${isReady ? ' is-ready' : ''}`}
+              draggable
+              onDragStart={(e) => handlePhotoDragStart(e, overallIndex)}
+              onDragEnd={handlePhotoDragEnd}
+              onLoad={(event) => {
+                handleImageLoad(src, event);
+                setDetailImageReadyMap((prev) => (prev[readyKey] ? prev : { ...prev, [readyKey]: true }));
+              }}
+              style={{ display: 'block', cursor: deleteMode ? 'pointer' : 'zoom-in', aspectRatio: galleryMode === 'masonry' ? `${ratio}` : undefined, ...(adjustmentStyle || {}) }}
+              data-original={photoMetas && photoMetas[overallIndex] ? (photoMetas[overallIndex].originalSrc || images[overallIndex]) : images[overallIndex]}
+              data-tried="0"
+              onError={(e) => {
+                try {
+                  const img = e.target;
+                  const tried = img.getAttribute('data-tried');
+                  if (tried === '0') {
+                    img.setAttribute('data-tried', '1');
+                    const original = img.getAttribute('data-original');
+                    if (original) img.src = original;
+                  }
+                } catch (err) { }
+              }}
+              onMouseEnter={() => setHoveredPhotoIdx(overallIndex)}
+              onMouseLeave={() => setHoveredPhotoIdx(-1)}
+              onClick={(e) => {
+                if (deleteMode) {
+                  toggleSelect(overallIndex);
+                } else if (overallIndex >= 0) {
+                  openViewerAt(overallIndex, e.currentTarget.currentSrc || e.currentTarget.src || images[overallIndex] || '');
+                }
+              }}
+            />
+          )}
           {(() => {
             const rawName = meta.photographerName || meta.photographer_name || meta.photographer || (meta.photographerId ? String(meta.photographerId) : null) || (meta.photographer_id ? String(meta.photographer_id) : null);
             const hasName = rawName && String(rawName).trim();
@@ -3692,7 +3773,7 @@ function ProjectDetail({
               {selectedMap[String(overallIndex)] ? '✓' : ''}
             </div>
           )}
-          {(hoveredPhotoIdx === overallIndex || semanticState.pending || semanticState.failed) && !deleteMode && (
+          {!isVideo && (hoveredPhotoIdx === overallIndex || semanticState.pending || semanticState.failed) && !deleteMode && (
             <div className={`detail-tag-overlay${semanticState.pending ? ' is-analysis-pending' : ''}${semanticState.failed ? ' is-analysis-failed' : ''}`}>
               {(() => {
                 const tags = semanticState.tags;
@@ -3719,7 +3800,7 @@ function ProjectDetail({
               })()}
             </div>
           )}
-          {showAILabels && photoAILabelMap[photoMetas?.[overallIndex]?.id] && (() => {
+          {!isVideo && showAILabels && photoAILabelMap[photoMetas?.[overallIndex]?.id] && (() => {
             const label = photoAILabelMap[photoMetas?.[overallIndex]?.id];
             return (
               <div style={{ position: 'absolute', right: 8, top: 8, background: getAISelectionColor(label), color: '#fff', padding: '4px 8px', borderRadius: '3px', fontSize: '12px', fontWeight: 'bold', pointerEvents: 'none' }}>
@@ -3729,7 +3810,7 @@ function ProjectDetail({
           })()}
           {(() => {
             const pid = photoMetas?.[overallIndex]?.id;
-            if (!pid) return null;
+            if (isVideo || !pid) return null;
             const hasRecommend = (photoTagsMap[pid] || []).includes('推荐');
             if (!hasRecommend) return null;
             return (
@@ -3742,7 +3823,7 @@ function ProjectDetail({
       </div>
     </div>
     );
-  }, [title, handlePhotoDragStart, handleImageLoad, deleteMode, photoMetas, images, hoveredPhotoIdx, photoTagsMap, showAILabels, photoAILabelMap, selectedMap, toggleSelect, project, initialProject, getRippleStyle, openViewerAt, detailImageReadyMap, imageRatios, galleryMode, getPhotoSemanticState, getAdjustmentForPhoto, uploadTimelineSections]);
+  }, [title, handlePhotoDragStart, handlePhotoDragEnd, handleImageLoad, handleVideoMetadataLoad, deleteMode, photoMetas, images, hoveredPhotoIdx, photoTagsMap, showAILabels, photoAILabelMap, selectedMap, toggleSelect, project, initialProject, getRippleStyle, openViewerAt, detailImageReadyMap, imageRatios, galleryMode, getPhotoSemanticState, getAdjustmentForPhoto, uploadTimelineSections]);
 
   return (
     <div className="detail-page">
@@ -3752,7 +3833,7 @@ function ProjectDetail({
           ref={fileInputRef}
           style={{ display: 'none' }}
           type="file"
-          accept="image/*"
+          accept="image/*,video/*"
           multiple
           onChange={(e) => {
             handleFilesSelected(e.target.files);
@@ -3835,8 +3916,8 @@ function ProjectDetail({
               setDragActive(false);
               if (e.dataTransfer && e.dataTransfer.files) handleFilesSelected(e.dataTransfer.files);
             }}
-            aria-label={stagingFiles && stagingFiles.length > 0 ? `${stagingFiles.length} 张待上传` : '上传照片'}
-            title={stagingFiles && stagingFiles.length > 0 ? `${stagingFiles.length} 张待上传` : '点击或拖入图片'}
+            aria-label={stagingFiles && stagingFiles.length > 0 ? `${stagingFiles.length} 个待上传` : '上传照片或视频'}
+            title={stagingFiles && stagingFiles.length > 0 ? `${stagingFiles.length} 个待上传` : '点击或拖入照片/视频'}
           >
             <IconPlus />
             <span className="detail-bottom-upload-hint">{dragActive ? '松开上传' : '上传'}</span>
@@ -4294,7 +4375,7 @@ function ProjectDetail({
                   })}
                 </div>
                 <div className="detail-upload-current-hint">
-                  {selectedUploadSection ? `请上传「${selectedUploadSection.name}」环节照片` : '请选择要上传的环节'}
+                  {selectedUploadSection ? `请上传「${selectedUploadSection.name}」环节照片或视频` : '请选择要上传的环节'}
                 </div>
               </div>
             ) : null}
@@ -4331,8 +4412,8 @@ function ProjectDetail({
               <IconPlus />
               <span>
                 {uploadTimelineEnabled && uploadTimelineSections.length
-                  ? (selectedUploadSection ? `为「${selectedUploadSection.name}」添加照片` : '请选择环节后上传')
-                  : (stagingFiles.length ? `继续添加（${stagingFiles.length} 张）` : '选择或拖入照片')}
+                  ? (selectedUploadSection ? `为「${selectedUploadSection.name}」添加照片/视频` : '请选择环节后上传')
+                  : (stagingFiles.length ? `继续添加（${stagingFiles.length} 个）` : '选择或拖入照片/视频')}
               </span>
             </button>
 
@@ -4342,7 +4423,7 @@ function ProjectDetail({
                   <div>
                     <strong>{uploadProgress.failedFiles ? '上传有失败' : '正在上传'}</strong>
                     <span>
-                      {uploadProgress.completedFiles + uploadProgress.failedFiles} / {uploadProgress.totalFiles} 张
+                      {uploadProgress.completedFiles + uploadProgress.failedFiles} / {uploadProgress.totalFiles} 个
                       {uploadProgress.activeFileName ? ` · ${getUploadPhaseLabel(uploadProgress.activePhase)}：${uploadProgress.activeFileName}` : ''}
                     </span>
                   </div>
@@ -4353,7 +4434,7 @@ function ProjectDetail({
                 </div>
                 <div className="detail-upload-progress-meta">
                   <span>{formatUploadBytes(uploadProgress.loadedBytes)} / {formatUploadBytes(uploadProgress.totalBytes)}</span>
-                  {uploadProgress.failedFiles ? <span>{uploadProgress.failedFiles} 张失败</span> : null}
+                  {uploadProgress.failedFiles ? <span>{uploadProgress.failedFiles} 个失败</span> : null}
                 </div>
                 <div className="detail-upload-progress-list">
                   {uploadProgressItems.map((item) => (
@@ -4390,18 +4471,26 @@ function ProjectDetail({
                       <span>{group.name}</span>
                       {group.sectionTime ? <em>{group.sectionTime}</em> : null}
                     </div>
-                    <span className="detail-upload-section-count">{group.items.length} 张</span>
+                    <span className="detail-upload-section-count">{group.items.length} 个</span>
                   </div>
                   {group.items.length ? (
                     <div className="detail-upload-preview-grid">
                       {group.items.map((item) => {
                         const itemProgress = uploadProgress?.items?.[getUploadFileKey(item.file)] || null;
+                        const isPreviewVideo = isVideoMeta(item.file);
                         return (
                           <div
                             key={`${item.index}-${item.preview || item.file.name}`}
-                            className={`detail-upload-preview-item${itemProgress ? ' has-upload-progress' : ''}${uploadTimelineEnabled && uploadTimelineSections.length ? ' has-section-select' : ''}`}
+                            className={`detail-upload-preview-item${isPreviewVideo ? ' is-video' : ''}${itemProgress ? ' has-upload-progress' : ''}${uploadTimelineEnabled && uploadTimelineSections.length ? ' has-section-select' : ''}`}
                           >
-                            <img src={item.preview} alt={`preview-${item.index}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                            {isPreviewVideo ? (
+                              <>
+                                <video src={item.preview} className="detail-upload-preview-media" muted playsInline preload="metadata" />
+                                <span className="detail-upload-preview-video-badge">视频</span>
+                              </>
+                            ) : (
+                              <img src={item.preview} alt={`preview-${item.index}`} className="detail-upload-preview-media" />
+                            )}
                             <button
                               type="button"
                               className="detail-upload-preview-remove"
@@ -4410,7 +4499,7 @@ function ProjectDetail({
                                 removeStagingFile(item.index);
                               }}
                               disabled={uploading}
-                              aria-label="移除照片"
+                              aria-label="移除媒体"
                               title="移除"
                             >
                               ×
@@ -4428,7 +4517,7 @@ function ProjectDetail({
                                 value={item.sectionId}
                                 onChange={(e) => assignStagingFileSection(item.index, e.target.value)}
                                 disabled={uploading}
-                                aria-label="调整照片环节"
+                                aria-label="调整媒体环节"
                               >
                                 <option value="">未选择环节</option>
                                 {uploadTimelineSections.map((section) => (
@@ -4443,12 +4532,12 @@ function ProjectDetail({
                       })}
                     </div>
                   ) : (
-                    <div className="detail-upload-section-empty">暂无照片，可直接拖入这一环节</div>
+                    <div className="detail-upload-section-empty">暂无媒体，可直接拖入这一环节</div>
                   )}
                 </section>
               ))}
               {!stagedUploadGroups.length ? (
-                <div className="detail-upload-section-empty">请选择照片后上传</div>
+                <div className="detail-upload-section-empty">请选择照片或视频后上传</div>
               ) : null}
             </div>
           </div>
@@ -4638,27 +4727,45 @@ function ProjectDetail({
                             ? getViewerTargetSrc(idx, true)
                             : getViewerTargetSrc(idx, false);
                           const slideMeta = photoMetas?.[idx] || null;
+                          const isSlideVideo = isVideoMeta(slideMeta);
                           const slidePhotoId = getMetaPhotoId(slideMeta);
                           const slideFaces = slidePhotoId ? (viewerFaceMap[slidePhotoId] || []) : [];
-                          const showFaceBoxes = idx === viewerIndex && viewerFaceOverlayVisible && slideFaces.length > 0;
+                          const showFaceBoxes = !isSlideVideo && idx === viewerIndex && viewerFaceOverlayVisible && slideFaces.length > 0;
                           const slideAdjustments = idx === viewerIndex && viewerToneVisible ? viewerToneDraft : getAdjustmentForPhoto(slideMeta);
                           const slideAdjustmentStyle = getPhotoAdjustmentStyle(slideAdjustments);
-                          const useExactTonePreview = idx === viewerIndex && !isDefaultPhotoAdjustments(slideAdjustments);
+                          const useExactTonePreview = !isSlideVideo && idx === viewerIndex && !isDefaultPhotoAdjustments(slideAdjustments);
                           return (
                             <div className={`viewer-slide${idx === viewerIndex ? ' is-active' : ''}`} style={viewerSlideStyle} key={`viewer-slide-${idx}`}>
                               <div className="viewer-face-image-surface">
-                                <ViewerToneImage
-                                  src={slideSrc}
-                                  photoId={slidePhotoId}
-                                  adjustments={slideAdjustments}
-                                  exact={useExactTonePreview}
-                                  maxSize={viewerShowOriginal ? 2600 : 1600}
-                                  pixelVariant={viewerShowOriginal ? 'original' : 'thumb'}
-                                  alt={`viewer-${idx}`}
-                                  className={`viewer-carousel-img${idx === viewerIndex && viewerEnableOpenZoom ? ' viewer-img--open-zoom' : ''}`}
-                                  style={slideAdjustmentStyle}
-                                  onLoad={(e) => handleViewerImageLoad(slidePhotoId, e)}
-                                />
+                                {isSlideVideo ? (
+                                  <video
+                                    src={slideMeta?.originalSrc || slideMeta?.url || slideSrc}
+                                    className="viewer-carousel-img viewer-carousel-video"
+                                    controls
+                                    playsInline
+                                    preload="metadata"
+                                    onLoadedMetadata={(e) => {
+                                      if (!slidePhotoId || !e?.target) return;
+                                      const width = toFiniteNumber(e.target.videoWidth);
+                                      const height = toFiniteNumber(e.target.videoHeight);
+                                      if (!width || !height) return;
+                                      setViewerImageNaturalMap((prev) => ({ ...(prev || {}), [slidePhotoId]: { width, height } }));
+                                    }}
+                                  />
+                                ) : (
+                                  <ViewerToneImage
+                                    src={slideSrc}
+                                    photoId={slidePhotoId}
+                                    adjustments={slideAdjustments}
+                                    exact={useExactTonePreview}
+                                    maxSize={viewerShowOriginal ? 2600 : 1600}
+                                    pixelVariant={viewerShowOriginal ? 'original' : 'thumb'}
+                                    alt={`viewer-${idx}`}
+                                    className={`viewer-carousel-img${idx === viewerIndex && viewerEnableOpenZoom ? ' viewer-img--open-zoom' : ''}`}
+                                    style={slideAdjustmentStyle}
+                                    onLoad={(e) => handleViewerImageLoad(slidePhotoId, e)}
+                                  />
+                                )}
                                 {showFaceBoxes ? (
                                   <div className="viewer-face-layer">
                                     {slideFaces.map((face, fidx) => (
@@ -4709,12 +4816,14 @@ function ProjectDetail({
                         </div>
                       );
                     })()}
+                    {!currentViewerIsVideo ? (
                     <div className="viewer-original-toggle">
                       <button type="button" className="viewer-original-btn" onClick={(e) => { e.stopPropagation(); setViewerEnableOpenZoom(false); setViewerShowOriginal((v) => !v); }}>
                         {viewerShowOriginal ? '查看缩略图' : '查看原图'}
                       </button>
                     </div>
-                    {showAILabels && photoAILabelMap[photoMetas[viewerIndex].id] && (() => {
+                    ) : null}
+                    {!currentViewerIsVideo && showAILabels && photoAILabelMap[photoMetas[viewerIndex].id] && (() => {
                       const label = photoAILabelMap[photoMetas[viewerIndex].id];
                       return (
                         <div className={`viewer-chip ${getAISelectionChipClass(label)}`} style={{ right: 16, top: 16 }}>
@@ -4724,7 +4833,7 @@ function ProjectDetail({
                     })()}
                     {(() => {
                       const pid = photoMetas[viewerIndex]?.id;
-                      if (!pid) return null;
+                      if (currentViewerIsVideo || !pid) return null;
                       const hasRecommend = (photoTagsMap[pid] || []).includes('推荐');
                       if (!hasRecommend) return null;
                       const hasAI = showAILabels && photoAILabelMap[pid];
@@ -4822,7 +4931,7 @@ function ProjectDetail({
                 ) : null}
               </div>
 
-              {viewerToneVisible && (photoMetas && photoMetas[viewerIndex]) ? (
+              {viewerToneVisible && !currentViewerIsVideo && (photoMetas && photoMetas[viewerIndex]) ? (
                 <div className="viewer-tone-panel" onClick={(e) => e.stopPropagation()}>
                   <div className="viewer-tone-head">
                     <div>
@@ -4890,10 +4999,10 @@ function ProjectDetail({
                   className="viewer-original-btn"
                   onClick={(e) => { e.stopPropagation(); downloadCurrentPhoto(); }}
                 >
-                  下载该照片
+                  {currentViewerIsVideo ? '下载该视频' : '下载该照片'}
                 </button>
 
-                {!readOnly && (photoMetas && photoMetas[viewerIndex]) && (
+                {!readOnly && !currentViewerIsVideo && (photoMetas && photoMetas[viewerIndex]) && (
                   <button
                   type="button"
                     className="viewer-original-btn viewer-action-teal"
@@ -4903,7 +5012,7 @@ function ProjectDetail({
                   </button>
                 )}
 
-                {!readOnly && canEditPhotos && (photoMetas && photoMetas[viewerIndex]) && (
+                {!readOnly && !currentViewerIsVideo && canEditPhotos && (photoMetas && photoMetas[viewerIndex]) && (
                   <button
                     type="button"
                     className={`viewer-original-btn${viewerToneVisible ? ' viewer-action-primary' : ''}`}
@@ -4919,7 +5028,7 @@ function ProjectDetail({
                     className="viewer-original-btn viewer-action-primary"
                     onClick={(e) => { e.stopPropagation(); openPhotoEditModal(); }}
                   >
-                    修改照片信息
+                    {currentViewerIsVideo ? '修改视频信息' : '修改照片信息'}
                   </button>
                 )}
 
