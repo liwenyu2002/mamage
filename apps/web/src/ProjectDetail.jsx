@@ -654,6 +654,7 @@ function ProjectDetail({
   const [galleryRenderLimit, setGalleryRenderLimit] = React.useState(GALLERY_INITIAL_RENDER_LIMIT);
   const galleryMoreRef = React.useRef(null);
   const [detailImageReadyMap, setDetailImageReadyMap] = React.useState({});
+  const timelineDefaultModeProjectRef = React.useRef(null);
   // image viewer
   const [viewerVisible, setViewerVisible] = React.useState(false);
   const [viewerIndex, setViewerIndex] = React.useState(0);
@@ -2255,14 +2256,20 @@ function ProjectDetail({
   const useTimelineGallery = Boolean(uploadTimelineEnabled && uploadTimelineSections.length);
   const timelineGalleryGroups = React.useMemo(() => {
     if (!useTimelineGallery) return [];
-    const groups = uploadTimelineSections.map((section) => ({
+    const normalizeDomIdPart = (value) => String(value || '')
+      .replace(/[^a-zA-Z0-9_-]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 40);
+    const groups = uploadTimelineSections.map((section, sectionIndex) => ({
       ...section,
+      domId: `timeline-section-${projectId}-${sectionIndex}-${normalizeDomIdPart(section.id || section.key || section.name || sectionIndex)}`,
       items: [],
     }));
     const byId = new Map(groups.filter((section) => section.id).map((section) => [String(section.id), section]));
     const uncategorized = {
       id: '',
       key: '__uncategorized__',
+      domId: `timeline-section-${projectId}-uncategorized`,
       name: '未归类',
       sectionTime: '',
       sortOrder: 999999,
@@ -2278,7 +2285,19 @@ function ProjectDetail({
       ...groups.filter((group) => group.items.length),
       ...(uncategorized.items.length ? [uncategorized] : []),
     ];
-  }, [useTimelineGallery, uploadTimelineSections, visibleImages, photoMetas]);
+  }, [useTimelineGallery, uploadTimelineSections, visibleImages, photoMetas, projectId]);
+
+  React.useEffect(() => {
+    if (!projectId || !useTimelineGallery) return;
+    const key = String(projectId);
+    if (timelineDefaultModeProjectRef.current === key) return;
+    timelineDefaultModeProjectRef.current = key;
+    if (controlledGalleryMode) {
+      if (controlledGalleryMode !== 'grid' && onGalleryModeChange) onGalleryModeChange('grid');
+      return;
+    }
+    setInternalGalleryMode('grid');
+  }, [controlledGalleryMode, onGalleryModeChange, projectId, useTimelineGallery]);
   const detailSearchVisible = Boolean(searchOpen || searching || searchError || searchKeywordTrimmed);
   const compactCountText = hasMoreGalleryPhotos
     ? `${count} 张，已显示 ${visiblePhotoCount}`
@@ -2313,7 +2332,7 @@ function ProjectDetail({
     const items = Array.isArray(group?.items) ? group.items : [];
     if (galleryMode === 'masonry') {
       const cols = Math.max(1, masonryColumns);
-      const buckets = Array.from({ length: Math.min(cols, Math.max(1, items.length)) }, () => ({ h: 0, items: [] }));
+      const buckets = Array.from({ length: cols }, () => ({ h: 0, items: [] }));
       items.forEach((item) => {
         const ratio = imageRatios[item.src] || 1.5;
         const estHeight = 1 / Math.max(0.2, ratio);
@@ -3956,7 +3975,7 @@ function ProjectDetail({
       </div>
 
       <div
-        className={`detail-gallery ${galleryMode === 'masonry' ? 'detail-gallery--masonry' : 'detail-gallery--grid'} ${isGalleryPreparing ? 'is-preparing' : ''}`}
+        className={`detail-gallery ${galleryMode === 'masonry' ? 'detail-gallery--masonry' : 'detail-gallery--grid'} ${useTimelineGallery ? 'detail-gallery--timeline' : ''} ${isGalleryPreparing ? 'is-preparing' : ''}`}
         ref={galleryRef}
       >
         {loading && (
@@ -4003,19 +4022,39 @@ function ProjectDetail({
 
         {!loading && !error && galleryPrepared && (
           useTimelineGallery ? (
-            <div className="detail-timeline-gallery">
-              {timelineGalleryGroups.map((group) => (
-                <section className="detail-timeline-section" key={group.key || group.id || group.name}>
-                  <div className="detail-timeline-head">
-                    <div className="detail-timeline-title">
+            <div className="detail-timeline-layout">
+              <nav className="detail-timeline-rail" aria-label="时间轴快速导航">
+                <span className="detail-timeline-rail-line" aria-hidden="true" />
+                {timelineGalleryGroups.map((group) => (
+                  <a
+                    key={`rail-${group.key || group.id || group.name}`}
+                    className="detail-timeline-rail-item"
+                    href={`#${group.domId}`}
+                    title={group.sectionTime ? `${group.name} · ${group.sectionTime}` : group.name}
+                  >
+                    <span className="detail-timeline-rail-dot" aria-hidden="true" />
+                    <span className="detail-timeline-rail-text">
                       <span>{group.name}</span>
                       {group.sectionTime ? <em>{group.sectionTime}</em> : null}
+                    </span>
+                    <strong>{group.items.length}</strong>
+                  </a>
+                ))}
+              </nav>
+              <div className="detail-timeline-gallery">
+                {timelineGalleryGroups.map((group) => (
+                  <section id={group.domId} className="detail-timeline-section" key={group.key || group.id || group.name}>
+                    <div className="detail-timeline-head">
+                      <div className="detail-timeline-title">
+                        <span>{group.name}</span>
+                        {group.sectionTime ? <em>{group.sectionTime}</em> : null}
+                      </div>
+                      <span className="detail-timeline-count">{group.items.length} 张</span>
                     </div>
-                    <span className="detail-timeline-count">{group.items.length} 张</span>
-                  </div>
-                  {renderTimelineGroupItems(group)}
-                </section>
-              ))}
+                    {renderTimelineGroupItems(group)}
+                  </section>
+                ))}
+              </div>
             </div>
           ) : galleryMode === 'masonry' ? (
             <div className="detail-masonry-columns" style={{ '--masonry-cols': masonryColumns }}>

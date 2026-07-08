@@ -131,15 +131,128 @@
   width: 100%;
 }
 
+.detail-gallery--timeline:not(.is-preparing) {
+  display: block;
+}
+
+.detail-timeline-layout {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  gap: 14px;
+  width: 100%;
+  align-items: start;
+  min-width: 0;
+}
+
+.detail-timeline-rail {
+  position: sticky;
+  top: calc(var(--mamage-nav-height, 80px) + 16px);
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: calc(100vh - var(--mamage-nav-height, 80px) - 34px);
+  overflow: auto;
+  padding: 12px 8px 12px 14px;
+  border: 1px solid var(--liquid-glass-border-soft, rgba(255, 255, 255, 0.42));
+  border-radius: 18px;
+  background: var(--liquid-glass-material, rgba(255, 255, 255, 0.34));
+  box-shadow: var(--liquid-glass-shadow-tight, 0 14px 34px rgba(15, 23, 42, 0.12)), var(--liquid-glass-edge, inset 0 1px 0 rgba(255, 255, 255, 0.58));
+  backdrop-filter: var(--liquid-glass-backdrop, blur(18px) saturate(1.25));
+  -webkit-backdrop-filter: var(--liquid-glass-backdrop, blur(18px) saturate(1.25));
+  scrollbar-width: thin;
+}
+
+.detail-timeline-rail-line {
+  position: absolute;
+  left: 21px;
+  top: 18px;
+  bottom: 18px;
+  width: 2px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(22, 119, 255, 0.14), rgba(22, 119, 255, 0.55), rgba(22, 119, 255, 0.14));
+  pointer-events: none;
+}
+
+.detail-timeline-rail-item {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 5px 7px 5px 0;
+  border-radius: 12px;
+  color: #000;
+  text-decoration: none;
+  transition: background 140ms ease, transform 140ms ease;
+}
+
+.detail-timeline-rail-item:hover {
+  background: rgba(255, 255, 255, 0.42);
+  transform: translateX(1px);
+}
+
+.detail-timeline-rail-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: #1677ff;
+  border: 2px solid rgba(255, 255, 255, 0.84);
+  box-shadow: 0 7px 14px rgba(22, 119, 255, 0.24);
+}
+
+.detail-timeline-rail-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 12px;
+  font-weight: 860;
+  line-height: 1.15;
+}
+
+.detail-timeline-rail-text span,
+.detail-timeline-rail-text em {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail-timeline-rail-text em {
+  color: rgba(0, 0, 0, 0.58);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 760;
+}
+
+.detail-timeline-rail-item strong {
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.52);
+  color: rgba(0, 0, 0, 0.72);
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 22px;
+  text-align: center;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.58);
+}
+
 .detail-timeline-gallery {
   display: flex;
   flex-direction: column;
   gap: 18px;
   width: 100%;
+  min-width: 0;
 }
 
 .detail-timeline-section {
   min-width: 0;
+  scroll-margin-top: calc(var(--mamage-nav-height, 80px) + 18px);
 }
 
 .detail-timeline-head {
@@ -1007,6 +1120,44 @@
   .detail-gallery--grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 6px;
+  }
+
+  .detail-timeline-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .detail-timeline-rail {
+    top: calc(var(--mamage-nav-height, 58px) + 4px);
+    flex-direction: row;
+    gap: 6px;
+    max-height: none;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 8px;
+    border-radius: 16px;
+  }
+
+  .detail-timeline-rail-line {
+    left: 16px;
+    right: 16px;
+    top: 50%;
+    bottom: auto;
+    width: auto;
+    height: 2px;
+    transform: translateY(-50%);
+    background: linear-gradient(90deg, rgba(22, 119, 255, 0.12), rgba(22, 119, 255, 0.5), rgba(22, 119, 255, 0.12));
+  }
+
+  .detail-timeline-rail-item {
+    flex: 0 0 auto;
+    grid-template-columns: 14px minmax(58px, 92px) auto;
+    min-height: 32px;
+    padding: 4px 7px 4px 0;
+  }
+
+  .detail-timeline-rail-text {
+    font-size: 11px;
   }
 
   .detail-timeline-gallery {
