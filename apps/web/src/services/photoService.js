@@ -11,6 +11,81 @@ function getAuthHeaders(extra = {}) {
   return Object.assign({}, extra, token ? { Authorization: `Bearer ${token}` } : {});
 }
 
+function emitUploadProgress(onProgress, event) {
+  if (typeof onProgress !== 'function') return;
+  try {
+    onProgress(event);
+  } catch (e) {
+    // Progress callbacks must not break uploads.
+  }
+}
+
+function readHeader(headersText, name) {
+  const target = String(name || '').toLowerCase();
+  const lines = String(headersText || '').split(/\r?\n/);
+  for (const line of lines) {
+    const idx = line.indexOf(':');
+    if (idx <= 0) continue;
+    if (line.slice(0, idx).trim().toLowerCase() === target) return line.slice(idx + 1).trim();
+  }
+  return '';
+}
+
+async function requestWithUploadProgress({ url, method = 'POST', headers = {}, body, withCredentials = false, onProgress }) {
+  if (typeof XMLHttpRequest === 'undefined') {
+    const resp = await fetch(url, {
+      method,
+      headers,
+      body,
+      credentials: withCredentials ? 'include' : 'same-origin',
+    });
+    const responseText = await resp.text();
+    emitUploadProgress(onProgress, { loaded: 1, total: 1 });
+    return {
+      status: resp.status,
+      statusText: resp.statusText,
+      responseText,
+      headers: '',
+    };
+  }
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open(method, url, true);
+    xhr.withCredentials = !!withCredentials;
+    Object.entries(headers || {}).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) xhr.setRequestHeader(key, String(value));
+    });
+    xhr.upload.onprogress = (event) => {
+      emitUploadProgress(onProgress, {
+        loaded: event.loaded,
+        total: event.lengthComputable ? event.total : 0,
+      });
+    };
+    xhr.onload = () => {
+      resolve({
+        status: xhr.status,
+        statusText: xhr.statusText,
+        responseText: xhr.responseText,
+        headers: xhr.getAllResponseHeaders ? xhr.getAllResponseHeaders() : '',
+      });
+    };
+    xhr.onerror = () => {
+      const err = new Error('Network error during upload');
+      err.status = xhr.status || 0;
+      err.body = xhr.responseText || '';
+      reject(err);
+    };
+    xhr.ontimeout = () => {
+      const err = new Error('Upload timed out');
+      err.status = xhr.status || 0;
+      err.body = xhr.responseText || '';
+      reject(err);
+    };
+    xhr.send(body);
+  });
+}
+
 async function getPhotoById(photoId) {
   if (photoId === undefined || photoId === null || String(photoId).trim() === '') {
     throw new Error('getPhotoById: photoId is required');
@@ -316,18 +391,19 @@ async function createThumbnailBlob(file, maxDimension = 800, quality = 0.8) {
   }
 }
 
-async function putSignedObject(uploadTarget, body) {
-  const resp = await fetch(uploadTarget.uploadUrl, {
+async function putSignedObject(uploadTarget, body, onProgress) {
+  const resp = await requestWithUploadProgress({
+    url: uploadTarget.uploadUrl,
     method: 'PUT',
-    mode: 'cors',
     headers: uploadTarget.headers || {},
     body,
+    withCredentials: false,
+    onProgress,
   });
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => '');
+  if (resp.status < 200 || resp.status >= 300) {
     const err = new Error(`direct upload PUT failed ${resp.status}`);
     err.status = resp.status;
-    err.body = text;
+    err.body = resp.responseText || '';
     throw err;
   }
 }
@@ -347,7 +423,7 @@ async function abortDirectUpload(initData) {
   }
 }
 
-async function uploadViaDirectCos(file, fields) {
+async function uploadViaDirectCos(file, fields, { onProgress } = {}) {
   const initPayload = {
     projectId: fields.projectId,
     timelineSectionId: fields.timelineSectionId,
@@ -359,25 +435,75 @@ async function uploadViaDirectCos(file, fields) {
     fileSize: file.size,
     mimeType: file.type || '',
   };
+  emitUploadProgress(onProgress, {
+    file,
+    phase: 'preparing',
+    loaded: 0,
+    total: file.size || 0,
+  });
   const initData = await request('/api/upload/photo/direct/init', {
     method: 'POST',
     data: initPayload,
   });
 
   try {
+    emitUploadProgress(onProgress, {
+      file,
+      phase: 'thumbnail',
+      loaded: 0,
+      total: file.size || 0,
+    });
     const thumbBlob = await createThumbnailBlob(file);
+    const loadedByPart = { original: 0, thumb: 0 };
+    const totalByPart = {
+      original: file.size || 0,
+      thumb: thumbBlob.size || 0,
+    };
+    const reportCombined = () => {
+      const loaded = (loadedByPart.original || 0) + (loadedByPart.thumb || 0);
+      const total = (totalByPart.original || 0) + (totalByPart.thumb || 0);
+      emitUploadProgress(onProgress, {
+        file,
+        phase: 'uploading',
+        loaded,
+        total,
+      });
+    };
     await Promise.all([
-      putSignedObject(initData.original, file),
-      putSignedObject(initData.thumb, thumbBlob),
+      putSignedObject(initData.original, file, (event) => {
+        if (event.total) totalByPart.original = event.total;
+        loadedByPart.original = event.loaded || 0;
+        reportCombined();
+      }),
+      putSignedObject(initData.thumb, thumbBlob, (event) => {
+        if (event.total) totalByPart.thumb = event.total;
+        loadedByPart.thumb = event.loaded || 0;
+        reportCombined();
+      }),
     ]);
 
-    return await request('/api/upload/photo/direct/complete', {
+    const total = (totalByPart.original || 0) + (totalByPart.thumb || 0);
+    emitUploadProgress(onProgress, {
+      file,
+      phase: 'completing',
+      loaded: total,
+      total,
+    });
+    const response = await request('/api/upload/photo/direct/complete', {
       method: 'POST',
       data: Object.assign({}, initPayload, {
         originalKey: initData.original && initData.original.key,
         thumbKey: initData.thumb && initData.thumb.key,
       }),
     });
+    emitUploadProgress(onProgress, {
+      file,
+      phase: 'done',
+      status: 'fulfilled',
+      loaded: total,
+      total,
+    });
+    return response;
   } catch (err) {
     await abortDirectUpload(initData);
     err.directUploadFailed = true;
@@ -385,28 +511,53 @@ async function uploadViaDirectCos(file, fields) {
   }
 }
 
-async function uploadViaApi(formData) {
+async function uploadViaApi(formData, { onProgress, file } = {}) {
   const uploadUrl = '/api/upload/photo';
+  let apiUploadTotal = (file && file.size) || 0;
   // eslint-disable-next-line no-console
   console.debug('[photoService] uploading to', uploadUrl);
-  const resp = await fetch(uploadUrl, {
+  emitUploadProgress(onProgress, {
+    file: file || formData.get('file'),
+    phase: 'uploading',
+    loaded: 0,
+    total: (file && file.size) || 0,
+  });
+  const resp = await requestWithUploadProgress({
+    url: uploadUrl,
     method: 'POST',
     body: formData,
-    credentials: 'same-origin',
     headers: getAuthHeaders(),
+    withCredentials: true,
+    onProgress: (event) => {
+      if (event.total) apiUploadTotal = event.total;
+      emitUploadProgress(onProgress, {
+        file: file || formData.get('file'),
+        phase: 'uploading',
+        loaded: event.loaded,
+        total: event.total || apiUploadTotal,
+      });
+    },
   });
-  if (!resp.ok) {
-    const text = await resp.text();
+  if (resp.status < 200 || resp.status >= 300) {
     const err = new Error(`upload failed ${resp.status} for ${uploadUrl}`);
     err.status = resp.status;
-    err.body = text;
+    err.body = resp.responseText || '';
     // eslint-disable-next-line no-console
-    console.warn('[photoService] upload endpoint returned', resp.status, 'for', uploadUrl, 'response:', text);
+    console.warn('[photoService] upload endpoint returned', resp.status, 'for', uploadUrl, 'response:', resp.responseText || '');
     throw err;
   }
-  const ct = resp.headers.get('content-type') || '';
-  if (ct.includes('application/json')) return resp.json();
-  return { data: await resp.text() };
+  const ct = readHeader(resp.headers, 'content-type') || '';
+  const text = resp.responseText || '';
+  const total = apiUploadTotal || Math.max(Number(file && file.size) || 0, text.length || 0);
+  emitUploadProgress(onProgress, {
+    file: file || formData.get('file'),
+    phase: 'done',
+    status: 'fulfilled',
+    loaded: total,
+    total,
+  });
+  if (ct.includes('application/json')) return text ? JSON.parse(text) : {};
+  return { data: text };
 }
 
 function shouldFallbackToApi(err) {
@@ -432,12 +583,12 @@ function isDirectUploadUnavailable(err) {
 
 // 上传图片，参数为 FormData 或者一个包含 { file, projectId, title, type, tags } 的对象
 // 如果 tags 为数组，会自动转为 JSON 字符串
-async function uploadPhotos(formDataOrObj) {
+async function uploadPhotos(formDataOrObj, { onProgress } = {}) {
   const { file, fields, formData } = normalizeUploadPayload(formDataOrObj);
   try {
     if (canTryDirectUpload(file)) {
       try {
-        return await uploadViaDirectCos(file, fields);
+        return await uploadViaDirectCos(file, fields, { onProgress });
       } catch (directErr) {
         if (isDirectUploadUnavailable(directErr)) {
           if (typeof window !== 'undefined') window.__MAMAGE_DISABLE_DIRECT_UPLOAD__ = true;
@@ -446,9 +597,15 @@ async function uploadPhotos(formDataOrObj) {
           console.warn('[photoService] direct upload failed, fallback to API upload:', directErr);
         }
         if (!shouldFallbackToApi(directErr)) throw directErr;
+        emitUploadProgress(onProgress, {
+          file,
+          phase: 'fallback',
+          loaded: 0,
+          total: file && file.size ? file.size : 0,
+        });
       }
     }
-    return await uploadViaApi(formData);
+    return await uploadViaApi(formData, { onProgress, file });
   } catch (e) {
     // eslint-disable-next-line no-console
     console.error('[photoService] upload attempt failed', e);
@@ -476,16 +633,40 @@ async function runLimited(items, limit, worker) {
   return results;
 }
 
-async function uploadPhotoFiles(files, { projectId, timelineSectionId, title, type, tags, concurrency = DEFAULT_UPLOAD_CONCURRENCY } = {}) {
-  return runLimited(files, concurrency, async (file) => {
-    const response = await uploadPhotos({ file, projectId, timelineSectionId, title, type, tags });
-    return {
-      status: 'fulfilled',
+async function uploadPhotoFiles(files, { projectId, timelineSectionId, title, type, tags, concurrency = DEFAULT_UPLOAD_CONCURRENCY, onProgress } = {}) {
+  return runLimited(files, concurrency, async (file, index) => {
+    const report = (event) => emitUploadProgress(onProgress, {
+      ...(event || {}),
+      file,
       fileName: file && file.name,
-      response,
-      photo: response,
-      id: response && response.id
-    };
+      index,
+    });
+    report({
+      phase: 'queued',
+      loaded: 0,
+      total: file && file.size ? file.size : 0,
+    });
+    try {
+      const response = await uploadPhotos({ file, projectId, timelineSectionId, title, type, tags }, { onProgress: report });
+      report({
+        phase: 'done',
+        status: 'fulfilled',
+      });
+      return {
+        status: 'fulfilled',
+        fileName: file && file.name,
+        response,
+        photo: response,
+        id: response && response.id
+      };
+    } catch (err) {
+      report({
+        phase: 'failed',
+        status: 'rejected',
+        error: err && (err.message || String(err)),
+      });
+      throw err;
+    }
   });
 }
 

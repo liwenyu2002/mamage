@@ -4,6 +4,12 @@ import './CreateAlbumModal.css';
 import { uploadPhotoFiles } from './services/photoService';
 import { getProjectById } from './services/projectService';
 import { getPermissions } from './permissions/permissionStore';
+import {
+  createInitialUploadProgress,
+  formatUploadBytes,
+  getUploadPhaseLabel,
+  reduceUploadProgress,
+} from './utils/uploadProgress';
 
 function TagChip({ tag, onRemove }) {
   const [hover, setHover] = React.useState(false);
@@ -28,6 +34,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
   const [userPermissions, setUserPermissions] = React.useState(() => getPermissions());
   const [stagingFiles, setStagingFiles] = React.useState([]);
   const [stagingPreviews, setStagingPreviews] = React.useState([]);
+  const [uploadProgress, setUploadProgress] = React.useState(null);
   const sectionKeyRef = React.useRef(2);
 
   React.useEffect(() => {
@@ -45,6 +52,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
       stagingPreviews.forEach((u) => { try { URL.revokeObjectURL(u); } catch (e) {} });
       setStagingFiles([]);
       setStagingPreviews([]);
+      setUploadProgress(null);
     }
   }, [visible]);
 
@@ -146,6 +154,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
 
       return combined;
     });
+    setUploadProgress(null);
   }, []);
 
   const removeStagingFile = React.useCallback((index) => {
@@ -162,7 +171,15 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
       }
       return next;
     });
+    setUploadProgress(null);
   }, []);
+
+  const uploadProgressItems = React.useMemo(() => {
+    if (!uploadProgress || !uploadProgress.items) return [];
+    return (uploadProgress.order || [])
+      .map((key) => uploadProgress.items[key])
+      .filter(Boolean);
+  }, [uploadProgress]);
 
   const handleSubmit = React.useCallback(async () => {
     if (!name.trim()) return Toast.warning('相册名称为必填项');
@@ -222,6 +239,10 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
             } catch (e) {}
 
             try {
+              setUploadProgress(createInitialUploadProgress(filesToUpload));
+              const handleProgress = (event) => {
+                setUploadProgress((prev) => reduceUploadProgress(prev, event));
+              };
               const selectedSection = timelineEnabled
                 ? normalizedTimelineSections.find((section) => String(section.sourceKey) === String(initialUploadSectionKey))
                 : null;
@@ -233,6 +254,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
               const results = await uploadPhotoFiles(filesToUpload, {
                 projectId,
                 timelineSectionId: matchedCreatedSection && matchedCreatedSection.id ? matchedCreatedSection.id : undefined,
+                onProgress: handleProgress,
               });
               const rejected = results.filter((r) => r.status === 'rejected');
               if (rejected.length > 0) {
@@ -276,12 +298,12 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
     <Modal
       title="新建相册"
       visible={visible}
-      onCancel={onClose}
+      onCancel={submitting ? () => Toast.warning('正在创建或上传，请等待完成') : onClose}
       onOk={handleSubmit}
       okButtonProps={{ loading: submitting }}
       cancelText="取消"
       okText="创建"
-      closable
+      closable={!submitting}
     >
       <div className="cam-form">
         <Input value={name} onChange={(v) => setName(v)} placeholder="相册名称（必填）" />
@@ -347,6 +369,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
                 accept="image/*"
                 multiple
                 style={{ display: 'none' }}
+                disabled={submitting}
                 onChange={(e) => {
                   handleFilesSelected(e.target.files);
                   try { e.target.value = ''; } catch (err) {}
@@ -361,6 +384,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); removeStagingFile(i); }}
+                    disabled={submitting}
                     aria-label="移除照片"
                     title="移除"
                     style={{
@@ -387,6 +411,40 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
               ))}
             </div>
           </div>
+          {uploadProgress ? (
+            <div className="cam-upload-progress" aria-live="polite">
+              <div className="cam-upload-progress-head">
+                <div>
+                  <strong>{uploadProgress.failedFiles ? '上传有失败' : '正在上传照片'}</strong>
+                  <span>
+                    {uploadProgress.completedFiles + uploadProgress.failedFiles} / {uploadProgress.totalFiles} 张
+                    {uploadProgress.activeFileName ? ` · ${getUploadPhaseLabel(uploadProgress.activePhase)}：${uploadProgress.activeFileName}` : ''}
+                  </span>
+                </div>
+                <b>{uploadProgress.percent || 0}%</b>
+              </div>
+              <div className="cam-upload-progress-track">
+                <span style={{ width: `${uploadProgress.percent || 0}%` }} />
+              </div>
+              <div className="cam-upload-progress-meta">
+                <span>{formatUploadBytes(uploadProgress.loadedBytes)} / {formatUploadBytes(uploadProgress.totalBytes)}</span>
+                {uploadProgress.failedFiles ? <span>{uploadProgress.failedFiles} 张失败</span> : null}
+              </div>
+              <div className="cam-upload-progress-list">
+                {uploadProgressItems.map((item) => (
+                  <div
+                    key={item.key}
+                    className={`cam-upload-progress-file is-${item.status === 'rejected' || item.phase === 'failed' ? 'failed' : item.status === 'fulfilled' || item.phase === 'done' ? 'done' : 'active'}`}
+                  >
+                    <span>{item.name}</span>
+                    <em>{getUploadPhaseLabel(item.phase, item.status)}</em>
+                    <i><b style={{ width: `${item.percent || 0}%` }} /></i>
+                    <strong>{item.percent || 0}%</strong>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
 
         {userPermissions.includes('projects.create') ? (

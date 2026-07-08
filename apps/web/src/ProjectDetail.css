@@ -864,6 +864,136 @@
   background: var(--liquid-glass-material-readable, rgba(255, 255, 255, 0.5));
 }
 
+.detail-upload-progress-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--liquid-glass-border-soft, rgba(255, 255, 255, 0.46));
+  border-radius: 18px;
+  background: var(--liquid-glass-material-readable, rgba(255, 255, 255, 0.48));
+  box-shadow: var(--liquid-glass-shadow-tight, 0 14px 34px rgba(15, 23, 42, 0.12)), var(--liquid-glass-edge, inset 0 1px 0 rgba(255, 255, 255, 0.62));
+  backdrop-filter: var(--liquid-glass-backdrop, blur(18px) saturate(1.25));
+  -webkit-backdrop-filter: var(--liquid-glass-backdrop, blur(18px) saturate(1.25));
+}
+
+.detail-upload-progress-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  color: #000;
+}
+
+.detail-upload-progress-head div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.detail-upload-progress-head strong {
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1.15;
+}
+
+.detail-upload-progress-head span,
+.detail-upload-progress-meta {
+  color: rgba(0, 0, 0, 0.66);
+  font-size: 12px;
+  font-weight: 760;
+  line-height: 1.25;
+}
+
+.detail-upload-progress-head b {
+  flex: 0 0 auto;
+  color: #000;
+  font-size: 18px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.detail-upload-progress-track,
+.detail-upload-progress-file-bar,
+.detail-upload-preview-progress i {
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.detail-upload-progress-track {
+  height: 9px;
+}
+
+.detail-upload-progress-track span,
+.detail-upload-progress-file-bar i,
+.detail-upload-preview-progress em {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #1677ff, #26b1c4);
+  transition: width 160ms ease;
+}
+
+.detail-upload-progress-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.detail-upload-progress-list {
+  display: grid;
+  gap: 6px;
+  max-height: 132px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.detail-upload-progress-file {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 84px 42px;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 5px 7px;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.34);
+  color: #000;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.detail-upload-progress-file.is-done {
+  background: rgba(34, 197, 94, 0.14);
+}
+
+.detail-upload-progress-file.is-failed {
+  background: rgba(239, 68, 68, 0.16);
+}
+
+.detail-upload-progress-file-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail-upload-progress-file-phase {
+  color: rgba(0, 0, 0, 0.58);
+  white-space: nowrap;
+}
+
+.detail-upload-progress-file-bar {
+  height: 6px;
+}
+
+.detail-upload-progress-file-percent {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 .detail-upload-preview-item {
   width: 100%;
   aspect-ratio: 1 / 1;
@@ -892,6 +1022,61 @@
   -webkit-backdrop-filter: blur(12px) saturate(1.2);
   font-size: 16px;
   line-height: 1;
+}
+
+.detail-upload-preview-remove:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.detail-upload-preview-progress {
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  bottom: 6px;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 8px;
+  align-items: center;
+  padding: 6px 7px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.78);
+  color: #000;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.62);
+  backdrop-filter: blur(12px) saturate(1.2);
+  -webkit-backdrop-filter: blur(12px) saturate(1.2);
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.detail-upload-preview-item.has-upload-progress.has-section-select .detail-upload-preview-progress {
+  bottom: 38px;
+}
+
+.detail-upload-preview-progress span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail-upload-preview-progress b {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.detail-upload-preview-progress i {
+  grid-column: 1 / -1;
+  height: 4px;
+}
+
+.detail-upload-preview-progress.is-done em {
+  background: linear-gradient(90deg, #22c55e, #16a34a);
+}
+
+.detail-upload-preview-progress.is-failed em {
+  background: linear-gradient(90deg, #ef4444, #dc2626);
 }
 
 .detail-upload-section-groups {
@@ -1208,6 +1393,15 @@
   .detail-upload-preview-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 8px;
+  }
+
+  .detail-upload-progress-file {
+    grid-template-columns: minmax(0, 1fr) auto 42px;
+  }
+
+  .detail-upload-progress-file-bar {
+    grid-column: 1 / -1;
+    width: 100%;
   }
 
   .detail-upload-timeline-panel {

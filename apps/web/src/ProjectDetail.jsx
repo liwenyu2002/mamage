@@ -28,6 +28,13 @@ import {
   normalizePhotoAdjustments,
   renderPhotoAdjustmentsToCanvas,
 } from './utils/photoAdjustments';
+import {
+  createInitialUploadProgress,
+  formatUploadBytes,
+  getUploadFileKey,
+  getUploadPhaseLabel,
+  reduceUploadProgress,
+} from './utils/uploadProgress';
 
 const { Title, Text } = Typography;
 const ANALYSIS_POLL_INITIAL_DELAY_MS = 900;
@@ -622,6 +629,7 @@ function ProjectDetail({
   const [stagingSectionIds, setStagingSectionIds] = React.useState([]);
   const [selectedUploadSectionId, setSelectedUploadSectionId] = React.useState('');
   const [uploading, setUploading] = React.useState(false);
+  const [uploadProgress, setUploadProgress] = React.useState(null);
 
   // edit modal
   const [editVisible, setEditVisible] = React.useState(false);
@@ -871,6 +879,13 @@ function ProjectDetail({
     stagingSectionIds,
     selectedUploadSectionId,
   ]);
+
+  const uploadProgressItems = React.useMemo(() => {
+    if (!uploadProgress || !uploadProgress.items) return [];
+    return (uploadProgress.order || [])
+      .map((key) => uploadProgress.items[key])
+      .filter(Boolean);
+  }, [uploadProgress]);
 
   // helper: construct aligned images (src strings) and metas (original objects) from project detail
   const buildImagesAndMetas = React.useCallback((detail) => {
@@ -1553,7 +1568,8 @@ function ProjectDetail({
       return [...(prevFiles || []), ...fresh];
     });
     setUploadMode(true);
-  }, [DISABLE_UPLOAD_FEATURE, selectedUploadSectionId, uploadTimelineEnabled, uploadTimelineSections]);
+    if (!uploading) setUploadProgress(null);
+  }, [DISABLE_UPLOAD_FEATURE, selectedUploadSectionId, uploadTimelineEnabled, uploadTimelineSections, uploading]);
 
   const removeStagingFile = React.useCallback((index) => {
     setStagingFiles((prev) => {
@@ -1574,6 +1590,7 @@ function ProjectDetail({
       next.splice(index, 1);
       return next;
     });
+    setUploadProgress(null);
   }, []);
 
   const assignStagingFileSection = React.useCallback((index, sectionId) => {
@@ -1591,6 +1608,7 @@ function ProjectDetail({
     setStagingSectionIds([]);
     setUploadMode(false);
     setUploading(false);
+    setUploadProgress(null);
   }, [stagingPreviews]);
 
   const confirmUpload = React.useCallback(async () => {
@@ -1610,12 +1628,17 @@ function ProjectDetail({
       groupedFiles.get(sectionId).push(file);
     });
     setUploading(true);
+    setUploadProgress(createInitialUploadProgress(stagingFiles));
     try {
       const results = [];
+      const handleProgress = (event) => {
+        setUploadProgress((prev) => reduceUploadProgress(prev, event));
+      };
       for (const [sectionId, files] of groupedFiles.entries()) {
         const groupResults = await uploadPhotoFiles(files, {
           projectId,
           timelineSectionId: uploadTimelineEnabled && uploadTimelineSections.length ? sectionId : undefined,
+          onProgress: handleProgress,
         });
         results.push(...groupResults);
       }
@@ -4231,13 +4254,14 @@ function ProjectDetail({
           title={`准备上传 (${stagingFiles.length})`}
           visible={uploadMode}
           onOk={confirmUpload}
-          onCancel={cancelUpload}
+          onCancel={uploading ? () => Toast.warning('正在上传，请等待完成') : cancelUpload}
           okButtonProps={{
             loading: uploading,
             disabled: !stagingFiles.length || (uploadTimelineEnabled && uploadTimelineSections.length && hasUnassignedStagedFiles),
           }}
           okText="确认上传"
           cancelText="取消"
+          closable={!uploading}
           width={isMobile ? 'calc(100vw - 12px)' : 720}
           bodyStyle={isMobile ? { maxHeight: '68vh', overflowY: 'auto', padding: '10px 0 0' } : undefined}
           className="detail-upload-modal"
@@ -4312,6 +4336,41 @@ function ProjectDetail({
               </span>
             </button>
 
+            {uploadProgress ? (
+              <div className="detail-upload-progress-panel" aria-live="polite">
+                <div className="detail-upload-progress-head">
+                  <div>
+                    <strong>{uploadProgress.failedFiles ? '上传有失败' : '正在上传'}</strong>
+                    <span>
+                      {uploadProgress.completedFiles + uploadProgress.failedFiles} / {uploadProgress.totalFiles} 张
+                      {uploadProgress.activeFileName ? ` · ${getUploadPhaseLabel(uploadProgress.activePhase)}：${uploadProgress.activeFileName}` : ''}
+                    </span>
+                  </div>
+                  <b>{uploadProgress.percent || 0}%</b>
+                </div>
+                <div className="detail-upload-progress-track">
+                  <span style={{ width: `${uploadProgress.percent || 0}%` }} />
+                </div>
+                <div className="detail-upload-progress-meta">
+                  <span>{formatUploadBytes(uploadProgress.loadedBytes)} / {formatUploadBytes(uploadProgress.totalBytes)}</span>
+                  {uploadProgress.failedFiles ? <span>{uploadProgress.failedFiles} 张失败</span> : null}
+                </div>
+                <div className="detail-upload-progress-list">
+                  {uploadProgressItems.map((item) => (
+                    <div
+                      key={item.key}
+                      className={`detail-upload-progress-file is-${item.status === 'rejected' || item.phase === 'failed' ? 'failed' : item.status === 'fulfilled' || item.phase === 'done' ? 'done' : 'active'}`}
+                    >
+                      <span className="detail-upload-progress-file-name">{item.name}</span>
+                      <span className="detail-upload-progress-file-phase">{getUploadPhaseLabel(item.phase, item.status)}</span>
+                      <span className="detail-upload-progress-file-bar"><i style={{ width: `${item.percent || 0}%` }} /></span>
+                      <span className="detail-upload-progress-file-percent">{item.percent || 0}%</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
             <div className="detail-upload-section-groups">
               {stagedUploadGroups.map((group) => (
                 <section
@@ -4335,38 +4394,53 @@ function ProjectDetail({
                   </div>
                   {group.items.length ? (
                     <div className="detail-upload-preview-grid">
-                      {group.items.map((item) => (
-                        <div key={`${item.index}-${item.preview || item.file.name}`} className="detail-upload-preview-item">
-                          <img src={item.preview} alt={`preview-${item.index}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                          <button
-                            type="button"
-                            className="detail-upload-preview-remove"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              removeStagingFile(item.index);
-                            }}
-                            aria-label="移除照片"
-                            title="移除"
+                      {group.items.map((item) => {
+                        const itemProgress = uploadProgress?.items?.[getUploadFileKey(item.file)] || null;
+                        return (
+                          <div
+                            key={`${item.index}-${item.preview || item.file.name}`}
+                            className={`detail-upload-preview-item${itemProgress ? ' has-upload-progress' : ''}${uploadTimelineEnabled && uploadTimelineSections.length ? ' has-section-select' : ''}`}
                           >
-                            ×
-                          </button>
-                          {uploadTimelineEnabled && uploadTimelineSections.length ? (
-                            <select
-                              className="detail-upload-preview-section"
-                              value={item.sectionId}
-                              onChange={(e) => assignStagingFileSection(item.index, e.target.value)}
-                              aria-label="调整照片环节"
+                            <img src={item.preview} alt={`preview-${item.index}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                            <button
+                              type="button"
+                              className="detail-upload-preview-remove"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                removeStagingFile(item.index);
+                              }}
+                              disabled={uploading}
+                              aria-label="移除照片"
+                              title="移除"
                             >
-                              <option value="">未选择环节</option>
-                              {uploadTimelineSections.map((section) => (
-                                <option key={section.key || section.id} value={section.id}>
-                                  {section.name || '未命名环节'}
-                                </option>
-                              ))}
-                            </select>
-                          ) : null}
-                        </div>
-                      ))}
+                              ×
+                            </button>
+                            {itemProgress ? (
+                              <div className={`detail-upload-preview-progress${itemProgress.status === 'fulfilled' || itemProgress.phase === 'done' ? ' is-done' : itemProgress.status === 'rejected' || itemProgress.phase === 'failed' ? ' is-failed' : ''}`}>
+                                <span>{getUploadPhaseLabel(itemProgress.phase, itemProgress.status)}</span>
+                                <b>{itemProgress.percent || 0}%</b>
+                                <i><em style={{ width: `${itemProgress.percent || 0}%` }} /></i>
+                              </div>
+                            ) : null}
+                            {uploadTimelineEnabled && uploadTimelineSections.length ? (
+                              <select
+                                className="detail-upload-preview-section"
+                                value={item.sectionId}
+                                onChange={(e) => assignStagingFileSection(item.index, e.target.value)}
+                                disabled={uploading}
+                                aria-label="调整照片环节"
+                              >
+                                <option value="">未选择环节</option>
+                                {uploadTimelineSections.map((section) => (
+                                  <option key={section.key || section.id} value={section.id}>
+                                    {section.name || '未命名环节'}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : null}
+                          </div>
+                        );
+                      })}
                     </div>
                   ) : (
                     <div className="detail-upload-section-empty">暂无照片，可直接拖入这一环节</div>
