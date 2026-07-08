@@ -3,7 +3,7 @@ import { setPermissions, clearPermissions } from '../permissions/permissionStore
 
 const API_PREFIX = '/api/users';
 const TOKEN_KEY = 'mamage_jwt_token';
-const DEBUG = true; // 临时调试开关，调试完成后可设为 false
+const DEBUG = false;
 
 function setToken(token) {
   if (token) localStorage.setItem(TOKEN_KEY, token);
@@ -76,10 +76,11 @@ export async function login(email, password) {
   return await me();
 }
 
-export async function register({ name, password, email, student_no }) {
+export async function register({ name, password, email, student_no, emailCode }) {
   const payload = { name, password };
   if (email) payload.email = email;
   if (student_no) payload.student_no = student_no;
+  if (emailCode) payload.emailCode = emailCode;
   const r = await requestJson(`${API_PREFIX}/register`, {
     method: 'POST',
     body: JSON.stringify(payload),

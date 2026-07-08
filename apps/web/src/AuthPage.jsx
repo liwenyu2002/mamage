@@ -3,7 +3,7 @@ import { Card, Input, Button, Toast, Select } from './ui';
 import './AuthPage.css';
 import * as authService from './services/authService';
 
-const PASSWORD_RE = /^(?![0-9]+)(?![a-zA-Z]+)[0-9A-Za-z]{8,16}$/;
+const PASSWORD_RE = /^(?![0-9]+$)(?![a-zA-Z]+$)[0-9A-Za-z]{8,16}$/;
 const EMAIL_RE = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
 
 function validateRegisterInput({ name, email, password }) {
@@ -31,7 +31,10 @@ export default function AuthPage({ onAuthenticated }) {
   const [regInviteCode, setRegInviteCode] = React.useState('');
   const [regPassword, setRegPassword] = React.useState('');
   const [loginErrors, setLoginErrors] = React.useState({ email: '', password: '', general: '' });
-  const [regErrors, setRegErrors] = React.useState({ name: '', email: '', password: '', invite: '', general: '' });
+  const [regEmailCode, setRegEmailCode] = React.useState('');
+  const [regErrors, setRegErrors] = React.useState({ name: '', email: '', code: '', password: '', invite: '', general: '' });
+  const [codeSending, setCodeSending] = React.useState(false);
+  const [codeCooldown, setCodeCooldown] = React.useState(0);
   const [orgs, setOrgs] = React.useState([]);
   const [orgOptions, setOrgOptions] = React.useState([]);
   const [selectedOrgId, setSelectedOrgId] = React.useState('');
@@ -50,19 +53,18 @@ export default function AuthPage({ onAuthenticated }) {
       // initial fetch
       fetchOrgs();
 
-      const btn = document.getElementById('mamage-register-btn');
-      if (!btn) {
-        console.debug('[AuthPage] register button not found in DOM');
-        return;
-      }
-      console.debug('[AuthPage] register button found', { disabled: btn.disabled, rect: btn.getBoundingClientRect(), pointerEvents: window.getComputedStyle(btn).pointerEvents });
-      const onNative = (e) => console.debug('[AuthPage] native click event on register button', e.type, e);
-      btn.addEventListener('click', onNative);
-      return () => btn.removeEventListener('click', onNative);
     } catch (e) {
-      console.debug('[AuthPage] register button effect error', e);
+      console.debug('[AuthPage] init error', e);
     }
   }, []);
+
+  React.useEffect(() => {
+    if (codeCooldown <= 0) return undefined;
+    const timer = setTimeout(() => {
+      setCodeCooldown((prev) => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [codeCooldown]);
 
   // fetch organizations with optional query and limit
   async function fetchOrgs(qStr = '') {
@@ -140,14 +142,12 @@ export default function AuthPage({ onAuthenticated }) {
     try {
       const payload = { password };
       if (identifier.indexOf('@') !== -1) payload.email = identifier; else payload.student_no = identifier;
-      console.debug('[AuthPage] login payload', payload);
       const res = await fetch('/api/users/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
       const data = await res.json().catch(() => ({}));
-      console.debug('[AuthPage] login response', res.status, data);
       if (!res.ok) {
         const code = data.error_code || data.error || 'UNKNOWN_ERROR';
         // Friendly message for authentication failure
@@ -179,14 +179,60 @@ export default function AuthPage({ onAuthenticated }) {
     }
   };
 
+  const handleSendEmailCode = async () => {
+    const email = regEmail ? regEmail.trim() : '';
+    if (!email) {
+      setRegErrors((prev) => ({ ...prev, email: '请输入邮箱', code: '', general: '' }));
+      return;
+    }
+    if (!EMAIL_RE.test(email)) {
+      setRegErrors((prev) => ({ ...prev, email: '邮箱格式不正确', code: '', general: '' }));
+      return;
+    }
+
+    setCodeSending(true);
+    setRegErrors((prev) => ({ ...prev, email: '', code: '', general: '' }));
+    try {
+      const res = await fetch('/api/users/email-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, purpose: 'register' }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const code = data.error || 'UNKNOWN_ERROR';
+        const message = data.message || '验证码发送失败';
+        if (code === 'EMAIL_EXISTS') {
+          setRegErrors((prev) => ({ ...prev, email: message }));
+          return;
+        }
+        if (code === 'INVALID_EMAIL' || code === 'MISSING_EMAIL') {
+          setRegErrors((prev) => ({ ...prev, email: message }));
+          return;
+        }
+        if (code === 'EMAIL_CODE_COOLDOWN') {
+          const nextCooldown = Math.max(1, Number(data.cooldownSeconds || 60));
+          setCodeCooldown(nextCooldown);
+          setRegErrors((prev) => ({ ...prev, code: message }));
+          return;
+        }
+        setRegErrors((prev) => ({ ...prev, general: message }));
+        return;
+      }
+      setCodeCooldown(Math.max(1, Number(data.cooldownSeconds || 60)));
+      Toast.success('验证码已发送');
+    } catch (err) {
+      console.error('send email code failed', err);
+      setRegErrors((prev) => ({ ...prev, general: '网络错误，请稍后重试' }));
+    } finally {
+      setCodeSending(false);
+    }
+  };
+
   const handleRegister = async () => {
-    console.debug('[AuthPage] handleRegister click', { regName, regEmail, regPassword: regPassword ? '***' : '' });
-    const trimmedEmail = regEmail ? regEmail.trim() : regEmail;
-    const trimmedPassword = regPassword ? regPassword.trim() : regPassword;
-    // Use explicit fetch to call backend and handle server validation codes.
-    console.debug('[AuthPage] handleRegister click');
     const name = regName ? regName.trim() : '';
     const email = regEmail ? regEmail.trim() : '';
+    const emailCode = regEmailCode ? regEmailCode.trim() : '';
     const password = regPassword ? regPassword.trim() : '';
 
     // client-side checks (backend requires name and password)
@@ -199,12 +245,17 @@ export default function AuthPage({ onAuthenticated }) {
       setRegErrors((prev) => ({ ...prev, password: '密码须为8-16位，且为字母和数字的组合', general: '' }));
       return;
     }
-    if (email) {
-      const emailOk = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(email);
-      if (!emailOk) {
-        setRegErrors((prev) => ({ ...prev, email: '邮箱格式不正确', general: '' }));
-        return;
-      }
+    if (!email) {
+      setRegErrors((prev) => ({ ...prev, email: '请输入邮箱', general: '' }));
+      return;
+    }
+    if (!EMAIL_RE.test(email)) {
+      setRegErrors((prev) => ({ ...prev, email: '邮箱格式不正确', general: '' }));
+      return;
+    }
+    if (!/^\d{6}$/.test(emailCode)) {
+      setRegErrors((prev) => ({ ...prev, code: '请输入 6 位邮箱验证码', general: '' }));
+      return;
     }
 
     // If user selected a private organization, require invite_code client-side as UX hint
@@ -216,12 +267,11 @@ export default function AuthPage({ onAuthenticated }) {
       }
     }
 
-    setRegErrors({ name: '', email: '', password: '', invite: '', general: '' });
+    setRegErrors({ name: '', email: '', code: '', password: '', invite: '', general: '' });
     setLoading(true);
     try {
       const invite_code = regInviteCode ? regInviteCode.trim() : undefined;
-      const payload = { name, password };
-      if (email) payload.email = email;
+      const payload = { name, password, email, emailCode };
       if (selectedOrgId) payload.organization_id = selectedOrgId;
       if (invite_code) payload.invite_code = invite_code;
       const res = await fetch('/api/users/register', {
@@ -230,7 +280,6 @@ export default function AuthPage({ onAuthenticated }) {
         body: JSON.stringify(payload),
       });
       const data = await res.json().catch(() => ({}));
-      console.debug('[AuthPage] register response', res.status, data);
       if (!res.ok) {
         const code = data.error || 'UNKNOWN_ERROR';
         const message = data.message || '注册失败';
@@ -244,6 +293,10 @@ export default function AuthPage({ onAuthenticated }) {
         }
         if (code === 'INVALID_EMAIL') {
           setRegErrors((prev) => ({ ...prev, email: message }));
+          return;
+        }
+        if (code === 'INVALID_EMAIL_CODE' || code === 'EMAIL_CODE_EXPIRED' || code === 'EMAIL_CODE_ATTEMPTS_EXCEEDED') {
+          setRegErrors((prev) => ({ ...prev, code: message }));
           return;
         }
         if (code === 'INVALID_ORGANIZATION') {
@@ -292,10 +345,6 @@ export default function AuthPage({ onAuthenticated }) {
 
   // wrapper to log click events before invoking async handler
   const handleRegisterClick = () => {
-    try {
-      console.debug('[AuthPage] register button clicked');
-    } catch (e) { }
-    // call the async handler
     void handleRegister();
   };
 
@@ -339,28 +388,70 @@ export default function AuthPage({ onAuthenticated }) {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <div>
-              <Input placeholder="昵称（可选）" value={regName} onChange={(v) => { setRegName(v); setRegErrors({ ...regErrors, name: '' }); }} />
+              <Input placeholder="姓名" value={regName} onChange={(v) => { setRegName(v); setRegErrors((prev) => ({ ...prev, name: '' })); }} />
               {regErrors.name && <div style={{ color: '#e53935', fontSize: 12, marginTop: 4 }}>{regErrors.name}</div>}
             </div>
 
             <div style={{ position: 'relative' }}>
-              <Input
-                placeholder="邮箱"
-                value={regEmail}
-                onChange={(v) => { setRegEmail(v); setRegErrors({ ...regErrors, email: '' }); setShowRegSuggestions(true); }}
-                onBlur={() => setTimeout(() => setShowRegSuggestions(false), 120)}
-                onFocus={() => setShowRegSuggestions(true)}
-              />
+              <div className="auth-email-row">
+                <Input
+                  className="auth-email-input"
+                  placeholder="邮箱"
+                  value={regEmail}
+                  onChange={(v) => {
+                    setRegEmail(v);
+                    setRegEmailCode('');
+                    setCodeCooldown(0);
+                    setRegErrors((prev) => ({ ...prev, email: '', code: '', general: '' }));
+                    setShowRegSuggestions(true);
+                  }}
+                  onBlur={() => setTimeout(() => setShowRegSuggestions(false), 120)}
+                  onFocus={() => setShowRegSuggestions(true)}
+                />
+                <Button
+                  className="auth-code-button"
+                  type="tertiary"
+                  loading={codeSending}
+                  disabled={loading || codeSending || codeCooldown > 0}
+                  onClick={handleSendEmailCode}
+                >
+                  {codeCooldown > 0 ? `${codeCooldown}s` : '发送验证码'}
+                </Button>
+              </div>
               {showRegSuggestions && regEmail.indexOf('@') === -1 && regEmail.length > 0 && (
-                <div style={{ position: 'absolute', left: 0, right: 0, top: '100%', background: '#fff', border: '1px solid #eee', zIndex: 20 }}>
+                <div className="auth-email-suggestions">
                   {commonSuffixes.map((suf) => (
-                    <div key={suf} style={{ padding: 8, cursor: 'pointer' }} onMouseDown={() => { setRegEmail(regEmail + suf); setShowRegSuggestions(false); }}>
+                    <div
+                      key={suf}
+                      className="auth-email-suggestion"
+                      onMouseDown={() => {
+                        setRegEmail(regEmail + suf);
+                        setRegEmailCode('');
+                        setCodeCooldown(0);
+                        setRegErrors((prev) => ({ ...prev, email: '', code: '', general: '' }));
+                        setShowRegSuggestions(false);
+                      }}
+                    >
                       {regEmail}{suf}
                     </div>
                   ))}
                 </div>
               )}
               {regErrors.email && <div style={{ color: '#e53935', fontSize: 12, marginTop: 4 }}>{regErrors.email}</div>}
+            </div>
+
+            <div>
+              <Input
+                placeholder="邮箱验证码"
+                value={regEmailCode}
+                inputMode="numeric"
+                maxLength={6}
+                onChange={(v) => {
+                  setRegEmailCode(String(v || '').replace(/\D/g, '').slice(0, 6));
+                  setRegErrors((prev) => ({ ...prev, code: '', general: '' }));
+                }}
+              />
+              {regErrors.code && <div style={{ color: '#e53935', fontSize: 12, marginTop: 4 }}>{regErrors.code}</div>}
             </div>
 
             <div>
@@ -415,14 +506,7 @@ export default function AuthPage({ onAuthenticated }) {
                 type="password"
                 value={regPassword}
                 onChange={(v) => {
-                  // debug: 输出密码相关信息以便排查不可见字符或长度问题（仅用于本地调试）
-                  try {
-                    console.debug('[AuthPage] regPassword change', { v, len: v ? v.length : 0, passTest: PASSWORD_RE.test(v), codes: v ? Array.from(v).map((c) => c.charCodeAt(0)) : [] });
-                  } catch (e) {
-                    console.debug('[AuthPage] regPassword debug error', e);
-                  }
                   setRegPassword(v);
-                  // live validate registration password
                   if (!v || v.length === 0) {
                     setRegPasswordValid(false);
                     setRegErrors((prev) => ({ ...prev, password: '' }));
@@ -448,15 +532,15 @@ export default function AuthPage({ onAuthenticated }) {
             {regErrors.general && <div style={{ color: '#e53935', fontSize: 13 }}>{regErrors.general}</div>}
 
             <div style={{ marginTop: 12 }}>
-              {/* 临时替换为原生按钮以确保事件可捕获（仅用于调试） */}
-              <button
-                id="mamage-register-btn-native"
-                className="auth-native-primary"
+              <Button
+                type="primary"
+                theme="solid"
                 disabled={loading}
+                loading={loading}
                 onClick={handleRegisterClick}
               >
                 注册并登录
-              </button>
+              </Button>
             </div>
           </div>
         )}
