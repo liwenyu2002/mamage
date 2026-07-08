@@ -58,6 +58,9 @@ async function createProject(data) {
   };
   if (data?.description || data?.desc) payload.description = data.description || data.desc;
   if (data?.eventDate) payload.eventDate = data.eventDate;
+  if (data?.tags !== undefined) payload.tags = data.tags;
+  if (data?.timelineEnabled !== undefined) payload.timelineEnabled = data.timelineEnabled;
+  if (data?.timelineSections !== undefined) payload.timelineSections = data.timelineSections;
   // forward other meta if provided
   if (data?.meta) payload.meta = data.meta;
 

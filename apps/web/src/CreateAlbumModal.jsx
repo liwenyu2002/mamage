@@ -21,10 +21,14 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
   const [tagInput, setTagInput] = React.useState('');
   const [tags, setTags] = React.useState([]);
   const [startDate, setStartDate] = React.useState(null);
+  const [timelineEnabled, setTimelineEnabled] = React.useState(false);
+  const [timelineSections, setTimelineSections] = React.useState(() => [{ key: 1, name: '', sectionTime: '' }]);
+  const [initialUploadSectionKey, setInitialUploadSectionKey] = React.useState('');
   const [submitting, setSubmitting] = React.useState(false);
   const [userPermissions, setUserPermissions] = React.useState(() => getPermissions());
   const [stagingFiles, setStagingFiles] = React.useState([]);
   const [stagingPreviews, setStagingPreviews] = React.useState([]);
+  const sectionKeyRef = React.useRef(2);
 
   React.useEffect(() => {
     if (!visible) {
@@ -33,6 +37,10 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
       setTagInput('');
       setTags([]);
       setStartDate(null);
+      setTimelineEnabled(false);
+      setTimelineSections([{ key: 1, name: '', sectionTime: '' }]);
+      setInitialUploadSectionKey('');
+      sectionKeyRef.current = 2;
       setSubmitting(false);
       stagingPreviews.forEach((u) => { try { URL.revokeObjectURL(u); } catch (e) {} });
       setStagingFiles([]);
@@ -54,6 +62,49 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
   }, [tags]);
 
   const removeTag = React.useCallback((t) => setTags((s) => s.filter((x) => x !== t)), []);
+
+  const normalizedTimelineSections = React.useMemo(() => timelineSections
+    .map((section, idx) => ({
+      sourceKey: section.key,
+      name: String(section.name || '').trim(),
+      sectionTime: String(section.sectionTime || '').trim(),
+      sortOrder: idx,
+    }))
+    .filter((section) => section.name)
+    .map((section) => ({
+      ...section,
+      sectionTime: section.sectionTime || null,
+    })), [timelineSections]);
+
+  React.useEffect(() => {
+    if (!timelineEnabled) {
+      setInitialUploadSectionKey('');
+      return;
+    }
+    if (normalizedTimelineSections.length && !normalizedTimelineSections.some((section) => String(section.sourceKey) === String(initialUploadSectionKey))) {
+      setInitialUploadSectionKey(String(normalizedTimelineSections[0].sourceKey));
+    }
+  }, [timelineEnabled, normalizedTimelineSections, initialUploadSectionKey]);
+
+  const addTimelineSection = React.useCallback(() => {
+    const key = sectionKeyRef.current;
+    sectionKeyRef.current += 1;
+    setTimelineSections((prev) => [...prev, { key, name: '', sectionTime: '' }]);
+  }, []);
+
+  const updateTimelineSection = React.useCallback((key, patch) => {
+    setTimelineSections((prev) => prev.map((section) => (
+      section.key === key ? { ...section, ...patch } : section
+    )));
+  }, []);
+
+  const removeTimelineSection = React.useCallback((key) => {
+    setTimelineSections((prev) => {
+      if (prev.length <= 1) return [{ ...prev[0], name: '', sectionTime: '' }];
+      return prev.filter((section) => section.key !== key);
+    });
+    setInitialUploadSectionKey((prev) => (String(prev) === String(key) ? '' : prev));
+  }, []);
 
   const onTagKeyDown = React.useCallback((e) => {
     if (e.key === 'Enter' || e.key === ',') {
@@ -115,12 +166,22 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
 
   const handleSubmit = React.useCallback(async () => {
     if (!name.trim()) return Toast.warning('相册名称为必填项');
+    if (timelineEnabled && normalizedTimelineSections.length === 0) {
+      return Toast.warning('开启时间轴后至少需要填写一个环节名称');
+    }
     setSubmitting(true);
     try {
+      const payloadSections = normalizedTimelineSections.map(({ name: sectionName, sectionTime, sortOrder }) => ({
+        name: sectionName,
+        sectionTime,
+        sortOrder,
+      }));
       const payload = {
         title: name.trim(),
         description: description.trim() || undefined,
         ...(userPermissions.includes('projects.create') && tags && tags.length ? { tags } : {}),
+        timelineEnabled,
+        timelineSections: timelineEnabled ? payloadSections : [],
         eventDate: startDate
           ? (startDate instanceof Date
             ? `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`
@@ -161,7 +222,18 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
             } catch (e) {}
 
             try {
-              const results = await uploadPhotoFiles(filesToUpload, { projectId });
+              const selectedSection = timelineEnabled
+                ? normalizedTimelineSections.find((section) => String(section.sourceKey) === String(initialUploadSectionKey))
+                : null;
+              const createdSections = Array.isArray(result && result.timelineSections) ? result.timelineSections : [];
+              const matchedCreatedSection = selectedSection
+                ? (createdSections.find((section) => String(section.name || '') === selectedSection.name && Number(section.sortOrder || 0) === Number(selectedSection.sortOrder || 0))
+                  || createdSections.find((section) => String(section.name || '') === selectedSection.name))
+                : null;
+              const results = await uploadPhotoFiles(filesToUpload, {
+                projectId,
+                timelineSectionId: matchedCreatedSection && matchedCreatedSection.id ? matchedCreatedSection.id : undefined,
+              });
               const rejected = results.filter((r) => r.status === 'rejected');
               if (rejected.length > 0) {
                 console.error('[CreateAlbumModal] some uploads failed', rejected);
@@ -198,7 +270,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
     } finally {
       setSubmitting(false);
     }
-  }, [name, description, tags, startDate, createProject, onCreated, onClose, stagingFiles, userPermissions]);
+  }, [name, description, tags, startDate, timelineEnabled, normalizedTimelineSections, initialUploadSectionKey, createProject, onCreated, onClose, stagingFiles, userPermissions]);
 
   return (
     <Modal
@@ -215,14 +287,74 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
         <Input value={name} onChange={(v) => setName(v)} placeholder="相册名称（必填）" />
         <TextArea value={description} onChange={(v) => setDescription(v)} rows={3} placeholder="相册描述（可选）" />
 
-        <div style={{ marginTop: 12 }}>
-          <div style={{ marginBottom: 6 }}>添加照片（可选，不限数量）</div>
-          <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-            <label style={{ display: 'inline-block' }}>
-              <input type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={(e) => handleFilesSelected(e.target.files)} />
+        <div className={`cam-timeline-panel${timelineEnabled ? ' is-enabled' : ''}`}>
+          <label className="cam-timeline-toggle">
+            <input
+              type="checkbox"
+              checked={timelineEnabled}
+              onChange={(e) => setTimelineEnabled(e.target.checked)}
+            />
+            <span>
+              <strong>添加时间轴</strong>
+              <em>用于按活动环节上传和浏览照片</em>
+            </span>
+          </label>
+
+          {timelineEnabled ? (
+            <div className="cam-timeline-sections">
+              {timelineSections.map((section, idx) => (
+                <div className="cam-timeline-row" key={section.key}>
+                  <input
+                    className="cam-timeline-name"
+                    value={section.name}
+                    onChange={(e) => updateTimelineSection(section.key, { name: e.target.value })}
+                    placeholder={`环节 ${idx + 1}`}
+                  />
+                  <input
+                    className="cam-timeline-time"
+                    value={section.sectionTime}
+                    onChange={(e) => updateTimelineSection(section.key, { sectionTime: e.target.value })}
+                    placeholder="时间（可选）"
+                  />
+                  <button type="button" className="cam-icon-button" onClick={() => removeTimelineSection(section.key)} aria-label="删除环节">
+                    ×
+                  </button>
+                </div>
+              ))}
+              <button type="button" className="cam-add-section" onClick={addTimelineSection}>添加环节</button>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="cam-upload-block">
+          <div className="cam-section-label">添加照片（可选，不限数量）</div>
+          {timelineEnabled && normalizedTimelineSections.length > 0 ? (
+            <label className="cam-upload-section">
+              <span>首批照片环节</span>
+              <select value={initialUploadSectionKey} onChange={(e) => setInitialUploadSectionKey(e.target.value)}>
+                {normalizedTimelineSections.map((section) => (
+                  <option key={section.sourceKey} value={section.sourceKey}>
+                    {section.sectionTime ? `${section.name} · ${section.sectionTime}` : section.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          <div className="cam-upload-row">
+            <label className="cam-file-label">
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                style={{ display: 'none' }}
+                onChange={(e) => {
+                  handleFilesSelected(e.target.files);
+                  try { e.target.value = ''; } catch (err) {}
+                }}
+              />
               <div className="cam-file-picker">选择照片</div>
             </label>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div className="cam-preview-row">
               {stagingPreviews.map((p, i) => (
                 <div key={i} className="cam-preview-item">
                   <img src={p} alt={`preview-${i}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />

@@ -205,28 +205,31 @@ function normalizeUploadPayload(formDataOrObj) {
   if (formDataOrObj instanceof FormData) {
     const file = formDataOrObj.get('file');
     const fields = {};
-    ['projectId', 'title', 'description', 'type', 'tags'].forEach((key) => {
+    ['projectId', 'timelineSectionId', 'title', 'description', 'type', 'tags'].forEach((key) => {
       const val = formDataOrObj.get(key);
       if (val !== null && val !== undefined) fields[key] = val;
     });
     return { file, fields, formData: formDataOrObj };
   }
   if (formDataOrObj && typeof formDataOrObj === 'object') {
-    const { file, projectId, title, description, type, tags } = formDataOrObj;
+    const { file, projectId, timelineSectionId, title, description, type, tags } = formDataOrObj;
     const fd = new FormData();
     if (file) fd.append('file', file);
     if (projectId !== undefined) fd.append('projectId', String(projectId));
+    if (timelineSectionId !== undefined && timelineSectionId !== null && timelineSectionId !== '') {
+      fd.append('timelineSectionId', String(timelineSectionId));
+    }
     if (title !== undefined) fd.append('title', String(title));
     if (description !== undefined) fd.append('description', String(description));
     if (type !== undefined) fd.append('type', String(type));
     if (tags !== undefined) fd.append('tags', Array.isArray(tags) ? JSON.stringify(tags) : String(tags));
     return {
       file,
-      fields: { projectId, title, description, type, tags },
+      fields: { projectId, timelineSectionId, title, description, type, tags },
       formData: fd,
     };
   }
-  throw new Error('uploadPhotos: expected FormData or { file, projectId, title, type, tags }');
+  throw new Error('uploadPhotos: expected FormData or { file, projectId, timelineSectionId, title, type, tags }');
 }
 
 function parseMaybeJsonTags(tags) {
@@ -347,6 +350,7 @@ async function abortDirectUpload(initData) {
 async function uploadViaDirectCos(file, fields) {
   const initPayload = {
     projectId: fields.projectId,
+    timelineSectionId: fields.timelineSectionId,
     title: fields.title,
     description: fields.description,
     type: fields.type,
@@ -472,9 +476,9 @@ async function runLimited(items, limit, worker) {
   return results;
 }
 
-async function uploadPhotoFiles(files, { projectId, title, type, tags, concurrency = DEFAULT_UPLOAD_CONCURRENCY } = {}) {
+async function uploadPhotoFiles(files, { projectId, timelineSectionId, title, type, tags, concurrency = DEFAULT_UPLOAD_CONCURRENCY } = {}) {
   return runLimited(files, concurrency, async (file) => {
-    const response = await uploadPhotos({ file, projectId, title, type, tags });
+    const response = await uploadPhotos({ file, projectId, timelineSectionId, title, type, tags });
     return {
       status: 'fulfilled',
       fileName: file && file.name,

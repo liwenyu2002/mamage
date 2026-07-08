@@ -287,6 +287,64 @@ function getPhotoRecordId(item) {
   return sid || null;
 }
 
+function normalizeTimelineSectionsForClient(input) {
+  if (!input) return [];
+  let list = input;
+  if (typeof input === 'string') {
+    try {
+      list = JSON.parse(input);
+    } catch (e) {
+      list = input.split(/\r?\n/).map((name) => ({ name }));
+    }
+  }
+  if (!Array.isArray(list)) return [];
+  return list
+    .map((section, idx) => {
+      if (typeof section === 'string') {
+        return {
+          id: '',
+          key: `name:${section}`,
+          name: section.trim(),
+          sectionTime: '',
+          sortOrder: idx,
+        };
+      }
+      const rawId = section?.id ?? section?.sectionId ?? section?.timelineSectionId ?? '';
+      const id = rawId === null || rawId === undefined ? '' : String(rawId).trim();
+      const name = String(section?.name || section?.title || section?.label || '').trim();
+      const sectionTime = String(section?.sectionTime || section?.section_time || section?.time || '').trim();
+      const sortOrder = Number.isFinite(Number(section?.sortOrder ?? section?.sort_order))
+        ? Number(section?.sortOrder ?? section?.sort_order)
+        : idx;
+      return {
+        id,
+        key: id || `name:${name}:${idx}`,
+        name,
+        sectionTime,
+        sortOrder,
+      };
+    })
+    .filter((section) => section.name)
+    .sort((a, b) => (a.sortOrder - b.sortOrder) || String(a.name).localeCompare(String(b.name), 'zh-Hans-CN'));
+}
+
+function getPhotoTimelineSectionId(meta) {
+  if (!meta || typeof meta !== 'object') return '';
+  const raw = meta.timelineSectionId ?? meta.timeline_section_id ?? meta.sectionId ?? meta.section_id ?? '';
+  if (raw === null || raw === undefined) return '';
+  return String(raw).trim();
+}
+
+function getPhotoTimelineSectionLabel(meta, sections) {
+  if (!meta || typeof meta !== 'object') return '';
+  const direct = String(meta.timelineSectionName || meta.timeline_section_name || meta.sectionName || '').trim();
+  if (direct) return direct;
+  const sectionId = getPhotoTimelineSectionId(meta);
+  if (!sectionId) return '';
+  const found = (Array.isArray(sections) ? sections : []).find((section) => String(section.id || '') === sectionId);
+  return found ? found.name : '';
+}
+
 function HistogramView({ histogram }) {
   const bins = Array.isArray(histogram) && histogram.length ? histogram : Array(256).fill(0);
   const max = Math.max(1, ...bins);
@@ -561,6 +619,7 @@ function ProjectDetail({
   const [uploadMode, setUploadMode] = React.useState(false);
   const [stagingFiles, setStagingFiles] = React.useState([]); // File objects
   const [stagingPreviews, setStagingPreviews] = React.useState([]); // object URLs
+  const [selectedUploadSectionId, setSelectedUploadSectionId] = React.useState('');
   const [uploading, setUploading] = React.useState(false);
 
   // edit modal
@@ -714,6 +773,29 @@ function ProjectDetail({
       }
     }
   }, [initialProject]);
+
+  const uploadTimelineSections = React.useMemo(() => {
+    const sourceProject = project || initialProject || null;
+    return normalizeTimelineSectionsForClient(sourceProject?.timelineSections || sourceProject?.timeline_sections || []);
+  }, [project, initialProject]);
+
+  const uploadTimelineEnabled = React.useMemo(() => {
+    const sourceProject = project || initialProject || null;
+    const meta = sourceProject?.meta && typeof sourceProject.meta === 'object' ? sourceProject.meta : {};
+    return Boolean(sourceProject?.timelineEnabled || sourceProject?.timeline_enabled || meta.timelineEnabled || uploadTimelineSections.length);
+  }, [project, initialProject, uploadTimelineSections]);
+
+  React.useEffect(() => {
+    if (!uploadTimelineEnabled || !uploadTimelineSections.length) {
+      setSelectedUploadSectionId('');
+      return;
+    }
+    setSelectedUploadSectionId((prev) => {
+      if (prev && uploadTimelineSections.some((section) => String(section.id) === String(prev))) return prev;
+      const first = uploadTimelineSections.find((section) => section.id);
+      return first ? String(first.id) : '';
+    });
+  }, [uploadTimelineEnabled, uploadTimelineSections]);
 
   // helper: construct aligned images (src strings) and metas (original objects) from project detail
   const buildImagesAndMetas = React.useCallback((detail) => {
@@ -1352,8 +1434,12 @@ function ProjectDetail({
       Toast.warning('上传功能已禁用');
       return;
     }
+    if (uploadTimelineEnabled && uploadTimelineSections.length) {
+      setUploadMode(true);
+      return;
+    }
     if (fileInputRef.current) fileInputRef.current.click();
-  }, [DISABLE_UPLOAD_FEATURE]);
+  }, [DISABLE_UPLOAD_FEATURE, uploadTimelineEnabled, uploadTimelineSections]);
 
   const handleFilesSelected = React.useCallback((files) => {
     if (DISABLE_UPLOAD_FEATURE) {
@@ -1361,11 +1447,44 @@ function ProjectDetail({
       return;
     }
     const list = Array.from(files || []);
-    const previews = list.map((f) => URL.createObjectURL(f));
-    setStagingFiles(list);
-    setStagingPreviews(previews);
+    if (!list.length) return;
+    setStagingFiles((prevFiles) => {
+      const existing = new Set((prevFiles || []).map((file) => `${file.name}::${file.size}::${file.lastModified}`));
+      const fresh = [];
+      let skipped = 0;
+      list.forEach((file) => {
+        const key = `${file.name}::${file.size}::${file.lastModified}`;
+        if (existing.has(key)) {
+          skipped += 1;
+          return;
+        }
+        existing.add(key);
+        fresh.push(file);
+      });
+      if (skipped) Toast.warning(`已跳过 ${skipped} 张重复图片`);
+      if (fresh.length) {
+        setStagingPreviews((prev) => [...(prev || []), ...fresh.map((file) => URL.createObjectURL(file))]);
+      }
+      return [...(prevFiles || []), ...fresh];
+    });
     setUploadMode(true);
   }, [DISABLE_UPLOAD_FEATURE]);
+
+  const removeStagingFile = React.useCallback((index) => {
+    setStagingFiles((prev) => {
+      const next = [...(prev || [])];
+      next.splice(index, 1);
+      return next;
+    });
+    setStagingPreviews((prev) => {
+      const next = [...(prev || [])];
+      const removed = next.splice(index, 1);
+      if (removed && removed[0]) {
+        try { URL.revokeObjectURL(removed[0]); } catch (e) { }
+      }
+      return next;
+    });
+  }, []);
 
   const cancelUpload = React.useCallback(() => {
     stagingPreviews.forEach((u) => { try { URL.revokeObjectURL(u); } catch (e) { } });
@@ -1381,10 +1500,18 @@ function ProjectDetail({
       return;
     }
     if (!stagingFiles.length || !projectId) return;
+    if (uploadTimelineEnabled && uploadTimelineSections.length && !selectedUploadSectionId) {
+      Toast.warning('请先选择照片所属环节');
+      return;
+    }
     const filesToUpload = stagingFiles;
     setUploading(true);
     try {
-      const results = await uploadPhotoFiles(filesToUpload, { projectId });
+      const currentSection = uploadTimelineSections.find((section) => String(section.id) === String(selectedUploadSectionId));
+      const results = await uploadPhotoFiles(filesToUpload, {
+        projectId,
+        timelineSectionId: uploadTimelineEnabled && currentSection ? selectedUploadSectionId : undefined,
+      });
 
       const failed = results.filter((r) => r && r.status === 'rejected');
       const succeeded = results.filter((r) => r && r.status === 'fulfilled');
@@ -1420,7 +1547,7 @@ function ProjectDetail({
     } finally {
       setUploading(false);
     }
-  }, [stagingFiles, projectId, cancelUpload, DISABLE_UPLOAD_FEATURE, prependUploadedPhotos, scheduleAnalysisPolling, readOnly, buildImagesAndMetas]);
+  }, [stagingFiles, projectId, cancelUpload, DISABLE_UPLOAD_FEATURE, prependUploadedPhotos, scheduleAnalysisPolling, readOnly, buildImagesAndMetas, uploadTimelineEnabled, uploadTimelineSections, selectedUploadSectionId]);
 
   const openEdit = React.useCallback(() => {
     const p = project || {};
@@ -2006,6 +2133,33 @@ function ProjectDetail({
   );
   const hasMoreGalleryPhotos = visiblePhotoCount < images.length;
   const searchKeywordTrimmed = String(searchKeyword || '').trim();
+  const useTimelineGallery = Boolean(uploadTimelineEnabled && uploadTimelineSections.length);
+  const timelineGalleryGroups = React.useMemo(() => {
+    if (!useTimelineGallery) return [];
+    const groups = uploadTimelineSections.map((section) => ({
+      ...section,
+      items: [],
+    }));
+    const byId = new Map(groups.filter((section) => section.id).map((section) => [String(section.id), section]));
+    const uncategorized = {
+      id: '',
+      key: '__uncategorized__',
+      name: '未归类',
+      sectionTime: '',
+      sortOrder: 999999,
+      items: [],
+    };
+    visibleImages.forEach((src, idx) => {
+      const meta = photoMetas?.[idx] || {};
+      const sectionId = getPhotoTimelineSectionId(meta);
+      const target = sectionId ? byId.get(String(sectionId)) : null;
+      (target || uncategorized).items.push({ src, idx });
+    });
+    return [
+      ...groups.filter((group) => group.items.length),
+      ...(uncategorized.items.length ? [uncategorized] : []),
+    ];
+  }, [useTimelineGallery, uploadTimelineSections, visibleImages, photoMetas]);
   const detailSearchVisible = Boolean(searchOpen || searching || searchError || searchKeywordTrimmed);
   const compactCountText = hasMoreGalleryPhotos
     ? `${count} 张，已显示 ${visiblePhotoCount}`
@@ -2035,6 +2189,38 @@ function ProjectDetail({
   }, [images.length]);
 
   const isGalleryPreparing = !loading && !error && visibleImages.length > 0 && !galleryPrepared;
+
+  const renderTimelineGroupItems = (group) => {
+    const items = Array.isArray(group?.items) ? group.items : [];
+    if (galleryMode === 'masonry') {
+      const cols = Math.max(1, masonryColumns);
+      const buckets = Array.from({ length: Math.min(cols, Math.max(1, items.length)) }, () => ({ h: 0, items: [] }));
+      items.forEach((item) => {
+        const ratio = imageRatios[item.src] || 1.5;
+        const estHeight = 1 / Math.max(0.2, ratio);
+        let minCol = 0;
+        for (let i = 1; i < buckets.length; i += 1) {
+          if (buckets[i].h < buckets[minCol].h) minCol = i;
+        }
+        buckets[minCol].items.push(item);
+        buckets[minCol].h += estHeight;
+      });
+      return (
+        <div className="detail-masonry-columns detail-timeline-masonry" style={{ '--masonry-cols': buckets.length }}>
+          {buckets.map((bucket, colIdx) => (
+            <div className="detail-masonry-column" key={`${group.key}-col-${colIdx}`}>
+              {bucket.items.map(({ src, idx }) => renderPhotoItem(src, idx))}
+            </div>
+          ))}
+        </div>
+      );
+    }
+    return (
+      <div className="detail-timeline-grid">
+        {items.map(({ src, idx }) => renderPhotoItem(src, idx))}
+      </div>
+    );
+  };
 
   if (!projectId) {
     return null;
@@ -3257,6 +3443,7 @@ function ProjectDetail({
     const ratio = imageRatios[src] || 1.5;
     const meta = photoMetas?.[overallIndex] || {};
     const semanticState = getPhotoSemanticState(meta);
+    const timelineLabel = getPhotoTimelineSectionLabel(meta, uploadTimelineSections);
     const adjustments = getAdjustmentForPhoto(meta);
     const adjustmentStyle = getPhotoAdjustmentStyle(adjustments);
     const useExactThumbnailTone = !isDefaultPhotoAdjustments(adjustments);
@@ -3334,6 +3521,11 @@ function ProjectDetail({
               </div>
             );
           })()}
+          {timelineLabel ? (
+            <div className="detail-photo-section-chip" title={timelineLabel}>
+              {timelineLabel}
+            </div>
+          ) : null}
           {deleteMode && (
             <div style={{ position: 'absolute', right: 8, top: 8, width: 32, height: 32, borderRadius: 16, background: selectedMap[String(overallIndex)] ? '#ff5252' : 'rgba(0,0,0,0.45)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); toggleSelect(overallIndex); }}>
               {selectedMap[String(overallIndex)] ? '✓' : ''}
@@ -3389,7 +3581,7 @@ function ProjectDetail({
       </div>
     </div>
     );
-  }, [title, handlePhotoDragStart, handleImageLoad, deleteMode, photoMetas, images, hoveredPhotoIdx, photoTagsMap, showAILabels, photoAILabelMap, selectedMap, toggleSelect, project, initialProject, getRippleStyle, openViewerAt, detailImageReadyMap, imageRatios, galleryMode, getPhotoSemanticState, getAdjustmentForPhoto]);
+  }, [title, handlePhotoDragStart, handleImageLoad, deleteMode, photoMetas, images, hoveredPhotoIdx, photoTagsMap, showAILabels, photoAILabelMap, selectedMap, toggleSelect, project, initialProject, getRippleStyle, openViewerAt, detailImageReadyMap, imageRatios, galleryMode, getPhotoSemanticState, getAdjustmentForPhoto, uploadTimelineSections]);
 
   return (
     <div className="detail-page">
@@ -3401,7 +3593,10 @@ function ProjectDetail({
           type="file"
           accept="image/*"
           multiple
-          onChange={(e) => handleFilesSelected(e.target.files)}
+          onChange={(e) => {
+            handleFilesSelected(e.target.files);
+            try { e.target.value = ''; } catch (err) { }
+          }}
           aria-hidden="true"
         />
       ) : null}
@@ -3688,7 +3883,22 @@ function ProjectDetail({
         )}
 
         {!loading && !error && galleryPrepared && (
-          galleryMode === 'masonry' ? (
+          useTimelineGallery ? (
+            <div className="detail-timeline-gallery">
+              {timelineGalleryGroups.map((group) => (
+                <section className="detail-timeline-section" key={group.key || group.id || group.name}>
+                  <div className="detail-timeline-head">
+                    <div className="detail-timeline-title">
+                      <span>{group.name}</span>
+                      {group.sectionTime ? <em>{group.sectionTime}</em> : null}
+                    </div>
+                    <span className="detail-timeline-count">{group.items.length} 张</span>
+                  </div>
+                  {renderTimelineGroupItems(group)}
+                </section>
+              ))}
+            </div>
+          ) : galleryMode === 'masonry' ? (
             <div className="detail-masonry-columns" style={{ '--masonry-cols': masonryColumns }}>
               {masonryBuckets.map((bucket, colIdx) => (
                 <div className="detail-masonry-column" key={`masonry-col-${colIdx}`}>
@@ -3864,19 +4074,80 @@ function ProjectDetail({
           visible={uploadMode}
           onOk={confirmUpload}
           onCancel={cancelUpload}
-          okButtonProps={{ loading: uploading }}
+          okButtonProps={{
+            loading: uploading,
+            disabled: !stagingFiles.length || (uploadTimelineEnabled && uploadTimelineSections.length && !selectedUploadSectionId),
+          }}
           okText="确认上传"
           cancelText="取消"
           width={isMobile ? 'calc(100vw - 12px)' : 720}
           bodyStyle={isMobile ? { maxHeight: '68vh', overflowY: 'auto', padding: '10px 0 0' } : undefined}
           className="detail-upload-modal"
         >
-          <div className="detail-upload-preview-grid">
-            {stagingPreviews.map((p, i) => (
-              <div key={i} className="detail-upload-preview-item">
-                <img src={p} alt={`preview-${i}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+          <div className="detail-upload-body">
+            {uploadTimelineEnabled && uploadTimelineSections.length ? (
+              <label className="detail-upload-section-picker">
+                <span>照片环节</span>
+                <select value={selectedUploadSectionId} onChange={(e) => setSelectedUploadSectionId(e.target.value)}>
+                  {uploadTimelineSections.map((section) => (
+                    <option key={section.key} value={section.id}>
+                      {section.sectionTime ? `${section.name} · ${section.sectionTime}` : section.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+
+            <button
+              type="button"
+              className={`detail-upload-dropzone${dragActive ? ' is-drag-active' : ''}`}
+              onClick={() => {
+                if (fileInputRef.current) fileInputRef.current.click();
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+                setDragActive(true);
+              }}
+              onDragEnter={(e) => {
+                e.preventDefault();
+                setDragActive(true);
+              }}
+              onDragLeave={(e) => {
+                e.preventDefault();
+                setDragActive(false);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragActive(false);
+                if (e.dataTransfer && e.dataTransfer.files) handleFilesSelected(e.dataTransfer.files);
+              }}
+            >
+              <IconPlus />
+              <span>{stagingFiles.length ? `继续添加（${stagingFiles.length} 张）` : '选择或拖入照片'}</span>
+            </button>
+
+            {stagingPreviews.length ? (
+              <div className="detail-upload-preview-grid">
+                {stagingPreviews.map((p, i) => (
+                  <div key={i} className="detail-upload-preview-item">
+                    <img src={p} alt={`preview-${i}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                    <button
+                      type="button"
+                      className="detail-upload-preview-remove"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        removeStagingFile(i);
+                      }}
+                      aria-label="移除照片"
+                      title="移除"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
               </div>
-            ))}
+            ) : null}
           </div>
         </Modal>
 

@@ -13,6 +13,38 @@ function formatDate(v) {
   }
 }
 
+function normalizeShareTimelineSections(input) {
+  if (!Array.isArray(input)) return [];
+  return input
+    .map((section, idx) => {
+      const rawId = section?.id ?? section?.sectionId ?? section?.timelineSectionId ?? '';
+      const id = rawId === null || rawId === undefined ? '' : String(rawId).trim();
+      const name = String(section?.name || section?.title || section?.label || '').trim();
+      const sectionTime = String(section?.sectionTime || section?.section_time || section?.time || '').trim();
+      const sortOrder = Number.isFinite(Number(section?.sortOrder ?? section?.sort_order))
+        ? Number(section?.sortOrder ?? section?.sort_order)
+        : idx;
+      return { id, key: id || `${name}:${idx}`, name, sectionTime, sortOrder };
+    })
+    .filter((section) => section.name)
+    .sort((a, b) => (a.sortOrder - b.sortOrder) || String(a.name).localeCompare(String(b.name), 'zh-Hans-CN'));
+}
+
+function getSharePhotoSectionId(photo) {
+  const raw = photo?.timelineSectionId ?? photo?.timeline_section_id ?? photo?.sectionId ?? '';
+  if (raw === null || raw === undefined) return '';
+  return String(raw).trim();
+}
+
+function getSharePhotoSectionLabel(photo, sections) {
+  const direct = String(photo?.timelineSectionName || photo?.timeline_section_name || photo?.sectionName || '').trim();
+  if (direct) return direct;
+  const sectionId = getSharePhotoSectionId(photo);
+  if (!sectionId) return '';
+  const found = (sections || []).find((section) => String(section.id || '') === sectionId);
+  return found ? found.name : '';
+}
+
 export default function ShareView({ share = {}, onBack }) {
   const [viewMode, setViewMode] = React.useState('grid'); // grid | masonry
 
@@ -35,6 +67,33 @@ export default function ShareView({ share = {}, onBack }) {
   const title = share.title || (share.project && (share.project.title || share.project.name)) || '分享内容';
 
   const photos = Array.isArray(share.photos) ? share.photos : (Array.isArray(share.images) ? share.images : []);
+  const timelineSections = React.useMemo(() => normalizeShareTimelineSections(share.timelineSections || share.timeline_sections), [share]);
+  const timelineGroups = React.useMemo(() => {
+    const hasPhotoSection = photos.some((photo) => getSharePhotoSectionId(photo) || getSharePhotoSectionLabel(photo, timelineSections));
+    if (!timelineSections.length && !hasPhotoSection) return [];
+    const groups = timelineSections.map((section) => ({ ...section, items: [] }));
+    const byId = new Map(groups.filter((section) => section.id).map((section) => [String(section.id), section]));
+    const byName = new Map(groups.map((section) => [String(section.name), section]));
+    const dynamicGroups = [];
+    const ungrouped = { id: '', key: '__uncategorized__', name: '未归类', sectionTime: '', sortOrder: 999999, items: [] };
+    photos.forEach((photo, idx) => {
+      const sectionId = getSharePhotoSectionId(photo);
+      const label = getSharePhotoSectionLabel(photo, timelineSections);
+      let group = sectionId ? byId.get(sectionId) : null;
+      if (!group && label) group = byName.get(label);
+      if (!group && label) {
+        group = { id: '', key: `dynamic:${label}`, name: label, sectionTime: '', sortOrder: dynamicGroups.length, items: [] };
+        dynamicGroups.push(group);
+        byName.set(label, group);
+      }
+      (group || ungrouped).items.push({ photo, idx });
+    });
+    return [
+      ...groups.filter((group) => group.items.length),
+      ...dynamicGroups.filter((group) => group.items.length),
+      ...(ungrouped.items.length ? [ungrouped] : []),
+    ];
+  }, [photos, timelineSections]);
 
   const galleryRef = React.useRef(null);
   const [colCount, setColCount] = React.useState(() => {
@@ -199,6 +258,30 @@ export default function ShareView({ share = {}, onBack }) {
   const pagePadding = isMobileLayout ? 12 : 24;
   const galleryGap = isMobileLayout ? 8 : 12;
   const gridColumns = isMobileLayout ? 'repeat(3, minmax(0, 1fr))' : 'repeat(auto-fill, minmax(220px, 1fr))';
+  const renderPhotoCard = (p, idx, masonry = false) => {
+    const sectionLabel = getSharePhotoSectionLabel(p, timelineSections);
+    return (
+      <div key={idx} style={{ position: 'relative', ...(masonry ? { display: 'inline-block', width: '100%', marginBottom: galleryGap, overflow: 'hidden', background: '#f6f6f6', WebkitColumnBreakInside: 'avoid', breakInside: 'avoid' } : {}) }}>
+        <div
+          className="detail-photo"
+          style={{ cursor: 'pointer', aspectRatio: masonry ? undefined : '1 / 1' }}
+          onClick={() => { if (selectMode) toggleSelect(idx); else openViewer(idx); }}
+        >
+          <img
+            src={thumbFor(p)}
+            alt={p && (p.title || p.description || `photo-${idx}`)}
+            style={masonry ? { width: '100%', display: 'block', height: 'auto' } : { width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+          />
+          {sectionLabel ? <div className="detail-photo-section-chip">{sectionLabel}</div> : null}
+        </div>
+        {selectMode ? (
+          <div style={{ position: 'absolute', left: 8, top: 8 }}>
+            <input type="checkbox" checked={!!selectedMap[idx]} onChange={(e) => { e.stopPropagation(); toggleSelect(idx); }} />
+          </div>
+        ) : null}
+      </div>
+    );
+  };
 
   return (
     <div style={{ padding: pagePadding }}>
@@ -250,39 +333,36 @@ export default function ShareView({ share = {}, onBack }) {
           ) : null}
 
           {photos && photos.length ? (
-            viewMode === 'grid' ? (
-              <div style={{ display: 'grid', gridTemplateColumns: gridColumns, gap: galleryGap }}>
-                {photos.map((p, idx) => (
-                  <div key={idx} style={{ position: 'relative' }}>
-                    <div
-                      className="detail-photo"
-                      style={{ cursor: 'pointer', aspectRatio: '1 / 1' }}
-                      onClick={() => { if (selectMode) toggleSelect(idx); else openViewer(idx); }}
-                    >
-                      <img src={thumbFor(p)} alt={p && (p.title || p.description || `photo-${idx}`)} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                    </div>
-                    {selectMode ? (
-                      <div style={{ position: 'absolute', left: 8, top: 8 }}>
-                        <input type="checkbox" checked={!!selectedMap[idx]} onChange={(e) => { e.stopPropagation(); toggleSelect(idx); }} />
+            timelineGroups.length ? (
+              <div className="detail-timeline-gallery">
+                {timelineGroups.map((group) => (
+                  <section className="detail-timeline-section" key={group.key || group.name}>
+                    <div className="detail-timeline-head">
+                      <div className="detail-timeline-title">
+                        <span>{group.name}</span>
+                        {group.sectionTime ? <em>{group.sectionTime}</em> : null}
                       </div>
-                    ) : null}
-                  </div>
+                      <span className="detail-timeline-count">{group.items.length} 张</span>
+                    </div>
+                    {viewMode === 'grid' ? (
+                      <div className="detail-timeline-grid">
+                        {group.items.map(({ photo, idx }) => renderPhotoCard(photo, idx))}
+                      </div>
+                    ) : (
+                      <div style={{ columnCount: colCount || undefined, columnGap: galleryGap }}>
+                        {group.items.map(({ photo, idx }) => renderPhotoCard(photo, idx, true))}
+                      </div>
+                    )}
+                  </section>
                 ))}
+              </div>
+            ) : viewMode === 'grid' ? (
+              <div style={{ display: 'grid', gridTemplateColumns: gridColumns, gap: galleryGap }}>
+                {photos.map((p, idx) => renderPhotoCard(p, idx))}
               </div>
             ) : (
               <div ref={galleryRef} style={{ columnCount: colCount || undefined, columnGap: galleryGap }}>
-                {photos.map((p, idx) => (
-                  <div key={idx} style={{ display: 'inline-block', width: '100%', marginBottom: galleryGap, overflow: 'hidden', background: '#f6f6f6', WebkitColumnBreakInside: 'avoid', breakInside: 'avoid', position: 'relative' }}>
-                    <div className="detail-photo" style={{ cursor: 'pointer' }} onClick={() => { if (selectMode) toggleSelect(idx); else openViewer(idx); }}>
-                      <img src={thumbFor(p)} alt={p && (p.title || p.description || `photo-${idx}`)} style={{ width: '100%', display: 'block', height: 'auto' }} />
-                    </div>
-                    {selectMode ? (
-                      <div style={{ position: 'absolute', left: 8, top: 8 }}>
-                        <input type="checkbox" checked={!!selectedMap[idx]} onChange={(e) => { e.stopPropagation(); toggleSelect(idx); }} />
-                      </div>
-                    ) : null}
-                  </div>
-                ))}
+                {photos.map((p, idx) => renderPhotoCard(p, idx, true))}
               </div>
             )
           ) : (
