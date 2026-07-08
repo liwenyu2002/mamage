@@ -115,6 +115,8 @@ module.exports = {
       templateParameters: {
         MAMAGE_COS_BASE: process.env.MAMAGE_COS_BASE || '',
         MAMAGE_API_BASE: process.env.MAMAGE_API_BASE || '',
+        MAMAGE_UPLOAD_API_BASE: process.env.MAMAGE_UPLOAD_API_BASE || '',
+        MAMAGE_UPLOAD_LAN_BASES: process.env.MAMAGE_UPLOAD_LAN_BASES || '',
         MAMAGE_DISABLE_DIRECT_UPLOAD: process.env.MAMAGE_DISABLE_DIRECT_UPLOAD || '',
       }
     }),

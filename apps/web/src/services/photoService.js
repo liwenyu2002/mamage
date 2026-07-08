@@ -5,6 +5,16 @@ import { fetchLatestByType, fetchRandomByProject, searchPhotos } from './photoQu
 const DEFAULT_UPLOAD_CONCURRENCY = Math.max(1, Number(
   (typeof window !== 'undefined' && window.__MAMAGE_UPLOAD_CONCURRENCY__) || 4
 ));
+const DEFAULT_LAN_UPLOAD_API_BASES = [
+  'https://lan.mamage.wenyuli.site:3443',
+  'https://lan.mamage.wenyuli.site',
+  'http://10.11.12.63:3000',
+  'http://10.100.83.67:3000',
+];
+const UPLOAD_PROBE_TIMEOUT_MS = Math.max(250, Number(
+  (typeof window !== 'undefined' && window.__MAMAGE_UPLOAD_PROBE_TIMEOUT_MS__) || 800
+));
+let uploadApiBasePromise = null;
 
 function isVideoFile(file) {
   const mime = String(file && file.type || '').toLowerCase();
@@ -16,6 +26,158 @@ function isVideoFile(file) {
 function getAuthHeaders(extra = {}) {
   const token = (typeof window !== 'undefined') ? (localStorage.getItem('mamage_jwt_token') || '') : '';
   return Object.assign({}, extra, token ? { Authorization: `Bearer ${token}` } : {});
+}
+
+function normalizeApiBase(base) {
+  const raw = String(base || '').trim();
+  if (!raw) return '';
+  return raw.replace(/\/+$/, '');
+}
+
+function parseUploadLanBases(value) {
+  if (Array.isArray(value)) return value;
+  return String(value || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function isSameOriginBase(base) {
+  if (typeof window === 'undefined' || !base) return false;
+  try {
+    return new URL(base, window.location.href).origin === window.location.origin;
+  } catch (e) {
+    return false;
+  }
+}
+
+function canUseUploadBaseInBrowser(base) {
+  if (typeof window === 'undefined' || !base) return false;
+  try {
+    const target = new URL(base, window.location.href);
+    if (!/^https?:$/.test(target.protocol)) return false;
+    // HTTPS pages cannot upload to HTTP LAN endpoints because browsers block mixed content.
+    if (window.location.protocol === 'https:' && target.protocol === 'http:') return false;
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function getUploadCandidateBases() {
+  if (typeof window === 'undefined') return [];
+  const explicitBase = normalizeApiBase(window.__MAMAGE_UPLOAD_API_BASE__);
+  const lanBases = parseUploadLanBases(window.__MAMAGE_UPLOAD_LAN_BASES__);
+  const seen = new Set();
+  const candidates = [explicitBase, ...lanBases, ...DEFAULT_LAN_UPLOAD_API_BASES]
+    .map(normalizeApiBase)
+    .filter(Boolean)
+    .filter((base) => {
+      if (seen.has(base)) return false;
+      seen.add(base);
+      return canUseUploadBaseInBrowser(base);
+    })
+    .map((base) => (isSameOriginBase(base) ? '' : base))
+    .filter((base) => base !== '');
+  return candidates;
+}
+
+async function probeUploadApiBase(base) {
+  const normalized = normalizeApiBase(base);
+  if (!normalized) return false;
+  if (typeof fetch === 'undefined') return false;
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timeoutId = controller ? setTimeout(() => controller.abort(), UPLOAD_PROBE_TIMEOUT_MS) : null;
+  try {
+    const resp = await fetch(`${normalized}/api/health?uploadProbe=${Date.now()}`, {
+      method: 'GET',
+      mode: 'cors',
+      credentials: 'include',
+      cache: 'no-store',
+      signal: controller ? controller.signal : undefined,
+    });
+    return !!(resp && resp.ok);
+  } catch (e) {
+    return false;
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
+async function getUploadApiBase() {
+  if (typeof window === 'undefined') return normalizeApiBase(BASE_URL);
+  if (!uploadApiBasePromise) {
+    uploadApiBasePromise = (async () => {
+      const fallbackBase = normalizeApiBase(BASE_URL);
+      const candidates = getUploadCandidateBases();
+      const detectedBase = candidates.length ? await new Promise((resolve) => {
+        let pending = candidates.length;
+        let settled = false;
+        candidates.forEach((base) => {
+          probeUploadApiBase(base).then((ok) => {
+            if (ok && !settled) {
+              settled = true;
+              resolve(base);
+            }
+          }).catch(() => false).finally(() => {
+            pending -= 1;
+            if (pending <= 0 && !settled) {
+              settled = true;
+              resolve('');
+            }
+          });
+        });
+      }) : '';
+      if (detectedBase) {
+        window.__MAMAGE_UPLOAD_SELECTED_BASE__ = detectedBase;
+        window.__MAMAGE_UPLOAD_SELECTED_BASE_SOURCE__ = 'lan-probe';
+        // eslint-disable-next-line no-console
+        console.info('[photoService] upload API using LAN endpoint:', detectedBase);
+        return detectedBase;
+      }
+      window.__MAMAGE_UPLOAD_SELECTED_BASE__ = fallbackBase;
+      window.__MAMAGE_UPLOAD_SELECTED_BASE_SOURCE__ = fallbackBase ? 'api-base' : 'same-origin';
+      return fallbackBase;
+    })();
+  }
+  return uploadApiBasePromise;
+}
+
+function resolveUploadApiUrl(path, uploadApiBase = '') {
+  const normalizedPath = String(path || '').startsWith('/') ? String(path || '') : `/${path || ''}`;
+  const base = normalizeApiBase(uploadApiBase);
+  return base ? `${base}${normalizedPath}` : normalizedPath;
+}
+
+async function requestUploadJson(path, options = {}, uploadApiBase = '') {
+  const base = normalizeApiBase(uploadApiBase);
+  if (!base) return request(path, options);
+
+  const method = (options.method || 'GET').toUpperCase();
+  let url = resolveUploadApiUrl(path, base);
+  const headers = getAuthHeaders(Object.assign({ 'Content-Type': 'application/json' }, options.headers || {}));
+  const fetchOpts = {
+    method,
+    headers,
+    credentials: options.credentials || 'include',
+  };
+  if (method === 'GET' && options.data && Object.keys(options.data).length) {
+    const qs = new URLSearchParams(options.data).toString();
+    url += (url.includes('?') ? '&' : '?') + qs;
+  } else if (options.data !== undefined) {
+    fetchOpts.body = JSON.stringify(options.data);
+  }
+  const resp = await fetch(url, fetchOpts);
+  const text = await resp.text();
+  if (!resp.ok) {
+    const err = new Error(`Request failed ${resp.status} ${resp.statusText}`);
+    err.status = resp.status;
+    err.body = text;
+    throw err;
+  }
+  const ct = resp.headers.get('content-type') || '';
+  if (ct.includes('application/json')) return text ? JSON.parse(text) : {};
+  return text;
 }
 
 function emitUploadProgress(onProgress, event) {
@@ -415,22 +577,22 @@ async function putSignedObject(uploadTarget, body, onProgress) {
   }
 }
 
-async function abortDirectUpload(initData) {
+async function abortDirectUpload(initData, uploadApiBase = '') {
   if (!initData || (!initData.original && !initData.thumb)) return;
   try {
-    await request('/api/upload/photo/direct/abort', {
+    await requestUploadJson('/api/upload/photo/direct/abort', {
       method: 'POST',
       data: {
         originalKey: initData.original && initData.original.key,
         thumbKey: initData.thumb && initData.thumb.key,
       },
-    });
+    }, uploadApiBase);
   } catch (e) {
     // cleanup is best-effort
   }
 }
 
-async function uploadViaDirectCos(file, fields, { onProgress } = {}) {
+async function uploadViaDirectCos(file, fields, { onProgress, uploadApiBase = '' } = {}) {
   const initPayload = {
     projectId: fields.projectId,
     timelineSectionId: fields.timelineSectionId,
@@ -448,10 +610,10 @@ async function uploadViaDirectCos(file, fields, { onProgress } = {}) {
     loaded: 0,
     total: file.size || 0,
   });
-  const initData = await request('/api/upload/photo/direct/init', {
+  const initData = await requestUploadJson('/api/upload/photo/direct/init', {
     method: 'POST',
     data: initPayload,
-  });
+  }, uploadApiBase);
 
   try {
     emitUploadProgress(onProgress, {
@@ -496,13 +658,13 @@ async function uploadViaDirectCos(file, fields, { onProgress } = {}) {
       loaded: total,
       total,
     });
-    const response = await request('/api/upload/photo/direct/complete', {
+    const response = await requestUploadJson('/api/upload/photo/direct/complete', {
       method: 'POST',
       data: Object.assign({}, initPayload, {
         originalKey: initData.original && initData.original.key,
         thumbKey: initData.thumb && initData.thumb.key,
       }),
-    });
+    }, uploadApiBase);
     emitUploadProgress(onProgress, {
       file,
       phase: 'done',
@@ -512,14 +674,14 @@ async function uploadViaDirectCos(file, fields, { onProgress } = {}) {
     });
     return response;
   } catch (err) {
-    await abortDirectUpload(initData);
+    await abortDirectUpload(initData, uploadApiBase);
     err.directUploadFailed = true;
     throw err;
   }
 }
 
-async function uploadViaApi(formData, { onProgress, file } = {}) {
-  const uploadUrl = '/api/upload/photo';
+async function uploadViaApi(formData, { onProgress, file, uploadApiBase = '' } = {}) {
+  const uploadUrl = resolveUploadApiUrl('/api/upload/photo', uploadApiBase);
   let apiUploadTotal = (file && file.size) || 0;
   // eslint-disable-next-line no-console
   console.debug('[photoService] uploading to', uploadUrl);
@@ -567,8 +729,8 @@ async function uploadViaApi(formData, { onProgress, file } = {}) {
   return { data: text };
 }
 
-async function uploadViaVideoApi(formData, { onProgress, file } = {}) {
-  const uploadUrl = '/api/upload/video';
+async function uploadViaVideoApi(formData, { onProgress, file, uploadApiBase = '' } = {}) {
+  const uploadUrl = resolveUploadApiUrl('/api/upload/video', uploadApiBase);
   let uploadTotal = (file && file.size) || 0;
   emitUploadProgress(onProgress, {
     file: file || formData.get('file'),
@@ -637,13 +799,14 @@ function isDirectUploadUnavailable(err) {
 // 如果 tags 为数组，会自动转为 JSON 字符串
 async function uploadPhotos(formDataOrObj, { onProgress } = {}) {
   const { file, fields, formData } = normalizeUploadPayload(formDataOrObj);
+  const uploadApiBase = await getUploadApiBase();
   try {
     if (isVideoFile(file)) {
-      return await uploadViaVideoApi(formData, { onProgress, file });
+      return await uploadViaVideoApi(formData, { onProgress, file, uploadApiBase });
     }
     if (canTryDirectUpload(file)) {
       try {
-        return await uploadViaDirectCos(file, fields, { onProgress });
+        return await uploadViaDirectCos(file, fields, { onProgress, uploadApiBase });
       } catch (directErr) {
         if (isDirectUploadUnavailable(directErr)) {
           if (typeof window !== 'undefined') window.__MAMAGE_DISABLE_DIRECT_UPLOAD__ = true;
@@ -660,7 +823,7 @@ async function uploadPhotos(formDataOrObj, { onProgress } = {}) {
         });
       }
     }
-    return await uploadViaApi(formData, { onProgress, file });
+    return await uploadViaApi(formData, { onProgress, file, uploadApiBase });
   } catch (e) {
     // eslint-disable-next-line no-console
     console.error('[photoService] upload attempt failed', e);

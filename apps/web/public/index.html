@@ -19,12 +19,20 @@
     (function () {
       var cosBase = '<%= MAMAGE_COS_BASE %>' || '';
       var apiBase = '<%= MAMAGE_API_BASE %>' || '';
+      var uploadApiBase = '<%= MAMAGE_UPLOAD_API_BASE %>' || '';
+      var uploadLanBases = '<%= MAMAGE_UPLOAD_LAN_BASES %>' || '';
       var disableDirectUpload = '<%= MAMAGE_DISABLE_DIRECT_UPLOAD %>' || '';
       if (cosBase) {
         try { window.__MAMAGE_COS_BASE__ = cosBase.replace(/\/+$/, ''); } catch (e) { }
       }
       if (apiBase) {
         try { window.__MAMAGE_API_BASE__ = apiBase.replace(/\/+$/, ''); } catch (e) { }
+      }
+      if (uploadApiBase) {
+        try { window.__MAMAGE_UPLOAD_API_BASE__ = uploadApiBase.replace(/\/+$/, ''); } catch (e) { }
+      }
+      if (uploadLanBases) {
+        try { window.__MAMAGE_UPLOAD_LAN_BASES__ = uploadLanBases; } catch (e) { }
       }
       if (disableDirectUpload) {
         try {
