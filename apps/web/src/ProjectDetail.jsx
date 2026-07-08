@@ -619,6 +619,7 @@ function ProjectDetail({
   const [uploadMode, setUploadMode] = React.useState(false);
   const [stagingFiles, setStagingFiles] = React.useState([]); // File objects
   const [stagingPreviews, setStagingPreviews] = React.useState([]); // object URLs
+  const [stagingSectionIds, setStagingSectionIds] = React.useState([]);
   const [selectedUploadSectionId, setSelectedUploadSectionId] = React.useState('');
   const [uploading, setUploading] = React.useState(false);
 
@@ -796,6 +797,79 @@ function ProjectDetail({
       return first ? String(first.id) : '';
     });
   }, [uploadTimelineEnabled, uploadTimelineSections]);
+
+  const selectedUploadSection = React.useMemo(() => {
+    if (!selectedUploadSectionId) return null;
+    return uploadTimelineSections.find((section) => String(section.id) === String(selectedUploadSectionId)) || null;
+  }, [uploadTimelineSections, selectedUploadSectionId]);
+
+  const stagingCountBySectionId = React.useMemo(() => {
+    const counts = new Map();
+    (stagingSectionIds || []).forEach((sectionId) => {
+      const key = String(sectionId || '');
+      counts.set(key, (counts.get(key) || 0) + 1);
+    });
+    return counts;
+  }, [stagingSectionIds]);
+
+  const hasUnassignedStagedFiles = React.useMemo(() => (
+    uploadTimelineEnabled
+      && uploadTimelineSections.length > 0
+      && stagingFiles.some((_, index) => !stagingSectionIds[index])
+  ), [uploadTimelineEnabled, uploadTimelineSections, stagingFiles, stagingSectionIds]);
+
+  const stagedUploadGroups = React.useMemo(() => {
+    const makeItem = (file, index) => ({
+      file,
+      index,
+      preview: stagingPreviews[index],
+      sectionId: stagingSectionIds[index] || '',
+    });
+
+    if (!uploadTimelineEnabled || !uploadTimelineSections.length) {
+      return [{
+        key: 'all',
+        sectionId: '',
+        name: '待上传照片',
+        sectionTime: '',
+        active: true,
+        items: stagingFiles.map((file, index) => makeItem(file, index)),
+      }];
+    }
+
+    const groups = uploadTimelineSections.map((section) => ({
+      key: String(section.id || section.key),
+      sectionId: String(section.id || ''),
+      name: section.name || '未命名环节',
+      sectionTime: section.sectionTime || '',
+      active: String(section.id || '') === String(selectedUploadSectionId || ''),
+      items: [],
+    }));
+    const bySectionId = new Map(groups.map((group) => [String(group.sectionId), group]));
+    const unassigned = {
+      key: 'unassigned',
+      sectionId: '',
+      name: '未选择环节',
+      sectionTime: '',
+      active: false,
+      items: [],
+    };
+
+    stagingFiles.forEach((file, index) => {
+      const item = makeItem(file, index);
+      const target = bySectionId.get(String(item.sectionId || '')) || unassigned;
+      target.items.push(item);
+    });
+
+    return unassigned.items.length ? [...groups, unassigned] : groups;
+  }, [
+    uploadTimelineEnabled,
+    uploadTimelineSections,
+    stagingFiles,
+    stagingPreviews,
+    stagingSectionIds,
+    selectedUploadSectionId,
+  ]);
 
   // helper: construct aligned images (src strings) and metas (original objects) from project detail
   const buildImagesAndMetas = React.useCallback((detail) => {
@@ -1441,13 +1515,19 @@ function ProjectDetail({
     if (fileInputRef.current) fileInputRef.current.click();
   }, [DISABLE_UPLOAD_FEATURE, uploadTimelineEnabled, uploadTimelineSections]);
 
-  const handleFilesSelected = React.useCallback((files) => {
+  const handleFilesSelected = React.useCallback((files, forcedSectionId) => {
     if (DISABLE_UPLOAD_FEATURE) {
       Toast.warning('上传功能已禁用');
       return;
     }
     const list = Array.from(files || []);
     if (!list.length) return;
+    const nextSectionId = String(forcedSectionId || selectedUploadSectionId || '');
+    if (uploadTimelineEnabled && uploadTimelineSections.length && !nextSectionId) {
+      Toast.warning('请先选择要上传的环节');
+      setUploadMode(true);
+      return;
+    }
     setStagingFiles((prevFiles) => {
       const existing = new Set((prevFiles || []).map((file) => `${file.name}::${file.size}::${file.lastModified}`));
       const fresh = [];
@@ -1464,11 +1544,15 @@ function ProjectDetail({
       if (skipped) Toast.warning(`已跳过 ${skipped} 张重复图片`);
       if (fresh.length) {
         setStagingPreviews((prev) => [...(prev || []), ...fresh.map((file) => URL.createObjectURL(file))]);
+        setStagingSectionIds((prev) => [
+          ...(prev || []),
+          ...fresh.map(() => (uploadTimelineEnabled && uploadTimelineSections.length ? nextSectionId : '')),
+        ]);
       }
       return [...(prevFiles || []), ...fresh];
     });
     setUploadMode(true);
-  }, [DISABLE_UPLOAD_FEATURE]);
+  }, [DISABLE_UPLOAD_FEATURE, selectedUploadSectionId, uploadTimelineEnabled, uploadTimelineSections]);
 
   const removeStagingFile = React.useCallback((index) => {
     setStagingFiles((prev) => {
@@ -1484,12 +1568,26 @@ function ProjectDetail({
       }
       return next;
     });
+    setStagingSectionIds((prev) => {
+      const next = [...(prev || [])];
+      next.splice(index, 1);
+      return next;
+    });
+  }, []);
+
+  const assignStagingFileSection = React.useCallback((index, sectionId) => {
+    setStagingSectionIds((prev) => {
+      const next = [...(prev || [])];
+      next[index] = String(sectionId || '');
+      return next;
+    });
   }, []);
 
   const cancelUpload = React.useCallback(() => {
     stagingPreviews.forEach((u) => { try { URL.revokeObjectURL(u); } catch (e) { } });
     setStagingFiles([]);
     setStagingPreviews([]);
+    setStagingSectionIds([]);
     setUploadMode(false);
     setUploading(false);
   }, [stagingPreviews]);
@@ -1500,18 +1598,26 @@ function ProjectDetail({
       return;
     }
     if (!stagingFiles.length || !projectId) return;
-    if (uploadTimelineEnabled && uploadTimelineSections.length && !selectedUploadSectionId) {
-      Toast.warning('请先选择照片所属环节');
+    if (uploadTimelineEnabled && uploadTimelineSections.length && hasUnassignedStagedFiles) {
+      Toast.warning('还有照片未选择所属环节');
       return;
     }
-    const filesToUpload = stagingFiles;
+    const groupedFiles = new Map();
+    stagingFiles.forEach((file, index) => {
+      const sectionId = uploadTimelineEnabled && uploadTimelineSections.length ? String(stagingSectionIds[index] || '') : '';
+      if (!groupedFiles.has(sectionId)) groupedFiles.set(sectionId, []);
+      groupedFiles.get(sectionId).push(file);
+    });
     setUploading(true);
     try {
-      const currentSection = uploadTimelineSections.find((section) => String(section.id) === String(selectedUploadSectionId));
-      const results = await uploadPhotoFiles(filesToUpload, {
-        projectId,
-        timelineSectionId: uploadTimelineEnabled && currentSection ? selectedUploadSectionId : undefined,
-      });
+      const results = [];
+      for (const [sectionId, files] of groupedFiles.entries()) {
+        const groupResults = await uploadPhotoFiles(files, {
+          projectId,
+          timelineSectionId: uploadTimelineEnabled && uploadTimelineSections.length ? sectionId : undefined,
+        });
+        results.push(...groupResults);
+      }
 
       const failed = results.filter((r) => r && r.status === 'rejected');
       const succeeded = results.filter((r) => r && r.status === 'fulfilled');
@@ -1547,7 +1653,20 @@ function ProjectDetail({
     } finally {
       setUploading(false);
     }
-  }, [stagingFiles, projectId, cancelUpload, DISABLE_UPLOAD_FEATURE, prependUploadedPhotos, scheduleAnalysisPolling, readOnly, buildImagesAndMetas, uploadTimelineEnabled, uploadTimelineSections, selectedUploadSectionId]);
+  }, [
+    stagingFiles,
+    stagingSectionIds,
+    projectId,
+    cancelUpload,
+    DISABLE_UPLOAD_FEATURE,
+    prependUploadedPhotos,
+    scheduleAnalysisPolling,
+    readOnly,
+    buildImagesAndMetas,
+    uploadTimelineEnabled,
+    uploadTimelineSections,
+    hasUnassignedStagedFiles,
+  ]);
 
   const openEdit = React.useCallback(() => {
     const p = project || {};
@@ -4076,7 +4195,7 @@ function ProjectDetail({
           onCancel={cancelUpload}
           okButtonProps={{
             loading: uploading,
-            disabled: !stagingFiles.length || (uploadTimelineEnabled && uploadTimelineSections.length && !selectedUploadSectionId),
+            disabled: !stagingFiles.length || (uploadTimelineEnabled && uploadTimelineSections.length && hasUnassignedStagedFiles),
           }}
           okText="确认上传"
           cancelText="取消"
@@ -4086,22 +4205,45 @@ function ProjectDetail({
         >
           <div className="detail-upload-body">
             {uploadTimelineEnabled && uploadTimelineSections.length ? (
-              <label className="detail-upload-section-picker">
-                <span>照片环节</span>
-                <select value={selectedUploadSectionId} onChange={(e) => setSelectedUploadSectionId(e.target.value)}>
-                  {uploadTimelineSections.map((section) => (
-                    <option key={section.key} value={section.id}>
-                      {section.sectionTime ? `${section.name} · ${section.sectionTime}` : section.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <div className="detail-upload-timeline-panel">
+                <div className="detail-upload-timeline-title">选择上传环节</div>
+                <div className="detail-upload-timeline" role="radiogroup" aria-label="上传环节">
+                  <div className="detail-upload-timeline-track" aria-hidden="true" />
+                  {uploadTimelineSections.map((section, index) => {
+                    const sectionId = String(section.id || '');
+                    const active = sectionId === String(selectedUploadSectionId || '');
+                    const stagedCount = stagingCountBySectionId.get(sectionId) || 0;
+                    return (
+                      <button
+                        key={section.key || sectionId}
+                        type="button"
+                        className={`detail-upload-timeline-node ${index % 2 ? 'is-lower' : 'is-upper'}${active ? ' is-active' : ''}`}
+                        onClick={() => setSelectedUploadSectionId(sectionId)}
+                        role="radio"
+                        aria-checked={active}
+                      >
+                        <span className="detail-upload-node-dot" aria-hidden="true" />
+                        <span className="detail-upload-node-label">{section.name || '未命名环节'}</span>
+                        {section.sectionTime ? <span className="detail-upload-node-time">{section.sectionTime}</span> : null}
+                        {stagedCount ? <span className="detail-upload-node-count">{stagedCount}</span> : null}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="detail-upload-current-hint">
+                  {selectedUploadSection ? `请上传「${selectedUploadSection.name}」环节照片` : '请选择要上传的环节'}
+                </div>
+              </div>
             ) : null}
 
             <button
               type="button"
               className={`detail-upload-dropzone${dragActive ? ' is-drag-active' : ''}`}
               onClick={() => {
+                if (uploadTimelineEnabled && uploadTimelineSections.length && !selectedUploadSectionId) {
+                  Toast.warning('请先选择要上传的环节');
+                  return;
+                }
                 if (fileInputRef.current) fileInputRef.current.click();
               }}
               onDragOver={(e) => {
@@ -4120,34 +4262,82 @@ function ProjectDetail({
               onDrop={(e) => {
                 e.preventDefault();
                 setDragActive(false);
-                if (e.dataTransfer && e.dataTransfer.files) handleFilesSelected(e.dataTransfer.files);
+                if (e.dataTransfer && e.dataTransfer.files) handleFilesSelected(e.dataTransfer.files, selectedUploadSectionId);
               }}
             >
               <IconPlus />
-              <span>{stagingFiles.length ? `继续添加（${stagingFiles.length} 张）` : '选择或拖入照片'}</span>
+              <span>
+                {uploadTimelineEnabled && uploadTimelineSections.length
+                  ? (selectedUploadSection ? `为「${selectedUploadSection.name}」添加照片` : '请选择环节后上传')
+                  : (stagingFiles.length ? `继续添加（${stagingFiles.length} 张）` : '选择或拖入照片')}
+              </span>
             </button>
 
-            {stagingPreviews.length ? (
-              <div className="detail-upload-preview-grid">
-                {stagingPreviews.map((p, i) => (
-                  <div key={i} className="detail-upload-preview-item">
-                    <img src={p} alt={`preview-${i}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                    <button
-                      type="button"
-                      className="detail-upload-preview-remove"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        removeStagingFile(i);
-                      }}
-                      aria-label="移除照片"
-                      title="移除"
-                    >
-                      ×
-                    </button>
+            <div className="detail-upload-section-groups">
+              {stagedUploadGroups.map((group) => (
+                <section
+                  key={group.key}
+                  className={`detail-upload-section-group${group.active ? ' is-active' : ''}`}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    if (e.dataTransfer && e.dataTransfer.files) handleFilesSelected(e.dataTransfer.files, group.sectionId);
+                  }}
+                >
+                  <div className="detail-upload-section-head">
+                    <div className="detail-upload-section-title">
+                      <span>{group.name}</span>
+                      {group.sectionTime ? <em>{group.sectionTime}</em> : null}
+                    </div>
+                    <span className="detail-upload-section-count">{group.items.length} 张</span>
                   </div>
-                ))}
-              </div>
-            ) : null}
+                  {group.items.length ? (
+                    <div className="detail-upload-preview-grid">
+                      {group.items.map((item) => (
+                        <div key={`${item.index}-${item.preview || item.file.name}`} className="detail-upload-preview-item">
+                          <img src={item.preview} alt={`preview-${item.index}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                          <button
+                            type="button"
+                            className="detail-upload-preview-remove"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              removeStagingFile(item.index);
+                            }}
+                            aria-label="移除照片"
+                            title="移除"
+                          >
+                            ×
+                          </button>
+                          {uploadTimelineEnabled && uploadTimelineSections.length ? (
+                            <select
+                              className="detail-upload-preview-section"
+                              value={item.sectionId}
+                              onChange={(e) => assignStagingFileSection(item.index, e.target.value)}
+                              aria-label="调整照片环节"
+                            >
+                              <option value="">未选择环节</option>
+                              {uploadTimelineSections.map((section) => (
+                                <option key={section.key || section.id} value={section.id}>
+                                  {section.name || '未命名环节'}
+                                </option>
+                              ))}
+                            </select>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="detail-upload-section-empty">暂无照片，可直接拖入这一环节</div>
+                  )}
+                </section>
+              ))}
+              {!stagedUploadGroups.length ? (
+                <div className="detail-upload-section-empty">请选择照片后上传</div>
+              ) : null}
+            </div>
           </div>
         </Modal>
 
