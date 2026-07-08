@@ -76,11 +76,12 @@ export async function login(email, password) {
   return await me();
 }
 
-export async function register({ name, password, email, student_no, emailCode }) {
+export async function register({ name, password, email, student_no, emailCode, organizationCode }) {
   const payload = { name, password };
   if (email) payload.email = email;
   if (student_no) payload.student_no = student_no;
   if (emailCode) payload.emailCode = emailCode;
+  if (organizationCode) payload.organizationCode = organizationCode;
   const r = await requestJson(`${API_PREFIX}/register`, {
     method: 'POST',
     body: JSON.stringify(payload),

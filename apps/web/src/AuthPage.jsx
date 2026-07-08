@@ -1,5 +1,5 @@
 import React from 'react';
-import { Card, Input, Button, Toast, Select } from './ui';
+import { Card, Input, Button, Toast } from './ui';
 import './AuthPage.css';
 import * as authService from './services/authService';
 
@@ -28,18 +28,14 @@ export default function AuthPage({ onAuthenticated }) {
   const [loginPassword, setLoginPassword] = React.useState('');
   const [regName, setRegName] = React.useState('');
   const [regEmail, setRegEmail] = React.useState('');
+  const [regOrgCode, setRegOrgCode] = React.useState('');
   const [regInviteCode, setRegInviteCode] = React.useState('');
   const [regPassword, setRegPassword] = React.useState('');
   const [loginErrors, setLoginErrors] = React.useState({ email: '', password: '', general: '' });
   const [regEmailCode, setRegEmailCode] = React.useState('');
-  const [regErrors, setRegErrors] = React.useState({ name: '', email: '', code: '', password: '', invite: '', general: '' });
+  const [regErrors, setRegErrors] = React.useState({ name: '', email: '', code: '', orgCode: '', password: '', invite: '', general: '' });
   const [codeSending, setCodeSending] = React.useState(false);
   const [codeCooldown, setCodeCooldown] = React.useState(0);
-  const [orgs, setOrgs] = React.useState([]);
-  const [orgOptions, setOrgOptions] = React.useState([]);
-  const [selectedOrgId, setSelectedOrgId] = React.useState('');
-  const [orgQuery, setOrgQuery] = React.useState('');
-  const [loadingOrgs, setLoadingOrgs] = React.useState(false);
   const commonSuffixes = ['@qq.com', '@163.com', '@gmail.com', '@hotmail.com', '@edu.cn'];
   const [showRegSuggestions, setShowRegSuggestions] = React.useState(false);
   const [regPasswordValid, setRegPasswordValid] = React.useState(false);
@@ -49,10 +45,6 @@ export default function AuthPage({ onAuthenticated }) {
       const params = new URLSearchParams(window.location.search);
       const iv = params.get('invite') || params.get('invite_code') || params.get('inviteCode');
       if (iv) setRegInviteCode(iv);
-
-      // initial fetch
-      fetchOrgs();
-
     } catch (e) {
       console.debug('[AuthPage] init error', e);
     }
@@ -66,57 +58,6 @@ export default function AuthPage({ onAuthenticated }) {
     return () => clearTimeout(timer);
   }, [codeCooldown]);
 
-  // fetch organizations with optional query and limit
-  async function fetchOrgs(qStr = '') {
-    setLoadingOrgs(true);
-    try {
-      const params = new URLSearchParams();
-      if (qStr) params.set('q', qStr);
-      params.set('limit', '50');
-      // Try relative path first (works when dev-server proxy is configured).
-      let resp = null;
-      let data = [];
-      try {
-        resp = await fetch('/api/organizations?' + params.toString());
-        if (resp && resp.ok) data = await resp.json().catch(() => []);
-      } catch (e) {
-        // ignore and try absolute fallback
-        resp = null;
-      }
-      // If initial relative request failed, try using configured API base (if provided).
-      if ((!resp || !resp.ok) && typeof window !== 'undefined') {
-        try {
-          const host = (window.__MAMAGE_API_BASE__ && window.__MAMAGE_API_BASE__.replace(/\/$/, '')) || '';
-          const full = `${host}/api/organizations?${params.toString()}`;
-          const resp2 = await fetch(full);
-          if (resp2 && resp2.ok) data = await resp2.json().catch(() => []);
-        } catch (e) {
-          // ignore
-        }
-      }
-      if (Array.isArray(data)) {
-        setOrgs(data);
-        // normalize options to string values for Select
-        const opts = data.map(o => ({ label: `${o.name}${o.is_public ? '' : '（需邀请码）'}`, value: String(o.id), raw: o }));
-        setOrgOptions(opts);
-
-      } else {
-        setOrgs([]);
-        setOrgOptions([]);
-      }
-    } catch (e) {
-      console.debug('fetch organizations failed', e);
-      setOrgs([]);
-    } finally {
-      setLoadingOrgs(false);
-    }
-  }
-
-  // debounce orgQuery changes
-  React.useEffect(() => {
-    const id = setTimeout(() => fetchOrgs(orgQuery || ''), 300);
-    return () => clearTimeout(id);
-  }, [orgQuery]);
   // detailed live checks for password
   const passwordChecks = React.useMemo(() => ({
     minMax: (p) => !!p && p.length >= 8 && p.length <= 16,
@@ -233,6 +174,7 @@ export default function AuthPage({ onAuthenticated }) {
     const name = regName ? regName.trim() : '';
     const email = regEmail ? regEmail.trim() : '';
     const emailCode = regEmailCode ? regEmailCode.trim() : '';
+    const organizationCode = regOrgCode ? regOrgCode.trim().toUpperCase() : '';
     const password = regPassword ? regPassword.trim() : '';
 
     // client-side checks (backend requires name and password)
@@ -257,22 +199,20 @@ export default function AuthPage({ onAuthenticated }) {
       setRegErrors((prev) => ({ ...prev, code: '请输入 6 位邮箱验证码', general: '' }));
       return;
     }
-
-    // If user selected a private organization, require invite_code client-side as UX hint
-    const selectedOrg = orgs.find(o => String(o.id) === String(selectedOrgId));
-    if (selectedOrg && selectedOrg.is_public === false) {
-      if (!regInviteCode || regInviteCode.trim().length === 0) {
-        setRegErrors((prev) => ({ ...prev, invite: '该组织需要邀请码', general: '' }));
-        return;
-      }
+    if (!organizationCode) {
+      setRegErrors((prev) => ({ ...prev, orgCode: '请输入组织代号', general: '' }));
+      return;
+    }
+    if (!/^[A-Z0-9_-]{3,32}$/.test(organizationCode)) {
+      setRegErrors((prev) => ({ ...prev, orgCode: '组织代号格式不正确', general: '' }));
+      return;
     }
 
-    setRegErrors({ name: '', email: '', code: '', password: '', invite: '', general: '' });
+    setRegErrors({ name: '', email: '', code: '', orgCode: '', password: '', invite: '', general: '' });
     setLoading(true);
     try {
       const invite_code = regInviteCode ? regInviteCode.trim() : undefined;
-      const payload = { name, password, email, emailCode };
-      if (selectedOrgId) payload.organization_id = selectedOrgId;
+      const payload = { name, password, email, emailCode, organizationCode };
       if (invite_code) payload.invite_code = invite_code;
       const res = await fetch('/api/users/register', {
         method: 'POST',
@@ -299,8 +239,8 @@ export default function AuthPage({ onAuthenticated }) {
           setRegErrors((prev) => ({ ...prev, code: message }));
           return;
         }
-        if (code === 'INVALID_ORGANIZATION') {
-          setRegErrors((prev) => ({ ...prev, general: '选择的组织不存在' }));
+        if (code === 'MISSING_ORGANIZATION_CODE' || code === 'INVALID_ORGANIZATION_CODE' || code === 'ORG_CODE_NOT_CONFIGURED' || code === 'INVALID_ORGANIZATION') {
+          setRegErrors((prev) => ({ ...prev, orgCode: message || '组织代号无效' }));
           return;
         }
         if (code === 'INVITE_REQUIRED') {
@@ -456,48 +396,22 @@ export default function AuthPage({ onAuthenticated }) {
 
             <div>
               <div style={{ marginBottom: 8 }}>
-                <div style={{ marginBottom: 6, fontSize: 12, color: '#444' }}>组织（可选）</div>
-                <Select
-                  placeholder={loadingOrgs ? '加载中...' : '搜索或选择组织（可选）'}
-                  value={selectedOrgId}
-                  onChange={(v) => { setSelectedOrgId(v ? String(v) : ''); setRegErrors((prev) => ({ ...prev, invite: '' })); }}
-                  style={{ width: '100%' }}
-                  // disable local filtering: we use remote search
-                  filterOption={false}
-                  // when user types in the select search box, update orgQuery to trigger fetch
-                  onSearch={(val) => setOrgQuery(val)}
-                  // allow clearing selection
-                  allowClear
-                >
-                  {/* render Option children explicitly to avoid potential options prop compatibility issues */}
-                  {Array.isArray(orgOptions) && orgOptions.length > 0 ? (
-                    orgOptions.map((o) => (
-                      <Select.Option key={o.value} value={o.value}>
-                        {o.label}
-                      </Select.Option>
-                    ))
-                  ) : null}
-                </Select>
-
+                <div style={{ marginBottom: 6, fontSize: 12, color: '#444' }}>组织代号</div>
+                <Input
+                  placeholder="请输入组织代号"
+                  value={regOrgCode}
+                  autoCapitalize="characters"
+                  onChange={(v) => {
+                    setRegOrgCode(String(v || '').trim().toUpperCase());
+                    setRegErrors((prev) => ({ ...prev, orgCode: '', general: '' }));
+                  }}
+                />
+                {regErrors.orgCode && <div style={{ color: '#e53935', fontSize: 12, marginTop: 4 }}>{regErrors.orgCode}</div>}
               </div>
-              {/* only show invite input when selected org is private */}
-              {(() => {
-                const selectedOrg = orgs.find(o => String(o.id) === String(selectedOrgId));
-                if (selectedOrg && selectedOrg.is_public === false) {
-                  return (
-                    <div>
-                      <Input placeholder="邀请码（必填）" value={regInviteCode} onChange={(v) => { setRegInviteCode(v); setRegErrors((prev) => ({ ...prev, invite: '' })); }} />
-                      {regErrors.invite && <div style={{ color: '#e53935', fontSize: 12, marginTop: 6 }}>{regErrors.invite}</div>}
-                    </div>
-                  );
-                }
-                return (
-                  <div>
-                    <Input placeholder="邀请码（可选）" value={regInviteCode} onChange={(v) => { setRegInviteCode(v); setRegErrors((prev) => ({ ...prev, invite: '' })); }} />
-                    {regErrors.invite && <div style={{ color: '#e53935', fontSize: 12, marginTop: 6 }}>{regErrors.invite}</div>}
-                  </div>
-                );
-              })()}
+              <div>
+                <Input placeholder="邀请码（可选）" value={regInviteCode} onChange={(v) => { setRegInviteCode(v); setRegErrors((prev) => ({ ...prev, invite: '' })); }} />
+                {regErrors.invite && <div style={{ color: '#e53935', fontSize: 12, marginTop: 6 }}>{regErrors.invite}</div>}
+              </div>
             </div>
 
             <div>
