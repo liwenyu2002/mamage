@@ -16,6 +16,19 @@ const UPLOAD_PROBE_TIMEOUT_MS = Math.max(250, Number(
 ));
 let uploadApiBasePromise = null;
 
+function setUploadProbeDebugState(base, source, extra = {}) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.__MAMAGE_UPLOAD_SELECTED_BASE__ = base || '';
+    window.__MAMAGE_UPLOAD_SELECTED_BASE_SOURCE__ = source || '';
+    if (extra.candidates) window.__MAMAGE_UPLOAD_CANDIDATE_BASES__ = extra.candidates;
+    if (extra.error) window.__MAMAGE_UPLOAD_PROBE_ERROR__ = extra.error;
+    else delete window.__MAMAGE_UPLOAD_PROBE_ERROR__;
+  } catch (e) {
+    // ignore debug-state failures
+  }
+}
+
 function isVideoFile(file) {
   const mime = String(file && file.type || '').toLowerCase();
   if (mime.startsWith('video/')) return true;
@@ -82,6 +95,10 @@ function getUploadCandidateBases() {
   return candidates;
 }
 
+if (typeof window !== 'undefined') {
+  setUploadProbeDebugState('', 'probe-not-started', { candidates: getUploadCandidateBases() });
+}
+
 async function probeUploadApiBase(base) {
   const normalized = normalizeApiBase(base);
   if (!normalized) return false;
@@ -110,6 +127,7 @@ async function getUploadApiBase() {
     uploadApiBasePromise = (async () => {
       const fallbackBase = normalizeApiBase(BASE_URL);
       const candidates = getUploadCandidateBases();
+      setUploadProbeDebugState('', 'probing', { candidates });
       const detectedBase = candidates.length ? await new Promise((resolve) => {
         let pending = candidates.length;
         let settled = false;
@@ -129,18 +147,26 @@ async function getUploadApiBase() {
         });
       }) : '';
       if (detectedBase) {
-        window.__MAMAGE_UPLOAD_SELECTED_BASE__ = detectedBase;
-        window.__MAMAGE_UPLOAD_SELECTED_BASE_SOURCE__ = 'lan-probe';
+        setUploadProbeDebugState(detectedBase, 'lan-probe', { candidates });
         // eslint-disable-next-line no-console
         console.info('[photoService] upload API using LAN endpoint:', detectedBase);
         return detectedBase;
       }
-      window.__MAMAGE_UPLOAD_SELECTED_BASE__ = fallbackBase;
-      window.__MAMAGE_UPLOAD_SELECTED_BASE_SOURCE__ = fallbackBase ? 'api-base' : 'same-origin';
+      setUploadProbeDebugState(fallbackBase, fallbackBase ? 'api-base' : 'same-origin', { candidates });
       return fallbackBase;
     })();
   }
   return uploadApiBasePromise;
+}
+
+function warmUploadApiProbe() {
+  return getUploadApiBase().catch((err) => {
+    setUploadProbeDebugState(normalizeApiBase(BASE_URL), 'probe-error', {
+      candidates: getUploadCandidateBases(),
+      error: err && err.message ? err.message : String(err || 'unknown'),
+    });
+    return normalizeApiBase(BASE_URL);
+  });
 }
 
 function resolveUploadApiUrl(path, uploadApiBase = '') {
@@ -987,5 +1013,6 @@ export {
   updateFaceClusterConfig,
   uploadPhotos,
   uploadPhotoFiles,
+  warmUploadApiProbe,
   deletePhotos,
 };

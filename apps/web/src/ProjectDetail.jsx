@@ -14,7 +14,7 @@ import {
 import './ProjectDetail.css';
 import { getProjectById, updateProject, deleteProject } from './services/projectService';
 import { getToken } from './services/authService';
-import { fetchRandomByProject, searchPhotos, getPhotoById, updatePhoto, getFacePersonInfo, labelFacePerson, renameFacePerson, uploadPhotoFiles, deletePhotos, getPhotoFaces } from './services/photoService';
+import { fetchRandomByProject, searchPhotos, getPhotoById, updatePhoto, getFacePersonInfo, labelFacePerson, renameFacePerson, uploadPhotoFiles, warmUploadApiProbe, deletePhotos, getPhotoFaces } from './services/photoService';
 import { resolveAssetUrl, BASE_URL } from './services/request';
 import IfCan from './permissions/IfCan';
 import PermButton from './permissions/PermButton';
@@ -3252,6 +3252,11 @@ function ProjectDetail({
   const canEditPhotos = hasPerm('photos.edit');
   const canPackDownload = readOnly || hasPerm('photos.zip');
   const canEditFacePersonName = hasPerm('faces.label');
+
+  React.useEffect(() => {
+    if (!canUploadPhotos) return;
+    warmUploadApiProbe();
+  }, [canUploadPhotos]);
 
   // ========== Photo Editing Handlers ==========
   const openPhotoEditModal = React.useCallback(() => {
