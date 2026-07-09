@@ -45,9 +45,21 @@ export function getUploadPhaseLabel(phase, status) {
   if (phase === 'preparing') return '准备中';
   if (phase === 'thumbnail') return '生成缩略图';
   if (phase === 'uploading') return '上传中';
+  if (phase === 'video-processing') return '处理视频';
+  if (phase === 'processing') return '服务器处理中';
   if (phase === 'completing') return '写入记录';
   if (phase === 'fallback') return '切换上传通道';
   return '等待';
+}
+
+export function getUploadProgressTitle(progress) {
+  if (!progress) return '正在上传';
+  if (progress.failedFiles) return '上传有失败';
+  if (progress.activePhase === 'video-processing') return '处理视频';
+  if (progress.activePhase === 'processing' || progress.activePhase === 'completing') return '服务器处理中';
+  if (progress.activePhase === 'thumbnail') return '生成缩略图';
+  if (progress.totalFiles && progress.completedFiles === progress.totalFiles) return '上传完成';
+  return '正在上传';
 }
 
 function estimateRemainingSeconds({ loaded, total, startedAt, phase, status, now = Date.now() }) {

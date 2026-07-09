@@ -9,6 +9,7 @@ import {
   formatUploadBytes,
   formatUploadRemainingTime,
   getUploadPhaseLabel,
+  getUploadProgressTitle,
   reduceUploadProgress,
 } from './utils/uploadProgress';
 
@@ -446,7 +447,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
             <div className="cam-upload-progress" aria-live="polite">
               <div className="cam-upload-progress-head">
                 <div>
-                  <strong>{uploadProgress.failedFiles ? '上传有失败' : '正在上传'}</strong>
+                  <strong>{getUploadProgressTitle(uploadProgress)}</strong>
                   <span>
                     {uploadProgress.completedFiles + uploadProgress.failedFiles} / {uploadProgress.totalFiles} 个
                     {uploadProgress.activeFileName ? ` · ${getUploadPhaseLabel(uploadProgress.activePhase)}：${uploadProgress.activeFileName}` : ''}

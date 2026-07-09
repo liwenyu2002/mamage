@@ -235,7 +235,7 @@ function readHeader(headersText, name) {
   return '';
 }
 
-async function requestWithUploadProgress({ url, method = 'POST', headers = {}, body, withCredentials = false, onProgress }) {
+async function requestWithUploadProgress({ url, method = 'POST', headers = {}, body, withCredentials = false, onProgress, onUploadComplete }) {
   if (typeof XMLHttpRequest === 'undefined') {
     const resp = await fetch(url, {
       method,
@@ -265,6 +265,9 @@ async function requestWithUploadProgress({ url, method = 'POST', headers = {}, b
         loaded: event.loaded,
         total: event.lengthComputable ? event.total : 0,
       });
+    };
+    xhr.upload.onload = () => {
+      if (typeof onUploadComplete === 'function') onUploadComplete();
     };
     xhr.onload = () => {
       resolve({
@@ -767,8 +770,20 @@ async function uploadViaApi(formData, { onProgress, file, uploadApiBase = '' } =
 async function uploadViaVideoApi(formData, { onProgress, file, uploadApiBase = '' } = {}) {
   const uploadUrl = resolveUploadApiUrl('/api/upload/video', uploadApiBase);
   let uploadTotal = (file && file.size) || 0;
+  let uploadTransferred = false;
+  const targetFile = file || formData.get('file');
+  const markServerProcessing = () => {
+    if (uploadTransferred) return;
+    uploadTransferred = true;
+    emitUploadProgress(onProgress, {
+      file: targetFile,
+      phase: 'video-processing',
+      loaded: uploadTotal || (targetFile && targetFile.size) || 0,
+      total: uploadTotal || (targetFile && targetFile.size) || 0,
+    });
+  };
   emitUploadProgress(onProgress, {
-    file: file || formData.get('file'),
+    file: targetFile,
     phase: 'uploading',
     loaded: 0,
     total: uploadTotal,
@@ -781,13 +796,19 @@ async function uploadViaVideoApi(formData, { onProgress, file, uploadApiBase = '
     withCredentials: true,
     onProgress: (event) => {
       if (event.total) uploadTotal = event.total;
+      const total = event.total || uploadTotal;
+      if (total && event.loaded >= total) {
+        markServerProcessing();
+        return;
+      }
       emitUploadProgress(onProgress, {
-        file: file || formData.get('file'),
+        file: targetFile,
         phase: 'uploading',
         loaded: event.loaded,
-        total: event.total || uploadTotal,
+        total,
       });
     },
+    onUploadComplete: markServerProcessing,
   });
   if (resp.status < 200 || resp.status >= 300) {
     const err = new Error(`video upload failed ${resp.status} for ${uploadUrl}`);
@@ -799,7 +820,7 @@ async function uploadViaVideoApi(formData, { onProgress, file, uploadApiBase = '
   const text = resp.responseText || '';
   const total = uploadTotal || Math.max(Number(file && file.size) || 0, text.length || 0);
   emitUploadProgress(onProgress, {
-    file: file || formData.get('file'),
+    file: targetFile,
     phase: 'done',
     status: 'fulfilled',
     loaded: total,
