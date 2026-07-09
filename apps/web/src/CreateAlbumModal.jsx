@@ -170,7 +170,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
       const combined = [...prevFiles, ...toAdd];
 
       setStagingPreviews((prevPreviews) => {
-        const newPreviews = toAdd.map((f) => URL.createObjectURL(f));
+        const newPreviews = toAdd.map((f) => (isVideoFile(f) ? '' : URL.createObjectURL(f)));
         return [...prevPreviews, ...newPreviews];
       });
 
@@ -404,15 +404,17 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
               {stagingPreviews.map((p, i) => {
                 const isVideo = isVideoFile(stagingFiles[i]);
                 return (
-                <div key={i} className="cam-preview-item">
-                  {isVideo ? (
-                    <>
-                      <video src={p} className="cam-preview-media" muted playsInline preload="metadata" />
-                      <span className="cam-preview-video-badge">视频</span>
-                    </>
-                  ) : (
-                    <img src={p} alt={`preview-${i}`} className="cam-preview-media" />
-                  )}
+                  <div key={i} className="cam-preview-item">
+                    {isVideo ? (
+                      <>
+                        <span className="cam-preview-video-placeholder">
+                          <span>VIDEO</span>
+                        </span>
+                        <span className="cam-preview-video-badge">视频</span>
+                      </>
+                    ) : (
+                      <img src={p} alt={`preview-${i}`} className="cam-preview-media" />
+                    )}
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); removeStagingFile(i); }}

@@ -285,6 +285,18 @@ function isVideoUrl(url) {
   }
 }
 
+function isImageUrl(url) {
+  const raw = String(url || '').trim();
+  if (!raw) return false;
+  if (/^data:image\//i.test(raw)) return true;
+  try {
+    const pathname = new URL(raw, window.location.origin).pathname;
+    return /\.(jpe?g|png|webp|gif|avif|heic|heif)$/i.test(pathname);
+  } catch (e) {
+    return /\.(jpe?g|png|webp|gif|avif|heic|heif)(?:[?#].*)?$/i.test(raw);
+  }
+}
+
 function getMediaTypeFromItem(item) {
   if (!item) return 'image';
   if (typeof item === 'string') return isVideoUrl(item) ? 'video' : 'image';
@@ -956,7 +968,7 @@ function ProjectDetail({
     if (!fileKey) return;
     const stagedIndex = findStagedUploadIndex(file);
     const previewSrc = stagedIndex >= 0 ? stagingPreviews[stagedIndex] : '';
-    if (!previewSrc) return;
+    const placeholderSrc = previewSrc || `pending-video://${fileKey}`;
     const sectionId = stagedIndex >= 0 ? String(stagingSectionIds[stagedIndex] || '') : '';
     const placeholderId = `pending-video-${fileKey}`;
     const placeholderMeta = {
@@ -973,11 +985,11 @@ function ProjectDetail({
       fileSize: file.size || 0,
       timelineSectionId: sectionId || undefined,
       timeline_section_id: sectionId || undefined,
-      thumbSrc: previewSrc,
-      thumbUrl: previewSrc,
-      originalSrc: previewSrc,
-      originalUrl: previewSrc,
-      url: previewSrc,
+      thumbSrc: placeholderSrc,
+      thumbUrl: placeholderSrc,
+      originalSrc: placeholderSrc,
+      originalUrl: placeholderSrc,
+      url: placeholderSrc,
     };
     const current = Array.isArray(photoMetasRef.current) ? photoMetasRef.current : [];
     const existingIndex = current.findIndex((meta) => isVideoUploadPlaceholder(meta) && meta.clientUploadKey === fileKey);
@@ -1684,7 +1696,10 @@ function ProjectDetail({
       });
       if (skipped) Toast.warning(`已跳过 ${skipped} 个重复文件`);
       if (fresh.length) {
-        setStagingPreviews((prev) => [...(prev || []), ...fresh.map((file) => URL.createObjectURL(file))]);
+        setStagingPreviews((prev) => [
+          ...(prev || []),
+          ...fresh.map((file) => (isVideoMeta(file) ? '' : URL.createObjectURL(file))),
+        ]);
         setStagingSectionIds((prev) => [
           ...(prev || []),
           ...fresh.map(() => (uploadTimelineEnabled && uploadTimelineSections.length ? nextSectionId : '')),
@@ -2592,17 +2607,6 @@ function ProjectDetail({
     });
   }, []);
 
-  const handleVideoMetadataLoad = React.useCallback((src, event) => {
-    const { videoWidth, videoHeight } = event.target;
-    if (!videoWidth || !videoHeight) return;
-    setImageRatios((prev) => {
-      if (prev[src]) return prev;
-      const nextRatio = videoWidth / videoHeight;
-      ratioCacheRef.current[src] = nextRatio;
-      return { ...prev, [src]: nextRatio };
-    });
-  }, []);
-
   React.useEffect(() => {
     const list = Array.isArray(visiblePhotoItems) ? visiblePhotoItems.filter((item) => item && item.src) : [];
     if (!list.length) {
@@ -2746,6 +2750,7 @@ function ProjectDetail({
 
   const getViewerTargetSrc = React.useCallback((index, showOriginal = false) => {
     const meta = photoMetas?.[index] || {};
+    if (isVideoMeta(meta)) return meta.originalSrc || meta.originalUrl || meta.url || meta.fileUrl || images[index] || meta.thumbSrc || '';
     if (showOriginal) return meta.originalSrc || meta.url || meta.thumbSrc || images[index] || '';
     return meta.thumbSrc || images[index] || meta.originalSrc || meta.url || '';
   }, [photoMetas, images]);
@@ -3818,6 +3823,7 @@ function ProjectDetail({
     const videoUploadState = isVideo ? getVideoUploadState(meta) : '';
     const videoUnavailable = videoUploadState === 'processing' || videoUploadState === 'failed';
     const mediaSrc = isVideo ? (meta.thumbSrc || meta.thumbUrl || src || meta.originalSrc || meta.url) : src;
+    const videoPosterSrc = isVideo && isImageUrl(mediaSrc) ? mediaSrc : '';
     const semanticState = isVideo ? { tags: [], description: '', pending: false, failed: false } : getPhotoSemanticState(meta);
     const timelineLabel = getPhotoTimelineSectionLabel(meta, uploadTimelineSections);
     const adjustments = getAdjustmentForPhoto(meta);
@@ -3859,17 +3865,23 @@ function ProjectDetail({
               aria-label={videoUnavailable ? '视频转码中' : '打开视频'}
               aria-disabled={videoUnavailable ? 'true' : undefined}
             >
-              <video
-                src={mediaSrc}
-                className={`detail-photo-img detail-video-thumb-media${isReady ? ' is-ready' : ''}`}
-                muted
-                playsInline
-                preload="metadata"
-                onLoadedMetadata={(event) => {
-                  handleVideoMetadataLoad(src, event);
-                  setDetailImageReadyMap((prev) => (prev[readyKey] ? prev : { ...prev, [readyKey]: true }));
-                }}
-              />
+              {videoPosterSrc ? (
+                <img
+                  src={videoPosterSrc}
+                  className={`detail-photo-img detail-video-thumb-media${isReady ? ' is-ready' : ''}`}
+                  alt={`${title}-${overallIndex}`}
+                  loading="lazy"
+                  decoding="async"
+                  onLoad={(event) => {
+                    handleImageLoad(src, event);
+                    setDetailImageReadyMap((prev) => (prev[readyKey] ? prev : { ...prev, [readyKey]: true }));
+                  }}
+                />
+              ) : (
+                <span className="detail-video-thumb-placeholder" aria-hidden="true">
+                  <span>VIDEO</span>
+                </span>
+              )}
               {videoUnavailable ? (
                 <span className="detail-video-processing-mark" aria-hidden="true" />
               ) : (
@@ -4007,7 +4019,7 @@ function ProjectDetail({
       </div>
     </div>
     );
-  }, [title, handlePhotoDragStart, handlePhotoDragEnd, handleImageLoad, handleVideoMetadataLoad, deleteMode, photoMetas, images, hoveredPhotoIdx, photoTagsMap, showAILabels, photoAILabelMap, selectedMap, toggleSelect, project, initialProject, getRippleStyle, openViewerAt, detailImageReadyMap, imageRatios, galleryMode, getPhotoSemanticState, getAdjustmentForPhoto, uploadTimelineSections]);
+  }, [title, handlePhotoDragStart, handlePhotoDragEnd, handleImageLoad, deleteMode, photoMetas, images, hoveredPhotoIdx, photoTagsMap, showAILabels, photoAILabelMap, selectedMap, toggleSelect, project, initialProject, getRippleStyle, openViewerAt, detailImageReadyMap, imageRatios, galleryMode, getPhotoSemanticState, getAdjustmentForPhoto, uploadTimelineSections]);
 
   return (
     <div className="detail-page">
@@ -4708,7 +4720,9 @@ function ProjectDetail({
                           >
                             {isPreviewVideo ? (
                               <>
-                                <video src={item.preview} className="detail-upload-preview-media" muted playsInline preload="metadata" />
+                                <span className="detail-upload-preview-video-placeholder">
+                                  <span>VIDEO</span>
+                                </span>
                                 <span className="detail-upload-preview-video-badge">视频</span>
                               </>
                             ) : (
