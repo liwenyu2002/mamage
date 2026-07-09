@@ -317,7 +317,8 @@ textarea {
     --mamage-notch-min-width: 320px;
     --mamage-notch-height: 34px;
     border-color: var(--mamage-glass-border) !important;
-    border-bottom-color: rgba(255, 255, 255, 0.48) !important;
+    /* 底边框整条透明：刘海区段由 topbar::after 画"带缺口"的边线，避免横切刘海 */
+    border-bottom-color: transparent !important;
     border-radius: 18px;
     background: var(--mamage-glass-bg) !important;
     box-shadow: 0 8px 24px rgba(50, 82, 112, 0.12), 0 1px 8px rgba(18, 32, 52, 0.05);
@@ -330,37 +331,46 @@ textarea {
     content: '';
     position: absolute;
     left: 50%;
-    top: calc(100% - 1px);
+    /* 上叠 3px 盖住主栏底缘，与其融为一体 */
+    top: calc(100% - 3px);
     z-index: 1;
     width: var(--mamage-notch-width);
     min-width: var(--mamage-notch-min-width);
-    height: calc(var(--mamage-notch-height) + 1px);
+    height: calc(var(--mamage-notch-height) + 3px);
     border-top: 0;
     border-right: 1px solid var(--mamage-glass-border);
     border-bottom: 1px solid var(--mamage-glass-border);
     border-left: 1px solid var(--mamage-glass-border);
     border-radius: 0 0 20px 20px;
-    background: var(--mamage-glass-bg) !important;
-    box-shadow: 0 16px 26px rgba(30, 80, 130, 0.06), var(--mamage-glass-edge-shadow);
+    /* 顶部 10px 渐白遮罩吃掉主栏投影透过玻璃形成的灰带，其余保持玻璃材质 */
+    background: linear-gradient(rgba(255, 255, 255, 0.85) 0, rgba(255, 255, 255, 0) 10px), var(--mamage-glass-bg) !important;
+    /* 只向下投影，顶部无阴影才能与主栏无缝 */
+    box-shadow: 0 14px 22px rgba(30, 80, 130, 0.08);
     transform: translateX(-50%);
     pointer-events: none;
     backdrop-filter: var(--lg-blur);
     -webkit-backdrop-filter: var(--lg-blur);
 }
 
+/* 主栏底边线：在刘海处留缺口，两端渐隐避开圆角 */
 .mamage-header.is-desktop-header.is-project-detail .mamage-topbar::after {
     content: '';
     position: absolute;
-    left: 50%;
-    bottom: -2px;
+    left: 14px;
+    right: 14px;
+    bottom: -1px;
     z-index: 2;
-    width: calc(var(--mamage-notch-width) - 2px);
-    min-width: var(--mamage-notch-min-width);
-    height: 4px;
-    border-radius: 999px 999px 0 0;
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.74) 10% 90%, transparent);
-    transform: translateX(-50%);
+    height: 1px;
     pointer-events: none;
+    background: linear-gradient(90deg,
+        transparent 0,
+        rgba(255, 255, 255, 0.48) 12px,
+        rgba(255, 255, 255, 0.48) calc(50% - var(--mamage-notch-width) / 2 + 14px),
+        transparent calc(50% - var(--mamage-notch-width) / 2 + 20px),
+        transparent calc(50% + var(--mamage-notch-width) / 2 - 20px),
+        rgba(255, 255, 255, 0.48) calc(50% + var(--mamage-notch-width) / 2 - 14px),
+        rgba(255, 255, 255, 0.48) calc(100% - 12px),
+        transparent 100%);
 }
 
 .mamage-brand-area,
