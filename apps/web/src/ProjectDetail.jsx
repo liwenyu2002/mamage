@@ -12,9 +12,9 @@ import {
   IconSearch,
 } from './ui/icons';
 import './ProjectDetail.css';
-import { getProjectById, updateProject, deleteProject } from './services/projectService';
+import { getProjectById, updateProject, deleteProject, createTimelineSection, updateTimelineSection, deleteTimelineSection, reorderTimelineSections } from './services/projectService';
 import { getToken } from './services/authService';
-import { fetchRandomByProject, searchPhotos, getPhotoById, updatePhoto, getFacePersonInfo, labelFacePerson, renameFacePerson, uploadPhotoFiles, warmUploadApiProbe, deletePhotos, getPhotoFaces, getUploadFileLimitError } from './services/photoService';
+import { fetchRandomByProject, searchPhotos, getPhotoById, updatePhoto, assignPhotosTimelineSection, getFacePersonInfo, labelFacePerson, renameFacePerson, uploadPhotoFiles, warmUploadApiProbe, deletePhotos, getPhotoFaces, getUploadFileLimitError } from './services/photoService';
 import { resolveAssetUrl, BASE_URL } from './services/request';
 import IfCan from './permissions/IfCan';
 import PermButton from './permissions/PermButton';
@@ -718,6 +718,15 @@ function ProjectDetail({
   const [editTagInput, setEditTagInput] = React.useState('');
   const [userPermissions, setUserPermissions] = React.useState(() => getPermissions());
   const [deletingProject, setDeletingProject] = React.useState(false);
+
+  // timeline sections editor
+  const [timelineEditVisible, setTimelineEditVisible] = React.useState(false);
+  const [timelineBusy, setTimelineBusy] = React.useState(false);
+  const [sectionRowEdits, setSectionRowEdits] = React.useState({}); // { [sectionId]: { name, sectionTime } }
+  const [timelineDraftName, setTimelineDraftName] = React.useState('');
+  const [timelineDraftTime, setTimelineDraftTime] = React.useState('');
+  const [moveSectionVisible, setMoveSectionVisible] = React.useState(false);
+  const [assigningSection, setAssigningSection] = React.useState(false);
 
   // selection / delete
   const [deleteMode, setDeleteMode] = React.useState(false);
@@ -2067,6 +2076,129 @@ function ProjectDetail({
       }
     }
   }, [projectId, editTitle, editDescription, editEventDate, readOnly]);
+
+  // ===== 时间线环节编辑 =====
+  const refreshProjectDetail = React.useCallback(async () => {
+    const detail = await getProjectById(projectId, {
+      demo: readOnly,
+      includeFaces: false,
+      timeoutMs: PROJECT_DETAIL_TIMEOUT_MS,
+    });
+    setProject(detail);
+    const built = buildImagesAndMetas(detail);
+    setImages(built.images);
+    setPhotoMetas(built.metas);
+    return detail;
+  }, [projectId, readOnly, buildImagesAndMetas]);
+
+  const openTimelineEdit = React.useCallback(() => {
+    const edits = {};
+    (uploadTimelineSections || []).forEach((s) => {
+      if (s && s.id) edits[String(s.id)] = { name: s.name || '', sectionTime: s.sectionTime || '' };
+    });
+    setSectionRowEdits(edits);
+    setTimelineDraftName('');
+    setTimelineDraftTime('');
+    setTimelineEditVisible(true);
+  }, [uploadTimelineSections]);
+
+  const runTimelineAction = React.useCallback(async (fn, successText) => {
+    if (timelineBusy) return;
+    setTimelineBusy(true);
+    try {
+      await fn();
+      await refreshProjectDetail();
+      if (successText) Toast.success(successText);
+    } catch (err) {
+      console.error('timeline action error', err);
+      const body = err && err.body ? String(err.body) : '';
+      if (err && err.status === 409) Toast.warning('同名环节已存在');
+      else if (err && err.status === 403) Toast.error('没有权限');
+      else Toast.error(`操作失败${body ? `：${body.slice(0, 80)}` : ''}`);
+    } finally {
+      setTimelineBusy(false);
+    }
+  }, [timelineBusy, refreshProjectDetail]);
+
+  const handleAddSection = React.useCallback(() => {
+    const name = String(timelineDraftName || '').trim();
+    if (!name) { Toast.warning('请输入环节名称'); return; }
+    runTimelineAction(async () => {
+      const created = await createTimelineSection(projectId, { name, sectionTime: String(timelineDraftTime || '').trim() || undefined });
+      setTimelineDraftName('');
+      setTimelineDraftTime('');
+      if (created && created.id) {
+        setSectionRowEdits((prev) => ({ ...prev, [String(created.id)]: { name: created.name || name, sectionTime: created.sectionTime || '' } }));
+      }
+    }, '环节已添加');
+  }, [projectId, timelineDraftName, timelineDraftTime, runTimelineAction]);
+
+  const handleSaveSectionRow = React.useCallback((sectionId) => {
+    const edit = sectionRowEdits[String(sectionId)];
+    if (!edit) return;
+    const name = String(edit.name || '').trim();
+    if (!name) { Toast.warning('环节名称不能为空'); return; }
+    runTimelineAction(
+      () => updateTimelineSection(projectId, sectionId, { name, sectionTime: String(edit.sectionTime || '').trim() || null }),
+      '已保存'
+    );
+  }, [projectId, sectionRowEdits, runTimelineAction]);
+
+  const handleDeleteSection = React.useCallback((section) => {
+    if (!section || !section.id) return;
+    Modal.confirm({
+      title: `删除环节「${section.name}」？`,
+      content: '该环节下的照片不会被删除，会回落到"未归类"。',
+      okText: '删除',
+      cancelText: '取消',
+      onOk: () => runTimelineAction(
+        () => deleteTimelineSection(projectId, section.id),
+        '环节已删除'
+      ),
+    });
+  }, [projectId, runTimelineAction]);
+
+  const handleMoveSectionOrder = React.useCallback((sectionId, direction) => {
+    const list = (uploadTimelineSections || []).filter((s) => s && s.id);
+    const idx = list.findIndex((s) => String(s.id) === String(sectionId));
+    const target = idx + direction;
+    if (idx < 0 || target < 0 || target >= list.length) return;
+    const ids = list.map((s) => s.id);
+    [ids[idx], ids[target]] = [ids[target], ids[idx]];
+    runTimelineAction(() => reorderTimelineSections(projectId, ids), null);
+  }, [projectId, uploadTimelineSections, runTimelineAction]);
+
+  const handleAssignSelectedToSection = React.useCallback(async (sectionId) => {
+    if (assigningSection) return;
+    const idxs = Object.keys(selectedMap || {}).map((k) => Number(k)).sort((a, b) => a - b);
+    const photoIds = idxs
+      .map((idx) => getPhotoRecordId(photoMetas?.[idx]))
+      .map((v) => Number(v))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    if (!photoIds.length) { Toast.warning('先选择照片'); return; }
+    setAssigningSection(true);
+    try {
+      const result = await assignPhotosTimelineSection(photoIds, sectionId);
+      await refreshProjectDetail();
+      setMoveSectionVisible(false);
+      setDeleteMode(false);
+      setSelectedMap({});
+      setSelectedCount(0);
+      setAllSelected(false);
+      Toast.success(sectionId === null ? `已移出环节（${result.updated} 张）` : `已移入环节（${result.updated} 张）`);
+    } catch (err) {
+      console.error('assign section error', err);
+      if (err && err.status === 400 && String(err.body || '').includes('PHOTO_PROJECT_MISMATCH')) {
+        Toast.error('所选照片与环节不属于同一相册');
+      } else if (err && err.status === 403) {
+        Toast.error('没有权限');
+      } else {
+        Toast.error('移动失败，请稍后重试');
+      }
+    } finally {
+      setAssigningSection(false);
+    }
+  }, [assigningSection, selectedMap, photoMetas, refreshProjectDetail]);
 
   const handleDeleteProject = React.useCallback(() => {
     if (DISABLE_DELETE_FEATURE) {
@@ -4433,6 +4565,23 @@ function ProjectDetail({
               </span>
             </Button>
           </IfCan>
+          <IfCan perms={['projects.update']}>
+            <Button
+              className="detail-action-tile"
+              theme="borderless"
+              onClick={() => {
+                setActionSheetOpen(false);
+                openTimelineEdit();
+              }}
+              aria-label="编辑时间线环节"
+            >
+              <span className="detail-action-icon" aria-hidden="true"><IconListView /></span>
+              <span className="detail-action-copy">
+                <span className="detail-action-title">编辑时间线</span>
+                <span className="detail-action-desc">环节增删/排序/命名</span>
+              </span>
+            </Button>
+          </IfCan>
         </div>
 
         {(description || (tags && tags.length > 0) || startText || createdText || date) ? (
@@ -4570,6 +4719,20 @@ function ProjectDetail({
             <div className="detail-selection-actions">
               <Button className="detail-selection-btn detail-selection-btn--select" onClick={toggleSelectAll}>{allSelected ? '取消全选' : '全选'}</Button>
               {canPackDownload ? <Button className="detail-selection-btn detail-selection-btn--download" onClick={packDownloadSelected} type="tertiary">直接下载</Button> : null}
+              {uploadTimelineSections.length > 0 ? (
+                <IfCan perms={['photos.edit']}>
+                  <Button
+                    className="detail-selection-btn"
+                    type="tertiary"
+                    disabled={selectedCount <= 0 || assigningSection}
+                    loading={assigningSection}
+                    onClick={() => setMoveSectionVisible(true)}
+                    title={selectedCount > 0 ? `把 ${selectedCount} 张照片移入环节` : '先选择照片'}
+                  >
+                    移入环节{selectedCount > 0 ? ` (${selectedCount})` : ''}
+                  </Button>
+                </IfCan>
+              ) : null}
               <Button
                 className="detail-selection-btn detail-selection-btn--danger"
                 onClick={canDeletePhotos ? confirmDelete : undefined}
@@ -4632,6 +4795,87 @@ function ProjectDetail({
                 <Button className="detail-edit-delete-btn" type="danger" onClick={handleDeleteProject} loading={deletingProject} disabled={deletingProject}>删除项目</Button>
               ) : null}
             </div>
+          </div>
+        </Modal>
+
+        {/* 时间线环节编辑弹窗（操作即时生效） */}
+        <Modal
+          title="编辑时间线"
+          className="detail-edit-modal"
+          visible={timelineEditVisible}
+          onOk={() => setTimelineEditVisible(false)}
+          onCancel={() => setTimelineEditVisible(false)}
+          okText="完成"
+          cancelText="关闭"
+          width={isMobile ? 'calc(100vw - 16px)' : 560}
+          bodyStyle={{ maxHeight: '62vh', overflowY: 'auto', padding: isMobile ? '12px' : undefined }}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {uploadTimelineSections.length === 0 ? (
+              <Text style={{ color: 'var(--mg-text-2, #888)' }}>还没有环节，先在下方添加一个。</Text>
+            ) : uploadTimelineSections.map((section, idx) => {
+              const key = String(section.id || '');
+              const edit = sectionRowEdits[key] || { name: section.name || '', sectionTime: section.sectionTime || '' };
+              const dirty = edit.name !== (section.name || '') || (edit.sectionTime || '') !== (section.sectionTime || '');
+              return (
+                <div key={key || section.key} style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
+                  <Input
+                    value={edit.name}
+                    onChange={(v) => setSectionRowEdits((prev) => ({ ...prev, [key]: { ...edit, name: v } }))}
+                    placeholder="环节名称"
+                    style={{ flex: 2, minWidth: 120 }}
+                  />
+                  <Input
+                    value={edit.sectionTime}
+                    onChange={(v) => setSectionRowEdits((prev) => ({ ...prev, [key]: { ...edit, sectionTime: v } }))}
+                    placeholder="时间（可选，如 09:30）"
+                    style={{ flex: 1, minWidth: 96 }}
+                  />
+                  <Button theme="borderless" disabled={timelineBusy || idx === 0} onClick={() => handleMoveSectionOrder(section.id, -1)} title="上移">↑</Button>
+                  <Button theme="borderless" disabled={timelineBusy || idx === uploadTimelineSections.length - 1} onClick={() => handleMoveSectionOrder(section.id, 1)} title="下移">↓</Button>
+                  <Button type="primary" theme="borderless" disabled={timelineBusy || !dirty} onClick={() => handleSaveSectionRow(section.id)}>保存</Button>
+                  <Button type="danger" theme="borderless" disabled={timelineBusy} onClick={() => handleDeleteSection(section)}>删除</Button>
+                </div>
+              );
+            })}
+            <div style={{ borderTop: '1px solid rgba(128,128,128,0.25)', paddingTop: 10, display: 'flex', gap: 6, alignItems: 'center', flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
+              <Input value={timelineDraftName} onChange={(v) => setTimelineDraftName(v)} placeholder="新环节名称" style={{ flex: 2, minWidth: 120 }} />
+              <Input value={timelineDraftTime} onChange={(v) => setTimelineDraftTime(v)} placeholder="时间（可选）" style={{ flex: 1, minWidth: 96 }} />
+              <Button type="primary" loading={timelineBusy} disabled={timelineBusy} onClick={handleAddSection}>添加环节</Button>
+            </div>
+            <Text style={{ fontSize: 12, color: 'var(--mg-text-2, #888)' }}>重命名/改时间后点该行"保存"；删除环节时照片会回落到"未归类"。</Text>
+          </div>
+        </Modal>
+
+        {/* 选中照片移入环节弹窗 */}
+        <Modal
+          title={`移入环节（已选 ${selectedCount} 张）`}
+          className="detail-edit-modal"
+          visible={moveSectionVisible}
+          onCancel={() => setMoveSectionVisible(false)}
+          footer={null}
+          width={isMobile ? 'calc(100vw - 16px)' : 420}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: '52vh', overflowY: 'auto' }}>
+            {uploadTimelineSections.map((section) => (
+              <Button
+                key={String(section.id || section.key)}
+                theme="light"
+                disabled={assigningSection || !section.id}
+                onClick={() => handleAssignSelectedToSection(section.id)}
+                style={{ justifyContent: 'flex-start', textAlign: 'left' }}
+              >
+                {section.name}{section.sectionTime ? `（${section.sectionTime}）` : ''}
+              </Button>
+            ))}
+            <Button
+              theme="borderless"
+              disabled={assigningSection}
+              onClick={() => handleAssignSelectedToSection(null)}
+              style={{ justifyContent: 'flex-start', textAlign: 'left' }}
+            >
+              移出环节（未归类）
+            </Button>
           </div>
         </Modal>
 

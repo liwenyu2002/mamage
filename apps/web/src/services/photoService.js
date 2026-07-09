@@ -312,6 +312,18 @@ async function updatePhoto(photoId, data = {}) {
   });
 }
 
+// 批量把照片移入/移出时间线环节；sectionId 为 null 表示移出（回落"未归类"）
+async function assignPhotosTimelineSection(photoIds, sectionId) {
+  const ids = (Array.isArray(photoIds) ? photoIds : [photoIds])
+    .map((v) => Number(v))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  if (!ids.length) throw new Error('assignPhotosTimelineSection: photoIds is required');
+  return request('/api/photos/assign-section', {
+    method: 'POST',
+    data: { photoIds: ids, timelineSectionId: sectionId === null || sectionId === undefined ? null : Number(sectionId) },
+  });
+}
+
 async function detectPhotoFaces(photoId, { force = false, projectId } = {}) {
   if (photoId === undefined || photoId === null || String(photoId).trim() === '') {
     throw new Error('detectPhotoFaces: photoId is required');
@@ -1044,6 +1056,7 @@ export {
   searchPhotos,
   getPhotoById,
   updatePhoto,
+  assignPhotosTimelineSection,
   detectPhotoFaces,
   getPhotoFaces,
   getFacePersonInfo,

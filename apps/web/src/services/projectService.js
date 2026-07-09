@@ -99,4 +99,35 @@ async function deleteProject(id) {
   return resp.text();
 }
 
-export { fetchLatestProjects, fetchProjectList, getProjectById, updateProject, createProject, deleteProject };
+// ===== 时间线环节 CRUD =====
+async function createTimelineSection(projectId, { name, sectionTime } = {}) {
+  return request(`/api/projects/${projectId}/timeline-sections`, {
+    method: 'POST',
+    data: { name, sectionTime },
+  });
+}
+
+async function updateTimelineSection(projectId, sectionId, data) {
+  return request(`/api/projects/${projectId}/timeline-sections/${sectionId}`, {
+    method: 'PATCH',
+    data,
+  });
+}
+
+async function deleteTimelineSection(projectId, sectionId) {
+  return request(`/api/projects/${projectId}/timeline-sections/${sectionId}`, {
+    method: 'DELETE',
+  });
+}
+
+async function reorderTimelineSections(projectId, sectionIds) {
+  return request(`/api/projects/${projectId}/timeline-sections/reorder`, {
+    method: 'POST',
+    data: { sectionIds },
+  });
+}
+
+export {
+  fetchLatestProjects, fetchProjectList, getProjectById, updateProject, createProject, deleteProject,
+  createTimelineSection, updateTimelineSection, deleteTimelineSection, reorderTimelineSections,
+};
