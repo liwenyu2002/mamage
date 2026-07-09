@@ -4189,9 +4189,16 @@ function ProjectDetail({
             <div className="detail-selection-actions">
               <Button className="detail-selection-btn detail-selection-btn--select" onClick={toggleSelectAll}>{allSelected ? '取消全选' : '全选'}</Button>
               {canPackDownload ? <Button className="detail-selection-btn detail-selection-btn--download" onClick={packDownloadSelected} type="tertiary">直接下载</Button> : null}
-              {canDeletePhotos ? (
-                <PermButton className="detail-selection-btn detail-selection-btn--danger" perms={['photos.delete']} onClick={confirmDelete} type="danger" loading={deletingPhotos} disabled={deletingPhotos}>删除 ({selectedCount})</PermButton>
-              ) : null}
+              <Button
+                className="detail-selection-btn detail-selection-btn--danger"
+                onClick={canDeletePhotos ? confirmDelete : undefined}
+                type="danger"
+                loading={deletingPhotos}
+                disabled={deletingPhotos || !canDeletePhotos || selectedCount <= 0}
+                title={!canDeletePhotos ? '当前账号没有删除照片权限' : (selectedCount > 0 ? `删除 ${selectedCount} 张照片` : '先选择照片')}
+              >
+                删除{selectedCount > 0 ? ` (${selectedCount})` : ''}
+              </Button>
             </div>
           </div>
         ) : null}
