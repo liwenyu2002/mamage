@@ -755,6 +755,7 @@ function ProjectDetail({
   const [searchError, setSearchError] = React.useState('');
   const [searchOpen, setSearchOpen] = React.useState(false);
   const [actionSheetOpen, setActionSheetOpen] = React.useState(false);
+  const [mediaFilter, setMediaFilter] = React.useState('all'); // all | image | video
   const searchReqSeqRef = React.useRef(0);
   const hasSearchedRef = React.useRef(false);
 
@@ -1828,6 +1829,19 @@ function ProjectDetail({
     });
   }, [projectId, onBack, DISABLE_DELETE_FEATURE]);
 
+  const getMediaFilteredIndexes = React.useCallback(() => {
+    const total = Array.isArray(images) ? images.length : 0;
+    const indexes = [];
+    for (let i = 0; i < total; i += 1) {
+      const meta = photoMetas?.[i] || {};
+      const isVideo = isVideoMeta(meta);
+      if (mediaFilter === 'video' && !isVideo) continue;
+      if (mediaFilter === 'image' && isVideo) continue;
+      indexes.push(i);
+    }
+    return indexes;
+  }, [images, photoMetas, mediaFilter]);
+
   const toggleDeleteMode = React.useCallback(() => {
     const turningOff = !!deleteMode;
     setDeleteMode(!deleteMode);
@@ -1843,21 +1857,38 @@ function ProjectDetail({
     const map = Object.assign({}, selectedMap || {});
     if (map[key]) delete map[key]; else map[key] = true;
     const count = Object.keys(map).length;
-    const total = (images && images.length) || 0;
+    const filteredKeys = new Set(getMediaFilteredIndexes().map((i) => String(i)));
+    const visibleSelectedCount = Object.keys(map).filter((k) => filteredKeys.has(k)).length;
     setSelectedMap(map);
     setSelectedCount(count);
-    setAllSelected(total > 0 && count === total);
-  }, [selectedMap, images]);
+    setAllSelected(filteredKeys.size > 0 && visibleSelectedCount === filteredKeys.size);
+  }, [selectedMap, getMediaFilteredIndexes]);
 
   const toggleSelectAll = React.useCallback(() => {
-    const total = (images && images.length) || 0;
-    if (!total) return;
-    if (allSelected) {
-      setSelectedMap({}); setSelectedCount(0); setAllSelected(false);
+    const indexes = getMediaFilteredIndexes();
+    if (!indexes.length) return;
+    const map = Object.assign({}, selectedMap || {});
+    const everyVisibleSelected = indexes.every((i) => !!map[String(i)]);
+    if (everyVisibleSelected) {
+      indexes.forEach((i) => { delete map[String(i)]; });
     } else {
-      const map = {}; for (let i = 0; i < total; i++) map[String(i)] = true; setSelectedMap(map); setSelectedCount(total); setAllSelected(true);
+      indexes.forEach((i) => { map[String(i)] = true; });
     }
-  }, [images, allSelected]);
+    setSelectedMap(map);
+    setSelectedCount(Object.keys(map).length);
+    setAllSelected(!everyVisibleSelected);
+  }, [getMediaFilteredIndexes, selectedMap]);
+
+  React.useEffect(() => {
+    if (!deleteMode) return;
+    const indexes = getMediaFilteredIndexes();
+    if (!indexes.length) {
+      setAllSelected(false);
+      return;
+    }
+    const selectedVisibleCount = indexes.filter((i) => !!selectedMap[String(i)]).length;
+    setAllSelected(selectedVisibleCount === indexes.length);
+  }, [deleteMode, getMediaFilteredIndexes, selectedMap]);
 
   const confirmDelete = React.useCallback(() => {
     if (DISABLE_DELETE_FEATURE) {
@@ -2297,16 +2328,32 @@ function ProjectDetail({
     return Math.max(4, Math.floor((w + 12) / (240 + 12)));
   }, [galleryWidth]);
 
+  const mediaStats = React.useMemo(() => {
+    let video = 0;
+    let image = 0;
+    (images || []).forEach((src, idx) => {
+      if (!src) return;
+      const meta = photoMetas?.[idx] || {};
+      if (isVideoMeta(meta)) video += 1;
+      else image += 1;
+    });
+    return { image, video, total: image + video };
+  }, [photoMetas, images]);
+
   React.useEffect(() => {
     setGalleryRenderLimit(GALLERY_INITIAL_RENDER_LIMIT);
-  }, [projectId, searchKeyword]);
+  }, [projectId, searchKeyword, mediaFilter]);
 
-  const visiblePhotoCount = Math.min(images.length, Math.max(GALLERY_INITIAL_RENDER_LIMIT, galleryRenderLimit));
-  const visibleImages = React.useMemo(
-    () => images.slice(0, visiblePhotoCount),
-    [images, visiblePhotoCount]
+  const mediaFilteredIndexes = React.useMemo(() => getMediaFilteredIndexes(), [getMediaFilteredIndexes]);
+  const visiblePhotoCount = Math.min(mediaFilteredIndexes.length, Math.max(GALLERY_INITIAL_RENDER_LIMIT, galleryRenderLimit));
+  const visiblePhotoItems = React.useMemo(
+    () => mediaFilteredIndexes
+      .slice(0, visiblePhotoCount)
+      .map((idx) => ({ src: images[idx], idx }))
+      .filter((item) => !!item.src),
+    [mediaFilteredIndexes, visiblePhotoCount, images]
   );
-  const hasMoreGalleryPhotos = visiblePhotoCount < images.length;
+  const hasMoreGalleryPhotos = visiblePhotoCount < mediaFilteredIndexes.length;
   const searchKeywordTrimmed = String(searchKeyword || '').trim();
   const useTimelineGallery = Boolean(uploadTimelineEnabled && uploadTimelineSections.length);
   const timelineGalleryGroups = React.useMemo(() => {
@@ -2330,7 +2377,7 @@ function ProjectDetail({
       sortOrder: 999999,
       items: [],
     };
-    visibleImages.forEach((src, idx) => {
+    visiblePhotoItems.forEach(({ src, idx }) => {
       const meta = photoMetas?.[idx] || {};
       const sectionId = getPhotoTimelineSectionId(meta);
       const target = sectionId ? byId.get(String(sectionId)) : null;
@@ -2340,7 +2387,7 @@ function ProjectDetail({
       ...groups.filter((group) => group.items.length),
       ...(uncategorized.items.length ? [uncategorized] : []),
     ];
-  }, [useTimelineGallery, uploadTimelineSections, visibleImages, photoMetas, projectId]);
+  }, [useTimelineGallery, uploadTimelineSections, visiblePhotoItems, photoMetas, projectId]);
 
   React.useEffect(() => {
     if (!projectId || !useTimelineGallery) return;
@@ -2354,9 +2401,15 @@ function ProjectDetail({
     setInternalGalleryMode('grid');
   }, [controlledGalleryMode, onGalleryModeChange, projectId, useTimelineGallery]);
   const detailSearchVisible = Boolean(searchOpen || searching || searchError || searchKeywordTrimmed);
-  const compactCountText = hasMoreGalleryPhotos
-    ? `${count} 张，已显示 ${visiblePhotoCount}`
-    : `${count} 张照片`;
+  const mediaFilterLabel = mediaFilter === 'video' ? '视频' : (mediaFilter === 'image' ? '照片' : '全部');
+  const compactCountText = mediaFilter === 'all'
+    ? (hasMoreGalleryPhotos ? `${count} 张，已显示 ${visiblePhotoCount}` : `${count} 张照片`)
+    : `${mediaFilterLabel} ${mediaFilteredIndexes.length} 个，已显示 ${visiblePhotoCount}`;
+  const mediaFilterOptions = React.useMemo(() => ([
+    { key: 'all', label: '全部', count: mediaStats.total },
+    { key: 'image', label: '只看照片', count: mediaStats.image },
+    { key: 'video', label: '只看视频', count: mediaStats.video },
+  ]), [mediaStats]);
   React.useEffect(() => {
     if (typeof onProjectHeaderChange !== 'function') return;
     onProjectHeaderChange({
@@ -2376,12 +2429,12 @@ function ProjectDetail({
   }, [onProjectHeaderChange]);
   const loadMoreGalleryPhotos = React.useCallback(() => {
     setGalleryRenderLimit((prev) => Math.min(
-      images.length,
+      mediaFilteredIndexes.length,
       Math.max(GALLERY_INITIAL_RENDER_LIMIT, prev + GALLERY_RENDER_BATCH_SIZE)
     ));
-  }, [images.length]);
+  }, [mediaFilteredIndexes.length]);
 
-  const isGalleryPreparing = !loading && !error && visibleImages.length > 0 && !galleryPrepared;
+  const isGalleryPreparing = !loading && !error && visiblePhotoItems.length > 0 && !galleryPrepared;
 
   const renderTimelineGroupItems = (group) => {
     const items = Array.isArray(group?.items) ? group.items : [];
@@ -2442,7 +2495,7 @@ function ProjectDetail({
   }, []);
 
   React.useEffect(() => {
-    const list = Array.isArray(visibleImages) ? visibleImages.filter(Boolean) : [];
+    const list = Array.isArray(visiblePhotoItems) ? visiblePhotoItems.filter((item) => item && item.src) : [];
     if (!list.length) {
       setGalleryPrepared(true);
       return undefined;
@@ -2472,7 +2525,7 @@ function ProjectDetail({
 
     const nextRatios = {};
 
-    list.forEach((src, idx) => {
+    list.forEach(({ src, idx }) => {
       const cachedRatio = imageRatios[src] || ratioCacheRef.current[src] || readMetaRatio(photoMetas?.[idx]);
       if (cachedRatio && Number.isFinite(cachedRatio) && cachedRatio > 0) {
         nextRatios[src] = cachedRatio;
@@ -2498,7 +2551,7 @@ function ProjectDetail({
 
     setGalleryPrepared(true);
     return undefined;
-  }, [visibleImages, photoMetas]);
+  }, [visiblePhotoItems, photoMetas, imageRatios]);
 
   React.useEffect(() => {
     if (!galleryPrepared || !hasMoreGalleryPhotos) return undefined;
@@ -3512,7 +3565,7 @@ function ProjectDetail({
   const masonryBuckets = React.useMemo(() => {
     const cols = Math.max(1, masonryColumns);
     const buckets = Array.from({ length: cols }, () => ({ h: 0, items: [] }));
-    visibleImages.forEach((src, idx) => {
+    visiblePhotoItems.forEach(({ src, idx }) => {
       const ratio = imageRatios[src] || 1.5;
       const estHeight = 1 / Math.max(0.2, ratio);
       let minCol = 0;
@@ -3523,7 +3576,7 @@ function ProjectDetail({
       buckets[minCol].h += estHeight;
     });
     return buckets.map((b) => b.items);
-  }, [visibleImages, imageRatios, masonryColumns]);
+  }, [visiblePhotoItems, imageRatios, masonryColumns]);
 
   const getRippleStyle = React.useCallback((index) => {
     void index;
@@ -3976,6 +4029,24 @@ function ProjectDetail({
           />
         </div>
 
+        <div className="detail-media-filter" role="group" aria-label="媒体类型筛选">
+          {mediaFilterOptions.map((option) => (
+            <button
+              key={option.key}
+              type="button"
+              className={`detail-media-filter-btn${mediaFilter === option.key ? ' is-active' : ''}`}
+              onClick={() => {
+                setMediaFilter(option.key);
+                setActionSheetOpen(false);
+              }}
+              aria-pressed={mediaFilter === option.key}
+            >
+              <span>{option.label}</span>
+              <strong>{option.count}</strong>
+            </button>
+          ))}
+        </div>
+
         <div className="detail-actions-grid">
           <Button
             className="detail-action-tile"
@@ -4107,6 +4178,12 @@ function ProjectDetail({
           </div>
         )}
 
+        {!loading && !error && images.length > 0 && mediaFilteredIndexes.length === 0 && (
+          <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '60px 0' }}>
+            <Empty description={mediaFilter === 'video' ? '当前相册暂无视频' : '当前相册暂无照片'} />
+          </div>
+        )}
+
         {isGalleryPreparing && (
           galleryMode === 'masonry' ? (
             <div className="detail-masonry-columns detail-masonry-columns--placeholder" style={{ '--masonry-cols': masonryColumns }}>
@@ -4121,7 +4198,7 @@ function ProjectDetail({
               ))}
             </div>
           ) : (
-            visibleImages.map((src, idx) => (
+            visiblePhotoItems.map(({ src, idx }) => (
               <div className="detail-photo-item detail-photo-item--skeleton" key={`grid-placeholder-${idx}`}>
                 <div className="detail-photo detail-photo--skeleton" />
               </div>
@@ -4174,13 +4251,13 @@ function ProjectDetail({
               ))}
             </div>
           ) : (
-            visibleImages.map((src, overallIndex) => renderPhotoItem(src, overallIndex))
+            visiblePhotoItems.map(({ src, idx }) => renderPhotoItem(src, idx))
           )
         )}
         {!loading && !error && galleryPrepared && hasMoreGalleryPhotos ? (
           <div className="detail-gallery-more" ref={galleryMoreRef}>
             <Button type="tertiary" onClick={loadMoreGalleryPhotos}>
-              加载更多照片（已显示 {visiblePhotoCount} / {images.length}）
+              加载更多{mediaFilter === 'video' ? '视频' : '照片'}（已显示 {visiblePhotoCount} / {mediaFilteredIndexes.length}）
             </Button>
           </div>
         ) : null}

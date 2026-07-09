@@ -2993,6 +2993,62 @@
   font-size: 12px;
 }
 
+.detail-media-filter {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 10px;
+  padding: 5px;
+  border-radius: 999px;
+  border: var(--liquid-glass-stroke-width, 0.5px) solid var(--liquid-glass-border-soft, rgba(255, 255, 255, 0.24));
+  background: rgba(255, 255, 255, 0.22);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.46);
+}
+
+.detail-media-filter-btn {
+  min-width: 0;
+  height: 38px;
+  border: 0;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  color: var(--lg-muted);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 160ms ease, color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.detail-media-filter-btn strong {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+  background: rgba(15, 23, 42, 0.08);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.detail-media-filter-btn:hover,
+.detail-media-filter-btn.is-active {
+  color: var(--lg-text);
+  background: rgba(255, 255, 255, 0.56);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 8px 18px rgba(30, 80, 130, 0.09);
+}
+
+.detail-media-filter-btn:active {
+  transform: translateY(1px);
+}
+
 .detail-actions-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3223,6 +3279,25 @@ body.mamage-detail-actions-open [data-transfer-station-root="1"] {
 
   .detail-actions-grid {
     gap: 7px;
+  }
+
+  .detail-media-filter {
+    gap: 4px;
+    margin-bottom: 8px;
+    padding: 4px;
+  }
+
+  .detail-media-filter-btn {
+    height: 34px;
+    gap: 3px;
+    font-size: 11px;
+  }
+
+  .detail-media-filter-btn strong {
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    font-size: 10px;
   }
 
   .detail-action-tile.mamage-button {
