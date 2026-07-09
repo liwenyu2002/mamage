@@ -15,11 +15,16 @@ import {
 } from './utils/uploadProgress';
 
 function TagChip({ tag, onRemove }) {
-  const [hover, setHover] = React.useState(false);
+  // 删除按钮常驻显示：hover-only 在触屏设备上无法触发
   return (
-    <div className="cam-tag" onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+    <div className="cam-tag">
       <span className="cam-tag-text">{tag}</span>
-      {hover && <button className="cam-tag-remove" onClick={(e) => { e.stopPropagation(); onRemove(tag); }}>×</button>}
+      <button
+        type="button"
+        className="cam-tag-remove"
+        aria-label={`删除标签 ${tag}`}
+        onClick={(e) => { e.stopPropagation(); onRemove(tag); }}
+      >×</button>
     </div>
   );
 }
@@ -640,7 +645,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
         ) : null}
 
         <div style={{ marginTop: 12 }}>
-          <DatePicker value={startDate} onChange={(v) => setStartDate(v)} format="yyyy-MM-dd" placeholder="活动日期（可选）" style={{ width: '100%' }} />
+          <DateTimePicker dateOnly value={startDate} onChange={(v) => setStartDate(v || '')} placeholder="活动日期（可选）" style={{ width: '100%' }} clearable />
         </div>
       </div>
     </Modal>

@@ -93,6 +93,11 @@ function ProjectCard({
   const [fallbackThumbs, setFallbackThumbs] = React.useState([]);
   const [coverOverride, setCoverOverride] = React.useState(null);
   const [loadedMap, setLoadedMap] = React.useState({});
+  const [failedMap, setFailedMap] = React.useState({});
+  const markFailed = (src) => {
+    if (!src) return;
+    setFailedMap((prev) => (prev[src] ? prev : { ...prev, [src]: true }));
+  };
   const [isVisible, setIsVisible] = React.useState(false);
   const cardRef = React.useRef(null);
 
@@ -263,7 +268,7 @@ function ProjectCard({
     <div className="project-card" onClick={onClick} ref={cardRef}>
       <div className="project-card__mobile-layout">
         <div className="project-card__mobile-main">
-          {mobileMain ? (
+          {mobileMain && !failedMap[mobileMain] ? (
             <img
               src={mobileMain}
               alt={title}
@@ -271,21 +276,34 @@ function ProjectCard({
               decoding="async"
               className={`project-card__img ${loadedMap[mobileMain] ? 'is-ready' : ''}`}
               onLoad={() => markLoaded(mobileMain)}
+              onError={() => markFailed(mobileMain)}
             />
-          ) : null}
+          ) : (
+            <div className="project-card__cover-empty" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="5" width="18" height="14" rx="3" />
+                <circle cx="9" cy="10" r="1.6" />
+                <path d="M5.5 17.5 10 13l3 3 2.5-2.5 3 4" />
+              </svg>
+              <span>暂无照片</span>
+            </div>
+          )}
         </div>
         <div className="project-card__mobile-side">
           <div className="project-card__mobile-small-row">
             {mobileSmalls.map((src, idx) => (
               <div className="project-card__mobile-small" key={`mobile-small-${idx}`}>
-                <img
-                  src={src}
-                  alt=""
-                  loading="lazy"
-                  decoding="async"
-                  className={`project-card__img ${loadedMap[src] ? 'is-ready' : ''}`}
-                  onLoad={() => markLoaded(src)}
-                />
+                {!failedMap[src] ? (
+                  <img
+                    src={src}
+                    alt=""
+                    loading="lazy"
+                    decoding="async"
+                    className={`project-card__img ${loadedMap[src] ? 'is-ready' : ''}`}
+                    onLoad={() => markLoaded(src)}
+                    onError={() => markFailed(src)}
+                  />
+                ) : null}
               </div>
             ))}
           </div>
@@ -308,7 +326,7 @@ function ProjectCard({
 
       <div className="project-card__desktop-layout">
         <div className="project-card__cover-image">
-          {desktopCoverSrc ? (
+          {desktopCoverSrc && !failedMap[desktopCoverSrc] ? (
             <img
               src={desktopCoverSrc}
               alt={title}
@@ -316,8 +334,18 @@ function ProjectCard({
               decoding="async"
               className={`project-card__img ${loadedMap[desktopCoverSrc] ? 'is-ready' : ''}`}
               onLoad={() => markLoaded(desktopCoverSrc)}
+              onError={() => markFailed(desktopCoverSrc)}
             />
-          ) : null}
+          ) : (
+            <div className="project-card__cover-empty" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="5" width="18" height="14" rx="3" />
+                <circle cx="9" cy="10" r="1.6" />
+                <path d="M5.5 17.5 10 13l3 3 2.5-2.5 3 4" />
+              </svg>
+              <span>暂无照片</span>
+            </div>
+          )}
         </div>
 
         <div className="project-card__meta-row">

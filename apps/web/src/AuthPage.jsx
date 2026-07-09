@@ -302,6 +302,7 @@ export default function AuthPage({ onAuthenticated }) {
                 placeholder="邮箱"
                 value={loginEmail}
                 onChange={(v) => { setLoginEmail(v); setLoginErrors({ ...loginErrors, email: '', general: '' }); }}
+                onEnterPress={handleLogin}
               />
             </div>
 
@@ -314,6 +315,7 @@ export default function AuthPage({ onAuthenticated }) {
                   setLoginPassword(v);
                   setLoginErrors({ ...loginErrors, password: '' });
                 }}
+                onEnterPress={handleLogin}
               />
               {loginErrors.password && <div style={{ color: '#e53935', fontSize: 12, marginTop: 4 }}>{loginErrors.password}</div>}
               {loginErrors.general && <div style={{ color: '#e53935', fontSize: 12, marginTop: 6 }}>{loginErrors.general}</div>}

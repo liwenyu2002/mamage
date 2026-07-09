@@ -1,37 +1,23 @@
 :root {
-    --lg-surface: rgba(255, 255, 255, 0.44);
-    --lg-surface-strong: rgba(255, 255, 255, 0.68);
-    --lg-surface-soft: rgba(255, 255, 255, 0.28);
-    --lg-stroke: rgba(255, 255, 255, 0.74);
+    /* 玻璃材质类令牌（--lg-surface*、--lg-shadow*、--lg-blur*、--mamage-glass-*）的
+       权威定义在 liquidGlass.css 的 :root（alias 到 --liquid-glass-*）。
+       此处只保留未被接管的基础令牌，避免同名双写靠 import 顺序博弈。 */
     --lg-stroke-dark: rgba(53, 79, 113, 0.14);
-    --lg-shadow: 0 22px 70px rgba(58, 78, 104, 0.16), 0 6px 22px rgba(18, 32, 52, 0.07);
-    --lg-shadow-tight: 0 10px 30px rgba(58, 78, 104, 0.12), 0 2px 10px rgba(18, 32, 52, 0.07);
     --lg-text: #000;
     --lg-muted: #050505;
     --lg-blue: #1677ff;
     --lg-teal: #00a6a6;
     --lg-warm: #ffb84d;
-    --lg-radius: 20px;
-    --lg-radius-sm: 12px;
-    --lg-blur: blur(22px) saturate(1.45);
-    --lg-blur-rich: url("#mamage-liquid-glass") blur(22px) saturate(1.45);
-    --mamage-glass-bg: linear-gradient(135deg, rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.34));
-    --mamage-glass-bg-readable: linear-gradient(135deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.5));
+    --lg-radius: 22px;        /* 面板/弹窗档（与 .mamage-modal-content 一致） */
+    --lg-radius-sm: 14px;     /* 输入框/小卡片档（与 .mamage-input-wrapper 一致） */
+    --lg-radius-pill: 999px;  /* 按钮/标签胶囊档 */
+    /* ui 组件库控件的玻璃参数（此前只活在 fallback 里，现在是真实旋钮） */
+    --glass-blur: 18px;
+    --glass-saturation: 1.2;
     --mamage-glass-shine:
         linear-gradient(135deg, rgba(255, 255, 255, 0.72), transparent 33%),
         linear-gradient(315deg, rgba(255, 255, 255, 0.28), transparent 44%),
         radial-gradient(circle at 18% 0%, rgba(255, 255, 255, 0.52), transparent 28%);
-    --mamage-glass-caustic:
-        radial-gradient(68% 130% at 18% 0%, rgba(255, 255, 255, 0.88), transparent 36%),
-        radial-gradient(92% 160% at 88% 18%, rgba(255, 255, 255, 0.36), transparent 42%),
-        linear-gradient(112deg, transparent 0 24%, rgba(255, 255, 255, 0.52) 38%, transparent 54% 100%);
-    --mamage-glass-edge-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.82),
-        inset 1px 0 0 rgba(255, 255, 255, 0.34),
-        inset -1px 0 0 rgba(255, 255, 255, 0.26),
-        inset 0 -1px 0 rgba(31, 41, 55, 0.08);
-    --mamage-glass-border: rgba(255, 255, 255, 0.62);
-    --mamage-glass-border-soft: rgba(255, 255, 255, 0.34);
 }
 
 /* Global responsive base styles */
@@ -1462,90 +1448,6 @@ textarea {
 .mamage-footer {
     color: rgba(16, 32, 51, 0.58);
     background: transparent !important;
-}
-
-.mamage-button {
-    border-radius: 999px !important;
-    border-color: rgba(255, 255, 255, 0.62) !important;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.68);
-    transition: transform 140ms ease, box-shadow 140ms ease, background 140ms ease, border-color 140ms ease !important;
-}
-
-.mamage-button:not(.mamage-button-disabled):hover {
-    transform: translateY(-1px);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.74), 0 10px 24px rgba(30, 80, 130, 0.14);
-}
-
-.mamage-button-primary,
-.mamage-button-solid.mamage-button-primary {
-    color: #fff !important;
-    background: linear-gradient(135deg, rgba(22, 119, 255, 0.96), rgba(0, 166, 166, 0.88)) !important;
-    border-color: rgba(255, 255, 255, 0.54) !important;
-}
-
-.mamage-button-tertiary,
-.mamage-button-borderless {
-    color: var(--lg-text) !important;
-    background: rgba(255, 255, 255, 0.34) !important;
-}
-
-.mamage-input-wrapper,
-.mamage-select-selection,
-.mamage-textarea-wrapper {
-    border-radius: 14px !important;
-    border: 1px solid rgba(255, 255, 255, 0.64) !important;
-    background: rgba(255, 255, 255, 0.46) !important;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), 0 8px 20px rgba(30, 80, 130, 0.08);
-    backdrop-filter: blur(14px) saturate(1.25);
-    -webkit-backdrop-filter: blur(14px) saturate(1.25);
-}
-
-.mamage-input-wrapper:hover,
-.mamage-input-wrapper-focus,
-.mamage-select-selection:hover,
-.mamage-select-selection-focus,
-.mamage-textarea-wrapper:hover,
-.mamage-textarea-wrapper-focus {
-    border-color: rgba(22, 119, 255, 0.34) !important;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72), 0 0 0 3px rgba(22, 119, 255, 0.09), 0 10px 26px rgba(30, 80, 130, 0.12);
-}
-
-.mamage-modal-content,
-.mamage-popover-content,
-.mamage-sidesheet-content {
-    position: relative;
-    overflow: hidden;
-    border: 1px solid var(--liquid-glass-border, rgba(255, 255, 255, 0.68)) !important;
-    border-radius: 22px !important;
-    background: var(--liquid-glass-material-readable, linear-gradient(135deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.42))) !important;
-    box-shadow: var(--liquid-glass-shadow, var(--lg-shadow)), var(--liquid-glass-edge, inset 0 1px 0 rgba(255, 255, 255, 0.72)) !important;
-    backdrop-filter: var(--lg-blur);
-    -webkit-backdrop-filter: var(--lg-blur);
-}
-
-.mamage-modal-header,
-.mamage-modal-body,
-.mamage-modal-footer,
-.mamage-popover-content > *,
-.mamage-sidesheet-body,
-.mamage-sidesheet-header {
-    position: relative;
-    z-index: 1;
-}
-
-.mamage-modal-mask,
-.mamage-sidesheet-mask {
-    background: rgba(229, 240, 252, 0.34) !important;
-    backdrop-filter: blur(10px) saturate(1.2);
-    -webkit-backdrop-filter: blur(10px) saturate(1.2);
-}
-
-.mamage-tag {
-    border-radius: 999px !important;
-    border-color: rgba(255, 255, 255, 0.56) !important;
-    background: rgba(255, 255, 255, 0.4) !important;
-    backdrop-filter: blur(10px) saturate(1.25);
-    -webkit-backdrop-filter: blur(10px) saturate(1.25);
 }
 
 .liquid-glass-panel {

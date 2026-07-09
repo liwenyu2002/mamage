@@ -412,3 +412,27 @@
     overflow: hidden;
   }
 }
+
+/* 无封面占位：玻璃渐变 + 图库线稿图标，替代原先的大空白 */
+.project-card__cover-empty {
+  width: 100%;
+  height: 100%;
+  min-height: inherit;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: rgba(53, 79, 113, 0.42);
+  background:
+    radial-gradient(120% 90% at 20% 0%, rgba(255, 255, 255, 0.85), transparent 55%),
+    linear-gradient(135deg, rgba(214, 228, 245, 0.65), rgba(236, 240, 248, 0.4));
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+
+.project-card__cover-empty svg {
+  width: 34px;
+  height: 34px;
+  opacity: 0.75;
+}

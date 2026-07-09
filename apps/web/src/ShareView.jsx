@@ -203,6 +203,18 @@ export default function ShareView({ share = {}, onBack }) {
   const viewerPrev = () => setViewerIndex((i) => Math.max(0, i - 1));
   const viewerNext = () => setViewerIndex((i) => Math.min(photos.length - 1, i + 1));
 
+  // 查看器键盘操作：Esc 关闭、左右方向键翻页（lightbox 标准交互）
+  React.useEffect(() => {
+    if (!viewerVisible) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape') closeViewer();
+      else if (e.key === 'ArrowLeft') viewerPrev();
+      else if (e.key === 'ArrowRight') viewerNext();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [viewerVisible, photos.length]);
+
   const downloadSelected = async () => {
     const idxs = Object.keys(selectedMap).map((k) => Number(k)).sort((a, b) => a - b);
     if (!idxs.length) return;
@@ -436,7 +448,6 @@ export default function ShareView({ share = {}, onBack }) {
                   <div style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
                     <Button
                       onClick={() => setViewerShowOriginalMap((m) => ({ ...m, [viewerIndex]: !m[viewerIndex] }))}
-                      style={{ background: 'rgba(0,0,0,0.6)', color: '#fff', borderRadius: 4, padding: '6px 14px' }}
                     >
                       {viewerShowOriginalMap[viewerIndex] ? '查看缩略图' : '查看原图'}
                     </Button>

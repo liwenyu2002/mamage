@@ -1,6 +1,6 @@
 ﻿import React from 'react';
 import ReactDOM from 'react-dom';
-import { Toast, Tooltip } from './ui';
+import { Toast, Tooltip, Modal } from './ui';
 import { getAll, getCount, add, clear, subscribe, removeById } from './services/transferStore';
 import { resolveAssetUrl } from './services/request';
 
@@ -60,6 +60,10 @@ export default function TransferStation() {
   const [open, setOpen] = React.useState(false);
   const [expanded, setExpanded] = React.useState(false);
   const [shareOptionsOpen, setShareOptionsOpen] = React.useState(false);
+  // 防重复触发：正在执行的动作 key（'pack'/'copy'/'share'）
+  const [busyKey, setBusyKey] = React.useState('');
+  const busyKeyRef = React.useRef('');
+  const setBusy = (k) => { busyKeyRef.current = k; setBusyKey(k); };
   const [hoverKey, setHoverKey] = React.useState(null);
   const [pressedKey, setPressedKey] = React.useState(null);
   const [dragOver, setDragOver] = React.useState(false);
@@ -207,11 +211,25 @@ export default function TransferStation() {
   }, []);
 
   const handleClear = React.useCallback(() => {
-    clear();
-    Toast.info('已清空中转站');
+    const count = getCount();
+    if (!count) {
+      Toast.info('中转站已是空的');
+      return;
+    }
+    Modal.confirm({
+      title: '清空中转站？',
+      content: `将移除暂存的 ${count} 张照片（不会删除相册里的原片）。`,
+      okText: '清空',
+      cancelText: '取消',
+      onOk: () => {
+        clear();
+        Toast.info('已清空中转站');
+      },
+    });
   }, []);
 
   const handlePackDownload = React.useCallback(async () => {
+    if (busyKeyRef.current) return;
     const list = getAll();
     if (!list || list.length === 0) {
       Toast.warning('中转站为空');
@@ -224,6 +242,7 @@ export default function TransferStation() {
     }
 
     const zipName = `transfer_${Date.now()}`;
+    setBusy('pack');
     try {
       const token = (typeof window !== 'undefined') ? (localStorage.getItem('mamage_jwt_token') || '') : '';
       if (!token) {
@@ -247,10 +266,13 @@ export default function TransferStation() {
     } catch (e) {
       console.error('transfer pack download failed', e);
       Toast.error(`打包下载失败: ${e?.message || '请求错误'}`);
+    } finally {
+      setBusy('');
     }
   }, []);
 
   const createShareWithExpiry = React.useCallback(async (expiresInSeconds) => {
+    if (busyKeyRef.current) return;
     const list = getAll();
     if (!list || list.length === 0) {
       Toast.warning('中转站为空');
@@ -262,6 +284,7 @@ export default function TransferStation() {
       return;
     }
 
+    setBusy('share');
     try {
       const token = (typeof window !== 'undefined') ? (localStorage.getItem('mamage_jwt_token') || '') : '';
       if (!token) {
@@ -337,6 +360,8 @@ export default function TransferStation() {
     } catch (e) {
       console.error('create share failed', e);
       Toast.error(`创建分享失败: ${e?.message || '请求错误'}`);
+    } finally {
+      setBusy('');
     }
   }, []);
 
@@ -346,6 +371,7 @@ export default function TransferStation() {
   }, []);
 
   const handleCopyRichHtml = React.useCallback(async () => {
+    if (busyKeyRef.current) return;
     const list = getAll();
     if (!list || list.length === 0) {
       Toast.warning('中转站为空');
@@ -379,6 +405,7 @@ export default function TransferStation() {
       return ok;
     };
 
+    setBusy('copy');
     try {
       if (navigator.clipboard && navigator.clipboard.write && typeof ClipboardItem !== 'undefined') {
         try {
@@ -427,6 +454,8 @@ export default function TransferStation() {
     } catch (e) {
       console.error('copy rich html failed', e);
       Toast.error('复制失败，请在 HTTPS 页面或系统浏览器重试');
+    } finally {
+      setBusy('');
     }
   }, [getPhotoUrl]);
 
@@ -659,15 +688,17 @@ export default function TransferStation() {
   const actionButtonStyle = (key, extra = {}) => ({
     width: '100%',
     height: isMobile ? 40 : 36,
-    borderRadius: 10,
+    borderRadius: 999,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     boxShadow: 'var(--liquid-glass-edge), 0 8px 18px rgba(15,23,42,0.08)',
     background: hoverKey === key ? 'var(--liquid-glass-material-readable)' : 'var(--liquid-glass-material)',
-    color: '#0f172a',
+    color: 'var(--lg-text, #000)',
     fontSize: isMobile ? 12 : 13,
-    fontWeight: 600,
+    fontWeight: 700,
+    opacity: busyKey && busyKey === key ? 0.55 : 1,
+    pointerEvents: busyKey && busyKey === key ? 'none' : 'auto',
     userSelect: 'none',
     cursor: 'pointer',
     transition: 'transform 120ms ease, box-shadow 120ms ease, background 120ms ease',
@@ -762,10 +793,12 @@ export default function TransferStation() {
             overflowY: 'auto',
             overflowX: 'hidden',
             padding: 8,
-            borderRadius: 12,
-            border: '1px solid rgba(15,23,42,0.08)',
-            background: '#fff',
-            boxShadow: '0 6px 16px rgba(15,23,42,0.08)',
+            borderRadius: 16,
+            border: '1px solid rgba(255,255,255,0.62)',
+            background: 'var(--liquid-glass-material-readable, rgba(255,255,255,0.82))',
+            boxShadow: 'var(--liquid-glass-shadow-tight, 0 10px 26px rgba(30,80,130,0.12))',
+            backdropFilter: 'blur(16px) saturate(1.35)',
+            WebkitBackdropFilter: 'blur(16px) saturate(1.35)',
           }
           : {
             position: 'absolute',
@@ -773,10 +806,12 @@ export default function TransferStation() {
             top: 0,
             width: 300,
             maxHeight: 360,
-            background: 'rgba(255,255,255,0.98)',
-            boxShadow: '0 14px 32px rgba(15,23,42,0.18)',
-            borderRadius: 12,
-            border: '1px solid rgba(15,23,42,0.08)',
+            background: 'var(--liquid-glass-material-readable, rgba(255,255,255,0.86))',
+            boxShadow: 'var(--liquid-glass-shadow, 0 18px 44px rgba(30,60,100,0.18))',
+            borderRadius: 16,
+            border: '1px solid rgba(255,255,255,0.62)',
+            backdropFilter: 'blur(18px) saturate(1.4)',
+            WebkitBackdropFilter: 'blur(18px) saturate(1.4)',
             padding: 10,
             overflowY: 'auto',
             overflowX: 'hidden',
@@ -795,7 +830,7 @@ export default function TransferStation() {
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {items && items.length ? items.map((p, idx) => (
-          <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px', borderRadius: 10, background: '#f8fafc', border: '1px solid #eef2f7' }}>
+          <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px', borderRadius: 12, background: 'rgba(255,255,255,0.55)', border: '1px solid rgba(255,255,255,0.66)' }}>
             <div style={{ width: 72, height: 72, overflow: 'hidden', borderRadius: 8, flex: '0 0 72px', background: '#f1f5f9' }}>
               <img src={p.thumbSrc || p.url} alt={`thumb-${idx}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
             </div>
@@ -817,7 +852,13 @@ export default function TransferStation() {
             </div>
           </div>
         )) : (
-          <div style={{ padding: 16, color: '#64748b', textAlign: 'center' }}>中转站为空</div>
+          <div style={{ padding: '22px 12px', color: 'rgba(20,32,50,0.5)', textAlign: 'center', fontSize: 12.5, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M4 8h16M6 8l1.2 11a2 2 0 0 0 2 1.8h5.6a2 2 0 0 0 2-1.8L18 8M9 8V6a3 3 0 0 1 6 0v2" />
+            </svg>
+            <span>中转站还是空的</span>
+            <span style={{ fontSize: 11.5 }}>在相册里选择照片后点"存入"即可暂存到这里</span>
+          </div>
         )}
       </div>
     </div>
@@ -1059,7 +1100,7 @@ export default function TransferStation() {
         rel="noopener noreferrer"
         style={{ textDecoration: 'none', marginBottom: 8 }}
       >
-        <div style={{ padding: '6px 10px', borderRadius: 8, background: '#1d4ed8', color: '#fff', fontSize: 12, cursor: 'pointer', boxShadow: '0 2px 10px rgba(29,78,216,0.35)' }}>反馈问题</div>
+        <div style={{ padding: '7px 12px', borderRadius: 999, background: 'var(--liquid-glass-material-readable, rgba(255,255,255,0.72))', color: 'var(--lg-blue, #1677ff)', fontSize: 12, fontWeight: 700, cursor: 'pointer', border: '1px solid rgba(255,255,255,0.62)', boxShadow: 'var(--liquid-glass-shadow-tight, 0 8px 18px rgba(30,80,130,0.12))', backdropFilter: 'blur(12px) saturate(1.3)', WebkitBackdropFilter: 'blur(12px) saturate(1.3)' }}>反馈问题</div>
       </a>
 
       <Tooltip

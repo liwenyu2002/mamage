@@ -802,7 +802,7 @@ function ProjectDetail({
     if (!controlledGalleryMode) setInternalGalleryMode(nextMode);
   }, [onGalleryModeChange, controlledGalleryMode]);
 
-  // similarity modal (鐩镐技鐓х墖鍒嗙粍)
+  // similarity modal (相似照片分组)
   const [simModalVisible, setSimModalVisible] = React.useState(false);
   const [simLoading, setSimLoading] = React.useState(false);
   const [simGroups, setSimGroups] = React.useState(null);
@@ -1316,7 +1316,7 @@ function ProjectDetail({
             setPhotoDescMap((prev) => ({ ...(prev || {}), ...descMapOnly }));
             setPhotoAILabelMap((prev) => ({ ...(prev || {}), ...aiLabelMapOnly }));
 
-            // 濡傛灉 detail 涓繑鍥炰簡鏇村畬鏁寸殑 photo 瀵硅薄锛屽悎骞惰繖浜涘瓧娈靛洖 photoMetas
+            // 如果 detail 涓繑鍥炰簡鏇村畬鏁寸殑 photo 对象，合并这些字段回 photoMetas
             try {
               const photoById = {};
               photosArray.forEach(p => { const id = p && (p.id || p.photoId || p.photo_id); if (id) photoById[id] = p; });
@@ -1345,8 +1345,8 @@ function ProjectDetail({
               setLoading(false);
             }
 
-            // 濡傛灉閮ㄥ垎 photo meta 缂哄皯 photographerName锛屼絾鍖呭惈 photographerId锛?
-            // 鍓嶇浠嶅彲鍥為€€鍘昏姹傜敤鎴蜂俊鎭苟琛ュ叏 name锛堝彲淇濈暀浠ユ彁鍗囦綋楠岋級銆?
+            // 濡傛灉閮ㄥ垎 photo meta 缺少 photographerName，但包含 photographerId锛?
+            // 前端仍可回退去请求用户信息并补全 name（可保留以提升体验）。
             try {
               const mergedList = (nextMetas || []).map(m => ({ ...(m || {}) }));
               const idsToFetch = Array.from(new Set((mergedList || [])
@@ -1385,7 +1385,7 @@ function ProjectDetail({
                 }
               }
             } catch (e) {
-              // 蹇界暐缃戠粶閿欒锛屼笉褰卞搷涓绘祦绋?
+              // 忽略网络错误，不影响主流程
             }
           }
         } catch (e) {
@@ -1397,7 +1397,7 @@ function ProjectDetail({
         }
       } catch (err) {
         if (canceled) return;
-        setError(err?.message || '鑾峰彇椤圭洰璇︽儏澶辫触');
+        setError(err?.message || '获取项目详情失败');
         if (initialProject?.images?.length) {
           setImages(initialProject.images.map((it) => resolveAssetUrl(getPhotoThumbCandidate(it))));
           setPhotoMetas(initialProject.images.map((it) => (typeof it === 'string' ? { url: it } : { ...it, thumbSrc: resolveAssetUrl(getPhotoThumbCandidate(it)), originalSrc: resolveAssetUrl(getPhotoOriginalCandidate(it)), playbackSrc: resolveAssetUrl(getVideoPlaybackCandidate(it)) })));
@@ -2067,15 +2067,15 @@ function ProjectDetail({
       const status = err && err.status ? err.status : (err && err.cause && err.cause.status) ? err.cause.status : null;
       if (status === 401 || status === 403) {
         try { localStorage.removeItem('mamage_jwt_token'); } catch (e) { }
-        Toast.error('璇烽噸鏂扮櫥褰曠鐞嗗憳璐﹀彿');
+        Toast.error('请重新登录管理员账号');
         try { window.history.pushState({}, '', '/login'); } catch (e) { window.location.href = '/login'; }
       } else if (status === 404) {
-        Toast.warning('鐩稿唽宸蹭笉瀛樺湪');
+        Toast.warning('相册已不存在');
         if (typeof onBack === 'function') onBack(true);
       } else if (status && status >= 500) {
         Toast.error('服务器异常，请稍后重试');
       } else {
-        Toast.error('淇濆瓨澶辫触');
+        Toast.error('保存失败');
       }
     }
   }, [projectId, editTitle, editDescription, editEventDate, readOnly]);
@@ -2222,9 +2222,9 @@ function ProjectDetail({
       Toast.warning('删除功能已禁用');
       return;
     }
-    if (!projectId) return Toast.warning('鏃犳晥鐨勯」鐩甀D');
+    if (!projectId) return Toast.warning('无效的项目ID');
     Modal.confirm({
-      title: '纭鍒犻櫎鐩稿唽',
+      title: '确认删除相册',
       content: '删除后将不可恢复，且可能同时删除关联照片。确定要删除该相册吗？',
       onOk: async () => {
         setDeletingProject(true);
@@ -2240,15 +2240,15 @@ function ProjectDetail({
           const status = err && err.status ? err.status : (err && err.cause && err.cause.status) ? err.cause.status : null;
           if (status === 401 || status === 403) {
             try { localStorage.removeItem('mamage_jwt_token'); } catch (e) { }
-            Toast.error('鏉冮檺涓嶈冻鎴栫櫥褰曞凡杩囨湡锛岃閲嶆柊鐧诲綍鎴栬仈绯荤鐞嗗憳');
+            Toast.error('权限不足或登录已过期，请重新登录或联系管理员');
             try { window.history.pushState({}, '', '/login'); } catch (e) { window.location.href = '/login'; }
           } else if (status === 404) {
-            Toast.warning('鐩稿唽宸蹭笉瀛樺湪');
+            Toast.warning('相册已不存在');
             if (typeof onBack === 'function') onBack(true);
           } else if (status && status >= 500) {
             Toast.error('服务器异常，请稍后重试');
           } else {
-            Toast.error('鍒犻櫎澶辫触');
+            Toast.error('删除失败');
           }
         } finally {
           setDeletingProject(false);
@@ -2345,7 +2345,7 @@ function ProjectDetail({
           if (Array.isArray(deleted) && deleted.length > 0) {
             Toast.success(`已删除 ${deleted.length} 张`);
           } else {
-            Toast.success('鍒犻櫎鎴愬姛');
+            Toast.success('删除成功');
           }
           if (Array.isArray(notFound) && notFound.length > 0) {
             Toast.warning('閮ㄥ垎鐓х墖宸蹭笉瀛樺湪');
@@ -2375,7 +2375,7 @@ function ProjectDetail({
           } else if (status === 401 || status === 403) {
             // clear token and redirect to login
             try { localStorage.removeItem('mamage_jwt_token'); } catch (e) { }
-            Toast.error('鏉冮檺涓嶈冻鎴栫櫥褰曞凡杩囨湡锛岃閲嶆柊鐧诲綍鎴栬仈绯荤鐞嗗憳');
+            Toast.error('权限不足或登录已过期，请重新登录或联系管理员');
             try { window.history.pushState({}, '', '/login'); } catch (e) { window.location.href = '/login'; }
           } else {
             Toast.error('服务器异常，请稍后重试');
@@ -2547,7 +2547,7 @@ function ProjectDetail({
         // try to infer project title from available state
         const srcProjectName = (project && (project.title || project.projectName || project.name))
           || (initialProject && (initialProject.title || initialProject.projectName || initialProject.name))
-          || '椤圭洰';
+          || '项目';
         return idxs.map((i) => {
           const meta = (photoMetas && photoMetas[i]) || {};
           const pid = meta.id || meta.photoId || meta.photo_id || null;
@@ -3646,6 +3646,8 @@ function ProjectDetail({
     const direction = step > 0 ? 1 : -1;
     const nextIndex = normalizeViewerIndex(viewerIndex + direction);
     if (nextIndex === viewerIndex) return;
+    // 切换照片时关闭编辑面板，避免把上一张的标签/描述保存到当前这张
+    setViewerEditVisible(false);
     setViewerIndex(nextIndex);
   }, [viewerVisible, viewerCount, normalizeViewerIndex, viewerIndex]);
 
@@ -3753,12 +3755,12 @@ function ProjectDetail({
   }, [viewerIndex, photoMetas, photoTagsMap, photoDescMap]);
 
   const handlePhotoEditSuccess = React.useCallback((updatedPhoto) => {
-    // 鏇存柊鐓х墖淇℃伅
+    // 更新照片信息
     const photoId = updatedPhoto.id;
     const photoIndex = photoMetas?.findIndex(m => m.id === photoId) ?? -1;
 
     if (photoIndex >= 0) {
-      // 鏇存柊tags鍜宒escription
+      // 更新 tags 和 description
       const newTags = safeParseTags(updatedPhoto.tags);
       const newDesc = updatedPhoto.description || '';
 
@@ -3783,7 +3785,7 @@ function ProjectDetail({
     const idx = viewerIndex;
     const meta = (photoMetas && photoMetas[idx]) || {};
     const photoId = meta.id;
-    if (!photoId) return Toast.warning('鏃犳硶鑾峰彇鐓х墖 ID');
+    if (!photoId) return Toast.warning('无法获取照片 ID');
     try {
       const token = getToken();
       if (!token) {
@@ -3801,12 +3803,12 @@ function ProjectDetail({
         body: JSON.stringify(payload),
       });
       if (res.status === 401 || res.status === 403) {
-        Toast.error('鏉冮檺涓嶈冻锛屼粎绠＄悊鍛樺彲鎿嶄綔');
+        Toast.error('权限不足，仅管理员可操作');
         return;
       }
       if (!res.ok) {
         const txt = await res.text();
-        throw new Error(txt || '淇濆瓨澶辫触');
+        throw new Error(txt || '保存失败');
       }
       const data = await res.json();
       const updatedTags = safeParseTags(data.tags);
@@ -3830,11 +3832,11 @@ function ProjectDetail({
       }
     } catch (err) {
       console.error('saveViewerPhotoEdit error', err);
-      Toast.error('淇濆瓨澶辫触');
+      Toast.error('保存失败');
     }
   }, [viewerIndex, viewerEditTags, viewerEditDescription, projectId, photoMetas, readOnly]);
 
-  // 鎵撳紑 / 鍏抽棴 鐩镐技鍒嗙粍寮圭獥骞跺姞杞芥暟鎹?
+  // 打开 / 关闭 鐩镐技鍒嗙粍寮圭獥骞跺姞杞芥暟鎹?
   const openSimilarityModal = React.useCallback(async () => {
     if (!projectId) return;
     setSimModalVisible(true);
@@ -3879,7 +3881,7 @@ function ProjectDetail({
       }
     } catch (e) {
       console.error('load similarity groups error', e);
-      setSimError('鍔犺浇澶辫触锛岃閲嶈瘯');
+      setSimError('鍔犺浇澶辫触锛岃重试');
       setSimGroups([]);
     } finally {
       setSimLoading(false);
@@ -3904,7 +3906,7 @@ function ProjectDetail({
       return;
     }
     const ids = Object.keys(simSelectedMap || {}).filter(Boolean);
-    if (!ids.length) return Toast.warning('璇峰厛閫夋嫨瑕佸垹闄ょ殑鐓х墖');
+    if (!ids.length) return Toast.warning('请先选择要删除的照片');
     Modal.confirm({
       title: '确认删除所选照片',
       content: `删除后不可恢复，确定要删除 ${ids.length} 张照片吗？`,
@@ -3912,7 +3914,7 @@ function ProjectDetail({
         try {
           setSimDeleting(true);
           await deletePhotos(ids);
-          Toast.success('鍒犻櫎鎴愬姛');
+          Toast.success('删除成功');
           // remove deleted ids from simGroups and simPhotos
           setSimGroups((prev) => (prev || []).map(g => g.filter(id => !ids.includes(String(id)))).filter(g => g.length));
           setSimPhotos((prev) => { const next = Object.assign({}, prev || {}); ids.forEach(id => delete next[id]); return next; });
@@ -3924,7 +3926,7 @@ function ProjectDetail({
           setSimDeleteMode(false);
         } catch (e) {
           console.error('sim delete failed', e);
-          Toast.error('鍒犻櫎澶辫触');
+          Toast.error('删除失败');
         } finally {
           setSimDeleting(false);
         }
@@ -4764,7 +4766,7 @@ function ProjectDetail({
           </div>
         ) : null}
 
-        {/* 缂栬緫寮圭獥 */}
+        {/* 编辑弹窗 */}
         <Modal
           title="修改项目信息"
           className="detail-edit-modal"
@@ -4799,11 +4801,17 @@ function ProjectDetail({
                 </div>
               </div>
             ) : null}
-            <DatePicker
-              value={editEventDate}
-              onChange={(v) => setEditEventDate(v)}
-              format="yyyy-MM-dd"
-              placeholder="活动日期 (YYYY-MM-DD)"
+            <DateTimePicker
+              dateOnly
+              value={(() => {
+                if (!editEventDate) return '';
+                if (editEventDate instanceof Date && !Number.isNaN(editEventDate.getTime())) {
+                  return `${editEventDate.getFullYear()}-${String(editEventDate.getMonth() + 1).padStart(2, '0')}-${String(editEventDate.getDate()).padStart(2, '0')}`;
+                }
+                return String(editEventDate).slice(0, 10);
+              })()}
+              onChange={(v) => setEditEventDate(v ? new Date(`${v}T00:00:00`) : null)}
+              placeholder="活动日期（可选）"
               style={{ width: '100%' }}
               clearable
             />
@@ -4820,10 +4828,10 @@ function ProjectDetail({
           title="编辑时间线"
           className="detail-edit-modal"
           visible={timelineEditVisible}
-          onOk={() => setTimelineEditVisible(false)}
           onCancel={() => setTimelineEditVisible(false)}
-          okText="完成"
-          cancelText="关闭"
+          footer={(
+            <Button type="primary" onClick={() => setTimelineEditVisible(false)}>完成</Button>
+          )}
           width={isMobile ? 'calc(100vw - 16px)' : 560}
           bodyStyle={{ maxHeight: '62vh', overflowY: 'auto', padding: isMobile ? '12px' : undefined }}
         >
@@ -4936,7 +4944,7 @@ function ProjectDetail({
           </div>
         </Modal>
 
-        {/* 鐩镐技鍒嗙粍寮圭獥 */}
+        {/* 相似分组弹窗 */}
         <Modal
           title="相似照片分组"
           className="detail-sim-modal"
@@ -5024,7 +5032,7 @@ function ProjectDetail({
           </div>
         </Modal>
 
-        {/* 涓婁紶棰勮寮圭獥 */}
+        {/* 涓婁紶棰勮弹窗 */}
         <Modal
           title={`准备上传 (${stagingFiles.length})`}
           visible={uploadMode}

@@ -145,16 +145,17 @@ function pad2(n) {
 }
 
 function parseDateTimeValue(value) {
-  const m = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  const m = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?/);
   if (!m) return null;
-  return { y: +m[1], mo: +m[2], d: +m[3], hh: +m[4], mi: +m[5] };
+  return { y: +m[1], mo: +m[2], d: +m[3], hh: m[4] !== undefined ? +m[4] : 0, mi: m[5] !== undefined ? +m[5] : 0 };
 }
 
-function formatDateTimeValue(p) {
-  return `${p.y}-${pad2(p.mo)}-${pad2(p.d)}T${pad2(p.hh)}:${pad2(p.mi)}`;
+function formatDateTimeValue(p, dateOnly) {
+  const d = `${p.y}-${pad2(p.mo)}-${pad2(p.d)}`;
+  return dateOnly ? d : `${d}T${pad2(p.hh)}:${pad2(p.mi)}`;
 }
 
-function DateTimePicker({ className = '', onChange, value, placeholder = '选择时间', clearable, style, title, disabled }) {
+function DateTimePicker({ className = '', onChange, value, placeholder = '选择时间', clearable, style, title, disabled, dateOnly = false }) {
   const parsed = parseDateTimeValue(value);
   const [open, setOpen] = React.useState(false);
   const [pos, setPos] = React.useState(null);
@@ -170,7 +171,7 @@ function DateTimePicker({ className = '', onChange, value, placeholder = '选择
     if (disabled || !triggerRef.current) return;
     const r = triggerRef.current.getBoundingClientRect();
     const width = 256;
-    const height = 330;
+    const height = dateOnly ? 286 : 330;
     const left = Math.min(Math.max(8, r.left), Math.max(8, window.innerWidth - width - 8));
     let top = r.bottom + 6;
     if (top + height > window.innerHeight - 8) top = Math.max(8, r.top - height - 6);
@@ -204,12 +205,13 @@ function DateTimePicker({ className = '', onChange, value, placeholder = '选择
 
   const commitDate = (d) => {
     const base = parsed || { hh: 9, mi: 0 };
-    onChange?.(formatDateTimeValue({ y: view.y, mo: view.mo, d, hh: base.hh, mi: base.mi }));
+    onChange?.(formatDateTimeValue({ y: view.y, mo: view.mo, d, hh: base.hh, mi: base.mi }, dateOnly));
+    if (dateOnly) setOpen(false); // 只选日期时点选即完成
   };
   const commitTime = (hh, mi) => {
     const now = new Date();
     const base = parsed || { y: now.getFullYear(), mo: now.getMonth() + 1, d: now.getDate() };
-    onChange?.(formatDateTimeValue({ y: base.y, mo: base.mo, d: base.d, hh, mi }));
+    onChange?.(formatDateTimeValue({ y: base.y, mo: base.mo, d: base.d, hh, mi }, dateOnly));
   };
   const shiftMonth = (delta) => setView((v) => {
     let mo = v.mo + delta;
@@ -227,7 +229,9 @@ function DateTimePicker({ className = '', onChange, value, placeholder = '选择
   for (let d = 1; d <= daysInMonth; d += 1) cells.push(d);
 
   const displayText = parsed
-    ? `${parsed.y}-${pad2(parsed.mo)}-${pad2(parsed.d)} ${pad2(parsed.hh)}:${pad2(parsed.mi)}`
+    ? (dateOnly
+      ? `${parsed.y}-${pad2(parsed.mo)}-${pad2(parsed.d)}`
+      : `${parsed.y}-${pad2(parsed.mo)}-${pad2(parsed.d)} ${pad2(parsed.hh)}:${pad2(parsed.mi)}`)
     : '';
   const minutes = [];
   for (let m = 0; m < 60; m += 5) minutes.push(m);
@@ -260,7 +264,7 @@ function DateTimePicker({ className = '', onChange, value, placeholder = '选择
           >{d}</button>
         )))}
       </div>
-      <div className="mamage-dtp-time">
+      <div className="mamage-dtp-time" style={dateOnly ? { display: 'none' } : undefined}>
         <select value={parsed ? parsed.hh : ''} onChange={(e) => commitTime(Number(e.target.value), parsed ? parsed.mi : 0)}>
           <option value="" disabled>时</option>
           {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{pad2(h)} 时</option>)}
@@ -403,9 +407,21 @@ function Modal({
   width,
   bodyStyle,
   closable = true,
+  maskClosable = true,
   zIndex,
 }) {
   const [pending, setPending] = React.useState(false);
+
+  // Esc 关闭（标准弹窗交互；输入法组合键期间不触发）
+  React.useEffect(() => {
+    if (!visible || typeof document === 'undefined') return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape' && !e.isComposing && closable) onCancel?.();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [visible, closable, onCancel]);
+
   if (!visible || typeof document === 'undefined') return null;
 
   const runOk = async () => {
@@ -419,7 +435,14 @@ function Modal({
   };
 
   const node = (
-    <div className="mamage-modal-mask" style={{ zIndex }}>
+    <div
+      className="mamage-modal-mask"
+      style={{ zIndex }}
+      onMouseDown={(e) => {
+        // 点遮罩空白处关闭（按下即判定，避免拖选文本误关）
+        if (maskClosable && closable && e.target === e.currentTarget) onCancel?.();
+      }}
+    >
       <div
         className={cx('mamage-modal', className)}
         style={{ width, maxWidth: width ? undefined : undefined }}

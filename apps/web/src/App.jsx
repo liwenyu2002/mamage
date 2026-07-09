@@ -295,6 +295,28 @@ function App() {
 
   const latestRequestRef = React.useRef(0);
   const latestPhotoSearchReqRef = React.useRef(0);
+  const userMenuRef = React.useRef(null);
+
+  // 用户菜单（原生 <details>）：点外部/按 Esc 关闭；点菜单项后也自动收起
+  React.useEffect(() => {
+    const onDocClick = (e) => {
+      const el = userMenuRef.current;
+      if (!el || !el.open) return;
+      const summary = el.querySelector('summary');
+      if (summary && summary.contains(e.target)) return; // 原生 toggle 自己处理
+      el.open = false;
+    };
+    const onKey = (e) => {
+      const el = userMenuRef.current;
+      if (e.key === 'Escape' && el && el.open) el.open = false;
+    };
+    document.addEventListener('click', onDocClick);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('click', onDocClick);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, []);
 
   const preloadProjectDetail = React.useCallback(() => {
     if (ProjectDetail.preload) ProjectDetail.preload();
@@ -1120,7 +1142,12 @@ function App() {
                   type="button"
                   className="mamage-search-clear"
                   aria-label="清空搜索"
-                  onClick={() => setKeyword('')}
+                  onClick={() => {
+                    // 清空输入的同时退出搜索结果态，回到项目列表（与"搜索空关键词"行为一致）
+                    setKeyword('');
+                    clearPhotoSearchState();
+                    loadProjects('', 1, PROJECT_PAGE_SIZE);
+                  }}
                 >
                   ×
                 </button>
@@ -1155,7 +1182,10 @@ function App() {
             ) : null}
 
             {currentUser ? (
-              <details className="mamage-user-menu">
+              <details
+                className="mamage-user-menu"
+                ref={(el) => { userMenuRef.current = el; }}
+              >
                 <summary className="mamage-user-chip">
                   <span className="mamage-avatar" aria-hidden="true">{userInitial}</span>
                   <span className="mamage-user-email">{userLabel}</span>
