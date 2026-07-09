@@ -42,6 +42,10 @@ const { Title, Text } = Typography;
 const ANALYSIS_POLL_INITIAL_DELAY_MS = 900;
 const ANALYSIS_POLL_INTERVAL_MS = 1800;
 const ANALYSIS_POLL_MAX_ATTEMPTS = 45;
+const VIDEO_PLAYBACK_POLL_INITIAL_DELAY_MS = 2500;
+const VIDEO_PLAYBACK_POLL_INTERVAL_MS = 4000;
+// 转码队列并发=1，多个视频排队时单个可能等很久：给足 ~30 分钟
+const VIDEO_PLAYBACK_POLL_MAX_ATTEMPTS = 450;
 const AI_QUALITY_TAGS = ['AI recommended', 'AI medium', 'AI rejected'];
 const ACTIVE_ANALYSIS_STATUSES = new Set(['pending', 'queued', 'running', 'processing']);
 const GALLERY_INITIAL_RENDER_LIMIT = 96;
@@ -318,8 +322,10 @@ function isVideoMeta(meta) {
 function getVideoUploadState(meta) {
   if (!meta || typeof meta !== 'object') return '';
   const raw = String(meta.uploadState || meta.upload_state || meta.processingStatus || meta.processing_status || '').toLowerCase();
-  if (raw === 'video-processing' || raw === 'transcoding' || raw === 'processing' || raw === 'queued') return 'processing';
   if (raw === 'failed' || raw === 'error') return 'failed';
+  if (raw === 'video-processing' || raw === 'transcoding' || raw === 'processing' || raw === 'queued') return 'processing';
+  // 无显式状态时不能把"视频且无 playback"判为 processing——
+  // 存量视频没有 playback_url 时应回退播放原始文件，否则永久卡在"转码中"。
   return '';
 }
 
@@ -338,6 +344,11 @@ function getPhotoOriginalCandidate(item) {
   if (!item) return '';
   if (typeof item === 'string') return item;
   return item.originalSrc || item.originalUrl || item.original || item.full || item.large || item.url || item.imageUrl || item.src || item.fileUrl || item.thumbSrc || item.thumbUrl || item.thumbnail || item.thumb || '';
+}
+
+function getVideoPlaybackCandidate(item) {
+  if (!item || typeof item !== 'object') return '';
+  return item.playbackSrc || item.playbackUrl || item.playback_url || item.playback || item.webPlaybackUrl || item.web_playback_url || '';
 }
 
 function getPhotoRecordId(item) {
@@ -470,6 +481,7 @@ function normalizePhotoForGallery(photo) {
   const id = getPhotoRecordId(photo);
   const thumbSrc = resolveAssetUrl(getPhotoThumbCandidate(photo));
   const originalSrc = resolveAssetUrl(getPhotoOriginalCandidate(photo));
+  const playbackSrc = resolveAssetUrl(getVideoPlaybackCandidate(photo));
   const src = thumbSrc || originalSrc;
   if (!id || !src) return null;
   return {
@@ -479,8 +491,19 @@ function normalizePhotoForGallery(photo) {
       id,
       photoId: id,
       thumbSrc,
-      originalSrc
+      originalSrc,
+      playbackSrc: playbackSrc || undefined,
     }
+  };
+}
+
+function normalizeProjectImageMeta(item) {
+  if (typeof item === 'string') return { url: item };
+  return {
+    ...item,
+    thumbSrc: resolveAssetUrl(getPhotoThumbCandidate(item)),
+    originalSrc: resolveAssetUrl(getPhotoOriginalCandidate(item)),
+    playbackSrc: resolveAssetUrl(getVideoPlaybackCandidate(item)) || undefined,
   };
 }
 
@@ -673,7 +696,7 @@ function ProjectDetail({
 
   const [project, setProject] = React.useState(initialProject || null);
   const [images, setImages] = React.useState(() => (initialProject?.images ? initialProject.images.map((it) => resolveAssetUrl(getPhotoThumbCandidate(it))) : []));
-  const [photoMetas, setPhotoMetas] = React.useState(() => (initialProject?.images ? initialProject.images.map((it) => (typeof it === 'string' ? { url: it } : { ...it, thumbSrc: resolveAssetUrl(getPhotoThumbCandidate(it)), originalSrc: resolveAssetUrl(getPhotoOriginalCandidate(it)) })) : []));
+  const [photoMetas, setPhotoMetas] = React.useState(() => (initialProject?.images ? initialProject.images.map(normalizeProjectImageMeta) : []));
   const [loading, setLoading] = React.useState(() => !!projectId);
   const [error, setError] = React.useState(null);
 
@@ -742,6 +765,7 @@ function ProjectDetail({
   const [photoDescMap, setPhotoDescMap] = React.useState({});
   const [photoAnalysisPendingMap, setPhotoAnalysisPendingMap] = React.useState({});
   const analysisPollTimersRef = React.useRef({});
+  const videoPlaybackPollTimersRef = React.useRef({});
   // AI selection mode toggle
   const [showAILabels, setShowAILabels] = React.useState(false);
   // AI quality labels (recommended/medium/rejected) indexed by photo ID
@@ -824,6 +848,10 @@ function ProjectDetail({
       try { clearTimeout(timer); } catch (e) { }
     });
     analysisPollTimersRef.current = {};
+    Object.values(videoPlaybackPollTimersRef.current || {}).forEach((timer) => {
+      try { clearTimeout(timer); } catch (e) { }
+    });
+    videoPlaybackPollTimersRef.current = {};
   }, []);
 
   React.useEffect(() => {
@@ -847,7 +875,7 @@ function ProjectDetail({
       });
       if (initialProject.images && initialProject.images.length) {
         setImages((prev) => (prev.length ? prev : initialProject.images.map((it) => resolveAssetUrl(getPhotoThumbCandidate(it)))));
-        setPhotoMetas((prev) => (prev.length ? prev : initialProject.images.map((it) => (typeof it === 'string' ? { url: it } : { ...it, thumbSrc: resolveAssetUrl(getPhotoThumbCandidate(it)), originalSrc: resolveAssetUrl(getPhotoOriginalCandidate(it)) }))));
+        setPhotoMetas((prev) => (prev.length ? prev : initialProject.images.map((it) => (typeof it === 'string' ? { url: it } : { ...it, thumbSrc: resolveAssetUrl(getPhotoThumbCandidate(it)), originalSrc: resolveAssetUrl(getPhotoOriginalCandidate(it)), playbackSrc: resolveAssetUrl(getVideoPlaybackCandidate(it)) }))));
       }
     }
   }, [initialProject]);
@@ -1042,7 +1070,13 @@ function ProjectDetail({
           }
         } catch (e) { }
 
-        const metaFinal = Object.assign({}, meta, { mediaType, thumbSrc: resolveAssetUrl(thumbCandidate), originalSrc: resolveAssetUrl(origCandidate) });
+        const playbackCandidate = getVideoPlaybackCandidate(meta);
+        const metaFinal = Object.assign({}, meta, {
+          mediaType,
+          thumbSrc: resolveAssetUrl(thumbCandidate),
+          originalSrc: resolveAssetUrl(origCandidate),
+          playbackSrc: playbackCandidate ? resolveAssetUrl(playbackCandidate) : undefined,
+        });
         if (metaFinal.id) {
           const semantic = extractPhotoSemantic(item);
           if (semantic.hasAnalysis) {
@@ -1101,7 +1135,13 @@ function ProjectDetail({
           }
         }
       } catch (e) { }
-      const metaFinal = Object.assign({}, meta, { mediaType, thumbSrc: resolveAssetUrl(thumbCandidate), originalSrc: resolveAssetUrl(origCandidate) });
+      const playbackCandidate = getVideoPlaybackCandidate(meta);
+      const metaFinal = Object.assign({}, meta, {
+        mediaType,
+        thumbSrc: resolveAssetUrl(thumbCandidate),
+        originalSrc: resolveAssetUrl(origCandidate),
+        playbackSrc: playbackCandidate ? resolveAssetUrl(playbackCandidate) : undefined,
+      });
       if (metaFinal.id) {
         const semantic = extractPhotoSemantic(item);
         if (semantic.hasAnalysis) {
@@ -1348,7 +1388,7 @@ function ProjectDetail({
         setError(err?.message || '鑾峰彇椤圭洰璇︽儏澶辫触');
         if (initialProject?.images?.length) {
           setImages(initialProject.images.map((it) => resolveAssetUrl(getPhotoThumbCandidate(it))));
-          setPhotoMetas(initialProject.images.map((it) => (typeof it === 'string' ? { url: it } : { ...it, thumbSrc: resolveAssetUrl(getPhotoThumbCandidate(it)), originalSrc: resolveAssetUrl(getPhotoOriginalCandidate(it)) })));
+          setPhotoMetas(initialProject.images.map((it) => (typeof it === 'string' ? { url: it } : { ...it, thumbSrc: resolveAssetUrl(getPhotoThumbCandidate(it)), originalSrc: resolveAssetUrl(getPhotoOriginalCandidate(it)), playbackSrc: resolveAssetUrl(getVideoPlaybackCandidate(it)) })));
         }
       } finally {
         if (!canceled) setLoading(false);
@@ -1408,6 +1448,16 @@ function ProjectDetail({
       try { clearTimeout(timer); } catch (e) { }
     }
     delete analysisPollTimersRef.current[key];
+  }, []);
+
+  const clearVideoPlaybackPollTimer = React.useCallback((photoId) => {
+    const key = String(photoId || '').trim();
+    if (!key) return;
+    const timer = videoPlaybackPollTimersRef.current[key];
+    if (timer) {
+      try { clearTimeout(timer); } catch (e) { }
+    }
+    delete videoPlaybackPollTimersRef.current[key];
   }, []);
 
   const mergePhotoAnalysisResult = React.useCallback((photo) => {
@@ -1514,6 +1564,89 @@ function ProjectDetail({
     analysisPollTimersRef.current[key] = setTimeout(poll, ANALYSIS_POLL_INITIAL_DELAY_MS);
   }, [clearAnalysisPollTimer, mergePhotoAnalysisResult]);
 
+  const mergeVideoPlaybackResult = React.useCallback((photo) => {
+    const photoId = getPhotoRecordId(photo);
+    if (!photoId || !photo || !isVideoMeta(photo)) return false;
+    const playbackSrc = resolveAssetUrl(getVideoPlaybackCandidate(photo));
+    if (!playbackSrc) return false;
+
+    const currentMetas = Array.isArray(photoMetasRef.current) ? photoMetasRef.current : [];
+    const nextMetas = currentMetas.map((meta) => {
+      if (String(getPhotoRecordId(meta) || '') !== String(photoId)) return meta;
+      return {
+        ...(meta || {}),
+        ...photo,
+        thumbSrc: resolveAssetUrl(getPhotoThumbCandidate(photo)) || meta.thumbSrc || meta.thumbUrl,
+        originalSrc: resolveAssetUrl(getPhotoOriginalCandidate(photo)) || meta.originalSrc || meta.url,
+        playbackSrc,
+        playbackUrl: photo.playbackUrl || photo.playback_url || meta.playbackUrl || meta.playback_url,
+        playback_url: photo.playback_url || photo.playbackUrl || meta.playback_url || meta.playbackUrl,
+        processingStatus: null,
+        processing_status: null,
+        uploadState: null,
+        upload_state: null,
+      };
+    });
+    applyGalleryMetas(nextMetas);
+    return true;
+  }, [applyGalleryMetas]);
+
+  // 轮询超时（转码失败/任务丢失）时清掉 processing 状态，
+  // 让视频解除锁定并回退播放原始文件，而不是永久"转码中"。
+  const clearVideoProcessingState = React.useCallback((photoId) => {
+    const currentMetas = Array.isArray(photoMetasRef.current) ? photoMetasRef.current : [];
+    const nextMetas = currentMetas.map((meta) => {
+      if (String(getPhotoRecordId(meta) || '') !== String(photoId)) return meta;
+      return {
+        ...(meta || {}),
+        processingStatus: null,
+        processing_status: null,
+        uploadState: null,
+        upload_state: null,
+      };
+    });
+    applyGalleryMetas(nextMetas);
+  }, [applyGalleryMetas]);
+
+  const scheduleVideoPlaybackPolling = React.useCallback((photoId) => {
+    const key = String(photoId || '').trim();
+    if (!key) return;
+    if (videoPlaybackPollTimersRef.current[key]) return;
+
+    let attempts = 0;
+    const poll = async () => {
+      attempts += 1;
+      try {
+        const photo = await getPhotoById(key);
+        const ready = mergeVideoPlaybackResult(photo);
+        if (ready) {
+          clearVideoPlaybackPollTimer(key);
+          return;
+        }
+      } catch (err) {
+        // 照片已被删除（404）：立即停止轮询
+        const status = err && (err.status || err.statusCode);
+        if (status === 404 || /404|not found/i.test(String(err && err.message || ''))) {
+          clearVideoPlaybackPollTimer(key);
+          return;
+        }
+        console.warn('[ProjectDetail] video playback polling failed:', key, err);
+      }
+
+      // 卸载/手动清理后 in-flight 的 await 恢复时不得复活定时器链
+      if (!(key in videoPlaybackPollTimersRef.current)) return;
+
+      if (attempts >= VIDEO_PLAYBACK_POLL_MAX_ATTEMPTS) {
+        clearVideoPlaybackPollTimer(key);
+        clearVideoProcessingState(key);
+        return;
+      }
+      videoPlaybackPollTimersRef.current[key] = setTimeout(poll, VIDEO_PLAYBACK_POLL_INTERVAL_MS);
+    };
+
+    videoPlaybackPollTimersRef.current[key] = setTimeout(poll, VIDEO_PLAYBACK_POLL_INITIAL_DELAY_MS);
+  }, [clearVideoPlaybackPollTimer, clearVideoProcessingState, mergeVideoPlaybackResult]);
+
   React.useEffect(() => {
     const metas = Array.isArray(photoMetas) ? photoMetas : [];
     metas.forEach((meta) => {
@@ -1523,8 +1656,11 @@ function ProjectDetail({
       if (semantic.analysisPending && !semantic.hasAnalysis) {
         scheduleAnalysisPolling(photoId);
       }
+      if (isVideoMeta(meta) && getVideoUploadState(meta) === 'processing') {
+        scheduleVideoPlaybackPolling(photoId);
+      }
     });
-  }, [photoMetas, scheduleAnalysisPolling]);
+  }, [photoMetas, scheduleAnalysisPolling, scheduleVideoPlaybackPolling]);
 
   const getPhotoSemanticState = React.useCallback((meta) => {
     const photoId = getPhotoRecordId(meta);
@@ -1597,7 +1733,8 @@ function ProjectDetail({
         const nextMetas = list.map((it) => {
           const thumbSrc = resolveAssetUrl(getPhotoThumbCandidate(it));
           const originalSrc = resolveAssetUrl(getPhotoOriginalCandidate(it));
-          return { ...it, thumbSrc, originalSrc };
+          const playbackSrc = resolveAssetUrl(getVideoPlaybackCandidate(it));
+          return { ...it, thumbSrc, originalSrc, playbackSrc: playbackSrc || undefined };
         });
         const nextImages = nextMetas.map((m) => m.thumbSrc || resolveAssetUrl(getPhotoThumbCandidate(m))).filter(Boolean);
 
@@ -1820,8 +1957,26 @@ function ProjectDetail({
           .then((detail) => {
             setProject(detail);
             const built = buildImagesAndMetas(detail);
+            // 项目详情接口不返回 processingStatus（DB 无此字段）：
+            // 对仍无 playback 的视频保留旧 meta 里的转码中/失败状态，
+            // 否则刷新几秒后占位被抹掉、查看器提前回退播还在转码的原片
+            const prevById = new Map(
+              (Array.isArray(photoMetasRef.current) ? photoMetasRef.current : [])
+                .map((m) => [String(getPhotoRecordId(m) || ''), m])
+                .filter(([k]) => k)
+            );
+            const mergedMetas = built.metas.map((meta) => {
+              if (!isVideoMeta(meta) || getVideoPlaybackCandidate(meta)) return meta;
+              const prev = prevById.get(String(getPhotoRecordId(meta) || ''));
+              if (!prev || !getVideoUploadState(prev)) return meta;
+              return {
+                ...meta,
+                processingStatus: prev.processingStatus || prev.processing_status || null,
+                uploadState: prev.uploadState || prev.upload_state || null,
+              };
+            });
             setImages(built.images);
-            setPhotoMetas(built.metas);
+            setPhotoMetas(mergedMetas);
           })
           .catch(() => { /* ignore */ });
       }
@@ -2750,7 +2905,14 @@ function ProjectDetail({
 
   const getViewerTargetSrc = React.useCallback((index, showOriginal = false) => {
     const meta = photoMetas?.[index] || {};
-    if (isVideoMeta(meta)) return meta.originalSrc || meta.originalUrl || meta.url || meta.fileUrl || images[index] || meta.thumbSrc || '';
+    if (isVideoMeta(meta)) {
+      // 优先 web 转码产物；仍在转码中的新上传不回退（由占位 UI 呈现），
+      // 存量视频无 playback 时回退原始文件，保持可播。
+      const playback = getVideoPlaybackCandidate(meta);
+      if (playback) return playback;
+      if (getVideoUploadState(meta)) return '';
+      return meta.originalSrc || meta.url || '';
+    }
     if (showOriginal) return meta.originalSrc || meta.url || meta.thumbSrc || images[index] || '';
     return meta.thumbSrc || images[index] || meta.originalSrc || meta.url || '';
   }, [photoMetas, images]);
@@ -3301,10 +3463,14 @@ function ProjectDetail({
 
   React.useEffect(() => {
     if (!viewerVisible || !viewerCount || viewerIndex < 0) return undefined;
-    const currentThumb = getViewerTargetSrc(viewerIndex, false);
-    const prevThumb = getViewerTargetSrc(prevViewerIndex, false);
-    const nextThumb = getViewerTargetSrc(nextViewerIndex, false);
-    const currentOriginal = viewerShowOriginal ? getViewerTargetSrc(viewerIndex, true) : '';
+    // 视频 slide 的目标是视频文件，new Image() 预加载只会白拉字节，跳过
+    const srcForPreload = (idx, showOriginal) => (
+      isVideoMeta(photoMetas?.[idx]) ? '' : getViewerTargetSrc(idx, showOriginal)
+    );
+    const currentThumb = srcForPreload(viewerIndex, false);
+    const prevThumb = srcForPreload(prevViewerIndex, false);
+    const nextThumb = srcForPreload(nextViewerIndex, false);
+    const currentOriginal = viewerShowOriginal ? srcForPreload(viewerIndex, true) : '';
     const candidates = [currentThumb, prevThumb, nextThumb, currentOriginal].filter(Boolean);
     const preloads = [];
     candidates.forEach((src) => {
@@ -3323,7 +3489,7 @@ function ProjectDetail({
         img.onerror = null;
       });
     };
-  }, [viewerVisible, viewerCount, viewerIndex, prevViewerIndex, nextViewerIndex, getViewerTargetSrc, viewerShowOriginal]);
+  }, [viewerVisible, viewerCount, viewerIndex, prevViewerIndex, nextViewerIndex, getViewerTargetSrc, viewerShowOriginal, photoMetas]);
 
   const navigateViewer = React.useCallback((step) => {
     if (!viewerVisible || viewerCount <= 1) return;
@@ -4980,20 +5146,26 @@ function ProjectDetail({
                             <div className={`viewer-slide${idx === viewerIndex ? ' is-active' : ''}`} style={viewerSlideStyle} key={`viewer-slide-${idx}`}>
                               <div className="viewer-face-image-surface">
                                 {isSlideVideo ? (
-                                  <video
-                                    src={slideSrc || slideMeta?.thumbSrc || slideMeta?.thumbUrl || slideMeta?.originalSrc || slideMeta?.url}
-                                    className="viewer-carousel-img viewer-carousel-video"
-                                    controls
-                                    playsInline
-                                    preload="metadata"
-                                    onLoadedMetadata={(e) => {
-                                      if (!slidePhotoId || !e?.target) return;
-                                      const width = toFiniteNumber(e.target.videoWidth);
-                                      const height = toFiniteNumber(e.target.videoHeight);
-                                      if (!width || !height) return;
-                                      setViewerImageNaturalMap((prev) => ({ ...(prev || {}), [slidePhotoId]: { width, height } }));
-                                    }}
-                                  />
+                                  slideSrc ? (
+                                    <video
+                                      src={slideSrc}
+                                      className="viewer-carousel-img viewer-carousel-video"
+                                      controls
+                                      playsInline
+                                      preload="metadata"
+                                      onLoadedMetadata={(e) => {
+                                        if (!slidePhotoId || !e?.target) return;
+                                        const width = toFiniteNumber(e.target.videoWidth);
+                                        const height = toFiniteNumber(e.target.videoHeight);
+                                        if (!width || !height) return;
+                                        setViewerImageNaturalMap((prev) => ({ ...(prev || {}), [slidePhotoId]: { width, height } }));
+                                      }}
+                                    />
+                                  ) : (
+                                    <div className="viewer-carousel-img viewer-video-processing">
+                                      {getVideoUploadState(slideMeta) === 'failed' ? '视频处理失败' : '视频转码中，稍后可播放'}
+                                    </div>
+                                  )
                                 ) : (
                                   <ViewerToneImage
                                     src={slideSrc}
