@@ -153,6 +153,26 @@ export default function ShareView({ share = {}, onBack }) {
     return resolveAssetUrl(p.url || p.originalUrl || p.original || p.full || p.large || p.imageUrl || p.src || p.fileUrl || p);
   };
 
+  const isVideoPhoto = (p) => {
+    if (!p || typeof p === 'string') return false;
+    const t = String(p.type || p.mediaType || p.media_type || '').toLowerCase();
+    if (t === 'video') return true;
+    return /\.(mp4|m4v|mov|webm|ogv)(\?|$)/i.test(String(p.url || ''));
+  };
+
+  // 视频缩略图只认后端的 JPEG poster（thumb_url），没有就不给 <img> 塞 mp4
+  const posterFor = (p) => {
+    if (!p || typeof p === 'string') return null;
+    const raw = p.thumbUrl || p.thumb || p.thumbnail || '';
+    return raw ? resolveAssetUrl(raw) : null;
+  };
+
+  // 播放优先转码产物，老数据回退原始文件
+  const playbackFor = (p) => {
+    if (!p || typeof p === 'string') return null;
+    return resolveAssetUrl(p.playbackUrl || p.playback_url || p.url || '') || null;
+  };
+
   const [selectMode, setSelectMode] = React.useState(false);
   const [selectedMap, setSelectedMap] = React.useState({});
   const selectedCount = Object.keys(selectedMap).length;
@@ -176,6 +196,7 @@ export default function ShareView({ share = {}, onBack }) {
   const [viewerVisible, setViewerVisible] = React.useState(false);
   const [viewerIndex, setViewerIndex] = React.useState(0);
   const [viewerShowOriginalMap, setViewerShowOriginalMap] = React.useState({});
+  const [videoErrorMap, setVideoErrorMap] = React.useState({});
 
   const openViewer = (idx) => { setViewerIndex(idx); setViewerVisible(true); };
   const closeViewer = () => setViewerVisible(false);
@@ -260,6 +281,8 @@ export default function ShareView({ share = {}, onBack }) {
   const gridColumns = isMobileLayout ? 'repeat(3, minmax(0, 1fr))' : 'repeat(auto-fill, minmax(220px, 1fr))';
   const renderPhotoCard = (p, idx, masonry = false) => {
     const sectionLabel = getSharePhotoSectionLabel(p, timelineSections);
+    const isVideo = isVideoPhoto(p);
+    const poster = isVideo ? posterFor(p) : null;
     return (
       <div key={idx} style={{ position: 'relative', ...(masonry ? { display: 'inline-block', width: '100%', marginBottom: galleryGap, overflow: 'hidden', background: '#f6f6f6', WebkitColumnBreakInside: 'avoid', breakInside: 'avoid' } : {}) }}>
         <div
@@ -267,11 +290,22 @@ export default function ShareView({ share = {}, onBack }) {
           style={{ cursor: 'pointer', aspectRatio: masonry ? undefined : '1 / 1' }}
           onClick={() => { if (selectMode) toggleSelect(idx); else openViewer(idx); }}
         >
-          <img
-            src={thumbFor(p)}
-            alt={p && (p.title || p.description || `photo-${idx}`)}
-            style={masonry ? { width: '100%', display: 'block', height: 'auto' } : { width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-          />
+          {isVideo && !poster ? (
+            <div style={{ width: '100%', height: masonry ? 160 : '100%', background: '#111726', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.75)', fontSize: 13, letterSpacing: '0.08em' }}>
+              VIDEO
+            </div>
+          ) : (
+            <img
+              src={isVideo ? poster : thumbFor(p)}
+              alt={p && (p.title || p.description || `photo-${idx}`)}
+              style={masonry ? { width: '100%', display: 'block', height: 'auto' } : { width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+            />
+          )}
+          {isVideo ? (
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+              <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'rgba(0,0,0,0.55)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, paddingLeft: 4 }}>▶</div>
+            </div>
+          ) : null}
           {sectionLabel ? <div className="detail-photo-section-chip">{sectionLabel}</div> : null}
         </div>
         {selectMode ? (
@@ -378,7 +412,27 @@ export default function ShareView({ share = {}, onBack }) {
               <button className="viewer-nav viewer-nav-left" onClick={(e) => { e.stopPropagation(); viewerPrev(); }} aria-label="上一张" />
               <div className="viewer-img-wrap" onClick={(e) => e.stopPropagation()}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center' }}>
-                  <img className="viewer-img" src={viewerShowOriginalMap[viewerIndex] ? originalFor(photos[viewerIndex]) : thumbFor(photos[viewerIndex])} alt="预览" />
+                  {isVideoPhoto(photos[viewerIndex]) ? (
+                    videoErrorMap[viewerIndex] ? (
+                      <div style={{ minWidth: 'min(560px, 80vw)', minHeight: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#050816', color: 'rgba(255,255,255,0.8)', fontSize: 14, borderRadius: 8, padding: 24, textAlign: 'center' }}>
+                        该视频暂时无法在线播放（可能仍在转码或格式不受浏览器支持），可下载后观看。
+                      </div>
+                    ) : (
+                      <video
+                        className="viewer-img"
+                        src={playbackFor(photos[viewerIndex])}
+                        poster={posterFor(photos[viewerIndex]) || undefined}
+                        controls
+                        playsInline
+                        preload="metadata"
+                        style={{ maxWidth: '86vw', maxHeight: '70vh', background: '#050816' }}
+                        onError={() => setVideoErrorMap((m) => ({ ...m, [viewerIndex]: true }))}
+                      />
+                    )
+                  ) : (
+                    <img className="viewer-img" src={viewerShowOriginalMap[viewerIndex] ? originalFor(photos[viewerIndex]) : thumbFor(photos[viewerIndex])} alt="预览" />
+                  )}
+                  {!isVideoPhoto(photos[viewerIndex]) ? (
                   <div style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
                     <Button
                       onClick={() => setViewerShowOriginalMap((m) => ({ ...m, [viewerIndex]: !m[viewerIndex] }))}
@@ -387,6 +441,7 @@ export default function ShareView({ share = {}, onBack }) {
                       {viewerShowOriginalMap[viewerIndex] ? '查看缩略图' : '查看原图'}
                     </Button>
                   </div>
+                  ) : null}
                   <button className="viewer-close-btn" onClick={(e) => { e.stopPropagation(); closeViewer(); }} aria-label="关闭查看器">×</button>
                   <div style={{ maxWidth: '80vw', color: '#fff', textAlign: 'center' }}>
                     <div style={{ fontSize: 14 }}>{photos[viewerIndex] && (photos[viewerIndex].title || '')}</div>
