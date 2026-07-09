@@ -255,7 +255,7 @@ textarea {
 
 @supports (backdrop-filter: url("#mamage-liquid-glass")) {
     .mamage-header,
-    .mamage-header.is-desktop-header.is-project-detail::after,
+    .mamage-header.is-desktop-header.is-project-detail::before,
     .mamage-mobile-nav-panel,
     .mamage-modal-content,
     .mamage-popover-content,
@@ -312,65 +312,122 @@ textarea {
     padding-block: 7px;
 }
 
+/* ============================================================
+   详情页导航 + 刘海：真·单一玻璃形状
+   条形(圆角18) 与 刘海(底圆角20) 的并集用 CSS mask 雕在同一块
+   玻璃(::before)上——一个 backdrop 磨砂区域、一条整体剪影阴影，
+   不存在拼接缝。阴影层(::after)把剪影平移到屏外再用 drop-shadow
+   投回原位（半透明玻璃背后不能垫实心影，否则透出灰带）。
+   ============================================================ */
 .mamage-header.is-desktop-header.is-project-detail {
     --mamage-notch-width: min(560px, calc(100% - 520px));
     --mamage-notch-min-width: 320px;
     --mamage-notch-height: 34px;
-    border-color: var(--mamage-glass-border) !important;
-    /* 底边框整条透明：刘海区段由 topbar::after 画"带缺口"的边线，避免横切刘海 */
-    border-bottom-color: transparent !important;
-    border-radius: 18px;
-    background: var(--mamage-glass-bg) !important;
-    box-shadow: 0 8px 24px rgba(50, 82, 112, 0.12), 0 1px 8px rgba(18, 32, 52, 0.05);
-    backdrop-filter: var(--lg-blur);
-    -webkit-backdrop-filter: var(--lg-blur);
-    margin-bottom: calc(var(--mamage-notch-height) + 10px);
+    --nh: var(--mamage-notch-height);
+    --nw: max(var(--mamage-notch-min-width), var(--mamage-notch-width));
+    /* 组合形状：2 条形主体 + 4 条形圆角 + 刘海纵横条 + 2 刘海底圆角 */
+    --mamage-shape-mask-image:
+        linear-gradient(#000, #000),
+        linear-gradient(#000, #000),
+        radial-gradient(circle at 100% 100%, #000 17.5px, transparent 18px),
+        radial-gradient(circle at 0 100%, #000 17.5px, transparent 18px),
+        radial-gradient(circle at 100% 0, #000 17.5px, transparent 18px),
+        radial-gradient(circle at 0 0, #000 17.5px, transparent 18px),
+        linear-gradient(#000, #000),
+        linear-gradient(#000, #000),
+        radial-gradient(circle at 100% 0, #000 19.5px, transparent 20px),
+        radial-gradient(circle at 0 0, #000 19.5px, transparent 20px);
+    --mamage-shape-mask-size:
+        100% calc(100% - var(--nh) - 36px),
+        calc(100% - 36px) calc(100% - var(--nh)),
+        18px 18px, 18px 18px, 18px 18px, 18px 18px,
+        calc(var(--nw) - 40px) 38px,
+        var(--nw) 18px,
+        20px 20px, 20px 20px;
+    --mamage-shape-mask-position:
+        0 18px,
+        18px 0,
+        0 0, 100% 0,
+        0 calc(100% - var(--nh)), 100% calc(100% - var(--nh)),
+        50% 100%,
+        50% calc(100% - 20px),
+        calc(50% - var(--nw) / 2 + 10px) 100%,
+        calc(50% + var(--nw) / 2 - 10px) 100%;
+    /* 阴影层的剪影下移 7px，形成向下的投影偏置 */
+    --mamage-shape-shadow-position:
+        0 25px,
+        18px 7px,
+        0 7px, 100% 7px,
+        0 calc(100% - var(--nh) + 7px), 100% calc(100% - var(--nh) + 7px),
+        50% calc(100% + 7px),
+        50% calc(100% - 13px),
+        calc(50% - var(--nw) / 2 + 10px) calc(100% + 7px),
+        calc(50% + var(--nw) / 2 - 10px) calc(100% + 7px);
+
+    padding-bottom: var(--nh);
+    margin-bottom: 10px;
+    border: 0 !important;
+    border-radius: 0;
+    background: transparent !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
 }
 
+/* ::before = 唯一的玻璃面：组合形状 + 磨砂 + caustic 高光（blend 合层，静态） */
+.mamage-header.is-desktop-header.is-project-detail::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    border-radius: 0;
+    background-image: var(--mamage-glass-caustic), var(--mamage-glass-bg);
+    background-size: 180% 180%, 180% 180%, 180% 180%, auto;
+    background-position: 0% 20%, 100% 0%, 0% 50%, 0 0;
+    background-blend-mode: screen, screen, screen, normal;
+    background-repeat: no-repeat;
+    opacity: 1;
+    mix-blend-mode: normal;
+    animation: none;
+    backdrop-filter: var(--lg-blur);
+    -webkit-backdrop-filter: var(--lg-blur);
+    mask-image: var(--mamage-shape-mask-image);
+    mask-size: var(--mamage-shape-mask-size);
+    mask-position: var(--mamage-shape-mask-position);
+    mask-repeat: no-repeat;
+    -webkit-mask-image: var(--mamage-shape-mask-image);
+    -webkit-mask-size: var(--mamage-shape-mask-size);
+    -webkit-mask-position: var(--mamage-shape-mask-position);
+    -webkit-mask-repeat: no-repeat;
+}
+
+/* ::after = 整体剪影阴影：剪影画在屏外 300px 处，drop-shadow 投回原位。
+   注意 drop-shadow 只能一层——链式会给"影子再投影"产生鬼影 */
 .mamage-header.is-desktop-header.is-project-detail::after {
     content: '';
     position: absolute;
-    left: 50%;
-    /* 上叠 3px 盖住主栏底缘，与其融为一体 */
-    top: calc(100% - 3px);
-    z-index: 1;
-    width: var(--mamage-notch-width);
-    min-width: var(--mamage-notch-min-width);
-    height: calc(var(--mamage-notch-height) + 3px);
-    border-top: 0;
-    border-right: 1px solid var(--mamage-glass-border);
-    border-bottom: 1px solid var(--mamage-glass-border);
-    border-left: 1px solid var(--mamage-glass-border);
-    border-radius: 0 0 20px 20px;
-    /* 顶部 10px 渐白遮罩吃掉主栏投影透过玻璃形成的灰带，其余保持玻璃材质 */
-    background: linear-gradient(rgba(255, 255, 255, 0.85) 0, rgba(255, 255, 255, 0) 10px), var(--mamage-glass-bg) !important;
-    /* 只向下投影，顶部无阴影才能与主栏无缝 */
-    box-shadow: 0 14px 22px rgba(30, 80, 130, 0.08);
-    transform: translateX(-50%);
+    inset: 0;
+    z-index: -1;
     pointer-events: none;
-    backdrop-filter: var(--lg-blur);
-    -webkit-backdrop-filter: var(--lg-blur);
-}
-
-/* 主栏底边线：在刘海处留缺口，两端渐隐避开圆角 */
-.mamage-header.is-desktop-header.is-project-detail .mamage-topbar::after {
-    content: '';
-    position: absolute;
-    left: 14px;
-    right: 14px;
-    bottom: -1px;
-    z-index: 2;
-    height: 1px;
-    pointer-events: none;
-    background: linear-gradient(90deg,
-        transparent 0,
-        rgba(255, 255, 255, 0.48) 12px,
-        rgba(255, 255, 255, 0.48) calc(50% - var(--mamage-notch-width) / 2 + 14px),
-        transparent calc(50% - var(--mamage-notch-width) / 2 + 20px),
-        transparent calc(50% + var(--mamage-notch-width) / 2 - 20px),
-        rgba(255, 255, 255, 0.48) calc(50% + var(--mamage-notch-width) / 2 - 14px),
-        rgba(255, 255, 255, 0.48) calc(100% - 12px),
-        transparent 100%);
+    border: 0;
+    border-radius: 0;
+    background-image:
+        linear-gradient(#3a5a78, #3a5a78),
+        linear-gradient(#3a5a78, #3a5a78),
+        radial-gradient(circle at 100% 100%, #3a5a78 17.5px, transparent 18px),
+        radial-gradient(circle at 0 100%, #3a5a78 17.5px, transparent 18px),
+        radial-gradient(circle at 100% 0, #3a5a78 17.5px, transparent 18px),
+        radial-gradient(circle at 0 0, #3a5a78 17.5px, transparent 18px),
+        linear-gradient(#3a5a78, #3a5a78),
+        linear-gradient(#3a5a78, #3a5a78),
+        radial-gradient(circle at 100% 0, #3a5a78 19.5px, transparent 20px),
+        radial-gradient(circle at 0 0, #3a5a78 19.5px, transparent 20px);
+    background-size: var(--mamage-shape-mask-size);
+    background-position: var(--mamage-shape-shadow-position);
+    background-repeat: no-repeat;
+    transform: translateY(-300px);
+    filter: drop-shadow(0 306px 16px rgba(50, 82, 112, 0.16));
 }
 
 .mamage-brand-area,
@@ -555,7 +612,8 @@ textarea {
 .mamage-desktop-project-notch {
     position: absolute;
     left: 50%;
-    top: calc(100% - 1px);
+    top: auto;
+    bottom: 0;
     z-index: 3;
     display: flex;
     align-items: center;

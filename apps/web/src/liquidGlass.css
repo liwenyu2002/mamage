@@ -65,7 +65,7 @@
 }
 
 .mamage-header,
-.mamage-header.is-desktop-header.is-project-detail::after,
+.mamage-header.is-desktop-header.is-project-detail::before,
 .mamage-mobile-nav-panel,
 .mamage-modal-content,
 .mamage-popover-content,
@@ -127,7 +127,7 @@
   .liquid-glass-surface,
   [data-liquid-glass='surface'],
   .mamage-header,
-  .mamage-header.is-desktop-header.is-project-detail::after,
+  .mamage-header.is-desktop-header.is-project-detail::before,
   .mamage-mobile-nav-panel,
   .mamage-modal-content,
   .mamage-popover-content,
