@@ -1,7 +1,7 @@
 ﻿import React from 'react';
 import { Modal, Input, TextArea, DatePicker, Toast } from './ui';
 import './CreateAlbumModal.css';
-import { uploadPhotoFiles } from './services/photoService';
+import { getUploadFileLimitError, uploadPhotoFiles } from './services/photoService';
 import { getProjectById } from './services/projectService';
 import { getPermissions } from './permissions/permissionStore';
 import {
@@ -133,12 +133,25 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
   const handleFilesSelected = React.useCallback((files) => {
     const incoming = Array.from(files || []);
     if (!incoming.length) return;
+    const acceptedIncoming = [];
+    let oversizedCount = 0;
+    incoming.forEach((file) => {
+      if (getUploadFileLimitError(file)) {
+        oversizedCount += 1;
+        return;
+      }
+      acceptedIncoming.push(file);
+    });
+    if (oversizedCount > 0) {
+      try { Toast.warning(`已跳过 ${oversizedCount} 个超过 3GB 的视频`); } catch (e) {}
+    }
+    if (!acceptedIncoming.length) return;
 
     setStagingFiles((prevFiles) => {
       const prevSigs = new Set(prevFiles.map((f) => `${f.name}::${f.size}::${f.lastModified}`));
       const toAdd = [];
       let dupCount = 0;
-      for (const f of incoming) {
+      for (const f of acceptedIncoming) {
         const sig = `${f.name}::${f.size}::${f.lastModified}`;
         if (prevSigs.has(sig)) {
           dupCount += 1;
@@ -266,13 +279,14 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
               const rejected = results.filter((r) => r.status === 'rejected');
               if (rejected.length > 0) {
                 console.error('[CreateAlbumModal] some uploads failed', rejected);
-                try { Toast.error(`部分媒体上传失败：${rejected.length} 个`); } catch (e) {}
+                const firstUserMessage = rejected.map((item) => item && item.error && item.error.userMessage).find(Boolean);
+                try { Toast.error(firstUserMessage || `部分媒体上传失败：${rejected.length} 个`); } catch (e) {}
               } else {
                 try { Toast.success('已上传所选媒体'); } catch (e) {}
               }
             } catch (e) {
               console.error('parallel uploads failed unexpectedly', e);
-              try { Toast.error('媒体上传失败'); } catch (ee) {}
+              try { Toast.error((e && e.userMessage) || '媒体上传失败'); } catch (ee) {}
             }
 
             try {

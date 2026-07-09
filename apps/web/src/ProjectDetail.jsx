@@ -14,7 +14,7 @@ import {
 import './ProjectDetail.css';
 import { getProjectById, updateProject, deleteProject } from './services/projectService';
 import { getToken } from './services/authService';
-import { fetchRandomByProject, searchPhotos, getPhotoById, updatePhoto, getFacePersonInfo, labelFacePerson, renameFacePerson, uploadPhotoFiles, warmUploadApiProbe, deletePhotos, getPhotoFaces } from './services/photoService';
+import { fetchRandomByProject, searchPhotos, getPhotoById, updatePhoto, getFacePersonInfo, labelFacePerson, renameFacePerson, uploadPhotoFiles, warmUploadApiProbe, deletePhotos, getPhotoFaces, getUploadFileLimitError } from './services/photoService';
 import { resolveAssetUrl, BASE_URL } from './services/request';
 import IfCan from './permissions/IfCan';
 import PermButton from './permissions/PermButton';
@@ -1571,6 +1571,19 @@ function ProjectDetail({
     }
     const list = Array.from(files || []);
     if (!list.length) return;
+    const acceptedList = [];
+    let oversizedCount = 0;
+    list.forEach((file) => {
+      if (getUploadFileLimitError(file)) {
+        oversizedCount += 1;
+        return;
+      }
+      acceptedList.push(file);
+    });
+    if (oversizedCount) {
+      Toast.warning(`已跳过 ${oversizedCount} 个超过 3GB 的视频`);
+    }
+    if (!acceptedList.length) return;
     const nextSectionId = String(forcedSectionId || selectedUploadSectionId || '');
     if (uploadTimelineEnabled && uploadTimelineSections.length && !nextSectionId) {
       Toast.warning('请先选择要上传的环节');
@@ -1581,7 +1594,7 @@ function ProjectDetail({
       const existing = new Set((prevFiles || []).map((file) => `${file.name}::${file.size}::${file.lastModified}`));
       const fresh = [];
       let skipped = 0;
-      list.forEach((file) => {
+      acceptedList.forEach((file) => {
         const key = `${file.name}::${file.size}::${file.lastModified}`;
         if (existing.has(key)) {
           skipped += 1;
@@ -1590,7 +1603,7 @@ function ProjectDetail({
         existing.add(key);
         fresh.push(file);
       });
-      if (skipped) Toast.warning(`已跳过 ${skipped} 张重复图片`);
+      if (skipped) Toast.warning(`已跳过 ${skipped} 个重复文件`);
       if (fresh.length) {
         setStagingPreviews((prev) => [...(prev || []), ...fresh.map((file) => URL.createObjectURL(file))]);
         setStagingSectionIds((prev) => [
@@ -1706,7 +1719,7 @@ function ProjectDetail({
       }
     } catch (err) {
       console.error('upload error', err);
-      Toast.error('上传失败');
+      Toast.error((err && err.userMessage) || '上传失败');
     } finally {
       setUploading(false);
     }

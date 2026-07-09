@@ -5,6 +5,7 @@ import { fetchLatestByType, fetchRandomByProject, searchPhotos } from './photoQu
 const DEFAULT_UPLOAD_CONCURRENCY = Math.max(1, Number(
   (typeof window !== 'undefined' && window.__MAMAGE_UPLOAD_CONCURRENCY__) || 4
 ));
+const FRONTEND_MAX_VIDEO_UPLOAD_BYTES = 3 * 1024 * 1024 * 1024;
 const DEFAULT_LAN_UPLOAD_API_BASES = [];
 const UPLOAD_PROBE_TIMEOUT_MS = Math.max(250, Number(
   (typeof window !== 'undefined' && window.__MAMAGE_UPLOAD_PROBE_TIMEOUT_MS__) || 800
@@ -29,6 +30,19 @@ function isVideoFile(file) {
   if (mime.startsWith('video/')) return true;
   const name = String(file && file.name || '').toLowerCase();
   return /\.(mp4|m4v|mov|webm|ogv|ogg)$/i.test(name);
+}
+
+function getUploadFileLimitError(file) {
+  if (isVideoFile(file) && Number(file && file.size) > FRONTEND_MAX_VIDEO_UPLOAD_BYTES) {
+    const maxText = '3GB';
+    const err = new Error(`视频不能超过 ${maxText}`);
+    err.code = 'FRONTEND_VIDEO_TOO_LARGE';
+    err.status = 413;
+    err.maxFileBytes = FRONTEND_MAX_VIDEO_UPLOAD_BYTES;
+    err.userMessage = `视频不能超过 ${maxText}`;
+    return err;
+  }
+  return null;
 }
 
 function getAuthHeaders(extra = {}) {
@@ -820,6 +834,8 @@ function isDirectUploadUnavailable(err) {
 // 如果 tags 为数组，会自动转为 JSON 字符串
 async function uploadPhotos(formDataOrObj, { onProgress } = {}) {
   const { file, fields, formData } = normalizeUploadPayload(formDataOrObj);
+  const limitError = getUploadFileLimitError(file);
+  if (limitError) throw limitError;
   const uploadApiBase = await getUploadApiBase();
   try {
     if (isVideoFile(file)) {
@@ -1006,6 +1022,8 @@ export {
   mergeFacePersons,
   getFaceClusterConfig,
   updateFaceClusterConfig,
+  FRONTEND_MAX_VIDEO_UPLOAD_BYTES,
+  getUploadFileLimitError,
   uploadPhotos,
   uploadPhotoFiles,
   warmUploadApiProbe,
