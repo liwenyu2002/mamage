@@ -428,6 +428,20 @@
   background: #050816;
 }
 
+.detail-video-thumb.is-unavailable .detail-video-thumb-media {
+  filter: saturate(0.82) brightness(0.72);
+}
+
+.detail-video-thumb.is-unavailable::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.08), rgba(15, 23, 42, 0.46)),
+    rgba(255, 255, 255, 0.08);
+}
+
 .detail-video-play {
   position: absolute;
   left: 50%;
@@ -449,10 +463,41 @@
   -webkit-backdrop-filter: blur(10px) saturate(1.15);
 }
 
+.detail-video-processing-mark {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 2;
+  width: 42px;
+  height: 42px;
+  border-radius: 999px;
+  transform: translate(-50%, -50%);
+  background: rgba(255, 255, 255, 0.52);
+  border: 1px solid rgba(255, 255, 255, 0.64);
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(12px) saturate(1.2);
+  -webkit-backdrop-filter: blur(12px) saturate(1.2);
+}
+
+.detail-video-processing-mark::before {
+  content: '';
+  position: absolute;
+  inset: 11px;
+  border-radius: inherit;
+  border: 3px solid rgba(37, 99, 235, 0.22);
+  border-top-color: rgba(37, 99, 235, 0.95);
+  animation: detail-video-processing-spin 820ms linear infinite;
+}
+
+@keyframes detail-video-processing-spin {
+  to { transform: rotate(360deg); }
+}
+
 .detail-video-badge {
   position: absolute;
   right: 8px;
   bottom: 8px;
+  z-index: 3;
   padding: 4px 7px;
   border-radius: 999px;
   background: rgba(0, 0, 0, 0.52);
@@ -460,6 +505,21 @@
   font-size: 12px;
   font-weight: 850;
   pointer-events: none;
+}
+
+.detail-video-badge.is-processing {
+  left: 8px;
+  right: auto;
+  max-width: calc(100% - 16px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: rgba(255, 255, 255, 0.64);
+  color: #000;
+  border: 1px solid rgba(255, 255, 255, 0.62);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(12px) saturate(1.25);
+  -webkit-backdrop-filter: blur(12px) saturate(1.25);
 }
 
 .detail-photo-item--skeleton {

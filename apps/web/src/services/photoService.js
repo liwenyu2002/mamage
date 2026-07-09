@@ -901,7 +901,14 @@ async function runLimited(items, limit, worker) {
       try {
         results[idx] = await worker(queue[idx], idx);
       } catch (err) {
-        results[idx] = { status: 'rejected', fileName: queue[idx] && queue[idx].name, error: err };
+        results[idx] = {
+          status: 'rejected',
+          file: queue[idx],
+          fileName: queue[idx] && queue[idx].name,
+          fileSize: queue[idx] && queue[idx].size,
+          fileLastModified: queue[idx] && queue[idx].lastModified,
+          error: err
+        };
       }
     }
   });
@@ -930,7 +937,10 @@ async function uploadPhotoFiles(files, { projectId, timelineSectionId, title, ty
       });
       return {
         status: 'fulfilled',
+        file,
         fileName: file && file.name,
+        fileSize: file && file.size,
+        fileLastModified: file && file.lastModified,
         response,
         photo: response,
         id: response && response.id

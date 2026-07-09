@@ -303,6 +303,18 @@ function isVideoMeta(meta) {
   return getMediaTypeFromItem(meta) === 'video';
 }
 
+function getVideoUploadState(meta) {
+  if (!meta || typeof meta !== 'object') return '';
+  const raw = String(meta.uploadState || meta.upload_state || meta.processingStatus || meta.processing_status || '').toLowerCase();
+  if (raw === 'video-processing' || raw === 'transcoding' || raw === 'processing' || raw === 'queued') return 'processing';
+  if (raw === 'failed' || raw === 'error') return 'failed';
+  return '';
+}
+
+function isVideoUploadPlaceholder(meta) {
+  return Boolean(meta && meta.uploadPlaceholder && getMediaTypeFromItem(meta) === 'video');
+}
+
 function getPhotoThumbCandidate(item) {
   if (!item) return '';
   if (typeof item === 'string') return item;
@@ -318,6 +330,7 @@ function getPhotoOriginalCandidate(item) {
 
 function getPhotoRecordId(item) {
   if (!item || typeof item !== 'object') return null;
+  if (item.uploadPlaceholder) return null;
   const raw = item.id || item.photoId || item.photo_id || item.imageId || item.image_id || null;
   if (raw === null || raw === undefined) return null;
   const sid = String(raw).trim();
@@ -680,6 +693,7 @@ function ProjectDetail({
 
   const fileInputRef = React.useRef(null);
   const dragPreviewRef = React.useRef(null);
+  const photoMetasRef = React.useRef(photoMetas);
   const [hoveredPhotoIdx, setHoveredPhotoIdx] = React.useState(-1);
   const [dragActive, setDragActive] = React.useState(false);
   const [uploadHover, setUploadHover] = React.useState(false);
@@ -801,6 +815,17 @@ function ProjectDetail({
   }, []);
 
   React.useEffect(() => {
+    photoMetasRef.current = Array.isArray(photoMetas) ? photoMetas : [];
+  }, [photoMetas]);
+
+  const applyGalleryMetas = React.useCallback((nextMetas) => {
+    const normalized = Array.isArray(nextMetas) ? nextMetas.filter(Boolean) : [];
+    photoMetasRef.current = normalized;
+    setPhotoMetas(normalized);
+    setImages(normalized.map((meta) => meta.thumbSrc || resolveAssetUrl(getPhotoThumbCandidate(meta))).filter(Boolean));
+  }, []);
+
+  React.useEffect(() => {
     if (initialProject) {
       setProject((prev) => {
         if (!prev || (initialProject.id && prev.id !== initialProject.id)) {
@@ -917,6 +942,59 @@ function ProjectDetail({
       .map((key) => uploadProgress.items[key])
       .filter(Boolean);
   }, [uploadProgress]);
+
+  const findStagedUploadIndex = React.useCallback((file) => {
+    const key = getUploadFileKey(file);
+    if (!key) return -1;
+    return (stagingFiles || []).findIndex((item) => getUploadFileKey(item) === key);
+  }, [stagingFiles]);
+
+  const upsertVideoUploadPlaceholder = React.useCallback((event, state = 'processing') => {
+    const file = event && event.file;
+    if (!file || !isVideoMeta(file)) return;
+    const fileKey = getUploadFileKey(file);
+    if (!fileKey) return;
+    const stagedIndex = findStagedUploadIndex(file);
+    const previewSrc = stagedIndex >= 0 ? stagingPreviews[stagedIndex] : '';
+    if (!previewSrc) return;
+    const sectionId = stagedIndex >= 0 ? String(stagingSectionIds[stagedIndex] || '') : '';
+    const placeholderId = `pending-video-${fileKey}`;
+    const placeholderMeta = {
+      id: placeholderId,
+      photoId: placeholderId,
+      uploadPlaceholder: true,
+      clientUploadKey: fileKey,
+      uploadState: state === 'failed' ? 'failed' : 'video-processing',
+      mediaType: 'video',
+      media_type: 'video',
+      type: 'video',
+      title: file.name || '视频',
+      fileName: file.name || '视频',
+      fileSize: file.size || 0,
+      timelineSectionId: sectionId || undefined,
+      timeline_section_id: sectionId || undefined,
+      thumbSrc: previewSrc,
+      thumbUrl: previewSrc,
+      originalSrc: previewSrc,
+      originalUrl: previewSrc,
+      url: previewSrc,
+    };
+    const current = Array.isArray(photoMetasRef.current) ? photoMetasRef.current : [];
+    const existingIndex = current.findIndex((meta) => isVideoUploadPlaceholder(meta) && meta.clientUploadKey === fileKey);
+    if (state === 'failed' && existingIndex < 0) return;
+    const next = existingIndex >= 0
+      ? current.map((meta, index) => (index === existingIndex ? { ...(meta || {}), ...placeholderMeta } : meta))
+      : [placeholderMeta, ...current];
+    applyGalleryMetas(next);
+  }, [applyGalleryMetas, findStagedUploadIndex, stagingPreviews, stagingSectionIds]);
+
+  const removeVideoUploadPlaceholder = React.useCallback((file) => {
+    const fileKey = getUploadFileKey(file);
+    if (!fileKey) return;
+    const current = Array.isArray(photoMetasRef.current) ? photoMetasRef.current : [];
+    const next = current.filter((meta) => !(isVideoUploadPlaceholder(meta) && meta.clientUploadKey === fileKey));
+    if (next.length !== current.length) applyGalleryMetas(next);
+  }, [applyGalleryMetas]);
 
   // helper: construct aligned images (src strings) and metas (original objects) from project detail
   const buildImagesAndMetas = React.useCallback((detail) => {
@@ -1380,7 +1458,7 @@ function ProjectDetail({
       }
     });
 
-    const currentMetas = Array.isArray(photoMetas) ? photoMetas : [];
+    const currentMetas = Array.isArray(photoMetasRef.current) ? photoMetasRef.current : [];
     const existingIds = new Set(currentMetas.map((meta) => getPhotoRecordId(meta)).filter(Boolean));
     const freshMetas = normalized
       .filter(({ meta }) => !existingIds.has(getPhotoRecordId(meta)))
@@ -1390,10 +1468,9 @@ function ProjectDetail({
       return photoId && patchesById[photoId] ? { ...(meta || {}), ...patchesById[photoId] } : meta;
     });
     const nextMetas = [...freshMetas, ...updatedExisting];
-    setPhotoMetas(nextMetas);
-    setImages(nextMetas.map((meta) => meta.thumbSrc || resolveAssetUrl(getPhotoThumbCandidate(meta))).filter(Boolean));
+    applyGalleryMetas(nextMetas);
     return normalized.map(({ meta }) => getPhotoRecordId(meta)).filter(Boolean);
-  }, [photoMetas]);
+  }, [applyGalleryMetas]);
 
   const scheduleAnalysisPolling = React.useCallback((photoId) => {
     const key = String(photoId || '').trim();
@@ -1677,9 +1754,20 @@ function ProjectDetail({
     });
     setUploading(true);
     setUploadProgress(createInitialUploadProgress(stagingFiles));
+    let autoCollapsedUpload = false;
+    const shouldAutoCollapseForVideoProcessing = stagingFiles.length > 0 && stagingFiles.every((file) => isVideoMeta(file));
     try {
       const results = [];
       const handleProgress = (event) => {
+        if (event && event.phase === 'video-processing') {
+          upsertVideoUploadPlaceholder(event, 'processing');
+          if (shouldAutoCollapseForVideoProcessing) {
+            autoCollapsedUpload = true;
+            setUploadMode(false);
+          }
+        } else if (event && (event.phase === 'failed' || event.status === 'rejected')) {
+          upsertVideoUploadPlaceholder(event, 'failed');
+        }
         setUploadProgress((prev) => reduceUploadProgress(prev, event));
       };
       for (const [sectionId, files] of groupedFiles.entries()) {
@@ -1703,6 +1791,9 @@ function ProjectDetail({
       }
 
       if (succeeded.length > 0) {
+        succeeded.forEach((result) => {
+          if (result && result.file) removeVideoUploadPlaceholder(result.file);
+        });
         const uploadedPhotos = succeeded
           .map((r) => (r && (r.response || r.photo)) || null)
           .filter((photo) => !!getPhotoRecordId(photo));
@@ -1721,6 +1812,7 @@ function ProjectDetail({
       }
     } catch (err) {
       console.error('upload error', err);
+      if (autoCollapsedUpload) setUploadMode(true);
       Toast.error((err && err.userMessage) || '上传失败');
     } finally {
       setUploading(false);
@@ -1732,6 +1824,8 @@ function ProjectDetail({
     cancelUpload,
     DISABLE_UPLOAD_FEATURE,
     prependUploadedPhotos,
+    upsertVideoUploadPlaceholder,
+    removeVideoUploadPlaceholder,
     scheduleAnalysisPolling,
     readOnly,
     buildImagesAndMetas,
@@ -3721,6 +3815,8 @@ function ProjectDetail({
     const ratio = imageRatios[src] || 1.5;
     const meta = photoMetas?.[overallIndex] || {};
     const isVideo = isVideoMeta(meta);
+    const videoUploadState = isVideo ? getVideoUploadState(meta) : '';
+    const videoUnavailable = videoUploadState === 'processing' || videoUploadState === 'failed';
     const mediaSrc = isVideo ? (meta.thumbSrc || meta.thumbUrl || src || meta.originalSrc || meta.url) : src;
     const semanticState = isVideo ? { tags: [], description: '', pending: false, failed: false } : getPhotoSemanticState(meta);
     const timelineLabel = getPhotoTimelineSectionLabel(meta, uploadTimelineSections);
@@ -3738,21 +3834,30 @@ function ProjectDetail({
           {isVideo ? (
             <button
               type="button"
-              className="detail-video-thumb"
-              draggable
+              className={`detail-video-thumb${videoUnavailable ? ' is-unavailable' : ''}${videoUploadState === 'failed' ? ' is-failed' : ''}`}
+              draggable={!videoUnavailable}
               onDragStart={(e) => handlePhotoDragStart(e, overallIndex)}
               onDragEnd={handlePhotoDragEnd}
               onMouseEnter={() => setHoveredPhotoIdx(overallIndex)}
               onMouseLeave={() => setHoveredPhotoIdx(-1)}
               onClick={(e) => {
+                if (videoUploadState === 'processing') {
+                  Toast.info('视频已上传，正在转码，完成后可观看');
+                  return;
+                }
+                if (videoUploadState === 'failed') {
+                  Toast.warning('视频处理失败，请重新上传');
+                  return;
+                }
                 if (deleteMode) {
                   toggleSelect(overallIndex);
                 } else if (overallIndex >= 0) {
                   openViewerAt(overallIndex, mediaSrc || images[overallIndex] || '');
                 }
               }}
-              style={{ cursor: deleteMode ? 'pointer' : 'zoom-in', aspectRatio: galleryMode === 'masonry' ? `${ratio}` : undefined }}
-              aria-label="打开视频"
+              style={{ cursor: videoUnavailable ? 'not-allowed' : (deleteMode ? 'pointer' : 'zoom-in'), aspectRatio: galleryMode === 'masonry' ? `${ratio}` : undefined }}
+              aria-label={videoUnavailable ? '视频转码中' : '打开视频'}
+              aria-disabled={videoUnavailable ? 'true' : undefined}
             >
               <video
                 src={mediaSrc}
@@ -3765,8 +3870,14 @@ function ProjectDetail({
                   setDetailImageReadyMap((prev) => (prev[readyKey] ? prev : { ...prev, [readyKey]: true }));
                 }}
               />
-              <span className="detail-video-play" aria-hidden="true">▶</span>
-              <span className="detail-video-badge">视频</span>
+              {videoUnavailable ? (
+                <span className="detail-video-processing-mark" aria-hidden="true" />
+              ) : (
+                <span className="detail-video-play" aria-hidden="true">▶</span>
+              )}
+              <span className={`detail-video-badge${videoUnavailable ? ' is-processing' : ''}`}>
+                {videoUploadState === 'failed' ? '处理失败' : (videoUploadState === 'processing' ? '已上传 · 转码中' : '视频')}
+              </span>
             </button>
           ) : (
             <ViewerToneImage
