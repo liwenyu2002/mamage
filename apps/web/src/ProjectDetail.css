@@ -261,7 +261,10 @@
   z-index: 4;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  /* 紧凑左置小块，不横跨整行 */
+  justify-content: flex-start;
+  width: fit-content;
+  max-width: 100%;
   gap: 10px;
   margin: 0 0 8px;
   padding: 8px 12px;
