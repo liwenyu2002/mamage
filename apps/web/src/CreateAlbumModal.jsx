@@ -1,5 +1,5 @@
 ﻿import React from 'react';
-import { Modal, Input, TextArea, DatePicker, Toast } from './ui';
+import { Modal, Input, TextArea, DatePicker, DateTimePicker, Toast } from './ui';
 import { sectionTimeToInputValue, inputValueToSectionTime } from './utils/sectionTime';
 import './CreateAlbumModal.css';
 import { getUploadFileLimitError, uploadPhotoFiles } from './services/photoService';
@@ -420,11 +420,12 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
                     onChange={(e) => updateTimelineSection(section.key, { name: e.target.value })}
                     placeholder={`环节 ${idx + 1}`}
                   />
-                  <input
+                  <DateTimePicker
                     className="cam-timeline-time"
-                    type="datetime-local"
                     value={sectionTimeToInputValue(section.sectionTime)}
-                    onChange={(e) => updateTimelineSection(section.key, { sectionTime: inputValueToSectionTime(e.target.value) })}
+                    onChange={(v) => updateTimelineSection(section.key, { sectionTime: inputValueToSectionTime(v) })}
+                    placeholder="时间（可选）"
+                    clearable
                     title="环节时间（可选）"
                   />
                   <button type="button" className="cam-icon-button" onClick={() => removeTimelineSection(section.key)} aria-label="删除环节">

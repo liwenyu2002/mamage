@@ -138,17 +138,167 @@ function DatePicker({ className = '', onChange, value, placeholder, clearable, f
   );
 }
 
-// 年月日+时分选择（原生 datetime-local），value 形如 '2026-07-09T18:30'
-function DateTimePicker({ className = '', onChange, value, placeholder, clearable, ...rest }) {
+// 年月日+时分选择，value 形如 '2026-07-09T18:30'。
+// 自绘液态玻璃日历弹层（原生 datetime-local 的日历弹窗无法定制，风格违和）。
+function pad2(n) {
+  return String(n).padStart(2, '0');
+}
+
+function parseDateTimeValue(value) {
+  const m = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  if (!m) return null;
+  return { y: +m[1], mo: +m[2], d: +m[3], hh: +m[4], mi: +m[5] };
+}
+
+function formatDateTimeValue(p) {
+  return `${p.y}-${pad2(p.mo)}-${pad2(p.d)}T${pad2(p.hh)}:${pad2(p.mi)}`;
+}
+
+function DateTimePicker({ className = '', onChange, value, placeholder = '选择时间', clearable, style, title, disabled }) {
+  const parsed = parseDateTimeValue(value);
+  const [open, setOpen] = React.useState(false);
+  const [pos, setPos] = React.useState(null);
+  const [view, setView] = React.useState(() => {
+    const p = parseDateTimeValue(value);
+    const now = new Date();
+    return { y: p ? p.y : now.getFullYear(), mo: p ? p.mo : now.getMonth() + 1 };
+  });
+  const triggerRef = React.useRef(null);
+  const popRef = React.useRef(null);
+
+  const openPop = () => {
+    if (disabled || !triggerRef.current) return;
+    const r = triggerRef.current.getBoundingClientRect();
+    const width = 256;
+    const height = 330;
+    const left = Math.min(Math.max(8, r.left), Math.max(8, window.innerWidth - width - 8));
+    let top = r.bottom + 6;
+    if (top + height > window.innerHeight - 8) top = Math.max(8, r.top - height - 6);
+    setPos({ left, top });
+    const p = parseDateTimeValue(value);
+    const now = new Date();
+    setView({ y: p ? p.y : now.getFullYear(), mo: p ? p.mo : now.getMonth() + 1 });
+    setOpen(true);
+  };
+
+  React.useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (e) => {
+      if (popRef.current && popRef.current.contains(e.target)) return;
+      if (triggerRef.current && triggerRef.current.contains(e.target)) return;
+      setOpen(false);
+    };
+    const onScroll = (e) => {
+      if (popRef.current && popRef.current.contains(e.target)) return;
+      setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onScroll);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onScroll);
+    };
+  }, [open]);
+
+  const commitDate = (d) => {
+    const base = parsed || { hh: 9, mi: 0 };
+    onChange?.(formatDateTimeValue({ y: view.y, mo: view.mo, d, hh: base.hh, mi: base.mi }));
+  };
+  const commitTime = (hh, mi) => {
+    const now = new Date();
+    const base = parsed || { y: now.getFullYear(), mo: now.getMonth() + 1, d: now.getDate() };
+    onChange?.(formatDateTimeValue({ y: base.y, mo: base.mo, d: base.d, hh, mi }));
+  };
+  const shiftMonth = (delta) => setView((v) => {
+    let mo = v.mo + delta;
+    let { y } = v;
+    if (mo < 1) { mo = 12; y -= 1; }
+    if (mo > 12) { mo = 1; y += 1; }
+    return { y, mo };
+  });
+
+  const firstDow = (new Date(view.y, view.mo - 1, 1).getDay() + 6) % 7; // 周一为首
+  const daysInMonth = new Date(view.y, view.mo, 0).getDate();
+  const today = new Date();
+  const cells = [];
+  for (let i = 0; i < firstDow; i += 1) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d += 1) cells.push(d);
+
+  const displayText = parsed
+    ? `${parsed.y}-${pad2(parsed.mo)}-${pad2(parsed.d)} ${pad2(parsed.hh)}:${pad2(parsed.mi)}`
+    : '';
+  const minutes = [];
+  for (let m = 0; m < 60; m += 5) minutes.push(m);
+  if (parsed && !minutes.includes(parsed.mi)) {
+    minutes.push(parsed.mi);
+    minutes.sort((a, b) => a - b);
+  }
+
+  const pop = open && pos && typeof document !== 'undefined' ? createPortal(
+    <div ref={popRef} className="mamage-dtp-pop" style={{ left: pos.left, top: pos.top }} role="dialog" aria-label="选择日期时间">
+      <div className="mamage-dtp-head">
+        <button type="button" onClick={() => shiftMonth(-1)} aria-label="上个月">‹</button>
+        <span>{view.y} 年 {view.mo} 月</span>
+        <button type="button" onClick={() => shiftMonth(1)} aria-label="下个月">›</button>
+      </div>
+      <div className="mamage-dtp-grid mamage-dtp-week">
+        {['一', '二', '三', '四', '五', '六', '日'].map((w) => <span key={w}>{w}</span>)}
+      </div>
+      <div className="mamage-dtp-grid">
+        {cells.map((d, i) => (d === null ? <span key={`e${i}`} /> : (
+          <button
+            type="button"
+            key={d}
+            className={cx(
+              'mamage-dtp-day',
+              parsed && parsed.y === view.y && parsed.mo === view.mo && parsed.d === d && 'is-selected',
+              today.getFullYear() === view.y && today.getMonth() + 1 === view.mo && today.getDate() === d && 'is-today',
+            )}
+            onClick={() => commitDate(d)}
+          >{d}</button>
+        )))}
+      </div>
+      <div className="mamage-dtp-time">
+        <select value={parsed ? parsed.hh : ''} onChange={(e) => commitTime(Number(e.target.value), parsed ? parsed.mi : 0)}>
+          <option value="" disabled>时</option>
+          {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{pad2(h)} 时</option>)}
+        </select>
+        <select value={parsed ? parsed.mi : ''} onChange={(e) => commitTime(parsed ? parsed.hh : 9, Number(e.target.value))}>
+          <option value="" disabled>分</option>
+          {minutes.map((m) => <option key={m} value={m}>{pad2(m)} 分</option>)}
+        </select>
+      </div>
+      <div className="mamage-dtp-foot">
+        {clearable ? (
+          <button type="button" className="mamage-dtp-clear" onClick={() => { onChange?.(null); setOpen(false); }}>清除</button>
+        ) : <span />}
+        <button type="button" className="mamage-dtp-ok" onClick={() => setOpen(false)}>完成</button>
+      </div>
+    </div>,
+    document.body,
+  ) : null;
+
   return (
-    <input
-      {...rest}
-      type="datetime-local"
-      value={value || ''}
-      placeholder={placeholder}
-      className={cx('mamage-input-wrapper mamage-date-picker', className)}
-      onChange={(e) => onChange?.(e.target.value || (clearable ? null : ''), e)}
-    />
+    <>
+      <button
+        type="button"
+        ref={triggerRef}
+        title={title}
+        disabled={disabled}
+        className={cx('mamage-input-wrapper mamage-dtp-trigger', className)}
+        style={style}
+        onClick={() => (open ? setOpen(false) : openPop())}
+      >
+        <span className={displayText ? 'mamage-dtp-value' : 'mamage-dtp-placeholder'}>{displayText || placeholder}</span>
+        <svg className="mamage-dtp-icon" aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+          <rect x="3" y="5" width="18" height="16" rx="3" />
+          <path d="M8 3v4M16 3v4M3 10h18" />
+        </svg>
+      </button>
+      {pop}
+    </>
   );
 }
 
