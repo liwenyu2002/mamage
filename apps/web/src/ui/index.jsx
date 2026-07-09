@@ -138,6 +138,20 @@ function DatePicker({ className = '', onChange, value, placeholder, clearable, f
   );
 }
 
+// 年月日+时分选择（原生 datetime-local），value 形如 '2026-07-09T18:30'
+function DateTimePicker({ className = '', onChange, value, placeholder, clearable, ...rest }) {
+  return (
+    <input
+      {...rest}
+      type="datetime-local"
+      value={value || ''}
+      placeholder={placeholder}
+      className={cx('mamage-input-wrapper mamage-date-picker', className)}
+      onChange={(e) => onChange?.(e.target.value || (clearable ? null : ''), e)}
+    />
+  );
+}
+
 function Select({ children, className = '', value = '', onChange, placeholder, allowClear, filterOption, onSearch, ...rest }) {
   return (
     <select
@@ -414,6 +428,7 @@ export {
   ButtonGroup,
   Card,
   DatePicker,
+  DateTimePicker,
   Divider,
   Empty,
   Input,

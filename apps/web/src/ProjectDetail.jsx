@@ -1,6 +1,6 @@
 ﻿// src/ProjectDetail.jsx
 import React from 'react';
-import { Typography, Button, Tag, Spin, Empty, Modal, Input, DatePicker, TextArea, Toast } from './ui';
+import { Typography, Button, Tag, Spin, Empty, Modal, Input, DatePicker, DateTimePicker, TextArea, Toast } from './ui';
 import {
   IconAIStrokedLevel1,
   IconClose,
@@ -401,6 +401,17 @@ function normalizeTimelineSectionsForClient(input) {
     .sort((a, b) => (a.sortOrder - b.sortOrder) || String(a.name).localeCompare(String(b.name), 'zh-Hans-CN'));
 }
 
+// 环节时间存 'YYYY-MM-DD HH:mm'（VARCHAR），与 datetime-local 的 'YYYY-MM-DDTHH:mm' 互转；
+// 旧的自由文本（如 '09:30'）解析不了则返回空串，选择器置空但原值保留展示
+function sectionTimeToInputValue(raw) {
+  const m = String(raw || '').match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})/);
+  return m ? `${m[1]}T${m[2]}` : '';
+}
+
+function inputValueToSectionTime(v) {
+  return v ? String(v).replace('T', ' ').slice(0, 16) : '';
+}
+
 function getPhotoTimelineSectionId(meta) {
   if (!meta || typeof meta !== 'object') return '';
   const raw = meta.timelineSectionId ?? meta.timeline_section_id ?? meta.sectionId ?? meta.section_id ?? '';
@@ -727,6 +738,8 @@ function ProjectDetail({
   const [timelineDraftTime, setTimelineDraftTime] = React.useState('');
   const [moveSectionVisible, setMoveSectionVisible] = React.useState(false);
   const [assigningSection, setAssigningSection] = React.useState(false);
+  const [dragSectionIdx, setDragSectionIdx] = React.useState(null);
+  const [dragOverSectionIdx, setDragOverSectionIdx] = React.useState(null);
 
   // selection / delete
   const [deleteMode, setDeleteMode] = React.useState(false);
@@ -2167,6 +2180,20 @@ function ProjectDetail({
     [ids[idx], ids[target]] = [ids[target], ids[idx]];
     runTimelineAction(() => reorderTimelineSections(projectId, ids), null);
   }, [projectId, uploadTimelineSections, runTimelineAction]);
+
+  // 拖拽排序：把第 from 行移动到第 target 行的位置
+  const commitSectionDrag = React.useCallback((targetIdx) => {
+    const from = dragSectionIdx;
+    setDragSectionIdx(null);
+    setDragOverSectionIdx(null);
+    if (from === null || targetIdx === null || from === targetIdx) return;
+    const list = (uploadTimelineSections || []).filter((s) => s && s.id);
+    if (from < 0 || from >= list.length || targetIdx < 0 || targetIdx >= list.length) return;
+    const ids = list.map((s) => s.id);
+    const [moved] = ids.splice(from, 1);
+    ids.splice(targetIdx, 0, moved);
+    runTimelineAction(() => reorderTimelineSections(projectId, ids), null);
+  }, [dragSectionIdx, projectId, uploadTimelineSections, runTimelineAction]);
 
   const handleAssignSelectedToSection = React.useCallback(async (sectionId) => {
     if (assigningSection) return;
@@ -4817,33 +4844,73 @@ function ProjectDetail({
               const key = String(section.id || '');
               const edit = sectionRowEdits[key] || { name: section.name || '', sectionTime: section.sectionTime || '' };
               const dirty = edit.name !== (section.name || '') || (edit.sectionTime || '') !== (section.sectionTime || '');
+              const timeInputValue = sectionTimeToInputValue(edit.sectionTime);
+              const legacyTimeText = edit.sectionTime && !timeInputValue ? edit.sectionTime : '';
+              const isDragOver = dragOverSectionIdx === idx && dragSectionIdx !== null && dragSectionIdx !== idx;
               return (
-                <div key={key || section.key} style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
+                <div
+                  key={key || section.key}
+                  onDragOver={(e) => { if (dragSectionIdx !== null) { e.preventDefault(); setDragOverSectionIdx(idx); } }}
+                  onDrop={(e) => { e.preventDefault(); commitSectionDrag(idx); }}
+                  style={{
+                    display: 'flex', gap: 6, alignItems: 'center', flexWrap: isMobile ? 'wrap' : 'nowrap',
+                    borderRadius: 8, padding: '2px 0',
+                    outline: isDragOver ? '2px solid rgba(76,141,255,0.75)' : 'none',
+                    opacity: dragSectionIdx === idx ? 0.5 : 1,
+                  }}
+                >
+                  {!isMobile ? (
+                    <span
+                      draggable={!timelineBusy}
+                      onDragStart={(e) => {
+                        setDragSectionIdx(idx);
+                        try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', key); } catch (err) { }
+                      }}
+                      onDragEnd={() => { setDragSectionIdx(null); setDragOverSectionIdx(null); }}
+                      title="拖拽调整顺序"
+                      style={{ cursor: 'grab', userSelect: 'none', padding: '0 4px', color: 'var(--mg-text-2, #999)', fontSize: 16, lineHeight: 1 }}
+                      aria-label={`拖拽移动环节 ${section.name}`}
+                    >⠿</span>
+                  ) : null}
                   <Input
                     value={edit.name}
                     onChange={(v) => setSectionRowEdits((prev) => ({ ...prev, [key]: { ...edit, name: v } }))}
                     placeholder="环节名称"
-                    style={{ flex: 2, minWidth: 120 }}
+                    style={{ flex: 2, minWidth: 110 }}
                   />
-                  <Input
-                    value={edit.sectionTime}
-                    onChange={(v) => setSectionRowEdits((prev) => ({ ...prev, [key]: { ...edit, sectionTime: v } }))}
-                    placeholder="时间（可选，如 09:30）"
-                    style={{ flex: 1, minWidth: 96 }}
+                  <DateTimePicker
+                    value={timeInputValue}
+                    onChange={(v) => setSectionRowEdits((prev) => ({ ...prev, [key]: { ...edit, sectionTime: inputValueToSectionTime(v) } }))}
+                    clearable
+                    title={legacyTimeText ? `原时间文本：${legacyTimeText}（重新选择后覆盖）` : '环节时间'}
+                    style={{ flex: 1.4, minWidth: 168 }}
                   />
-                  <Button theme="borderless" disabled={timelineBusy || idx === 0} onClick={() => handleMoveSectionOrder(section.id, -1)} title="上移">↑</Button>
-                  <Button theme="borderless" disabled={timelineBusy || idx === uploadTimelineSections.length - 1} onClick={() => handleMoveSectionOrder(section.id, 1)} title="下移">↓</Button>
+                  {isMobile ? (
+                    <>
+                      <Button theme="borderless" disabled={timelineBusy || idx === 0} onClick={() => handleMoveSectionOrder(section.id, -1)} title="上移">↑</Button>
+                      <Button theme="borderless" disabled={timelineBusy || idx === uploadTimelineSections.length - 1} onClick={() => handleMoveSectionOrder(section.id, 1)} title="下移">↓</Button>
+                    </>
+                  ) : null}
                   <Button type="primary" theme="borderless" disabled={timelineBusy || !dirty} onClick={() => handleSaveSectionRow(section.id)}>保存</Button>
                   <Button type="danger" theme="borderless" disabled={timelineBusy} onClick={() => handleDeleteSection(section)}>删除</Button>
+                  {legacyTimeText ? (
+                    <span style={{ flexBasis: '100%', fontSize: 12, color: 'var(--mg-text-2, #999)' }}>原时间文本：{legacyTimeText}（重新选择后覆盖）</span>
+                  ) : null}
                 </div>
               );
             })}
             <div style={{ borderTop: '1px solid rgba(128,128,128,0.25)', paddingTop: 10, display: 'flex', gap: 6, alignItems: 'center', flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
-              <Input value={timelineDraftName} onChange={(v) => setTimelineDraftName(v)} placeholder="新环节名称" style={{ flex: 2, minWidth: 120 }} />
-              <Input value={timelineDraftTime} onChange={(v) => setTimelineDraftTime(v)} placeholder="时间（可选）" style={{ flex: 1, minWidth: 96 }} />
+              <Input value={timelineDraftName} onChange={(v) => setTimelineDraftName(v)} placeholder="新环节名称" style={{ flex: 2, minWidth: 110 }} />
+              <DateTimePicker
+                value={sectionTimeToInputValue(timelineDraftTime)}
+                onChange={(v) => setTimelineDraftTime(inputValueToSectionTime(v))}
+                clearable
+                title="环节时间（可选）"
+                style={{ flex: 1.4, minWidth: 168 }}
+              />
               <Button type="primary" loading={timelineBusy} disabled={timelineBusy} onClick={handleAddSection}>添加环节</Button>
             </div>
-            <Text style={{ fontSize: 12, color: 'var(--mg-text-2, #888)' }}>重命名/改时间后点该行"保存"；删除环节时照片会回落到"未归类"。</Text>
+            <Text style={{ fontSize: 12, color: 'var(--mg-text-2, #888)' }}>{isMobile ? '重命名/改时间后点该行"保存"；删除环节时照片会回落到"未归类"。' : '拖动 ⠿ 调整顺序；重命名/改时间后点该行"保存"；删除环节时照片会回落到"未归类"。'}</Text>
           </div>
         </Modal>
 
