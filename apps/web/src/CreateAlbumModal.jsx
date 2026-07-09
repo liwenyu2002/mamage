@@ -39,11 +39,14 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
   const [startDate, setStartDate] = React.useState(null);
   const [timelineEnabled, setTimelineEnabled] = React.useState(false);
   const [timelineSections, setTimelineSections] = React.useState(() => [{ key: 1, name: '', sectionTime: '' }]);
-  const [initialUploadSectionKey, setInitialUploadSectionKey] = React.useState('');
   const [submitting, setSubmitting] = React.useState(false);
   const [userPermissions, setUserPermissions] = React.useState(() => getPermissions());
   const [stagingFiles, setStagingFiles] = React.useState([]);
   const [stagingPreviews, setStagingPreviews] = React.useState([]);
+  // 与 stagingFiles 平行：每个文件归属的环节本地 key（'' = 未归类）
+  const [stagingSectionKeys, setStagingSectionKeys] = React.useState([]);
+  const filePickerRef = React.useRef(null);
+  const pendingSectionKeyRef = React.useRef('');
   const [uploadProgress, setUploadProgress] = React.useState(null);
   const sectionKeyRef = React.useRef(2);
 
@@ -56,12 +59,12 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
       setStartDate(null);
       setTimelineEnabled(false);
       setTimelineSections([{ key: 1, name: '', sectionTime: '' }]);
-      setInitialUploadSectionKey('');
       sectionKeyRef.current = 2;
       setSubmitting(false);
       stagingPreviews.forEach((u) => { try { URL.revokeObjectURL(u); } catch (e) {} });
       setStagingFiles([]);
       setStagingPreviews([]);
+      setStagingSectionKeys([]);
       setUploadProgress(null);
     }
   }, [visible]);
@@ -94,15 +97,36 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
       sectionTime: section.sectionTime || null,
     })), [timelineSections]);
 
+  // 环节被删除后，归属它的暂存文件回落"未归类"
   React.useEffect(() => {
-    if (!timelineEnabled) {
-      setInitialUploadSectionKey('');
-      return;
+    const valid = new Set(normalizedTimelineSections.map((s) => String(s.sourceKey)));
+    setStagingSectionKeys((prev) => prev.map((k) => (k && !valid.has(String(k)) ? '' : k)));
+  }, [normalizedTimelineSections]);
+
+  // 分环节的暂存容器（与相册内上传弹窗一致）；未启用时间轴则单容器
+  const stagedUploadGroups = React.useMemo(() => {
+    const items = stagingFiles.map((file, index) => ({
+      file,
+      index,
+      preview: stagingPreviews[index],
+      key: String(stagingSectionKeys[index] || ''),
+    }));
+    if (!timelineEnabled || !normalizedTimelineSections.length) {
+      return [{ key: '', name: '待上传媒体', sectionTime: '', items }];
     }
-    if (normalizedTimelineSections.length && !normalizedTimelineSections.some((section) => String(section.sourceKey) === String(initialUploadSectionKey))) {
-      setInitialUploadSectionKey(String(normalizedTimelineSections[0].sourceKey));
-    }
-  }, [timelineEnabled, normalizedTimelineSections, initialUploadSectionKey]);
+    const groups = normalizedTimelineSections.map((section) => ({
+      key: String(section.sourceKey),
+      name: section.name,
+      sectionTime: section.sectionTime || '',
+      items: [],
+    }));
+    const byKey = new Map(groups.map((group) => [group.key, group]));
+    const unassigned = { key: '', name: '未归类', sectionTime: '', items: [] };
+    items.forEach((item) => {
+      (byKey.get(item.key) || unassigned).items.push(item);
+    });
+    return unassigned.items.length ? [...groups, unassigned] : groups;
+  }, [stagingFiles, stagingPreviews, stagingSectionKeys, timelineEnabled, normalizedTimelineSections]);
 
   const addTimelineSection = React.useCallback(() => {
     const key = sectionKeyRef.current;
@@ -121,7 +145,6 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
       if (prev.length <= 1) return [{ ...prev[0], name: '', sectionTime: '' }];
       return prev.filter((section) => section.key !== key);
     });
-    setInitialUploadSectionKey((prev) => (String(prev) === String(key) ? '' : prev));
   }, []);
 
   // 环节排序：桌面拖拽 ⠿，移动端 ↑↓
@@ -174,7 +197,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
     }
   }, [tagInput, addTag]);
 
-  const handleFilesSelected = React.useCallback((files) => {
+  const handleFilesSelected = React.useCallback((files, sectionKey = '') => {
     const incoming = Array.from(files || []);
     if (!incoming.length) return;
     const acceptedIncoming = [];
@@ -215,6 +238,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
         const newPreviews = toAdd.map((f) => (isVideoFile(f) ? '' : URL.createObjectURL(f)));
         return [...prevPreviews, ...newPreviews];
       });
+      setStagingSectionKeys((prevKeys) => [...prevKeys, ...toAdd.map(() => String(sectionKey || ''))]);
 
       return combined;
     });
@@ -235,7 +259,25 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
       }
       return next;
     });
+    setStagingSectionKeys((prev) => {
+      const next = [...prev];
+      next.splice(index, 1);
+      return next;
+    });
     setUploadProgress(null);
+  }, []);
+
+  const assignStagingFileSection = React.useCallback((index, sectionKey) => {
+    setStagingSectionKeys((prev) => {
+      const next = [...prev];
+      next[index] = String(sectionKey || '');
+      return next;
+    });
+  }, []);
+
+  const openFilePicker = React.useCallback((sectionKey = '') => {
+    pendingSectionKeyRef.current = String(sectionKey || '');
+    filePickerRef.current?.click();
   }, []);
 
   const uploadProgressItems = React.useMemo(() => {
@@ -307,19 +349,32 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
               const handleProgress = (event) => {
                 setUploadProgress((prev) => reduceUploadProgress(prev, event));
               };
-              const selectedSection = timelineEnabled
-                ? normalizedTimelineSections.find((section) => String(section.sourceKey) === String(initialUploadSectionKey))
-                : null;
+              // 本地环节 key → 创建后的真实 section id（按 name+sortOrder 匹配）
               const createdSections = Array.isArray(result && result.timelineSections) ? result.timelineSections : [];
-              const matchedCreatedSection = selectedSection
-                ? (createdSections.find((section) => String(section.name || '') === selectedSection.name && Number(section.sortOrder || 0) === Number(selectedSection.sortOrder || 0))
-                  || createdSections.find((section) => String(section.name || '') === selectedSection.name))
-                : null;
-              const results = await uploadPhotoFiles(filesToUpload, {
-                projectId,
-                timelineSectionId: matchedCreatedSection && matchedCreatedSection.id ? matchedCreatedSection.id : undefined,
-                onProgress: handleProgress,
+              const createdIdForKey = (sourceKey) => {
+                if (!timelineEnabled || !sourceKey) return undefined;
+                const local = normalizedTimelineSections.find((section) => String(section.sourceKey) === String(sourceKey));
+                if (!local) return undefined;
+                const matched = createdSections.find((section) => String(section.name || '') === local.name && Number(section.sortOrder || 0) === Number(local.sortOrder || 0))
+                  || createdSections.find((section) => String(section.name || '') === local.name);
+                return matched && matched.id ? matched.id : undefined;
+              };
+              // 按归属环节分组上传（文件在各自环节容器里选择/拖入）
+              const groupsByKey = new Map();
+              filesToUpload.forEach((file, index) => {
+                const key = String(stagingSectionKeys[index] || '');
+                if (!groupsByKey.has(key)) groupsByKey.set(key, []);
+                groupsByKey.get(key).push(file);
               });
+              const results = [];
+              for (const [sourceKey, groupFiles] of groupsByKey) {
+                const groupResults = await uploadPhotoFiles(groupFiles, {
+                  projectId,
+                  timelineSectionId: createdIdForKey(sourceKey),
+                  onProgress: handleProgress,
+                });
+                results.push(...groupResults);
+              }
               const rejected = results.filter((r) => r.status === 'rejected');
               if (rejected.length > 0) {
                 console.error('[CreateAlbumModal] some uploads failed', rejected);
@@ -357,7 +412,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
     } finally {
       setSubmitting(false);
     }
-  }, [name, description, tags, startDate, timelineEnabled, normalizedTimelineSections, initialUploadSectionKey, createProject, onCreated, onClose, stagingFiles, userPermissions]);
+  }, [name, description, tags, startDate, timelineEnabled, normalizedTimelineSections, stagingSectionKeys, createProject, onCreated, onClose, stagingFiles, userPermissions]);
 
   return (
     <Modal
@@ -440,77 +495,95 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
 
         <div className="cam-upload-block">
           <div className="cam-section-label">添加照片/视频（可选，不限数量）</div>
-          {timelineEnabled && normalizedTimelineSections.length > 0 ? (
-            <label className="cam-upload-section">
-              <span>首批媒体环节</span>
-              <select value={initialUploadSectionKey} onChange={(e) => setInitialUploadSectionKey(e.target.value)}>
-                {normalizedTimelineSections.map((section) => (
-                  <option key={section.sourceKey} value={section.sourceKey}>
-                    {section.sectionTime ? `${section.name} · ${section.sectionTime}` : section.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-          <div className="cam-upload-row">
-            <label className="cam-file-label">
-              <input
-                type="file"
-                accept="image/*,video/*"
-                multiple
-                style={{ display: 'none' }}
-                disabled={submitting}
-                onChange={(e) => {
-                  handleFilesSelected(e.target.files);
-                  try { e.target.value = ''; } catch (err) {}
+          <input
+            ref={filePickerRef}
+            type="file"
+            accept="image/*,video/*"
+            multiple
+            style={{ display: 'none' }}
+            disabled={submitting}
+            onChange={(e) => {
+              handleFilesSelected(e.target.files, pendingSectionKeyRef.current);
+              try { e.target.value = ''; } catch (err) {}
+            }}
+          />
+          <div className="cam-upload-groups">
+            {stagedUploadGroups.map((group) => (
+              <section
+                key={group.key || '__all__'}
+                className="cam-upload-group"
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
                 }}
-              />
-              <div className="cam-file-picker">选择照片/视频</div>
-            </label>
-            <div className="cam-preview-row">
-              {stagingPreviews.map((p, i) => {
-                const isVideo = isVideoFile(stagingFiles[i]);
-                return (
-                  <div key={i} className="cam-preview-item">
-                    {isVideo ? (
-                      <>
-                        <span className="cam-preview-video-placeholder">
-                          <span>VIDEO</span>
-                        </span>
-                        <span className="cam-preview-video-badge">视频</span>
-                      </>
-                    ) : (
-                      <img src={p} alt={`preview-${i}`} className="cam-preview-media" />
-                    )}
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); removeStagingFile(i); }}
-                    disabled={submitting}
-                    aria-label="移除媒体"
-                    title="移除"
-                    style={{
-                      position: 'absolute',
-                      right: 4,
-                      top: 4,
-                      width: 20,
-                      height: 20,
-                      borderRadius: 10,
-                      border: 'none',
-                      background: 'rgba(0,0,0,0.6)',
-                      color: '#fff',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      cursor: 'pointer',
-                      padding: 0,
-                      lineHeight: 1,
-                    }}
-                  >
-                    ×
-                  </button>
+                onDrop={(e) => {
+                  e.preventDefault();
+                  if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
+                    handleFilesSelected(e.dataTransfer.files, group.key);
+                  }
+                }}
+              >
+                <div className="cam-upload-group-head">
+                  <div className="cam-upload-group-title">
+                    <span>{group.name}</span>
+                    {group.sectionTime ? <em>{group.sectionTime}</em> : null}
+                  </div>
+                  <div className="cam-upload-group-actions">
+                    <span className="cam-upload-group-count">{group.items.length} 个</span>
+                    <button type="button" className="cam-file-picker cam-file-picker--sm" disabled={submitting} onClick={() => openFilePicker(group.key)}>
+                      添加
+                    </button>
+                  </div>
                 </div>
-              );})}
-            </div>
+                {group.items.length ? (
+                  <div className="cam-preview-row">
+                    {group.items.map((item) => {
+                      const isVideo = isVideoFile(item.file);
+                      return (
+                        <div key={item.index} className="cam-preview-item">
+                          {isVideo ? (
+                            <>
+                              <span className="cam-preview-video-placeholder">
+                                <span>VIDEO</span>
+                              </span>
+                              <span className="cam-preview-video-badge">视频</span>
+                            </>
+                          ) : (
+                            <img src={item.preview} alt={`preview-${item.index}`} className="cam-preview-media" />
+                          )}
+                          <button
+                            type="button"
+                            className="cam-preview-remove"
+                            onClick={(e) => { e.stopPropagation(); removeStagingFile(item.index); }}
+                            disabled={submitting}
+                            aria-label="移除媒体"
+                            title="移除"
+                          >
+                            ×
+                          </button>
+                          {timelineEnabled && normalizedTimelineSections.length ? (
+                            <select
+                              className="cam-preview-section"
+                              value={item.key}
+                              onChange={(e) => assignStagingFileSection(item.index, e.target.value)}
+                              disabled={submitting}
+                              aria-label="调整媒体环节"
+                            >
+                              <option value="">未归类</option>
+                              {normalizedTimelineSections.map((section) => (
+                                <option key={section.sourceKey} value={String(section.sourceKey)}>{section.name}</option>
+                              ))}
+                            </select>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="cam-upload-group-empty">点击"添加"或把文件拖到这里</div>
+                )}
+              </section>
+            ))}
           </div>
           {uploadProgress ? (
             <div className="cam-upload-progress" aria-live="polite">
