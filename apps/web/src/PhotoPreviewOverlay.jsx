@@ -66,7 +66,7 @@ function PhotoPreviewOverlay({
               {safeTags.length > 0 ? (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                   {safeTags.map((tag, i) => (
-                    <span key={`${tag}-${i}`} style={{ background: '#1890ff', padding: '4px 8px', borderRadius: 3, whiteSpace: 'nowrap', fontSize: 12 }}>
+                    <span key={`${tag}-${i}`} style={{ background: 'rgba(255,255,255,0.22)', border: '1px solid rgba(255,255,255,0.4)', padding: '3px 10px', borderRadius: 999, whiteSpace: 'nowrap', fontSize: 12 }}>
                       {tag}
                     </span>
                   ))}

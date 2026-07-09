@@ -1,5 +1,6 @@
 ﻿// src/App.jsx
 import React from 'react';
+import { Typography as UiTypography, Button as UiButton, Empty as UiEmpty, Card as UiCard, Toast } from './ui';
 import ProjectCard from './ProjectCard';
 import * as authService from './services/authService';
 import { fetchProjectList, createProject } from './services/projectService';
@@ -193,43 +194,25 @@ function LazySilent({ children }) {
   );
 }
 
+// 以下四个组件委托给 src/ui 组件库渲染，保证首页/搜索页与全站视觉一致
 function Text({ children, type = '', strong = false, size = '', style }) {
-  return (
-    <span
-      className={`app-text${type ? ` is-${type}` : ''}${strong ? ' is-strong' : ''}${size ? ` is-${size}` : ''}`}
-      style={style}
-    >
-      {children}
-    </span>
-  );
+  return <UiTypography.Text type={type} strong={strong} size={size} style={style}>{children}</UiTypography.Text>;
 }
 
 function Button({ children, className = '', disabled = false, loading = false, onClick, size = '', style }) {
   return (
-    <button
-      type="button"
-      className={`app-inline-button${size ? ` is-${size}` : ''}${className ? ` ${className}` : ''}`}
-      disabled={disabled || loading}
-      aria-busy={loading || undefined}
-      onClick={onClick}
-      style={style}
-    >
+    <UiButton className={className} disabled={disabled} loading={loading} onClick={onClick} size={size} style={style}>
       {children}
-    </button>
+    </UiButton>
   );
 }
 
 function Empty({ description = '暂无内容' }) {
-  return <div className="app-empty-state">{description}</div>;
+  return <UiEmpty description={description} />;
 }
 
 function Card({ title, children }) {
-  return (
-    <section className="app-card">
-      {title ? <div className="app-card-title">{title}</div> : null}
-      {children}
-    </section>
-  );
+  return <UiCard title={title}>{children}</UiCard>;
 }
 
 function App() {
@@ -678,7 +661,7 @@ function App() {
                   expiresAt: (typeof data.expiresAt !== 'undefined') ? data.expiresAt : (data.expires || null),
                   remainingSeconds: (typeof data.remainingSeconds === 'number') ? data.remainingSeconds : (typeof data.remaining_seconds === 'number' ? data.remaining_seconds : null),
                   error: data.error || null,
-                  message: data.message || (data.error === 'EXPIRED' ? 'Link expired' : (data.error === 'REVOKED' ? 'Link revoked' : null)),
+                  message: data.message || (data.error === 'EXPIRED' ? '分享链接已过期' : (data.error === 'REVOKED' ? '分享链接已被撤销' : null)),
                 };
 
                 setShareInitialProject(meta);
@@ -1340,14 +1323,7 @@ function App() {
                         {photoSearchResults.map((photo, idx) => (
                           <div
                             key={`${photo.id || 'p'}-${idx}`}
-                            style={{
-                              border: '1px solid rgba(148,163,184,0.2)',
-                              background: '#fff',
-                              borderRadius: 10,
-                              overflow: 'hidden',
-                              padding: 0,
-                              textAlign: 'left'
-                            }}
+                            className="app-photo-search-card"
                           >
                             <button
                               type="button"
@@ -1386,13 +1362,8 @@ function App() {
                                 if (photo.projectId) handleSelectProject(String(photo.projectId));
                               }}
                               title={photo.projectId ? '点击进入对应相册' : ''}
+                              className="app-photo-search-card__meta"
                               style={{
-                                width: '100%',
-                                border: 'none',
-                                borderTop: '1px solid rgba(148,163,184,0.2)',
-                                background: '#fff',
-                                padding: '10px 12px',
-                                textAlign: 'left',
                                 cursor: photo.projectId ? 'pointer' : 'default',
                                 display: 'flex',
                                 flexDirection: 'column',
@@ -1401,7 +1372,7 @@ function App() {
                                 overflow: 'hidden',
                               }}
                             >
-                              <Text size="small" style={{ color: '#0f172a' }}>
+                              <Text size="small" strong>
                                 {photo.projectName || `项目 #${photo.projectId || '-'}`}
                               </Text>
                               <Text size="small" type="tertiary" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -1414,10 +1385,10 @@ function App() {
                                   display: 'flex',
                                   alignItems: 'center',
                                   justifyContent: 'center',
-                                  color: '#1d4ed8',
+                                  color: 'var(--lg-blue, #1677ff)',
                                   fontSize: 12,
                                   fontWeight: 600,
-                                  background: 'rgba(241,245,249,0.72)',
+                                  background: 'rgba(255,255,255,0.7)',
                                   backdropFilter: 'blur(6px)',
                                   WebkitBackdropFilter: 'blur(6px)',
                                   opacity: hoverPhotoSearchIdx === idx ? 1 : 0,
@@ -1507,6 +1478,16 @@ function App() {
                   </Card>
                 </div>
               )
+            ) : selectedNav === 'about' ? (
+              <div style={{ padding: 24, maxWidth: 720, margin: '0 auto' }}>
+                <Card title="关于 MaMage" bordered>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10, lineHeight: 1.7 }}>
+                    <Text>MaMage 是一套面向校园活动的照片/视频图库：按相册与活动环节组织媒体，支持批量上传、AI 智能打标与选片、人脸识别、时间轴浏览、跨相册中转与限时分享。</Text>
+                    <Text type="tertiary" size="small">照片存储于对象存储并经私有代理签名访问；AI 能力由本地视觉模型驱动。</Text>
+                    <Text type="tertiary" size="small">© 2026 MaMage 校园图库</Text>
+                  </div>
+                </Card>
+              </div>
             ) : (
               <div style={{ padding: 24 }}><Text>该页面暂未实现</Text></div>
             )

@@ -1709,3 +1709,30 @@ textarea {
         opacity: 0.8;
     }
 }
+
+/* 照片搜索结果卡（原为内联 slate 白卡，统一玻璃语言） */
+.app-photo-search-card {
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    border-radius: 16px;
+    background: var(--liquid-glass-material-readable, rgba(255, 255, 255, 0.72));
+    box-shadow: var(--liquid-glass-shadow-tight, 0 10px 26px rgba(30, 80, 130, 0.1));
+    backdrop-filter: blur(14px) saturate(1.3);
+    -webkit-backdrop-filter: blur(14px) saturate(1.3);
+    text-align: left;
+}
+
+.app-photo-search-card__meta {
+    width: 100%;
+    border: 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.55);
+    background: transparent;
+    padding: 10px 12px;
+    text-align: left;
+    font: inherit;
+    color: var(--lg-text, #000);
+}
+
+.app-photo-search-card__meta:hover {
+    background: rgba(255, 255, 255, 0.4);
+}

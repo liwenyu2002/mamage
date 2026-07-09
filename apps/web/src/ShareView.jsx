@@ -332,6 +332,11 @@ export default function ShareView({ share = {}, onBack }) {
   return (
     <div style={{ padding: pagePadding }}>
       <div style={{ width: '100%', margin: 0 }}>
+        {typeof onBack === 'function' ? (
+          <div style={{ marginBottom: 10 }}>
+            <Button onClick={() => onBack()} aria-label="返回图库">← 返回图库</Button>
+          </div>
+        ) : null}
         <Card title={title} bordered style={{ width: '100%' }}>
           {!isExpired ? (
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>

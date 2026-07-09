@@ -4316,7 +4316,7 @@ function ProjectDetail({
           {!isVideo && showAILabels && photoAILabelMap[photoMetas?.[overallIndex]?.id] && (() => {
             const label = photoAILabelMap[photoMetas?.[overallIndex]?.id];
             return (
-              <div style={{ position: 'absolute', right: 8, top: 8, background: getAISelectionColor(label), color: '#fff', padding: '4px 8px', borderRadius: '3px', fontSize: '12px', fontWeight: 'bold', pointerEvents: 'none' }}>
+              <div style={{ position: 'absolute', right: 8, top: 8, background: 'rgba(255,255,255,0.78)', color: getAISelectionColor(label), border: `1px solid ${getAISelectionColor(label)}44`, padding: '3px 10px', borderRadius: 999, fontSize: '12px', fontWeight: 700, pointerEvents: 'none', backdropFilter: 'blur(8px) saturate(1.2)', WebkitBackdropFilter: 'blur(8px) saturate(1.2)' }}>
                 {getAISelectionLabel(label)}
               </div>
             );
@@ -4327,7 +4327,7 @@ function ProjectDetail({
             const hasRecommend = (photoTagsMap[pid] || []).includes('推荐');
             if (!hasRecommend) return null;
             return (
-              <div style={{ position: 'absolute', right: 8, top: showAILabels && photoAILabelMap[pid] ? 36 : 8, background: '#2196f3', color: '#fff', padding: '4px 8px', borderRadius: '3px', fontSize: '12px', fontWeight: 'bold', pointerEvents: 'none' }}>
+              <div style={{ position: 'absolute', right: 8, top: showAILabels && photoAILabelMap[pid] ? 38 : 8, background: 'rgba(255,255,255,0.78)', color: 'var(--lg-blue, #1677ff)', border: '1px solid rgba(22,119,255,0.3)', padding: '3px 10px', borderRadius: 999, fontSize: '12px', fontWeight: 700, pointerEvents: 'none', backdropFilter: 'blur(8px) saturate(1.2)', WebkitBackdropFilter: 'blur(8px) saturate(1.2)' }}>
                 推荐
               </div>
             );
