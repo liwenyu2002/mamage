@@ -176,9 +176,32 @@
 
 .cam-timeline-row {
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(96px, 0.8fr) 34px;
+  grid-template-columns: 20px minmax(0, 1.2fr) minmax(168px, 0.95fr) 34px;
   gap: 8px;
   align-items: center;
+  border-radius: 10px;
+}
+
+.cam-timeline-row.is-drag-over {
+  outline: 2px solid rgba(76, 141, 255, 0.75);
+}
+
+.cam-timeline-row.is-dragging {
+  opacity: 0.5;
+}
+
+.cam-timeline-drag {
+  cursor: grab;
+  user-select: none;
+  text-align: center;
+  color: rgba(20, 32, 50, 0.45);
+  font-size: 15px;
+  line-height: 1;
+}
+
+.cam-timeline-move {
+  display: flex;
+  gap: 2px;
 }
 
 .cam-timeline-name,
@@ -415,7 +438,7 @@
 
 @media (max-width: 640px) {
   .cam-timeline-row {
-    grid-template-columns: minmax(0, 1fr) 34px;
+    grid-template-columns: auto minmax(0, 1fr) 34px;
   }
 
   .cam-timeline-time {

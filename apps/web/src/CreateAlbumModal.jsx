@@ -1,5 +1,6 @@
 ﻿import React from 'react';
 import { Modal, Input, TextArea, DatePicker, Toast } from './ui';
+import { sectionTimeToInputValue, inputValueToSectionTime } from './utils/sectionTime';
 import './CreateAlbumModal.css';
 import { getUploadFileLimitError, uploadPhotoFiles } from './services/photoService';
 import { getProjectById } from './services/projectService';
@@ -122,6 +123,47 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
     });
     setInitialUploadSectionKey((prev) => (String(prev) === String(key) ? '' : prev));
   }, []);
+
+  // 环节排序：桌面拖拽 ⠿，移动端 ↑↓
+  const [dragSectionIdx, setDragSectionIdx] = React.useState(null);
+  const [dragOverSectionIdx, setDragOverSectionIdx] = React.useState(null);
+  const [isMobileLayout, setIsMobileLayout] = React.useState(() => {
+    try { return typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches; } catch (e) { return false; }
+  });
+  React.useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return undefined;
+    const mq = window.matchMedia('(max-width: 768px)');
+    const onChange = (e) => setIsMobileLayout(e.matches);
+    try { mq.addEventListener('change', onChange); } catch (err) { mq.addListener(onChange); }
+    setIsMobileLayout(mq.matches);
+    return () => {
+      try { mq.removeEventListener('change', onChange); } catch (err) { mq.removeListener(onChange); }
+    };
+  }, []);
+
+  const moveTimelineSection = React.useCallback((idx, direction) => {
+    setTimelineSections((prev) => {
+      const target = idx + direction;
+      if (idx < 0 || idx >= prev.length || target < 0 || target >= prev.length) return prev;
+      const next = prev.slice();
+      [next[idx], next[target]] = [next[target], next[idx]];
+      return next;
+    });
+  }, []);
+
+  const commitSectionDrag = React.useCallback((targetIdx) => {
+    const from = dragSectionIdx;
+    setDragSectionIdx(null);
+    setDragOverSectionIdx(null);
+    if (from === null || targetIdx === null || from === targetIdx) return;
+    setTimelineSections((prev) => {
+      if (from < 0 || from >= prev.length || targetIdx < 0 || targetIdx >= prev.length) return prev;
+      const next = prev.slice();
+      const [moved] = next.splice(from, 1);
+      next.splice(targetIdx, 0, moved);
+      return next;
+    });
+  }, [dragSectionIdx]);
 
   const onTagKeyDown = React.useCallback((e) => {
     if (e.key === 'Enter' || e.key === ',') {
@@ -348,7 +390,30 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
           {timelineEnabled ? (
             <div className="cam-timeline-sections">
               {timelineSections.map((section, idx) => (
-                <div className="cam-timeline-row" key={section.key}>
+                <div
+                  className={`cam-timeline-row${dragOverSectionIdx === idx && dragSectionIdx !== null && dragSectionIdx !== idx ? ' is-drag-over' : ''}${dragSectionIdx === idx ? ' is-dragging' : ''}`}
+                  key={section.key}
+                  onDragOver={(e) => { if (dragSectionIdx !== null) { e.preventDefault(); setDragOverSectionIdx(idx); } }}
+                  onDrop={(e) => { e.preventDefault(); commitSectionDrag(idx); }}
+                >
+                  {!isMobileLayout ? (
+                    <span
+                      className="cam-timeline-drag"
+                      draggable
+                      onDragStart={(e) => {
+                        setDragSectionIdx(idx);
+                        try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(section.key)); } catch (err) { }
+                      }}
+                      onDragEnd={() => { setDragSectionIdx(null); setDragOverSectionIdx(null); }}
+                      title="拖拽调整顺序"
+                      aria-label={`拖拽移动环节 ${section.name || idx + 1}`}
+                    >⠿</span>
+                  ) : (
+                    <span className="cam-timeline-move">
+                      <button type="button" className="cam-icon-button" disabled={idx === 0} onClick={() => moveTimelineSection(idx, -1)} aria-label="上移">↑</button>
+                      <button type="button" className="cam-icon-button" disabled={idx === timelineSections.length - 1} onClick={() => moveTimelineSection(idx, 1)} aria-label="下移">↓</button>
+                    </span>
+                  )}
                   <input
                     className="cam-timeline-name"
                     value={section.name}
@@ -357,9 +422,10 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
                   />
                   <input
                     className="cam-timeline-time"
-                    value={section.sectionTime}
-                    onChange={(e) => updateTimelineSection(section.key, { sectionTime: e.target.value })}
-                    placeholder="时间（可选）"
+                    type="datetime-local"
+                    value={sectionTimeToInputValue(section.sectionTime)}
+                    onChange={(e) => updateTimelineSection(section.key, { sectionTime: inputValueToSectionTime(e.target.value) })}
+                    title="环节时间（可选）"
                   />
                   <button type="button" className="cam-icon-button" onClick={() => removeTimelineSection(section.key)} aria-label="删除环节">
                     ×
