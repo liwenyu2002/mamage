@@ -3653,7 +3653,7 @@ function ProjectDetail({
     const ratio = imageRatios[src] || 1.5;
     const meta = photoMetas?.[overallIndex] || {};
     const isVideo = isVideoMeta(meta);
-    const mediaSrc = isVideo ? (meta.originalSrc || meta.url || src) : src;
+    const mediaSrc = isVideo ? (meta.thumbSrc || meta.thumbUrl || src || meta.originalSrc || meta.url) : src;
     const semanticState = isVideo ? { tags: [], description: '', pending: false, failed: false } : getPhotoSemanticState(meta);
     const timelineLabel = getPhotoTimelineSectionLabel(meta, uploadTimelineSections);
     const adjustments = getAdjustmentForPhoto(meta);
@@ -4751,7 +4751,7 @@ function ProjectDetail({
                               <div className="viewer-face-image-surface">
                                 {isSlideVideo ? (
                                   <video
-                                    src={slideMeta?.originalSrc || slideMeta?.url || slideSrc}
+                                    src={slideSrc || slideMeta?.thumbSrc || slideMeta?.thumbUrl || slideMeta?.originalSrc || slideMeta?.url}
                                     className="viewer-carousel-img viewer-carousel-video"
                                     controls
                                     playsInline
