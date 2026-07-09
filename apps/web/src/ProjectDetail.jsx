@@ -31,6 +31,7 @@ import {
 import {
   createInitialUploadProgress,
   formatUploadBytes,
+  formatUploadRemainingTime,
   getUploadFileKey,
   getUploadPhaseLabel,
   reduceUploadProgress,
@@ -4536,6 +4537,9 @@ function ProjectDetail({
                 </div>
                 <div className="detail-upload-progress-meta">
                   <span>{formatUploadBytes(uploadProgress.loadedBytes)} / {formatUploadBytes(uploadProgress.totalBytes)}</span>
+                  {uploadProgress.remainingSeconds !== null && uploadProgress.remainingSeconds !== undefined ? (
+                    <span>预计剩余 {formatUploadRemainingTime(uploadProgress.remainingSeconds)}</span>
+                  ) : null}
                   {uploadProgress.failedFiles ? <span>{uploadProgress.failedFiles} 个失败</span> : null}
                 </div>
                 <div className="detail-upload-progress-list">
@@ -4547,7 +4551,12 @@ function ProjectDetail({
                       <span className="detail-upload-progress-file-name">{item.name}</span>
                       <span className="detail-upload-progress-file-phase">{getUploadPhaseLabel(item.phase, item.status)}</span>
                       <span className="detail-upload-progress-file-bar"><i style={{ width: `${item.percent || 0}%` }} /></span>
-                      <span className="detail-upload-progress-file-percent">{item.percent || 0}%</span>
+                      <span className="detail-upload-progress-file-percent">
+                        {item.percent || 0}%
+                        {item.remainingSeconds !== null && item.remainingSeconds !== undefined && item.status !== 'rejected' && item.phase !== 'failed' ? (
+                          <em>剩 {formatUploadRemainingTime(item.remainingSeconds)}</em>
+                        ) : null}
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -4609,7 +4618,12 @@ function ProjectDetail({
                             {itemProgress ? (
                               <div className={`detail-upload-preview-progress${itemProgress.status === 'fulfilled' || itemProgress.phase === 'done' ? ' is-done' : itemProgress.status === 'rejected' || itemProgress.phase === 'failed' ? ' is-failed' : ''}`}>
                                 <span>{getUploadPhaseLabel(itemProgress.phase, itemProgress.status)}</span>
-                                <b>{itemProgress.percent || 0}%</b>
+                                <b>
+                                  {itemProgress.percent || 0}%
+                                  {itemProgress.remainingSeconds !== null && itemProgress.remainingSeconds !== undefined && itemProgress.status !== 'rejected' && itemProgress.phase !== 'failed' ? (
+                                    <em>剩 {formatUploadRemainingTime(itemProgress.remainingSeconds)}</em>
+                                  ) : null}
+                                </b>
                                 <i><em style={{ width: `${itemProgress.percent || 0}%` }} /></i>
                               </div>
                             ) : null}

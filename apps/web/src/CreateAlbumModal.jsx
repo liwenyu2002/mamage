@@ -7,6 +7,7 @@ import { getPermissions } from './permissions/permissionStore';
 import {
   createInitialUploadProgress,
   formatUploadBytes,
+  formatUploadRemainingTime,
   getUploadPhaseLabel,
   reduceUploadProgress,
 } from './utils/uploadProgress';
@@ -458,6 +459,9 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
               </div>
               <div className="cam-upload-progress-meta">
                 <span>{formatUploadBytes(uploadProgress.loadedBytes)} / {formatUploadBytes(uploadProgress.totalBytes)}</span>
+                {uploadProgress.remainingSeconds !== null && uploadProgress.remainingSeconds !== undefined ? (
+                  <span>预计剩余 {formatUploadRemainingTime(uploadProgress.remainingSeconds)}</span>
+                ) : null}
                 {uploadProgress.failedFiles ? <span>{uploadProgress.failedFiles} 个失败</span> : null}
               </div>
               <div className="cam-upload-progress-list">
@@ -469,7 +473,12 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
                     <span>{item.name}</span>
                     <em>{getUploadPhaseLabel(item.phase, item.status)}</em>
                     <i><b style={{ width: `${item.percent || 0}%` }} /></i>
-                    <strong>{item.percent || 0}%</strong>
+                    <strong>
+                      {item.percent || 0}%
+                      {item.remainingSeconds !== null && item.remainingSeconds !== undefined && item.status !== 'rejected' && item.phase !== 'failed' ? (
+                        <small>剩 {formatUploadRemainingTime(item.remainingSeconds)}</small>
+                      ) : null}
+                    </strong>
                   </div>
                 ))}
               </div>
