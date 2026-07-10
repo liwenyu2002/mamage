@@ -163,6 +163,54 @@
   scrollbar-width: thin;
 }
 
+/* 照片拖拽中：导航整体放大呼吸，提示可放入（类中转站吸附效果） */
+.detail-timeline-rail.is-drop-mode {
+  transform: scale(1.06);
+  border-color: rgba(22, 119, 255, 0.45);
+  background: rgba(255, 255, 255, 0.6);
+  box-shadow:
+    0 0 0 3px rgba(22, 119, 255, 0.16),
+    0 18px 44px rgba(22, 119, 255, 0.18),
+    var(--liquid-glass-shadow-tight, 0 14px 34px rgba(15, 23, 42, 0.12));
+  animation: detail-rail-attract 1.4s ease-in-out infinite;
+}
+
+@keyframes detail-rail-attract {
+  0%, 100% { transform: scale(1.05); }
+  50% { transform: scale(1.08); }
+}
+
+.detail-timeline-rail-hint {
+  align-self: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(22, 119, 255, 0.12);
+  color: var(--lg-blue, #1677ff);
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+/* 悬停到某环节：该项高亮胀起 */
+.detail-timeline-rail-item.is-drag-over {
+  background: rgba(22, 119, 255, 0.16);
+  box-shadow: inset 0 0 0 1.5px rgba(22, 119, 255, 0.55);
+  transform: scale(1.07);
+}
+
+.detail-timeline-rail-item.is-drag-over .detail-timeline-rail-dot {
+  transform: scale(1.25);
+  box-shadow: 0 0 0 4px rgba(22, 119, 255, 0.2);
+}
+
+.detail-timeline-rail {
+  transition: transform 200ms ease, box-shadow 200ms ease, border-color 200ms ease, background 200ms ease;
+}
+
+.detail-timeline-rail-dot {
+  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
 .detail-timeline-rail-line {
   position: absolute;
   left: 21px;
@@ -1537,7 +1585,55 @@
     border-radius: 16px;
   }
 
-  .detail-timeline-rail-line {
+  /* 照片拖拽中：导航整体放大呼吸，提示可放入（类中转站吸附效果） */
+.detail-timeline-rail.is-drop-mode {
+  transform: scale(1.06);
+  border-color: rgba(22, 119, 255, 0.45);
+  background: rgba(255, 255, 255, 0.6);
+  box-shadow:
+    0 0 0 3px rgba(22, 119, 255, 0.16),
+    0 18px 44px rgba(22, 119, 255, 0.18),
+    var(--liquid-glass-shadow-tight, 0 14px 34px rgba(15, 23, 42, 0.12));
+  animation: detail-rail-attract 1.4s ease-in-out infinite;
+}
+
+@keyframes detail-rail-attract {
+  0%, 100% { transform: scale(1.05); }
+  50% { transform: scale(1.08); }
+}
+
+.detail-timeline-rail-hint {
+  align-self: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(22, 119, 255, 0.12);
+  color: var(--lg-blue, #1677ff);
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+/* 悬停到某环节：该项高亮胀起 */
+.detail-timeline-rail-item.is-drag-over {
+  background: rgba(22, 119, 255, 0.16);
+  box-shadow: inset 0 0 0 1.5px rgba(22, 119, 255, 0.55);
+  transform: scale(1.07);
+}
+
+.detail-timeline-rail-item.is-drag-over .detail-timeline-rail-dot {
+  transform: scale(1.25);
+  box-shadow: 0 0 0 4px rgba(22, 119, 255, 0.2);
+}
+
+.detail-timeline-rail {
+  transition: transform 200ms ease, box-shadow 200ms ease, border-color 200ms ease, background 200ms ease;
+}
+
+.detail-timeline-rail-dot {
+  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+.detail-timeline-rail-line {
     left: 16px;
     right: 16px;
     top: 50%;

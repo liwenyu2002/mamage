@@ -730,6 +730,9 @@ function ProjectDetail({
   const [assigningSection, setAssigningSection] = React.useState(false);
   const [dragSectionIdx, setDragSectionIdx] = React.useState(null);
   const [dragOverSectionIdx, setDragOverSectionIdx] = React.useState(null);
+  // 照片拖拽中：左侧环节导航进入"可移入"状态
+  const [photoDragActive, setPhotoDragActive] = React.useState(false);
+  const [railDropKey, setRailDropKey] = React.useState(null);
 
   // selection / delete
   const [deleteMode, setDeleteMode] = React.useState(false);
@@ -2216,6 +2219,34 @@ function ProjectDetail({
       setAssigningSection(false);
     }
   }, [assigningSection, selectedMap, photoMetas, refreshProjectDetail]);
+
+  // 拖拽照片放到左侧环节导航：批量移入该环节（未归类=移出）
+  const handleRailDrop = React.useCallback(async (e, group) => {
+    e.preventDefault();
+    setRailDropKey(null);
+    setPhotoDragActive(false);
+    if (assigningSection) return;
+    let payload = null;
+    try {
+      const raw = e.dataTransfer.getData('application/x-mamage-photo') || e.dataTransfer.getData('application/json');
+      payload = raw ? JSON.parse(raw) : null;
+    } catch (err) { payload = null; }
+    const items = Array.isArray(payload) ? payload : (payload ? [payload] : []);
+    const photoIds = items.map((it) => Number(it && (it.id || it.photoId))).filter((n) => Number.isFinite(n) && n > 0);
+    if (!photoIds.length) return;
+    const sectionId = group && group.id ? Number(group.id) : null;
+    setAssigningSection(true);
+    try {
+      const result = await assignPhotosTimelineSection(photoIds, sectionId);
+      await refreshProjectDetail();
+      Toast.success(sectionId === null ? `已移出环节（${result.updated} 张）` : `已移入「${group.name}」（${result.updated} 张）`);
+    } catch (err) {
+      console.error('rail drop assign error', err);
+      Toast.error('移动失败，请稍后重试');
+    } finally {
+      setAssigningSection(false);
+    }
+  }, [assigningSection, refreshProjectDetail]);
 
   const handleDeleteProject = React.useCallback(() => {
     if (DISABLE_DELETE_FEATURE) {
@@ -4047,6 +4078,7 @@ function ProjectDetail({
   }, [selectedMap, images.length]);
 
   const handlePhotoDragStart = React.useCallback((e, index) => {
+    setPhotoDragActive(true);
     try {
       const dragIndexes = getDragSelectionIndexes(index);
       const items = dragIndexes.map((i) => buildTransferItem(i)).filter((it) => !!it && !!it.url);
@@ -4116,6 +4148,8 @@ function ProjectDetail({
   }, [buildTransferItem, getDragSelectionIndexes]);
 
   const handlePhotoDragEnd = React.useCallback(() => {
+    setPhotoDragActive(false);
+    setRailDropKey(null);
     try {
       if (dragPreviewRef.current) {
         dragPreviewRef.current.remove();
@@ -4681,14 +4715,29 @@ function ProjectDetail({
         {!loading && !error && galleryPrepared && (
           useTimelineGallery ? (
             <div className="detail-timeline-layout">
-              <nav className="detail-timeline-rail" aria-label="时间轴快速导航">
+              <nav className={`detail-timeline-rail${photoDragActive ? ' is-drop-mode' : ''}`} aria-label="时间轴快速导航">
                 <span className="detail-timeline-rail-line" aria-hidden="true" />
-                {timelineGalleryGroups.map((group) => (
+                {photoDragActive ? (
+                  <span className="detail-timeline-rail-hint">松手移入环节</span>
+                ) : null}
+                {timelineGalleryGroups.map((group) => {
+                  const railKey = group.key || group.id || group.name;
+                  return (
                   <a
-                    key={`rail-${group.key || group.id || group.name}`}
-                    className="detail-timeline-rail-item"
+                    key={`rail-${railKey}`}
+                    className={`detail-timeline-rail-item${photoDragActive && railDropKey === railKey ? ' is-drag-over' : ''}`}
                     href={`#${group.domId}`}
                     title={group.sectionTime ? `${group.name} · ${group.sectionTime}` : group.name}
+                    onDragOver={(e) => {
+                      if (!photoDragActive) return;
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = 'move';
+                      if (railDropKey !== railKey) setRailDropKey(railKey);
+                    }}
+                    onDragLeave={() => {
+                      setRailDropKey((prev) => (prev === railKey ? null : prev));
+                    }}
+                    onDrop={(e) => handleRailDrop(e, group)}
                   >
                     <span className="detail-timeline-rail-dot" aria-hidden="true" />
                     <span className="detail-timeline-rail-text">
@@ -4697,7 +4746,8 @@ function ProjectDetail({
                     </span>
                     <strong>{group.items.length}</strong>
                   </a>
-                ))}
+                  );
+                })}
               </nav>
               <div className="detail-timeline-gallery">
                 {timelineGalleryGroups.map((group) => (
