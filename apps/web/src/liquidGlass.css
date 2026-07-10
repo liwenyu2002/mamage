@@ -4,17 +4,17 @@
    * Tune the material here first; existing --lg-* and --mamage-glass-* tokens
    * are aliases so older components inherit the same glass language.
    */
-  --liquid-glass-surface-a: rgba(255, 255, 255, 0.46);
-  --liquid-glass-surface-b: rgba(255, 255, 255, 0.18);
-  --liquid-glass-readable-a: rgba(255, 255, 255, 0.66);
-  --liquid-glass-readable-b: rgba(255, 255, 255, 0.34);
+  --liquid-glass-surface-a: rgba(255, 255, 255, 0.34);
+  --liquid-glass-surface-b: rgba(255, 255, 255, 0.1);
+  --liquid-glass-readable-a: rgba(255, 255, 255, 0.56);
+  --liquid-glass-readable-b: rgba(255, 255, 255, 0.26);
   --liquid-glass-stroke-width: 1px; /* 0.5px 亚像素在圆角处取整不一，描边粗细不均 */
   --liquid-glass-border: rgba(255, 255, 255, 0.4);
   --liquid-glass-border-soft: rgba(255, 255, 255, 0.22);
-  --liquid-glass-blur: 14px;
-  --liquid-glass-backdrop-blur: 16px;
+  --liquid-glass-blur: 10px;
+  --liquid-glass-backdrop-blur: 12px;
   --liquid-glass-saturation: 1.58;
-  --liquid-glass-caustic-opacity: 0.86;
+  --liquid-glass-caustic-opacity: 0.72;
   --liquid-glass-caustic-speed: 1.75s;
   --liquid-glass-caustic-animation: none;
   --liquid-glass-shadow: 0 22px 70px rgba(58, 78, 104, 0.16), 0 6px 22px rgba(18, 32, 52, 0.07);
