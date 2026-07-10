@@ -8,6 +8,7 @@ import { searchPhotos } from './services/photoQueryService';
 import { resolveAssetUrl } from './services/request';
 import IfCan from './permissions/IfCan';
 import { LiquidGlassDefs } from './liquidGlass';
+import { initLiquidLens } from './liquidLens';
 
 const lazyWithPreload = (loader) => {
   const Component = React.lazy(loader);
@@ -97,6 +98,7 @@ function Card({ title, children }) {
 }
 
 function App() {
+  React.useEffect(() => initLiquidLens(), []);
   const [projects, setProjects] = React.useState([]);
   const [projectPage, setProjectPage] = React.useState(1);
   const [projectHasMore, setProjectHasMore] = React.useState(false);

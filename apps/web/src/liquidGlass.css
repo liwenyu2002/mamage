@@ -136,8 +136,9 @@
   .viewer-tone-panel,
   .detail-sim-modal .mamage-modal-content,
   .person-sheet-modal .mamage-modal-content {
-    backdrop-filter: var(--liquid-glass-backdrop-rich) !important;
-    -webkit-backdrop-filter: var(--liquid-glass-backdrop-rich) !important;
+    /* --mamage-lens 由 liquidLens.js 按元素尺寸/圆角注入（苹果式边缘折射）；未注入时回退富模糊 */
+    backdrop-filter: var(--mamage-lens, var(--liquid-glass-backdrop-rich)) !important;
+    -webkit-backdrop-filter: var(--mamage-lens, var(--liquid-glass-backdrop-rich)) !important;
   }
 }
 
