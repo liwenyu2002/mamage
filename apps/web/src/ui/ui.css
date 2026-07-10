@@ -1,6 +1,6 @@
 .mamage-button {
   appearance: none;
-  border: 0.5px solid rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.58);
   background: rgba(255, 255, 255, 0.48);
   color: #05070d;
   border-radius: 14px;
@@ -94,7 +94,7 @@
   width: 100%;
   min-height: 38px;
   box-sizing: border-box;
-  border: 0.5px solid rgba(255, 255, 255, 0.68);
+  border: 1px solid rgba(255, 255, 255, 0.55);
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.48);
   color: #05070d;
@@ -168,7 +168,7 @@
 .mamage-card {
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.42);
-  border: 0.5px solid rgba(255, 255, 255, 0.64);
+  border: 1px solid rgba(255, 255, 255, 0.52);
   box-shadow: 0 18px 48px rgba(15, 23, 42, 0.09), inset 0 1px 0 rgba(255, 255, 255, 0.5);
   backdrop-filter: blur(var(--glass-blur, 18px)) saturate(var(--glass-saturation, 1.2));
   -webkit-backdrop-filter: blur(var(--glass-blur, 18px)) saturate(var(--glass-saturation, 1.2));
@@ -195,8 +195,9 @@
   min-height: 24px;
   padding: 3px 9px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.45);
-  border: 0.5px solid rgba(255, 255, 255, 0.62);
+  background: rgba(255, 255, 255, 0.58);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  box-shadow: 0 1px 3px rgba(18, 32, 52, 0.07);
   color: #05070d;
   font-size: 12px;
   font-weight: 700;
@@ -273,7 +274,7 @@
   overflow: hidden;
   border-radius: 24px;
   background: rgba(255, 255, 255, 0.56);
-  border: 0.5px solid rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.62);
   box-shadow: 0 24px 70px rgba(15, 23, 42, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.62);
   backdrop-filter: blur(var(--glass-blur, 18px)) saturate(var(--glass-saturation, 1.2));
   -webkit-backdrop-filter: blur(var(--glass-blur, 18px)) saturate(var(--glass-saturation, 1.2));
@@ -304,7 +305,7 @@
   width: 36px;
   height: 36px;
   border-radius: 999px;
-  border: 0.5px solid rgba(255, 255, 255, 0.64);
+  border: 1px solid rgba(255, 255, 255, 0.52);
   background: rgba(255, 255, 255, 0.46);
   color: #05070d;
   font-size: 24px;
@@ -360,7 +361,7 @@
   max-width: min(520px, calc(100vw - 28px));
   padding: 11px 14px;
   border-radius: 16px;
-  border: 0.5px solid rgba(255, 255, 255, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.6);
   background: rgba(255, 255, 255, 0.76);
   color: #05070d;
   font-weight: 800;
@@ -428,7 +429,7 @@
 
 .mamage-tabs-tab {
   appearance: none;
-  border: 0.5px solid rgba(255, 255, 255, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.52);
   background: rgba(255, 255, 255, 0.36);
   color: #05070d;
   border-radius: 999px;

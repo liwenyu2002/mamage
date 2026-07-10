@@ -272,7 +272,7 @@
   border-radius: 16px;
   color: var(--lg-text, #050816);
   background: var(--liquid-glass-material-readable, rgba(255, 255, 255, 0.48));
-  box-shadow: var(--liquid-glass-shadow-tight, 0 10px 26px rgba(30, 80, 130, 0.12)), var(--liquid-glass-edge, inset 0 1px 0 rgba(255, 255, 255, 0.62));
+  box-shadow: var(--liquid-glass-shadow-tight, 0 10px 26px rgba(30, 80, 130, 0.12));
   backdrop-filter: var(--liquid-glass-backdrop, blur(16px) saturate(1.25));
   -webkit-backdrop-filter: var(--liquid-glass-backdrop, blur(16px) saturate(1.25));
 }
@@ -711,11 +711,11 @@
   white-space: nowrap;
   pointer-events: none;
   padding: 4px 7px;
-  border: 1px solid rgba(255, 255, 255, 0.34);
+  border: 1px solid rgba(255, 255, 255, 0.5);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.68);
   color: #050816;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 8px 16px rgba(5, 8, 22, 0.16);
+  box-shadow: 0 2px 6px rgba(5, 8, 22, 0.14);
   backdrop-filter: blur(14px) saturate(1.2);
   -webkit-backdrop-filter: blur(14px) saturate(1.2);
   font-size: 12px;
