@@ -738,6 +738,10 @@ function ProjectDetail({
   const fileDragDepthRef = React.useRef(0);
   const directFileDropRef = React.useRef(null);
   const dropGestureGuardRef = React.useRef(false);
+  // 环节导航溢出与"展开全部"
+  const railRef = React.useRef(null);
+  const [railExpanded, setRailExpanded] = React.useState(false);
+  const [railOverflow, setRailOverflow] = React.useState(false);
 
   // selection / delete
   const [deleteMode, setDeleteMode] = React.useState(false);
@@ -2267,6 +2271,29 @@ function ProjectDetail({
   }, [canUploadPhotos, uploading, uploadTimelineEnabled, uploadTimelineSections, performUploadGroups]);
 
   React.useEffect(() => { directFileDropRef.current = handleDirectFileDrop; }, [handleDirectFileDrop]);
+
+  React.useEffect(() => {
+    let raf = 0;
+    let attempts = 0;
+    const measure = () => {
+      const el = railRef.current;
+      if (!el) {
+        // nav 可能晚于分组数据挂载（等 galleryPrepared），rAF 重试直到出现
+        if (attempts < 30) { attempts += 1; raf = requestAnimationFrame(measure); }
+        return;
+      }
+      setRailOverflow(el.scrollWidth > el.clientWidth + 4 || el.scrollHeight > el.clientHeight + 4);
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => measure()) : null;
+    if (ro && railRef.current) ro.observe(railRef.current);
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      window.removeEventListener('resize', measure);
+      if (ro) ro.disconnect();
+    };
+  }, [timelineGalleryGroups, railExpanded, useTimelineGallery]);
 
   // 拖拽照片放到左侧环节导航：批量移入该环节（未归类=移出）；拖入系统文件则直接上传到该环节
   const handleRailDrop = React.useCallback(async (e, group) => {
@@ -4812,7 +4839,7 @@ function ProjectDetail({
         {!loading && !error && galleryPrepared && (
           useTimelineGallery ? (
             <div className="detail-timeline-layout">
-              <nav className={`detail-timeline-rail${photoDragActive || fileDragActive ? ' is-drop-mode' : ''}`} data-file-drop-zone="1" aria-label="时间轴快速导航">
+              <nav ref={railRef} className={`detail-timeline-rail${photoDragActive || fileDragActive ? ' is-drop-mode' : ''}${railExpanded ? ' is-expanded-full' : ''}`} data-file-drop-zone="1" aria-label="时间轴快速导航">
                 <span className="detail-timeline-rail-line" aria-hidden="true" />
                 {photoDragActive || fileDragActive ? (
                   <span className="detail-timeline-rail-hint">{fileDragActive ? '松手上传到环节' : '松手移入环节'}</span>
@@ -4845,6 +4872,16 @@ function ProjectDetail({
                   </a>
                   );
                 })}
+                {(railOverflow || railExpanded) ? (
+                  <button
+                    type="button"
+                    className="detail-timeline-rail-toggle"
+                    onClick={() => setRailExpanded((v) => !v)}
+                    aria-expanded={railExpanded}
+                  >
+                    {railExpanded ? '收起' : `展开全部 (${timelineGalleryGroups.length})`}
+                  </button>
+                ) : null}
               </nav>
               <div className="detail-timeline-gallery">
                 {timelineGalleryGroups.map((group) => {

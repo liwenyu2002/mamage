@@ -222,6 +222,31 @@
   color: var(--lg-blue, #1677ff);
 }
 
+/* 环节导航"展开全部"：解除高度/单行限制，完整平铺 */
+.detail-timeline-rail.is-expanded-full {
+  max-height: none;
+  overflow: visible;
+}
+
+.detail-timeline-rail-toggle {
+  flex: 0 0 auto;
+  align-self: center;
+  margin-top: 2px;
+  padding: 5px 12px;
+  border: 1px solid rgba(22, 119, 255, 0.35);
+  border-radius: 999px;
+  background: rgba(22, 119, 255, 0.1);
+  color: var(--lg-blue, #1677ff);
+  font-size: 11.5px;
+  font-weight: 750;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.detail-timeline-rail-toggle:hover {
+  background: rgba(22, 119, 255, 0.18);
+}
+
 /* 照片拖拽中：导航整体放大呼吸，提示可放入（类中转站吸附效果） */
 .detail-timeline-rail.is-drop-mode {
   transform: scale(1.06);
@@ -1644,6 +1669,11 @@
     border-radius: 16px;
   }
 
+  .detail-timeline-rail.is-expanded-full {
+    flex-wrap: wrap;
+    overflow: visible;
+  }
+
   /* 系统文件拖入：全页提示浮层（pointer-events 穿透，不挡落点） */
 .detail-file-drop-overlay {
   position: fixed;
@@ -1701,6 +1731,31 @@
   border-color: rgba(22, 119, 255, 0.6);
   background: rgba(22, 119, 255, 0.08);
   color: var(--lg-blue, #1677ff);
+}
+
+/* 环节导航"展开全部"：解除高度/单行限制，完整平铺 */
+.detail-timeline-rail.is-expanded-full {
+  max-height: none;
+  overflow: visible;
+}
+
+.detail-timeline-rail-toggle {
+  flex: 0 0 auto;
+  align-self: center;
+  margin-top: 2px;
+  padding: 5px 12px;
+  border: 1px solid rgba(22, 119, 255, 0.35);
+  border-radius: 999px;
+  background: rgba(22, 119, 255, 0.1);
+  color: var(--lg-blue, #1677ff);
+  font-size: 11.5px;
+  font-weight: 750;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.detail-timeline-rail-toggle:hover {
+  background: rgba(22, 119, 255, 0.18);
 }
 
 /* 照片拖拽中：导航整体放大呼吸，提示可放入（类中转站吸附效果） */
