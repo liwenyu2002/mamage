@@ -737,6 +737,7 @@ function ProjectDetail({
   const [fileDragActive, setFileDragActive] = React.useState(false);
   const fileDragDepthRef = React.useRef(0);
   const directFileDropRef = React.useRef(null);
+  const dropGestureGuardRef = React.useRef(false);
 
   // selection / delete
   const [deleteMode, setDeleteMode] = React.useState(false);
@@ -2243,9 +2244,14 @@ function ProjectDetail({
   // 系统文件直接拖入：免打开上传弹窗，落点决定所属环节
   const handleDirectFileDrop = React.useCallback((e, sectionId) => {
     e.preventDefault();
+    if (typeof e.stopPropagation === 'function') e.stopPropagation();
     fileDragDepthRef.current = 0;
     setFileDragActive(false);
     setRailDropKey(null);
+    // 嵌套落点（占位区→环节区块→window）会让同一次松手触发多次；ref 同步守卫
+    if (dropGestureGuardRef.current) return;
+    dropGestureGuardRef.current = true;
+    setTimeout(() => { dropGestureGuardRef.current = false; }, 600);
     if (!canUploadPhotos) { Toast.warning('当前账号没有上传权限'); return; }
     if (uploading) { Toast.warning('正在上传中，请稍候再拖入'); return; }
     const dropped = Array.from((e.dataTransfer && e.dataTransfer.files) || []);
@@ -2269,6 +2275,7 @@ function ProjectDetail({
       return;
     }
     e.preventDefault();
+    if (typeof e.stopPropagation === 'function') e.stopPropagation();
     setRailDropKey(null);
     setPhotoDragActive(false);
     if (assigningSection) return;
