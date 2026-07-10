@@ -15,6 +15,7 @@ import {
   IconMoreStroked,
   IconPlus,
   IconSearch,
+  IconTrash,
 } from './ui/icons';
 import './ProjectDetail.css';
 import { getProjectById, updateProject, deleteProject, createTimelineSection, updateTimelineSection, deleteTimelineSection, reorderTimelineSections } from './services/projectService';
@@ -2496,7 +2497,7 @@ function ProjectDetail({
       if (!meta) return null;
       return meta.id || meta.photoId || meta.photo_id || null;
     }).filter(Boolean);
-    if (!ids.length) return Toast.warning('鎵€閫夌収鐗囨棤鍙垹闄ょ殑 ID');
+    if (!ids.length) return Toast.warning('所选照片没有可删除的 ID');
 
     Modal.confirm({
       title: '确认删除所选照片',
@@ -2514,8 +2515,11 @@ function ProjectDetail({
             Toast.success('删除成功');
           }
           if (Array.isArray(notFound) && notFound.length > 0) {
-            Toast.warning('閮ㄥ垎鐓х墖宸蹭笉瀛樺湪');
+            Toast.warning('部分照片已不存在');
           }
+          // 主画廊删过照片后相似分组缓存作废，下次打开重新拉取
+          setSimGroups(null);
+          setSimPhotos({});
           // reload project detail
           try {
             const detail = await getProjectById(projectId, {
@@ -4048,14 +4052,20 @@ function ProjectDetail({
       }
     } catch (e) {
       console.error('load similarity groups error', e);
-      setSimError('鍔犺浇澶辫触锛岃重试');
+      setSimError('加载失败，请重试');
       setSimGroups([]);
     } finally {
       setSimLoading(false);
     }
   }, [projectId, simGroups, readOnly, photoMetas]);
 
-  const closeSimilarityModal = React.useCallback(() => setSimModalVisible(false), []);
+  // 关闭时一并重置批量选择态：×/遮罩/Esc/跳查看器等任何关闭路径都不把选择模式泄漏到下次打开
+  const closeSimilarityModal = React.useCallback(() => {
+    setSimModalVisible(false);
+    setSimDeleteMode(false);
+    setSimSelectedMap({});
+    setSimSelectedCount(0);
+  }, []);
 
   const toggleSimSelect = React.useCallback((id) => {
     setSimSelectedMap((prev) => {
@@ -4066,6 +4076,40 @@ function ProjectDetail({
       return next;
     });
   }, []);
+
+  // 相似弹窗删除公共例程：批量与单张共用（同步剪除分组/元数据/主画廊/选中态）
+  const performSimDelete = React.useCallback(async (ids) => {
+    try {
+      setSimDeleting(true);
+      const res = await deletePhotos(ids);
+      // 与主画廊 confirmDelete 一致：只按服务端确认的结果提示；已不存在的照片也从本地剪掉
+      const deleted = ((res && (res.deletedIds || res.deleted || res.deleted_ids)) || []).map(String);
+      const notFound = ((res && (res.notFoundIds || res.not_found_ids || res.notFound)) || []).map(String);
+      const removed = (deleted.length || notFound.length)
+        ? Array.from(new Set(deleted.concat(notFound)))
+        : ids.map(String); // 服务端未回明细时退回按请求剪除
+      if (notFound.length) Toast.warning(`${notFound.length} 张照片已不存在，已同步移除`);
+      if (deleted.length) Toast.success(`已删除 ${deleted.length} 张照片`);
+      else if (!notFound.length) Toast.success('删除成功');
+      setSimGroups((prev) => (prev || []).map(g => g.filter(id => !removed.includes(String(id)))).filter(g => g.length > 1));
+      setSimPhotos((prev) => { const next = Object.assign({}, prev || {}); removed.forEach(id => delete next[id]); return next; });
+      setImages((prev) => (prev || []).filter((src, idx) => { const m = photoMetas && photoMetas[idx]; return !(m && removed.includes(String(m.id))); }));
+      setPhotoMetas((prev) => (prev || []).filter(m => !removed.includes(String(m.id))));
+      setSimSelectedMap((prev) => {
+        const next = Object.assign({}, prev || {});
+        removed.forEach((id) => delete next[id]);
+        setSimSelectedCount(Object.keys(next).length);
+        return next;
+      });
+      return true;
+    } catch (e) {
+      console.error('sim delete failed', e);
+      Toast.error('删除失败，请稍后重试');
+      return false;
+    } finally {
+      setSimDeleting(false);
+    }
+  }, [photoMetas, setPhotoMetas]);
 
   const confirmSimDelete = React.useCallback(() => {
     if (DISABLE_DELETE_FEATURE) {
@@ -4078,28 +4122,37 @@ function ProjectDetail({
       title: '确认删除所选照片',
       content: `删除后不可恢复，确定要删除 ${ids.length} 张照片吗？`,
       onOk: async () => {
-        try {
-          setSimDeleting(true);
-          await deletePhotos(ids);
-          Toast.success('删除成功');
-          // remove deleted ids from simGroups and simPhotos
-          setSimGroups((prev) => (prev || []).map(g => g.filter(id => !ids.includes(String(id)))).filter(g => g.length));
-          setSimPhotos((prev) => { const next = Object.assign({}, prev || {}); ids.forEach(id => delete next[id]); return next; });
-          // also remove from main lists if present
-          setPhotoMetas((prev) => (prev || []).filter(m => !ids.includes(String(m.id))));
-          setImages((prev) => (prev || []).filter((src, idx) => { const m = photoMetas && photoMetas[idx]; return !(m && ids.includes(String(m.id))); }));
-          setSimSelectedMap({});
-          setSimSelectedCount(0);
-          setSimDeleteMode(false);
-        } catch (e) {
-          console.error('sim delete failed', e);
-          Toast.error('删除失败');
-        } finally {
-          setSimDeleting(false);
-        }
+        const ok = await performSimDelete(ids);
+        if (ok) setSimDeleteMode(false);
       }
     });
-  }, [simSelectedMap, deletePhotos, photoMetas, setPhotoMetas, DISABLE_DELETE_FEATURE]);
+  }, [simSelectedMap, performSimDelete, DISABLE_DELETE_FEATURE]);
+
+  // 单张直删（缩略图角标垃圾桶）
+  const confirmSimDeleteOne = React.useCallback((id, titleText) => {
+    if (DISABLE_DELETE_FEATURE) {
+      Toast.warning('删除功能已禁用');
+      return;
+    }
+    Modal.confirm({
+      title: '确认删除照片',
+      content: `删除后不可恢复，确定要删除「${titleText || `#${id}`}」吗？`,
+      onOk: () => performSimDelete([String(id)])
+    });
+  }, [performSimDelete, DISABLE_DELETE_FEATURE]);
+
+  // 选择模式下按组全选/取消全选
+  const toggleSimSelectGroup = React.useCallback((group) => {
+    setSimSelectedMap((prev) => {
+      const next = Object.assign({}, prev || {});
+      const ids = (group || []).map((id) => String(id));
+      const allSelected = ids.length > 0 && ids.every((id) => next[id]);
+      if (allSelected) ids.forEach((id) => delete next[id]);
+      else ids.forEach((id) => { next[id] = true; });
+      setSimSelectedCount(Object.keys(next).length);
+      return next;
+    });
+  }, []);
 
   // 鎺ㄨ崘鏍囪锛氭坊鍔?鎺ㄨ崘"鏍囩
   const addRecommendationTag = React.useCallback(async () => {
@@ -5198,7 +5251,7 @@ function ProjectDetail({
             {canDeletePhotos ? (
               <div className="similarity-toolbar">
                 {!simDeleteMode ? (
-                  <Button onClick={() => setSimDeleteMode(true)} type="tertiary">选择</Button>
+                  <Button onClick={() => setSimDeleteMode(true)} type="tertiary">批量选择</Button>
                 ) : (
                   <>
                     <Button onClick={() => { setSimDeleteMode(false); setSimSelectedMap({}); setSimSelectedCount(0); }} type="tertiary">取消选择</Button>
@@ -5221,7 +5274,18 @@ function ProjectDetail({
                   <div key={gi} className="similarity-group">
                     <div className="similarity-group-head">
                       <span>相似组 {gi + 1}</span>
-                      <span>{g.length} 张照片</span>
+                      <span className="similarity-group-head-side">
+                        <span className="similarity-group-count">{g.length} 张照片</span>
+                        {canDeletePhotos && simDeleteMode ? (
+                          <button
+                            type="button"
+                            className="similarity-group-selectall"
+                            onClick={() => toggleSimSelectGroup(g)}
+                          >
+                            {g.length > 0 && g.every((id) => simSelectedMap[String(id)]) ? '取消全选' : '全选本组'}
+                          </button>
+                        ) : null}
+                      </span>
                     </div>
                     <div className="similarity-group-images">
                       {g.map((id) => {
@@ -5255,7 +5319,20 @@ function ProjectDetail({
                             {canDeletePhotos && simDeleteMode && (
                               <button type="button" className="similarity-select-mark" onClick={(e) => { e.stopPropagation(); toggleSimSelect(String(id)); }}>{selected ? '✓' : ''}</button>
                             )}
-                            <div className="similarity-thumb-title">{titleText}</div>
+                            <div className="similarity-thumb-foot">
+                              <div className="similarity-thumb-title">{titleText}</div>
+                              {canDeletePhotos && !simDeleteMode && (
+                                <button
+                                  type="button"
+                                  className="similarity-thumb-delete"
+                                  aria-label={`删除 ${titleText}`}
+                                  disabled={simDeleting}
+                                  onClick={(e) => { e.stopPropagation(); confirmSimDeleteOne(id, titleText); }}
+                                >
+                                  <IconTrash />
+                                </button>
+                              )}
+                            </div>
                           </div>
                         );
                       })}

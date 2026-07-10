@@ -149,6 +149,19 @@ export function IconTimelineFlow(props) {
   );
 }
 
+// 垃圾桶：删除
+export function IconTrash(props) {
+  return (
+    <IconBase {...props}>
+      <path d="M4 7h16" />
+      <path d="M9.5 7V5.2A1.2 1.2 0 0 1 10.7 4h2.6a1.2 1.2 0 0 1 1.2 1.2V7" />
+      <path d="M6.5 7l.8 12a1.6 1.6 0 0 0 1.6 1.5h6.2a1.6 1.6 0 0 0 1.6-1.5l.8-12" />
+      <path d="M10 11v5.5" />
+      <path d="M14 11v5.5" />
+    </IconBase>
+  );
+}
+
 // 信息卡编辑：卡片 + 笔
 export function IconInfoEdit(props) {
   return (

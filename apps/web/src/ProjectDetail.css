@@ -4760,10 +4760,33 @@ body.mamage-viewer-open [data-transfer-station-root="1"] {
   font-weight: 840;
 }
 
-.similarity-group-head span:last-child {
+.similarity-group-head-side {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.similarity-group-count {
   color: rgba(0, 0, 0, 0.62);
   font-size: 12px;
   font-weight: 760;
+}
+
+.similarity-group-selectall {
+  padding: 3px 10px;
+  border: 1px solid rgba(15, 23, 42, 0.16);
+  border-radius: 999px;
+  color: rgba(0, 0, 0, 0.78);
+  background: rgba(255, 255, 255, 0.55);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.similarity-group-selectall:hover {
+  background: rgba(255, 255, 255, 0.85);
+  border-color: rgba(15, 23, 42, 0.28);
 }
 
 .similarity-group-images {
@@ -4820,6 +4843,65 @@ body.mamage-viewer-open [data-transfer-station-root="1"] {
 
 .similarity-thumb.is-selected .similarity-select-mark {
   background: rgba(220, 38, 38, 0.9);
+}
+
+/* 底部标题行：标题 + 垃圾桶并排，不与图片点击区重叠 */
+.similarity-thumb-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.similarity-thumb-foot .similarity-thumb-title {
+  flex: 1;
+  min-width: 0;
+  margin-top: 0;
+}
+
+.similarity-thumb-delete {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 999px;
+  color: rgba(15, 23, 42, 0.6);
+  background: rgba(15, 23, 42, 0.05);
+  cursor: pointer;
+  transition: opacity 140ms ease, background 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+
+.similarity-thumb-delete svg {
+  width: 15px;
+  height: 15px;
+}
+
+.similarity-thumb-delete:hover,
+.similarity-thumb-delete:focus-visible {
+  color: #fff;
+  background: rgba(220, 38, 38, 0.92);
+  border-color: rgba(220, 38, 38, 0.5);
+}
+
+.similarity-thumb-delete:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 桌面细指针：悬停/键盘聚焦浮现（占位不塌）；触屏常驻 */
+@media (hover: hover) and (pointer: fine) {
+  .similarity-thumb-delete {
+    opacity: 0;
+  }
+
+  .similarity-thumb:hover .similarity-thumb-delete,
+  .similarity-thumb:focus-within .similarity-thumb-delete,
+  .similarity-thumb-delete:focus-visible {
+    opacity: 1;
+  }
 }
 
 .similarity-thumb-title {
@@ -5125,6 +5207,8 @@ body.mamage-viewer-open [data-transfer-station-root="1"] {
 
   .similarity-group-images {
     display: flex;
+    /* 覆盖 2665 行老规则的 flex-wrap: wrap，恢复单行横滚 */
+    flex-wrap: nowrap;
     gap: 10px;
     overflow-x: auto;
     padding-bottom: 4px;
