@@ -5,8 +5,8 @@
     --lg-stroke-dark: rgba(53, 79, 113, 0.14);
     --lg-text: #000;
     --lg-muted: #050505;
-    --lg-blue: #1677ff;
-    --lg-teal: #00a6a6;
+    --lg-blue: #111;
+    --lg-teal: #4a4a4a;
     --lg-warm: #ffb84d;
     --lg-radius: 22px;        /* 面板/弹窗档（与 .mamage-modal-content 一致） */
     --lg-radius-sm: 14px;     /* 输入框/小卡片档（与 .mamage-input-wrapper 一致） */
@@ -35,7 +35,7 @@ body {
     min-height: 100%;
     overflow-x: hidden;
     color: var(--lg-text);
-    background-color: #f7f8fb;
+    background-color: #f7f7f7;
     background-image: none;
     background-attachment: fixed;
     background-size: 100% 100%;
@@ -143,12 +143,10 @@ textarea {
     z-index: -1;
     pointer-events: none;
     background:
-        linear-gradient(180deg, rgba(247, 249, 253, 0.9) 0%, rgba(247, 249, 253, 0) 30%),
-        radial-gradient(1100px 720px at 82% -12%, rgba(22, 119, 255, 0.09), transparent 62%),
-        radial-gradient(900px 640px at -8% 28%, rgba(0, 166, 166, 0.07), transparent 58%),
-        radial-gradient(1100px 780px at 52% 116%, rgba(196, 181, 253, 0.14), transparent 62%),
-        url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 480 415.692%22 width=%22480%22 height=%22415.692%22%3E%3Cdefs%3E%3Cg id=%22f%22 fill=%22none%22 stroke-width=%224%22 stroke-linecap=%22square%22 stroke-linejoin=%22miter%22%3E%3Cpath d=%22M9-70L43.641-50V-10L9 10L-25.641-10V-50Z%22 stroke=%22%231677FF%22 stroke-opacity=%22.32%22/%3E%3Cpath d=%22M9-70L43.641-50V-10L9 10L-25.641-10V-50Z%22 transform=%22rotate(60)%22 stroke=%22%2364748B%22 stroke-opacity=%22.26%22/%3E%3Cpath d=%22M9-70L43.641-50V-10L9 10L-25.641-10V-50Z%22 transform=%22rotate(120)%22 stroke=%22%2394A3B8%22 stroke-opacity=%22.30%22/%3E%3Cpath d=%22M9-70L43.641-50V-10L9 10L-25.641-10V-50Z%22 transform=%22rotate(180)%22 stroke=%22%231677FF%22 stroke-opacity=%22.32%22/%3E%3Cpath d=%22M9-70L43.641-50V-10L9 10L-25.641-10V-50Z%22 transform=%22rotate(240)%22 stroke=%22%2364748B%22 stroke-opacity=%22.26%22/%3E%3Cpath d=%22M9-70L43.641-50V-10L9 10L-25.641-10V-50Z%22 transform=%22rotate(300)%22 stroke=%22%2394A3B8%22 stroke-opacity=%22.30%22/%3E%3C/g%3E%3Cg id=%22g%22 fill=%22none%22 stroke-width=%225%22 stroke-linecap=%22square%22 stroke-linejoin=%22miter%22 stroke-dasharray=%2230 70%22%3E%3Cpath pathLength=%22100%22 d=%22M9-70L43.641-50V-10L9 10L-25.641-10V-50Z%22 stroke=%22%231677FF%22 stroke-opacity=%22.32%22/%3E%3Cpath pathLength=%22100%22 d=%22M9-70L43.641-50V-10L9 10L-25.641-10V-50Z%22 transform=%22rotate(60)%22 stroke=%22%2364748B%22 stroke-opacity=%22.26%22 stroke-dashoffset=%2214%22/%3E%3Cpath pathLength=%22100%22 d=%22M9-70L43.641-50V-10L9 10L-25.641-10V-50Z%22 transform=%22rotate(120)%22 stroke=%22%2394A3B8%22 stroke-opacity=%22.30%22 stroke-dashoffset=%2228%22/%3E%3Cpath pathLength=%22100%22 d=%22M9-70L43.641-50V-10L9 10L-25.641-10V-50Z%22 transform=%22rotate(180)%22 stroke=%22%231677FF%22 stroke-opacity=%22.32%22 stroke-dashoffset=%2242%22/%3E%3Cpath pathLength=%22100%22 d=%22M9-70L43.641-50V-10L9 10L-25.641-10V-50Z%22 transform=%22rotate(240)%22 stroke=%22%2364748B%22 stroke-opacity=%22.26%22 stroke-dashoffset=%2256%22/%3E%3Cpath pathLength=%22100%22 d=%22M9-70L43.641-50V-10L9 10L-25.641-10V-50Z%22 transform=%22rotate(300)%22 stroke=%22%2394A3B8%22 stroke-opacity=%22.30%22 stroke-dashoffset=%2270%22/%3E%3C/g%3E%3C/defs%3E%3Cg opacity=%22.34%22%3E%3Cuse href=%22%23f%22 transform=%22translate(0 104) scale(.78)%22/%3E%3Cuse href=%22%23g%22 transform=%22translate(240 104) rotate(120) scale(.82)%22/%3E%3Cuse href=%22%23f%22 transform=%22translate(480 104) scale(.78)%22/%3E%3Cuse href=%22%23g%22 transform=%22translate(120 311.846) rotate(240) scale(.82)%22/%3E%3Cuse href=%22%23f%22 transform=%22translate(360 311.846) scale(.78)%22/%3E%3Cg fill=%22%231677FF%22 fill-opacity=%22.30%22 shape-rendering=%22crispEdges%22%3E%3Crect x=%22114%22 y=%22100%22 width=%226%22 height=%226%22/%3E%3Crect x=%22124%22 y=%22106%22 width=%226%22 height=%226%22/%3E%3Crect x=%22354%22 y=%22100%22 width=%226%22 height=%226%22/%3E%3Crect x=%22364%22 y=%22106%22 width=%226%22 height=%226%22/%3E%3Crect x=%22234%22 y=%22307.846%22 width=%226%22 height=%226%22/%3E%3Crect x=%22244%22 y=%22313.846%22 width=%226%22 height=%226%22/%3E%3C/g%3E%3C/g%3E%3C/svg%3E") left top / 480px 415.692px repeat,
-        linear-gradient(180deg, #f7f9fd 0%, #edf1f8 100%);
+        linear-gradient(180deg, rgba(250, 250, 250, 0.9) 0%, rgba(250, 250, 250, 0) 30%),
+        radial-gradient(1200px 800px at 50% -14%, rgba(255, 255, 255, 0.6), transparent 60%),
+        url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 480 415.692%22 width=%22480%22 height=%22415.692%22%3E%3Cdefs%3E%3Cg id=%22f%22 fill=%22none%22 stroke-width=%224%22 stroke-linecap=%22square%22 stroke-linejoin=%22miter%22%3E%3Cpath d=%22M9-70L43.641-50V-10L9 10L-25.641-10V-50Z%22 stroke=%22%232E2E2E%22 stroke-opacity=%22.30%22/%3E%3Cpath d=%22M9-70L43.641-50V-10L9 10L-25.641-10V-50Z%22 transform=%22rotate(60)%22 stroke=%22%23767676%22 stroke-opacity=%22.28%22/%3E%3Cpath d=%22M9-70L43.641-50V-10L9 10L-25.641-10V-50Z%22 transform=%22rotate(120)%22 stroke=%22%23B4B4B4%22 stroke-opacity=%22.34%22/%3E%3Cpath d=%22M9-70L43.641-50V-10L9 10L-25.641-10V-50Z%22 transform=%22rotate(180)%22 stroke=%22%232E2E2E%22 stroke-opacity=%22.30%22/%3E%3Cpath d=%22M9-70L43.641-50V-10L9 10L-25.641-10V-50Z%22 transform=%22rotate(240)%22 stroke=%22%23767676%22 stroke-opacity=%22.28%22/%3E%3Cpath d=%22M9-70L43.641-50V-10L9 10L-25.641-10V-50Z%22 transform=%22rotate(300)%22 stroke=%22%23B4B4B4%22 stroke-opacity=%22.34%22/%3E%3C/g%3E%3Cg id=%22g%22 fill=%22none%22 stroke-width=%225%22 stroke-linecap=%22square%22 stroke-linejoin=%22miter%22 stroke-dasharray=%2230 70%22%3E%3Cpath pathLength=%22100%22 d=%22M9-70L43.641-50V-10L9 10L-25.641-10V-50Z%22 stroke=%22%232E2E2E%22 stroke-opacity=%22.30%22/%3E%3Cpath pathLength=%22100%22 d=%22M9-70L43.641-50V-10L9 10L-25.641-10V-50Z%22 transform=%22rotate(60)%22 stroke=%22%23767676%22 stroke-opacity=%22.28%22 stroke-dashoffset=%2214%22/%3E%3Cpath pathLength=%22100%22 d=%22M9-70L43.641-50V-10L9 10L-25.641-10V-50Z%22 transform=%22rotate(120)%22 stroke=%22%23B4B4B4%22 stroke-opacity=%22.34%22 stroke-dashoffset=%2228%22/%3E%3Cpath pathLength=%22100%22 d=%22M9-70L43.641-50V-10L9 10L-25.641-10V-50Z%22 transform=%22rotate(180)%22 stroke=%22%232E2E2E%22 stroke-opacity=%22.30%22 stroke-dashoffset=%2242%22/%3E%3Cpath pathLength=%22100%22 d=%22M9-70L43.641-50V-10L9 10L-25.641-10V-50Z%22 transform=%22rotate(240)%22 stroke=%22%23767676%22 stroke-opacity=%22.28%22 stroke-dashoffset=%2256%22/%3E%3Cpath pathLength=%22100%22 d=%22M9-70L43.641-50V-10L9 10L-25.641-10V-50Z%22 transform=%22rotate(300)%22 stroke=%22%23B4B4B4%22 stroke-opacity=%22.34%22 stroke-dashoffset=%2270%22/%3E%3C/g%3E%3C/defs%3E%3Cg opacity=%22.34%22%3E%3Cuse href=%22%23f%22 transform=%22translate(0 104) scale(.78)%22/%3E%3Cuse href=%22%23g%22 transform=%22translate(240 104) rotate(120) scale(.82)%22/%3E%3Cuse href=%22%23f%22 transform=%22translate(480 104) scale(.78)%22/%3E%3Cuse href=%22%23g%22 transform=%22translate(120 311.846) rotate(240) scale(.82)%22/%3E%3Cuse href=%22%23f%22 transform=%22translate(360 311.846) scale(.78)%22/%3E%3Cg fill=%22%232E2E2E%22 fill-opacity=%22.28%22 shape-rendering=%22crispEdges%22%3E%3Crect x=%22114%22 y=%22100%22 width=%226%22 height=%226%22/%3E%3Crect x=%22124%22 y=%22106%22 width=%226%22 height=%226%22/%3E%3Crect x=%22354%22 y=%22100%22 width=%226%22 height=%226%22/%3E%3Crect x=%22364%22 y=%22106%22 width=%226%22 height=%226%22/%3E%3Crect x=%22234%22 y=%22307.846%22 width=%226%22 height=%226%22/%3E%3Crect x=%22244%22 y=%22313.846%22 width=%226%22 height=%226%22/%3E%3C/g%3E%3C/g%3E%3C/svg%3E") left top / 480px 415.692px repeat,
+        linear-gradient(180deg, #fafafa 0%, #efefef 100%);
 }
 
 .mamage-shell::before,
@@ -505,7 +503,7 @@ textarea {
     border-radius: 16px;
     padding: 12px;
     background: rgba(255, 255, 255, 0.8);
-    box-shadow: 0 14px 34px rgba(30, 80, 130, 0.16);
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.13);
     backdrop-filter: blur(14px) saturate(1.16);
     -webkit-backdrop-filter: blur(14px) saturate(1.16);
 }
@@ -756,9 +754,9 @@ textarea {
 }
 
 .mamage-nav-search-input:focus {
-    border-color: rgba(22, 119, 255, 0.34);
+    border-color: rgba(17, 17, 17, 0.34);
     background: rgba(255, 255, 255, 0.58);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 0 0 3px rgba(22, 119, 255, 0.08);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 0 0 3px rgba(0, 0, 0, 0.06);
 }
 
 .mamage-nav-search-input::placeholder {
@@ -820,8 +818,8 @@ textarea {
 .mamage-action-button.is-primary {
     border-color: rgba(255, 255, 255, 0.5);
     color: #fff;
-    background: linear-gradient(135deg, rgba(22, 119, 255, 0.96), rgba(0, 166, 166, 0.88));
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 8px 18px rgba(30, 80, 130, 0.12);
+    background: linear-gradient(135deg, #2f2f2f, #101010);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 8px 18px rgba(0, 0, 0, 0.1);
 }
 
 .mamage-action-button.is-secondary {
@@ -833,7 +831,7 @@ textarea {
 
 .mamage-action-button:hover {
     border-color: rgba(255, 255, 255, 0.7);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72), 0 8px 20px rgba(30, 80, 130, 0.1);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72), 0 8px 20px rgba(0, 0, 0, 0.08);
 }
 
 .mamage-label-short {
@@ -901,7 +899,7 @@ textarea {
     border: var(--liquid-glass-stroke-width, 0.5px) solid var(--liquid-glass-border, rgba(255, 255, 255, 0.46));
     border-radius: 14px;
     background: rgba(255, 255, 255, 0.76);
-    box-shadow: 0 12px 28px rgba(30, 80, 130, 0.14);
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.11);
     backdrop-filter: blur(12px) saturate(1.15);
     -webkit-backdrop-filter: blur(12px) saturate(1.15);
 }
@@ -918,7 +916,7 @@ textarea {
 }
 
 .mamage-user-menu-panel button:hover {
-    background: rgba(22, 119, 255, 0.08);
+    background: rgba(0, 0, 0, 0.06);
 }
 
 .mamage-menu-trigger {
@@ -964,7 +962,7 @@ textarea {
 }
 
 .mamage-menu-trigger:focus-visible {
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78), 0 0 0 3px rgba(22, 119, 255, 0.18);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78), 0 0 0 3px rgba(0, 0, 0, 0.12);
 }
 
 .mamage-menu-trigger.is-open span {
@@ -1124,7 +1122,7 @@ textarea {
 
 .mamage-mobile-nav-item.is-active {
     color: #fff;
-    background: linear-gradient(135deg, rgba(22, 119, 255, 0.94), rgba(0, 166, 166, 0.84));
+    background: linear-gradient(135deg, #2f2f2f, #101010);
 }
 
 @keyframes mamageBackdropIn {
@@ -1573,7 +1571,7 @@ textarea {
 .app-inline-button:not(:disabled):hover {
     border-color: rgba(255, 255, 255, 0.72);
     background: rgba(255, 255, 255, 0.5);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.74), 0 8px 20px rgba(30, 80, 130, 0.1);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.74), 0 8px 20px rgba(0, 0, 0, 0.08);
 }
 
 .app-inline-button:disabled {
@@ -1596,7 +1594,7 @@ textarea {
     border-radius: 18px;
     padding: 16px;
     background: rgba(255, 255, 255, 0.44);
-    box-shadow: 0 10px 26px rgba(30, 80, 130, 0.1);
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.08);
 }
 
 .app-card-title {
@@ -1643,7 +1641,7 @@ textarea {
     border: 1px solid rgba(255, 255, 255, 0.6);
     border-radius: 16px;
     background: var(--liquid-glass-material-readable, rgba(255, 255, 255, 0.72));
-    box-shadow: var(--liquid-glass-shadow-tight, 0 10px 26px rgba(30, 80, 130, 0.1));
+    box-shadow: var(--liquid-glass-shadow-tight, 0 10px 26px rgba(0, 0, 0, 0.08));
     backdrop-filter: blur(14px) saturate(1.3);
     -webkit-backdrop-filter: blur(14px) saturate(1.3);
     text-align: left;

@@ -637,15 +637,15 @@ export default function TransferStation() {
     borderRadius: 18,
     transition: 'transform 180ms ease, background 180ms ease, box-shadow 180ms ease, padding 180ms ease',
     transform: `translateY(-50%) scale(${dragOver ? 1.12 : (isDraggingPhoto ? 1.07 : 1)})`,
-    background: isDraggingPhoto ? 'rgba(44, 123, 229, 0.14)' : 'transparent',
-    boxShadow: isDraggingPhoto ? '0 10px 26px rgba(44,123,229,0.25)' : 'none',
+    background: isDraggingPhoto ? 'rgba(0, 0, 0, 0.09)' : 'transparent',
+    boxShadow: isDraggingPhoto ? '0 10px 26px rgba(0,0,0,0.2)' : 'none',
   };
 
   const triggerStyle = isMobile ? {
     width: 58,
     height: 58,
     borderRadius: 999,
-    border: dragOver ? '1px solid rgba(22,119,255,0.55)' : 'var(--liquid-glass-stroke-width) solid var(--liquid-glass-border)',
+    border: dragOver ? '1px solid rgba(17,17,17,0.55)' : 'var(--liquid-glass-stroke-width) solid var(--liquid-glass-border)',
     background: dragOver
       ? 'var(--liquid-glass-material-readable)'
       : 'var(--liquid-glass-material)',
@@ -658,7 +658,7 @@ export default function TransferStation() {
     transition: 'transform 140ms ease, box-shadow 140ms ease, background 140ms ease',
     willChange: 'transform',
     transform: getInteractiveTransform('trigger'),
-    boxShadow: open ? '0 14px 30px rgba(37,99,235,0.24), var(--liquid-glass-edge)' : 'var(--liquid-glass-shadow-tight), var(--liquid-glass-edge)',
+    boxShadow: open ? '0 14px 30px rgba(0,0,0,0.192), var(--liquid-glass-edge)' : 'var(--liquid-glass-shadow-tight), var(--liquid-glass-edge)',
     backdropFilter: 'var(--liquid-glass-backdrop)',
     WebkitBackdropFilter: 'var(--liquid-glass-backdrop)',
     position: 'relative',
@@ -666,7 +666,7 @@ export default function TransferStation() {
     width: isDraggingPhoto ? 132 : 116,
     height: isDraggingPhoto ? 64 : 56,
     borderRadius: 14,
-    border: dragOver ? '1px solid rgba(22,119,255,0.55)' : 'var(--liquid-glass-stroke-width) solid var(--liquid-glass-border)',
+    border: dragOver ? '1px solid rgba(17,17,17,0.55)' : 'var(--liquid-glass-stroke-width) solid var(--liquid-glass-border)',
     background: dragOver
       ? 'var(--liquid-glass-material-readable)'
       : 'var(--liquid-glass-material)',
@@ -680,7 +680,7 @@ export default function TransferStation() {
     transition: 'transform 140ms ease, box-shadow 140ms ease, background 140ms ease',
     willChange: 'transform',
     transform: getInteractiveTransform('trigger'),
-    boxShadow: dragOver ? '0 14px 30px rgba(76,158,255,0.26), var(--liquid-glass-edge)' : 'var(--liquid-glass-shadow-tight), var(--liquid-glass-edge)',
+    boxShadow: dragOver ? '0 14px 30px rgba(0,0,0,0.208), var(--liquid-glass-edge)' : 'var(--liquid-glass-shadow-tight), var(--liquid-glass-edge)',
     backdropFilter: 'var(--liquid-glass-backdrop)',
     WebkitBackdropFilter: 'var(--liquid-glass-backdrop)',
   };
@@ -692,7 +692,7 @@ export default function TransferStation() {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    boxShadow: 'var(--liquid-glass-edge), 0 8px 18px rgba(15,23,42,0.08)',
+    boxShadow: 'var(--liquid-glass-edge), 0 8px 18px rgba(0,0,0,0.08)',
     background: hoverKey === key ? 'var(--liquid-glass-material-readable)' : 'var(--liquid-glass-material)',
     color: 'var(--lg-text, #000)',
     fontSize: isMobile ? 12 : 13,
@@ -774,8 +774,8 @@ export default function TransferStation() {
       {!isMobile && <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', whiteSpace: 'nowrap', marginLeft: 6 }}>中转站</span>}
       <span
         style={isMobile
-          ? { position: 'absolute', right: -3, top: -3, minWidth: 22, height: 22, borderRadius: 11, background: '#2563eb', color: '#fff', fontSize: 11, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '0 6px', border: '2px solid #fff' }
-          : { marginLeft: 'auto', minWidth: 24, height: 24, borderRadius: 12, background: '#2563eb', color: '#fff', fontSize: 12, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '0 6px' }}
+          ? { position: 'absolute', right: -3, top: -3, minWidth: 22, height: 22, borderRadius: 11, background: 'linear-gradient(135deg, #2f2f2f, #101010)', color: '#fff', fontSize: 11, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '0 6px', border: '2px solid #fff' }
+          : { marginLeft: 'auto', minWidth: 24, height: 24, borderRadius: 12, background: 'linear-gradient(135deg, #2f2f2f, #101010)', color: '#fff', fontSize: 12, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '0 6px' }}
       >
         {count}
       </span>
@@ -796,7 +796,7 @@ export default function TransferStation() {
             borderRadius: 16,
             border: '1px solid rgba(255,255,255,0.62)',
             background: 'var(--liquid-glass-material-readable, rgba(255,255,255,0.82))',
-            boxShadow: 'var(--liquid-glass-shadow-tight, 0 10px 26px rgba(30,80,130,0.12))',
+            boxShadow: 'var(--liquid-glass-shadow-tight, 0 10px 26px rgba(0,0,0,0.096))',
             backdropFilter: 'blur(16px) saturate(1.35)',
             WebkitBackdropFilter: 'blur(16px) saturate(1.35)',
           }
@@ -807,7 +807,7 @@ export default function TransferStation() {
             width: 300,
             maxHeight: 360,
             background: 'var(--liquid-glass-material-readable, rgba(255,255,255,0.86))',
-            boxShadow: 'var(--liquid-glass-shadow, 0 18px 44px rgba(30,60,100,0.18))',
+            boxShadow: 'var(--liquid-glass-shadow, 0 18px 44px rgba(0,0,0,0.144))',
             borderRadius: 16,
             border: '1px solid rgba(255,255,255,0.62)',
             backdropFilter: 'blur(18px) saturate(1.4)',
@@ -839,7 +839,7 @@ export default function TransferStation() {
                 {p.projectTitle ? (
                   <>
                     来自
-                    <span style={{ fontWeight: 700, color: '#2563eb', display: 'inline', whiteSpace: 'normal', wordBreak: 'break-word', margin: '0 4px' }}>
+                    <span style={{ fontWeight: 700, color: '#111', display: 'inline', whiteSpace: 'normal', wordBreak: 'break-word', margin: '0 4px' }}>
                       {p.projectTitle.length > 12 ? (p.projectTitle.slice(0, 12) + '...') : p.projectTitle}
                     </span>
                     的照片
@@ -847,7 +847,7 @@ export default function TransferStation() {
                 ) : (p.id || p.url || '未命名')}
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
-                <div style={{ fontSize: 12, color: '#2563eb', cursor: 'pointer', fontWeight: 600 }} onClick={() => handleRemove(p)}>删除</div>
+                <div style={{ fontSize: 12, color: '#111', cursor: 'pointer', fontWeight: 600 }} onClick={() => handleRemove(p)}>删除</div>
               </div>
             </div>
           </div>
@@ -915,7 +915,7 @@ export default function TransferStation() {
               borderRadius: 14,
               border: '1px solid rgba(15,23,42,0.1)',
               background: 'rgba(255,255,255,0.98)',
-              boxShadow: '0 18px 32px rgba(15,23,42,0.24)',
+              boxShadow: '0 18px 32px rgba(0,0,0,0.24)',
               padding: 10,
             }}
           >
@@ -998,10 +998,10 @@ export default function TransferStation() {
                     bottom: 6,
                     width: 46,
                     height: 46,
-                    border: 'var(--liquid-glass-stroke-width) solid rgba(37,99,235,0.2)',
+                    border: 'var(--liquid-glass-stroke-width) solid rgba(0,0,0,0.12)',
                     borderRadius: 999,
                     background: 'var(--liquid-glass-material-readable)',
-                    color: '#1d4ed8',
+                    color: '#111',
                     boxShadow: 'var(--liquid-glass-shadow-tight), var(--liquid-glass-edge)',
                     backdropFilter: 'var(--liquid-glass-backdrop)',
                     WebkitBackdropFilter: 'var(--liquid-glass-backdrop)',
@@ -1032,9 +1032,9 @@ export default function TransferStation() {
                 width: fabSize,
                 height: fabSize,
                 borderRadius: 999,
-                border: dragOver ? '1px solid #4c9eff' : 'var(--liquid-glass-stroke-width) solid var(--liquid-glass-border)',
+                border: dragOver ? '1px solid #111' : 'var(--liquid-glass-stroke-width) solid var(--liquid-glass-border)',
                 background: 'var(--liquid-glass-material-readable)',
-                boxShadow: open ? '0 12px 24px rgba(37,99,235,0.3), var(--liquid-glass-edge)' : 'var(--liquid-glass-shadow-tight), var(--liquid-glass-edge)',
+                boxShadow: open ? '0 12px 24px rgba(0,0,0,0.24), var(--liquid-glass-edge)' : 'var(--liquid-glass-shadow-tight), var(--liquid-glass-edge)',
                 backdropFilter: 'var(--liquid-glass-backdrop)',
                 WebkitBackdropFilter: 'var(--liquid-glass-backdrop)',
                 display: 'flex',
@@ -1059,7 +1059,7 @@ export default function TransferStation() {
                 minWidth: 22,
                 height: 22,
                 borderRadius: 11,
-                background: '#2563eb',
+                background: 'linear-gradient(135deg, #2f2f2f, #101010)',
                 color: '#fff',
                 fontSize: 11,
                 fontWeight: 700,
@@ -1100,7 +1100,7 @@ export default function TransferStation() {
         rel="noopener noreferrer"
         style={{ textDecoration: 'none', marginBottom: 8 }}
       >
-        <div style={{ padding: '7px 12px', borderRadius: 999, background: 'var(--liquid-glass-material-readable, rgba(255,255,255,0.72))', color: 'var(--lg-blue, #1677ff)', fontSize: 12, fontWeight: 700, cursor: 'pointer', border: '1px solid rgba(255,255,255,0.62)', boxShadow: 'var(--liquid-glass-shadow-tight, 0 8px 18px rgba(30,80,130,0.12))', backdropFilter: 'blur(12px) saturate(1.3)', WebkitBackdropFilter: 'blur(12px) saturate(1.3)' }}>反馈问题</div>
+        <div style={{ padding: '7px 12px', borderRadius: 999, background: 'var(--liquid-glass-material-readable, rgba(255,255,255,0.72))', color: 'var(--lg-blue, #111)', fontSize: 12, fontWeight: 700, cursor: 'pointer', border: '1px solid rgba(255,255,255,0.62)', boxShadow: 'var(--liquid-glass-shadow-tight, 0 8px 18px rgba(0,0,0,0.096))', backdropFilter: 'blur(12px) saturate(1.3)', WebkitBackdropFilter: 'blur(12px) saturate(1.3)' }}>反馈问题</div>
       </a>
 
       <Tooltip

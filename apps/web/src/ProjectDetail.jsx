@@ -4550,7 +4550,7 @@ function ProjectDetail({
             const hasRecommend = (photoTagsMap[pid] || []).includes('推荐');
             if (!hasRecommend) return null;
             return (
-              <div style={{ position: 'absolute', right: 8, top: showAILabels && photoAILabelMap[pid] ? 38 : 8, background: 'rgba(255,255,255,0.78)', color: 'var(--lg-blue, #1677ff)', border: '1px solid rgba(22,119,255,0.3)', padding: '3px 10px', borderRadius: 999, fontSize: '12px', fontWeight: 700, pointerEvents: 'none', backdropFilter: 'blur(8px) saturate(1.2)', WebkitBackdropFilter: 'blur(8px) saturate(1.2)' }}>
+              <div style={{ position: 'absolute', right: 8, top: showAILabels && photoAILabelMap[pid] ? 38 : 8, background: 'rgba(255,255,255,0.78)', color: '#111', border: '1px solid rgba(17,17,17,0.3)', padding: '3px 10px', borderRadius: 999, fontSize: '12px', fontWeight: 700, pointerEvents: 'none', backdropFilter: 'blur(8px) saturate(1.2)', WebkitBackdropFilter: 'blur(8px) saturate(1.2)' }}>
                 推荐
               </div>
             );

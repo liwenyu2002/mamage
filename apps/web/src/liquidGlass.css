@@ -17,8 +17,8 @@
   --liquid-glass-caustic-opacity: 0.72;
   --liquid-glass-caustic-speed: 1.75s;
   --liquid-glass-caustic-animation: none;
-  --liquid-glass-shadow: 0 22px 70px rgba(58, 78, 104, 0.16), 0 6px 22px rgba(18, 32, 52, 0.07);
-  --liquid-glass-shadow-tight: 0 10px 30px rgba(58, 78, 104, 0.12), 0 2px 10px rgba(18, 32, 52, 0.07);
+  --liquid-glass-shadow: 0 22px 70px rgba(0, 0, 0, 0.1), 0 6px 22px rgba(0, 0, 0, 0.05);
+  --liquid-glass-shadow-tight: 0 10px 30px rgba(0, 0, 0, 0.08), 0 2px 10px rgba(0, 0, 0, 0.05);
   /* 单条顶部内高光：四方向不对称 0.5px inset 会在小元素上呈现粗细不均的脏描边 */
   --liquid-glass-edge: inset 0 1px 0 rgba(255, 255, 255, 0.55);
   --liquid-glass-material:

@@ -1223,7 +1223,7 @@ function App() {
                                   display: 'flex',
                                   alignItems: 'center',
                                   justifyContent: 'center',
-                                  color: 'var(--lg-blue, #1677ff)',
+                                  color: 'var(--lg-blue, #111)',
                                   fontSize: 12,
                                   fontWeight: 600,
                                   background: 'rgba(255,255,255,0.7)',

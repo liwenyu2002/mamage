@@ -6,7 +6,7 @@
   justify-content: center;
   padding: 24px;
   background:
-    linear-gradient(135deg, rgba(234, 246, 255, 0.9), rgba(247, 251, 255, 0.72)),
+    linear-gradient(135deg, rgba(248, 248, 248, 0.9), rgba(252, 252, 252, 0.72)),
     repeating-linear-gradient(100deg, rgba(255, 255, 255, 0.22) 0 1px, transparent 1px 72px);
 }
 
