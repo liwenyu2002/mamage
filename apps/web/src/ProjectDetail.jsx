@@ -5,6 +5,11 @@ import {
   IconAIStrokedLevel1,
   IconClose,
   IconEditStroked,
+  IconInfoEdit,
+  IconMasonryView,
+  IconSimilarStack,
+  IconSparkleAI,
+  IconTimelineFlow,
   IconGridView,
   IconListView,
   IconMoreStroked,
@@ -4677,7 +4682,7 @@ function ProjectDetail({
             }}
             aria-label="切换照片布局"
           >
-            <span className="detail-action-icon" aria-hidden="true">{galleryMode === 'grid' ? <IconListView /> : <IconGridView />}</span>
+            <span className="detail-action-icon is-accent-slate" aria-hidden="true">{galleryMode === 'grid' ? <IconMasonryView /> : <IconGridView />}</span>
             <span className="detail-action-copy">
               <span className="detail-action-title">{galleryMode === 'grid' ? '瀑布流' : '网格'}</span>
               <span className="detail-action-desc">切换排列</span>
@@ -4693,7 +4698,7 @@ function ProjectDetail({
             }}
             aria-label="AI 选片"
           >
-            <span className="detail-action-icon" aria-hidden="true"><IconAIStrokedLevel1 /></span>
+            <span className="detail-action-icon is-accent-violet" aria-hidden="true"><IconSparkleAI /></span>
             <span className="detail-action-copy">
               <span className="detail-action-title">AI 选片</span>
               <span className="detail-action-desc">{aiSelectionStats.total ? `推荐 ${aiSelectionStats.recommended} / 中等 ${aiSelectionStats.medium} / 不推荐 ${aiSelectionStats.rejected}` : '等待分析结果'}</span>
@@ -4709,7 +4714,7 @@ function ProjectDetail({
             }}
             aria-label="查看相似照片"
           >
-            <span className="detail-action-icon" aria-hidden="true"><IconMoreStroked /></span>
+            <span className="detail-action-icon is-accent-teal" aria-hidden="true"><IconSimilarStack /></span>
             <span className="detail-action-copy">
               <span className="detail-action-title">相似照片</span>
               <span className="detail-action-desc">成组查看</span>
@@ -4725,7 +4730,7 @@ function ProjectDetail({
             }}
             aria-label="搜索照片"
           >
-            <span className="detail-action-icon" aria-hidden="true"><IconSearch /></span>
+            <span className="detail-action-icon is-accent-blue" aria-hidden="true"><IconSearch /></span>
             <span className="detail-action-copy">
               <span className="detail-action-title">搜索</span>
               <span className="detail-action-desc">{searchKeywordTrimmed ? `${images.length} 张结果` : '照片/标签/人'}</span>
@@ -4742,7 +4747,7 @@ function ProjectDetail({
               }}
               aria-label="修改相册信息"
             >
-              <span className="detail-action-icon" aria-hidden="true"><IconEditStroked /></span>
+              <span className="detail-action-icon is-accent-amber" aria-hidden="true"><IconInfoEdit /></span>
               <span className="detail-action-copy">
                 <span className="detail-action-title">修改信息</span>
                 <span className="detail-action-desc">标题/日期/标签</span>
@@ -4759,7 +4764,7 @@ function ProjectDetail({
               }}
               aria-label="编辑时间线环节"
             >
-              <span className="detail-action-icon" aria-hidden="true"><IconListView /></span>
+              <span className="detail-action-icon is-accent-green" aria-hidden="true"><IconTimelineFlow /></span>
               <span className="detail-action-copy">
                 <span className="detail-action-title">编辑时间线</span>
                 <span className="detail-action-desc">环节增删/排序/命名</span>
