@@ -4494,16 +4494,14 @@ function ProjectDetail({
               }
             }
             return (
-              <div style={{ position: 'absolute', left: 8, top: 8, background: 'rgba(0,0,0,0.55)', color: '#fff', padding: '4px 6px', borderRadius: 4, fontSize: '12px', pointerEvents: 'none', maxWidth: '70%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {photographerLabel}
+              <div className="detail-photo-chip-row">
+                <div className="detail-photo-chip" title={photographerLabel}>{photographerLabel}</div>
+                {timelineLabel ? (
+                  <div className="detail-photo-chip detail-photo-chip--section" title={timelineLabel}>{timelineLabel}</div>
+                ) : null}
               </div>
             );
           })()}
-          {timelineLabel ? (
-            <div className="detail-photo-section-chip" title={timelineLabel}>
-              {timelineLabel}
-            </div>
-          ) : null}
           {deleteMode && (
             <div style={{ position: 'absolute', right: 8, top: 8, width: 32, height: 32, borderRadius: 16, background: selectedMap[String(overallIndex)] ? '#ff5252' : 'rgba(0,0,0,0.45)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); toggleSelect(overallIndex); }}>
               {selectedMap[String(overallIndex)] ? '✓' : ''}
@@ -4539,7 +4537,7 @@ function ProjectDetail({
           {!isVideo && showAILabels && photoAILabelMap[photoMetas?.[overallIndex]?.id] && (() => {
             const label = photoAILabelMap[photoMetas?.[overallIndex]?.id];
             return (
-              <div style={{ position: 'absolute', right: 8, top: 8, background: 'rgba(255,255,255,0.78)', color: getAISelectionColor(label), border: `1px solid ${getAISelectionColor(label)}44`, padding: '3px 10px', borderRadius: 999, fontSize: '12px', fontWeight: 700, pointerEvents: 'none', backdropFilter: 'blur(8px) saturate(1.2)', WebkitBackdropFilter: 'blur(8px) saturate(1.2)' }}>
+              <div className="detail-photo-chip detail-photo-chip--floating" style={{ right: 8, top: 8, color: getAISelectionColor(label) }}>
                 {getAISelectionLabel(label)}
               </div>
             );
@@ -4550,7 +4548,7 @@ function ProjectDetail({
             const hasRecommend = (photoTagsMap[pid] || []).includes('推荐');
             if (!hasRecommend) return null;
             return (
-              <div style={{ position: 'absolute', right: 8, top: showAILabels && photoAILabelMap[pid] ? 38 : 8, background: 'rgba(255,255,255,0.78)', color: '#111', border: '1px solid rgba(17,17,17,0.3)', padding: '3px 10px', borderRadius: 999, fontSize: '12px', fontWeight: 700, pointerEvents: 'none', backdropFilter: 'blur(8px) saturate(1.2)', WebkitBackdropFilter: 'blur(8px) saturate(1.2)' }}>
+              <div className="detail-photo-chip detail-photo-chip--floating" style={{ right: 8, top: showAILabels && photoAILabelMap[pid] ? 40 : 8 }}>
                 推荐
               </div>
             );
