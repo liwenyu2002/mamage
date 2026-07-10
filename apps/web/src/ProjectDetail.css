@@ -895,9 +895,11 @@
   min-height: 24px;
   box-sizing: border-box;
   padding: 4px 10px;
-  border: var(--liquid-glass-stroke-width, 1px) solid var(--liquid-glass-border, rgba(255, 255, 255, 0.4));
+  /* 小胶囊描边配方（5afff7b0 定版）：1px 均匀发丝 + 平底 + 无 inset 高光——
+     面板级 --liquid-glass-edge/material 渐变在小元素上会糊出粗细不均的边 */
+  border: 1px solid rgba(255, 255, 255, 0.5);
   border-radius: 999px;
-  background: var(--liquid-glass-material-readable, linear-gradient(135deg, rgba(255, 255, 255, 0.56), rgba(255, 255, 255, 0.26)));
+  background: rgba(255, 255, 255, 0.68);
   color: #0a0a0a;
   font-size: 12px;
   font-weight: 750;
@@ -906,9 +908,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
   pointer-events: none;
-  box-shadow: var(--liquid-glass-edge, inset 0 1px 0 rgba(255, 255, 255, 0.55));
-  backdrop-filter: var(--liquid-glass-backdrop, blur(14px) saturate(1.58));
-  -webkit-backdrop-filter: var(--liquid-glass-backdrop, blur(14px) saturate(1.58));
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
 }
 
 .detail-photo-chip-row .detail-photo-chip {
@@ -980,17 +982,17 @@
   min-height: 22px;
   box-sizing: border-box;
   padding: 2px 9px;
-  border: var(--liquid-glass-stroke-width, 1px) solid var(--liquid-glass-border, rgba(255, 255, 255, 0.4));
+  border: 1px solid rgba(255, 255, 255, 0.5);
   border-radius: 999px;
-  background: var(--liquid-glass-material-readable, linear-gradient(135deg, rgba(255, 255, 255, 0.56), rgba(255, 255, 255, 0.26)));
+  background: rgba(255, 255, 255, 0.68);
   color: #0a0a0a;
   font-weight: 700;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  box-shadow: var(--liquid-glass-edge, inset 0 1px 0 rgba(255, 255, 255, 0.55));
-  backdrop-filter: var(--liquid-glass-backdrop, blur(14px) saturate(1.58));
-  -webkit-backdrop-filter: var(--liquid-glass-backdrop, blur(14px) saturate(1.58));
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
 }
 
 .detail-tag-empty {
