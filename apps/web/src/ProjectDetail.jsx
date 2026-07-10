@@ -733,6 +733,10 @@ function ProjectDetail({
   // 照片拖拽中：左侧环节导航进入"可移入"状态
   const [photoDragActive, setPhotoDragActive] = React.useState(false);
   const [railDropKey, setRailDropKey] = React.useState(null);
+  // 系统文件拖入页面：整页/分环节成为上传落点
+  const [fileDragActive, setFileDragActive] = React.useState(false);
+  const fileDragDepthRef = React.useRef(0);
+  const directFileDropRef = React.useRef(null);
 
   // selection / delete
   const [deleteMode, setDeleteMode] = React.useState(false);
@@ -1903,26 +1907,13 @@ function ProjectDetail({
     setUploadProgress(null);
   }, [stagingPreviews]);
 
-  const confirmUpload = React.useCallback(async () => {
-    if (DISABLE_UPLOAD_FEATURE) {
-      Toast.warning('上传功能已禁用');
-      return;
-    }
-    if (!stagingFiles.length || !projectId) return;
-    if (uploadTimelineEnabled && uploadTimelineSections.length && hasUnassignedStagedFiles) {
-      Toast.warning('还有照片未选择所属环节');
-      return;
-    }
-    const groupedFiles = new Map();
-    stagingFiles.forEach((file, index) => {
-      const sectionId = uploadTimelineEnabled && uploadTimelineSections.length ? String(stagingSectionIds[index] || '') : '';
-      if (!groupedFiles.has(sectionId)) groupedFiles.set(sectionId, []);
-      groupedFiles.get(sectionId).push(file);
-    });
+  // 上传执行核心：staging 确认与"直接拖文件上传"共用
+  const performUploadGroups = React.useCallback(async (groupedFiles, filesForProgress) => {
+    if (!projectId) return;
     setUploading(true);
-    setUploadProgress(createInitialUploadProgress(stagingFiles));
+    setUploadProgress(createInitialUploadProgress(filesForProgress));
     let autoCollapsedUpload = false;
-    const shouldAutoCollapseForVideoProcessing = stagingFiles.length > 0 && stagingFiles.every((file) => isVideoMeta(file));
+    const shouldAutoCollapseForVideoProcessing = filesForProgress.length > 0 && filesForProgress.every((file) => isVideoMeta(file));
     try {
       const results = [];
       const handleProgress = (event) => {
@@ -2018,6 +2009,35 @@ function ProjectDetail({
     uploadTimelineSections,
     hasUnassignedStagedFiles,
   ]);
+
+  const confirmUpload = React.useCallback(async () => {
+    if (DISABLE_UPLOAD_FEATURE) {
+      Toast.warning('上传功能已禁用');
+      return;
+    }
+    if (!stagingFiles.length || !projectId) return;
+    if (uploadTimelineEnabled && uploadTimelineSections.length && hasUnassignedStagedFiles) {
+      Toast.warning('还有照片未选择所属环节');
+      return;
+    }
+    const groupedFiles = new Map();
+    stagingFiles.forEach((file, index) => {
+      const sectionId = uploadTimelineEnabled && uploadTimelineSections.length ? String(stagingSectionIds[index] || '') : '';
+      if (!groupedFiles.has(sectionId)) groupedFiles.set(sectionId, []);
+      groupedFiles.get(sectionId).push(file);
+    });
+    await performUploadGroups(groupedFiles, stagingFiles);
+  }, [
+    stagingFiles,
+    stagingSectionIds,
+    projectId,
+    DISABLE_UPLOAD_FEATURE,
+    uploadTimelineEnabled,
+    uploadTimelineSections,
+    hasUnassignedStagedFiles,
+    performUploadGroups,
+  ]);
+
 
   const openEdit = React.useCallback(() => {
     const p = project || {};
@@ -2220,8 +2240,34 @@ function ProjectDetail({
     }
   }, [assigningSection, selectedMap, photoMetas, refreshProjectDetail]);
 
-  // 拖拽照片放到左侧环节导航：批量移入该环节（未归类=移出）
+  // 系统文件直接拖入：免打开上传弹窗，落点决定所属环节
+  const handleDirectFileDrop = React.useCallback((e, sectionId) => {
+    e.preventDefault();
+    fileDragDepthRef.current = 0;
+    setFileDragActive(false);
+    setRailDropKey(null);
+    if (!canUploadPhotos) { Toast.warning('当前账号没有上传权限'); return; }
+    if (uploading) { Toast.warning('正在上传中，请稍候再拖入'); return; }
+    const dropped = Array.from((e.dataTransfer && e.dataTransfer.files) || []);
+    const mediaFiles = dropped.filter((f) => /^(image|video)\//.test(f.type) || /\.(jpe?g|png|webp|gif|heic|heif|mp4|mov|m4v|webm|ogg)$/i.test(f.name || ''));
+    if (!mediaFiles.length) { if (dropped.length) Toast.warning('仅支持图片或视频文件'); return; }
+    const accepted = [];
+    let oversized = 0;
+    mediaFiles.forEach((f) => { if (getUploadFileLimitError(f)) oversized += 1; else accepted.push(f); });
+    if (oversized) Toast.warning(`已跳过 ${oversized} 个超限文件`);
+    if (!accepted.length) return;
+    const key = uploadTimelineEnabled && uploadTimelineSections.length ? String(sectionId || '') : '';
+    performUploadGroups(new Map([[key, accepted]]), accepted);
+  }, [canUploadPhotos, uploading, uploadTimelineEnabled, uploadTimelineSections, performUploadGroups]);
+
+  React.useEffect(() => { directFileDropRef.current = handleDirectFileDrop; }, [handleDirectFileDrop]);
+
+  // 拖拽照片放到左侧环节导航：批量移入该环节（未归类=移出）；拖入系统文件则直接上传到该环节
   const handleRailDrop = React.useCallback(async (e, group) => {
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
+      handleDirectFileDrop(e, group && group.id ? group.id : '');
+      return;
+    }
     e.preventDefault();
     setRailDropKey(null);
     setPhotoDragActive(false);
@@ -2246,7 +2292,50 @@ function ProjectDetail({
     } finally {
       setAssigningSection(false);
     }
-  }, [assigningSection, refreshProjectDetail]);
+  }, [assigningSection, refreshProjectDetail, handleDirectFileDrop]);
+
+  // 窗口级文件拖入侦测：进入相册页任意位置即提示可上传；
+  // 无环节相册整页即落点，带环节相册在窗口级 drop 仅收尾（各环节区/导航各自处理）
+  React.useEffect(() => {
+    if (!canUploadPhotos || typeof window === 'undefined') return undefined;
+    const hasFiles = (e) => {
+      try { return Array.from(e.dataTransfer?.types || []).includes('Files'); } catch (err) { return false; }
+    };
+    const onEnter = (e) => {
+      if (!hasFiles(e)) return;
+      fileDragDepthRef.current += 1;
+      setFileDragActive(true);
+    };
+    const onLeave = (e) => {
+      if (!hasFiles(e)) return;
+      fileDragDepthRef.current = Math.max(0, fileDragDepthRef.current - 1);
+      if (!fileDragDepthRef.current) { setFileDragActive(false); setRailDropKey(null); }
+    };
+    const onOver = (e) => { if (hasFiles(e)) e.preventDefault(); };
+    const onDrop = (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      const insideZone = e.target && e.target.closest && e.target.closest('[data-file-drop-zone="1"]');
+      if (!insideZone && directFileDropRef.current) {
+        // 无环节相册：整页任意位置松手都上传；带环节相册落到空白处 → 未归类
+        directFileDropRef.current(e, '');
+        return;
+      }
+      fileDragDepthRef.current = 0;
+      setFileDragActive(false);
+      setRailDropKey(null);
+    };
+    window.addEventListener('dragenter', onEnter);
+    window.addEventListener('dragleave', onLeave);
+    window.addEventListener('dragover', onOver);
+    window.addEventListener('drop', onDrop);
+    return () => {
+      window.removeEventListener('dragenter', onEnter);
+      window.removeEventListener('dragleave', onLeave);
+      window.removeEventListener('dragover', onOver);
+      window.removeEventListener('drop', onDrop);
+    };
+  }, [canUploadPhotos]);
 
   const handleDeleteProject = React.useCallback(() => {
     if (DISABLE_DELETE_FEATURE) {
@@ -4716,23 +4805,23 @@ function ProjectDetail({
         {!loading && !error && galleryPrepared && (
           useTimelineGallery ? (
             <div className="detail-timeline-layout">
-              <nav className={`detail-timeline-rail${photoDragActive ? ' is-drop-mode' : ''}`} aria-label="时间轴快速导航">
+              <nav className={`detail-timeline-rail${photoDragActive || fileDragActive ? ' is-drop-mode' : ''}`} data-file-drop-zone="1" aria-label="时间轴快速导航">
                 <span className="detail-timeline-rail-line" aria-hidden="true" />
-                {photoDragActive ? (
-                  <span className="detail-timeline-rail-hint">松手移入环节</span>
+                {photoDragActive || fileDragActive ? (
+                  <span className="detail-timeline-rail-hint">{fileDragActive ? '松手上传到环节' : '松手移入环节'}</span>
                 ) : null}
                 {timelineGalleryGroups.map((group) => {
                   const railKey = group.key || group.id || group.name;
                   return (
                   <a
                     key={`rail-${railKey}`}
-                    className={`detail-timeline-rail-item${photoDragActive && railDropKey === railKey ? ' is-drag-over' : ''}`}
+                    className={`detail-timeline-rail-item${(photoDragActive || fileDragActive) && railDropKey === railKey ? ' is-drag-over' : ''}`}
                     href={`#${group.domId}`}
                     title={group.sectionTime ? `${group.name} · ${group.sectionTime}` : group.name}
                     onDragOver={(e) => {
-                      if (!photoDragActive) return;
+                      if (!photoDragActive && !fileDragActive) return;
                       e.preventDefault();
-                      e.dataTransfer.dropEffect = 'move';
+                      e.dataTransfer.dropEffect = fileDragActive ? 'copy' : 'move';
                       if (railDropKey !== railKey) setRailDropKey(railKey);
                     }}
                     onDragLeave={() => {
@@ -4751,8 +4840,25 @@ function ProjectDetail({
                 })}
               </nav>
               <div className="detail-timeline-gallery">
-                {timelineGalleryGroups.map((group) => (
-                  <section id={group.domId} className="detail-timeline-section" key={group.key || group.id || group.name}>
+                {timelineGalleryGroups.map((group) => {
+                  const sectionRailKey = group.key || group.id || group.name;
+                  return (
+                  <section
+                    id={group.domId}
+                    className={`detail-timeline-section${fileDragActive && railDropKey === sectionRailKey ? ' is-file-drop-over' : ''}`}
+                    key={sectionRailKey}
+                    data-file-drop-zone="1"
+                    onDragOver={(e) => {
+                      if (!fileDragActive) return;
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = 'copy';
+                      if (railDropKey !== sectionRailKey) setRailDropKey(sectionRailKey);
+                    }}
+                    onDragLeave={() => {
+                      if (fileDragActive) setRailDropKey((prev) => (prev === sectionRailKey ? null : prev));
+                    }}
+                    onDrop={(e) => { if (fileDragActive) handleDirectFileDrop(e, group.id || ''); }}
+                  >
                     <div className="detail-timeline-head">
                       <div className="detail-timeline-title">
                         <span>{group.name}</span>
@@ -4762,15 +4868,16 @@ function ProjectDetail({
                     </div>
                     {group.items.length ? renderTimelineGroupItems(group) : (
                       <div
-                        className={`detail-timeline-empty${photoDragActive ? ' is-drop-ready' : ''}`}
-                        onDragOver={(e) => { if (photoDragActive) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; } }}
+                        className={`detail-timeline-empty${photoDragActive || fileDragActive ? ' is-drop-ready' : ''}`}
+                        onDragOver={(e) => { if (photoDragActive || fileDragActive) { e.preventDefault(); e.dataTransfer.dropEffect = fileDragActive ? 'copy' : 'move'; } }}
                         onDrop={(e) => handleRailDrop(e, group)}
                       >
-                        {photoDragActive ? '松手移入该环节' : '该环节暂无照片 · 可拖拽照片移入'}
+                        {fileDragActive ? '松手上传到该环节' : (photoDragActive ? '松手移入该环节' : '该环节暂无照片 · 可拖拽照片移入')}
                       </div>
                     )}
                   </section>
-                ))}
+                  );
+                })}
               </div>
             </div>
           ) : galleryMode === 'masonry' ? (
@@ -4821,6 +4928,14 @@ function ProjectDetail({
               >
                 删除{selectedCount > 0 ? ` (${selectedCount})` : ''}
               </Button>
+            </div>
+          </div>
+        ) : null}
+
+        {fileDragActive && canUploadPhotos ? (
+          <div className="detail-file-drop-overlay" aria-hidden="true">
+            <div className="detail-file-drop-overlay-card">
+              {useTimelineGallery ? '拖到目标环节或左侧导航，松手上传' : '松手上传到相册'}
             </div>
           </div>
         ) : null}
