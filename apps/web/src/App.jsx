@@ -43,121 +43,6 @@ function formatHeaderDate(val) {
   }
 }
 
-function getImageCandidate(item) {
-  if (!item) return '';
-  if (typeof item === 'string') return item;
-  return item.thumbSrc
-    || item.thumbUrl
-    || item.thumbnail
-    || item.thumb
-    || item.coverThumbUrl
-    || item.coverUrl
-    || item.url
-    || item.fullUrl
-    || item.imageUrl
-    || item.fileUrl
-    || '';
-}
-
-function getProjectImageList(project) {
-  if (!project) return [];
-  const candidates = [
-    project.previewImages,
-    project.images,
-    project.photos,
-    project.list,
-  ];
-  const list = candidates.find((it) => Array.isArray(it));
-  return Array.isArray(list) ? list : [];
-}
-
-function getRecordTime(item) {
-  if (!item || typeof item !== 'object') return 0;
-  const raw = item.createdAt
-    || item.created_at
-    || item.updatedAt
-    || item.updated_at
-    || item.date
-    || item.takenAt
-    || item.taken_at
-    || item.eventDate
-    || item.event_date;
-  const time = raw ? new Date(raw).getTime() : 0;
-  return Number.isFinite(time) ? time : 0;
-}
-
-function getRecordId(item) {
-  if (!item || typeof item !== 'object') return 0;
-  const id = Number(item.id || item.photoId || item.photo_id || item.projectId || item.project_id || item._id);
-  return Number.isFinite(id) ? id : 0;
-}
-
-function sortPhotosByLatest(list) {
-  return [...(Array.isArray(list) ? list : [])].sort((a, b) => {
-    const timeDiff = getRecordTime(b) - getRecordTime(a);
-    return timeDiff || (getRecordId(b) - getRecordId(a));
-  });
-}
-
-function isSceneryProject(project) {
-  if (!project) return false;
-  const tags = Array.isArray(project.tags)
-    ? project.tags.join(' ')
-    : String(project.tags || project.labels || project.projectTags || project.tagList || '');
-  const text = [
-    project.type,
-    project.title,
-    project.subtitle,
-    project.description,
-    project.projectName,
-    project.name,
-    tags,
-  ].filter(Boolean).join(' ').toLowerCase();
-  return /(风景|风光|景色|光景|scenery|landscape)/i.test(text);
-}
-
-function isUsableBackdropSrc(src) {
-  const value = String(src || '').trim();
-  return Boolean(value && !/daishangchuan|placeholder/i.test(value));
-}
-
-function pickProjectBackdropSrc(project, { preferLatest = false } = {}) {
-  if (!project) return '';
-  const cover = project.coverSrc
-    || project.coverThumbUrl
-    || project.coverUrl
-    || project.cover
-    || '';
-  if (!preferLatest && isUsableBackdropSrc(cover)) return resolveAssetUrl(cover);
-
-  const images = getProjectImageList(project);
-  const ordered = preferLatest ? sortPhotosByLatest(images) : images;
-  const image = ordered.map(getImageCandidate).find(isUsableBackdropSrc);
-  if (image) return resolveAssetUrl(image);
-  if (isUsableBackdropSrc(cover)) return resolveAssetUrl(cover);
-  return '';
-}
-
-function pickLatestProjectBackdropSrc(projects) {
-  const list = (Array.isArray(projects) ? projects : [projects]).filter(Boolean);
-  if (!list.length) return '';
-
-  const photos = list.flatMap((project) => getProjectImageList(project));
-  const image = sortPhotosByLatest(photos).map(getImageCandidate).find(isUsableBackdropSrc);
-  if (image) return resolveAssetUrl(image);
-
-  const project = [...list].sort((a, b) => {
-    const timeDiff = getRecordTime(b) - getRecordTime(a);
-    return timeDiff || (getRecordId(b) - getRecordId(a));
-  }).find((item) => pickProjectBackdropSrc(item));
-
-  return project ? pickProjectBackdropSrc(project) : '';
-}
-
-function toCssImageUrl(src) {
-  return String(src || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-}
-
 function AppLoadingState({ title = '正在加载', subtitle = '请稍候', compact = false }) {
   return (
     <div className={`app-loading-state${compact ? ' is-compact' : ''}`}>
@@ -253,7 +138,6 @@ function App() {
   const [photoPreviewDescription, setPhotoPreviewDescription] = React.useState('');
   const [photoPreviewTags, setPhotoPreviewTags] = React.useState([]);
   const [mountTransferStation, setMountTransferStation] = React.useState(false);
-  const [homeSceneryBackdrop, setHomeSceneryBackdrop] = React.useState('');
   const isSharePath = (() => {
     try {
       return typeof window !== 'undefined' && window.location && window.location.pathname && window.location.pathname.startsWith('/share/');
@@ -806,10 +690,6 @@ function App() {
     return normalizedProjects.find((project) => String(project.id) === sid) || null;
   }, [normalizedProjects, currentProjectId]);
 
-  const localSceneryBackdrop = React.useMemo(() => {
-    return pickLatestProjectBackdropSrc(normalizedProjects.filter(isSceneryProject));
-  }, [normalizedProjects]);
-
   const projectHeader = React.useMemo(() => {
     if (!currentProjectId) return null;
     const fallback = currentProject ? {
@@ -857,42 +737,6 @@ function App() {
     items.push(`更新 ${projectHeader.updatedText || '-'}`);
     return items;
   }, [currentProjectId, projectHeader, projectHeaderReady]);
-
-  React.useEffect(() => {
-    if (isSharePath || authLoading || (!currentUser && !isDemoPath)) return undefined;
-    let canceled = false;
-    (async () => {
-      try {
-        const token = authService.getToken ? authService.getToken() : '';
-        const headers = token ? { Authorization: `Bearer ${token}` } : {};
-        const res = await fetch('/api/projects/scenery', { headers });
-        if (!res.ok) return;
-        const data = await res.json().catch(() => null);
-        const projects = Array.isArray(data)
-          ? data
-          : (Array.isArray(data?.projects) ? data.projects : (data?.project ? [data.project] : []));
-        const src = pickLatestProjectBackdropSrc(projects);
-        if (!canceled) setHomeSceneryBackdrop(src || '');
-      } catch (e) {
-        // The local project list fallback keeps the homepage usable without this optional request.
-      }
-    })();
-    return () => {
-      canceled = true;
-    };
-  }, [authLoading, currentUser, isDemoPath, isSharePath]);
-
-  const pageBackdropSrc = React.useMemo(() => {
-    if (currentProjectId) {
-      return projectHeader?.coverSrc
-        || pickProjectBackdropSrc(currentProject)
-        || '';
-    }
-    if (selectedNav === 'projects' || selectedNav === 'scenery') {
-      return homeSceneryBackdrop || localSceneryBackdrop || '';
-    }
-    return homeSceneryBackdrop || localSceneryBackdrop || '';
-  }, [currentProjectId, currentProject, projectHeader, selectedNav, homeSceneryBackdrop, localSceneryBackdrop]);
 
   const userLabel = currentUser && (currentUser.displayName || currentUser.email || currentUser.name);
   const userInitial = String(userLabel || 'U').trim().charAt(0).toUpperCase() || 'U';
@@ -1032,13 +876,9 @@ function App() {
   }
 
   return (
-    <div className={`mamage-shell${pageBackdropSrc ? ' has-photo-backdrop' : ''}`}>
+    <div className="mamage-shell">
       <LiquidGlassDefs />
-      <div
-        className={`mamage-dynamic-backdrop${pageBackdropSrc ? ' is-visible' : ''}`}
-        aria-hidden="true"
-        style={pageBackdropSrc ? { backgroundImage: `url("${toCssImageUrl(pageBackdropSrc)}")` } : undefined}
-      />
+      <div className="mamage-dynamic-backdrop" aria-hidden="true" />
       <header className={`mamage-header${currentProjectId ? ' is-project-detail' : ''}${isMobileHeader ? ' is-mobile-header' : ' is-desktop-header'}`}>
         <div className={`mamage-topbar${currentProjectId ? ' is-project-detail' : ''}`}>
           <div className="mamage-brand-area">

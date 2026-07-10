@@ -139,28 +139,16 @@ textarea {
 
 .mamage-dynamic-backdrop {
     position: fixed;
-    inset: -14vh -14vw;
+    inset: 0;
     z-index: -1;
     pointer-events: none;
-    background-position: center;
-    background-size: cover;
-    opacity: 0;
-    filter: blur(52px) saturate(1.34) brightness(1.04);
-    transform: scale(1.12);
-    transition: opacity 420ms ease;
-    contain: paint;
-    will-change: opacity;
-}
-
-.mamage-dynamic-backdrop.is-visible {
-    opacity: 0.96;
-}
-
-.mamage-dynamic-backdrop::after {
-    content: '';
-    position: absolute;
-    inset: -2px;
-    background: rgba(247, 248, 251, 0.035);
+    background:
+        linear-gradient(180deg, rgba(247, 249, 253, 0.9) 0%, rgba(247, 249, 253, 0) 30%),
+        radial-gradient(1100px 720px at 82% -12%, rgba(22, 119, 255, 0.09), transparent 62%),
+        radial-gradient(900px 640px at -8% 28%, rgba(0, 166, 166, 0.07), transparent 58%),
+        radial-gradient(1100px 780px at 52% 116%, rgba(196, 181, 253, 0.14), transparent 62%),
+        url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 480 415.692%22 width=%22480%22 height=%22415.692%22%3E%3Cdefs%3E%3Cg id=%22f%22 fill=%22none%22 stroke-width=%224%22 stroke-linecap=%22square%22 stroke-linejoin=%22miter%22%3E%3Cpath d=%22M9-70L43.641-50V-10L9 10L-25.641-10V-50Z%22 stroke=%22%231677FF%22 stroke-opacity=%22.32%22/%3E%3Cpath d=%22M9-70L43.641-50V-10L9 10L-25.641-10V-50Z%22 transform=%22rotate(60)%22 stroke=%22%2364748B%22 stroke-opacity=%22.26%22/%3E%3Cpath d=%22M9-70L43.641-50V-10L9 10L-25.641-10V-50Z%22 transform=%22rotate(120)%22 stroke=%22%2394A3B8%22 stroke-opacity=%22.30%22/%3E%3Cpath d=%22M9-70L43.641-50V-10L9 10L-25.641-10V-50Z%22 transform=%22rotate(180)%22 stroke=%22%231677FF%22 stroke-opacity=%22.32%22/%3E%3Cpath d=%22M9-70L43.641-50V-10L9 10L-25.641-10V-50Z%22 transform=%22rotate(240)%22 stroke=%22%2364748B%22 stroke-opacity=%22.26%22/%3E%3Cpath d=%22M9-70L43.641-50V-10L9 10L-25.641-10V-50Z%22 transform=%22rotate(300)%22 stroke=%22%2394A3B8%22 stroke-opacity=%22.30%22/%3E%3C/g%3E%3Cg id=%22g%22 fill=%22none%22 stroke-width=%225%22 stroke-linecap=%22square%22 stroke-linejoin=%22miter%22 stroke-dasharray=%2230 70%22%3E%3Cpath pathLength=%22100%22 d=%22M9-70L43.641-50V-10L9 10L-25.641-10V-50Z%22 stroke=%22%231677FF%22 stroke-opacity=%22.32%22/%3E%3Cpath pathLength=%22100%22 d=%22M9-70L43.641-50V-10L9 10L-25.641-10V-50Z%22 transform=%22rotate(60)%22 stroke=%22%2364748B%22 stroke-opacity=%22.26%22 stroke-dashoffset=%2214%22/%3E%3Cpath pathLength=%22100%22 d=%22M9-70L43.641-50V-10L9 10L-25.641-10V-50Z%22 transform=%22rotate(120)%22 stroke=%22%2394A3B8%22 stroke-opacity=%22.30%22 stroke-dashoffset=%2228%22/%3E%3Cpath pathLength=%22100%22 d=%22M9-70L43.641-50V-10L9 10L-25.641-10V-50Z%22 transform=%22rotate(180)%22 stroke=%22%231677FF%22 stroke-opacity=%22.32%22 stroke-dashoffset=%2242%22/%3E%3Cpath pathLength=%22100%22 d=%22M9-70L43.641-50V-10L9 10L-25.641-10V-50Z%22 transform=%22rotate(240)%22 stroke=%22%2364748B%22 stroke-opacity=%22.26%22 stroke-dashoffset=%2256%22/%3E%3Cpath pathLength=%22100%22 d=%22M9-70L43.641-50V-10L9 10L-25.641-10V-50Z%22 transform=%22rotate(300)%22 stroke=%22%2394A3B8%22 stroke-opacity=%22.30%22 stroke-dashoffset=%2270%22/%3E%3C/g%3E%3C/defs%3E%3Cg opacity=%22.34%22%3E%3Cuse href=%22%23f%22 transform=%22translate(0 104) scale(.78)%22/%3E%3Cuse href=%22%23g%22 transform=%22translate(240 104) rotate(120) scale(.82)%22/%3E%3Cuse href=%22%23f%22 transform=%22translate(480 104) scale(.78)%22/%3E%3Cuse href=%22%23g%22 transform=%22translate(120 311.846) rotate(240) scale(.82)%22/%3E%3Cuse href=%22%23f%22 transform=%22translate(360 311.846) scale(.78)%22/%3E%3Cg fill=%22%231677FF%22 fill-opacity=%22.30%22 shape-rendering=%22crispEdges%22%3E%3Crect x=%22114%22 y=%22100%22 width=%226%22 height=%226%22/%3E%3Crect x=%22124%22 y=%22106%22 width=%226%22 height=%226%22/%3E%3Crect x=%22354%22 y=%22100%22 width=%226%22 height=%226%22/%3E%3Crect x=%22364%22 y=%22106%22 width=%226%22 height=%226%22/%3E%3Crect x=%22234%22 y=%22307.846%22 width=%226%22 height=%226%22/%3E%3Crect x=%22244%22 y=%22313.846%22 width=%226%22 height=%226%22/%3E%3C/g%3E%3C/g%3E%3C/svg%3E") left top / 480px 415.692px repeat,
+        linear-gradient(180deg, #f7f9fd 0%, #edf1f8 100%);
 }
 
 .mamage-shell::before,
@@ -1643,17 +1631,9 @@ textarea {
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .app-inline-button,
-    .app-loading-mark span {
+    .app-inline-button {
         animation: none;
         transition: none;
-    }
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .app-loading-mark span {
-        animation: none;
-        opacity: 0.8;
     }
 }
 
