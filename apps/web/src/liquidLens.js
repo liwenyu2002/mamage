@@ -6,10 +6,12 @@
 // 仅 Chromium 支持 backdrop-filter: url()；CSS 侧用 @supports 门控回退。
 
 const LENS_SUFFIX = ' blur(1.1px) saturate(1.5) contrast(1.06) brightness(1.03)';
-const EDGE_BAND_RATIO = 0.42; // 折射带宽 = min(w,h)*ratio，夹在 [10, 44] px
-// 振幅/带宽比 > 0.5 时采样在贴边处折返（导数变负）→ 苹果水滴式的边缘镜像倒影；
-// 取 0.68：贴边约 1/4 带宽内是镜像带，其余是压缩带
-const EDGE_AMPLITUDE_RATIO = 0.68;
+// 圆顶透镜剖面（对齐 shuding/liquid-glass 原版观感，按 min(w,h) 归一以适配任意尺寸）：
+// 采样系数 k 从核心 1（原样）平滑降到贴边 K_MIN（向心放大），位移沿径向、
+// 幅度以 MAG_CAP*min(w,h) 封顶——宽横条两端不会爆炸。
+const LENS_K_MIN = 0.55; // 贴边处采样系数（越小弯折越强）
+const LENS_DEPTH = 0.5; // 透镜深度 = min(w,h) * DEPTH（从边缘向内的渐变区）
+const LENS_MAG_CAP = 0.45; // 最大位移 = min(w,h) * CAP
 
 // 需要透镜化的玻璃控件层（与 liquidGlass.css @supports 富模糊列表保持一致）
 const LENS_SELECTORS = [
@@ -45,11 +47,11 @@ function buildDisplacementMap(w, h, r) {
   const cw = Math.max(4, Math.round(w));
   const ch = Math.max(4, Math.round(h));
   const radius = Math.max(0, Math.min(r, Math.min(cw, ch) / 2));
-  const band = Math.max(10, Math.min(44, Math.min(cw, ch) * EDGE_BAND_RATIO));
+  const minDim = Math.min(cw, ch);
+  const depth = LENS_DEPTH * minDim;
+  const magCap = LENS_MAG_CAP * minDim;
   const hw = cw / 2 - 0.5;
   const hh = ch / 2 - 0.5;
-
-  const sdf = (x, y) => roundedRectSDF(x, y, hw, hh, radius);
 
   const raw = new Float32Array(cw * ch * 2);
   let maxScale = 0;
@@ -57,21 +59,20 @@ function buildDisplacementMap(w, h, r) {
     const py = y - ch / 2 + 0.5;
     for (let x = 0; x < cw; x += 1) {
       const px = x - cw / 2 + 0.5;
-      const d = sdf(px, py);
-      // 二次衰减：贴边 1 → 向内 band 处 0。曲线在边缘处斜率 2/band，
-      // 配合振幅 0.68*band 使贴边采样折返（镜像），向内渐变为压缩、再到原样。
-      const inner = Math.max(0, Math.min(1, -d / band));
-      const eased = (1 - inner) * (1 - inner);
+      const d = roundedRectSDF(px, py, hw, hh, radius);
+      // 深度剖面：贴边 t=0 → 向内 depth 处 t=1，双重 smoothstep 缓动
+      const t = Math.max(0, Math.min(1, -d / depth));
+      const s1 = smoothStep(0, 1, t);
+      const s2 = s1 * s1 * (3 - 2 * s1);
+      const k = LENS_K_MIN + (1 - LENS_K_MIN) * s2;
       let dx = 0;
       let dy = 0;
-      if (eased > 0.001) {
-        // SDF 数值梯度 = 指向外侧的法线；向内侧采样，陡峭处折叠出镜像倒影
-        const nx = sdf(px + 1, py) - sdf(px - 1, py);
-        const ny = sdf(px, py + 1) - sdf(px, py - 1);
-        const len = Math.sqrt(nx * nx + ny * ny) || 1;
-        const amp = band * EDGE_AMPLITUDE_RATIO;
-        dx = -(nx / len) * eased * amp;
-        dy = -(ny / len) * eased * amp;
+      if (k < 0.999) {
+        // 向心径向采样（圆顶放大），幅度封顶防宽条两端爆炸
+        const dist = Math.sqrt(px * px + py * py) || 1;
+        const mag = Math.min((1 - k) * dist, magCap);
+        dx = -(px / dist) * mag;
+        dy = -(py / dist) * mag;
       }
       const i = (y * cw + x) * 2;
       raw[i] = dx;
