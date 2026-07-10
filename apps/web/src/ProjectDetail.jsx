@@ -1,6 +1,6 @@
 ﻿// src/ProjectDetail.jsx
 import React from 'react';
-import { Typography, Button, Tag, Spin, Empty, Modal, Input, DatePicker, DateTimePicker, TextArea, Toast } from './ui';
+import { Typography, Button, Tag, Spin, Empty, Modal, Input, DatePicker, DateTimePicker, TextArea, Toast, HexLoader } from './ui';
 import {
   IconAIStrokedLevel1,
   IconClose,
@@ -4853,7 +4853,7 @@ function ProjectDetail({
       >
         {loading && (
           <div className="detail-loading-state">
-            <div className="detail-loading-mark" />
+            <HexLoader size={60} className="detail-loading-mark" />
             <div className="detail-loading-title">正在加载相册</div>
             <div className="detail-loading-subtitle">照片马上出现</div>
           </div>
