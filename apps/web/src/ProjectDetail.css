@@ -222,6 +222,50 @@
   color: var(--lg-blue, #1677ff);
 }
 
+/* 桌面端：向右加宽导航显示完整环节名（fit-content 随最长名自适应，上限 340px） */
+.detail-timeline-layout.is-rail-wide {
+  grid-template-columns: fit-content(340px) minmax(0, 1fr);
+}
+
+.detail-timeline-rail-widen {
+  position: sticky;
+  top: 0;
+  align-self: flex-end;
+  order: -1;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  margin: -4px -2px -14px 0;
+  border: 1px solid rgba(22, 119, 255, 0.35);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.85);
+  color: var(--lg-blue, #1677ff);
+  font-size: 13px;
+  line-height: 1;
+  font-weight: 800;
+  cursor: pointer;
+  z-index: 2;
+  box-shadow: 0 2px 6px rgba(22, 119, 255, 0.18);
+}
+
+.detail-timeline-rail-widen:hover {
+  background: rgba(22, 119, 255, 0.12);
+}
+
+@media (max-width: 768px) {
+  /* 移动端用"展开全部"换行方案，不需要横向加宽 */
+  .detail-timeline-rail-widen {
+    display: none;
+  }
+}
+
+@media (min-width: 769px) {
+  /* 桌面端不需要"展开全部"（纵向可滚），避免双按钮 */
+  .detail-timeline-rail-toggle {
+    display: none;
+  }
+}
+
 /* 环节导航"展开全部"：解除高度/单行限制，完整平铺 */
 .detail-timeline-rail.is-expanded-full {
   max-height: none;
@@ -1731,6 +1775,50 @@
   border-color: rgba(22, 119, 255, 0.6);
   background: rgba(22, 119, 255, 0.08);
   color: var(--lg-blue, #1677ff);
+}
+
+/* 桌面端：向右加宽导航显示完整环节名（fit-content 随最长名自适应，上限 340px） */
+.detail-timeline-layout.is-rail-wide {
+  grid-template-columns: fit-content(340px) minmax(0, 1fr);
+}
+
+.detail-timeline-rail-widen {
+  position: sticky;
+  top: 0;
+  align-self: flex-end;
+  order: -1;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  margin: -4px -2px -14px 0;
+  border: 1px solid rgba(22, 119, 255, 0.35);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.85);
+  color: var(--lg-blue, #1677ff);
+  font-size: 13px;
+  line-height: 1;
+  font-weight: 800;
+  cursor: pointer;
+  z-index: 2;
+  box-shadow: 0 2px 6px rgba(22, 119, 255, 0.18);
+}
+
+.detail-timeline-rail-widen:hover {
+  background: rgba(22, 119, 255, 0.12);
+}
+
+@media (max-width: 768px) {
+  /* 移动端用"展开全部"换行方案，不需要横向加宽 */
+  .detail-timeline-rail-widen {
+    display: none;
+  }
+}
+
+@media (min-width: 769px) {
+  /* 桌面端不需要"展开全部"（纵向可滚），避免双按钮 */
+  .detail-timeline-rail-toggle {
+    display: none;
+  }
 }
 
 /* 环节导航"展开全部"：解除高度/单行限制，完整平铺 */

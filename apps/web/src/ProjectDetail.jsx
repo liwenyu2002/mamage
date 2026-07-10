@@ -742,6 +742,9 @@ function ProjectDetail({
   const railRef = React.useRef(null);
   const [railExpanded, setRailExpanded] = React.useState(false);
   const [railOverflow, setRailOverflow] = React.useState(false);
+  // 桌面端：环节名被截断时可向右加宽导航
+  const [railWide, setRailWide] = React.useState(false);
+  const [railNameTruncated, setRailNameTruncated] = React.useState(false);
 
   // selection / delete
   const [deleteMode, setDeleteMode] = React.useState(false);
@@ -2283,6 +2286,10 @@ function ProjectDetail({
         return;
       }
       setRailOverflow(el.scrollWidth > el.clientWidth + 4 || el.scrollHeight > el.clientHeight + 4);
+      const spans = el.querySelectorAll('.detail-timeline-rail-text span');
+      let truncated = false;
+      spans.forEach((sp) => { if (sp.scrollWidth > sp.clientWidth + 1) truncated = true; });
+      setRailNameTruncated(truncated);
     };
     measure();
     window.addEventListener('resize', measure);
@@ -2293,7 +2300,7 @@ function ProjectDetail({
       window.removeEventListener('resize', measure);
       if (ro) ro.disconnect();
     };
-  }, [timelineGalleryGroups, railExpanded, useTimelineGallery]);
+  }, [timelineGalleryGroups, railExpanded, railWide, useTimelineGallery]);
 
   // 拖拽照片放到左侧环节导航：批量移入该环节（未归类=移出）；拖入系统文件则直接上传到该环节
   const handleRailDrop = React.useCallback(async (e, group) => {
@@ -4838,7 +4845,7 @@ function ProjectDetail({
 
         {!loading && !error && galleryPrepared && (
           useTimelineGallery ? (
-            <div className="detail-timeline-layout">
+            <div className={`detail-timeline-layout${railWide ? ' is-rail-wide' : ''}`}>
               <nav ref={railRef} className={`detail-timeline-rail${photoDragActive || fileDragActive ? ' is-drop-mode' : ''}${railExpanded ? ' is-expanded-full' : ''}`} data-file-drop-zone="1" aria-label="时间轴快速导航">
                 <span className="detail-timeline-rail-line" aria-hidden="true" />
                 {photoDragActive || fileDragActive ? (
@@ -4881,6 +4888,15 @@ function ProjectDetail({
                   >
                     {railExpanded ? '收起' : `展开全部 (${timelineGalleryGroups.length})`}
                   </button>
+                ) : null}
+                {(railNameTruncated || railWide) ? (
+                  <button
+                    type="button"
+                    className="detail-timeline-rail-widen"
+                    onClick={() => setRailWide((v) => !v)}
+                    title={railWide ? '收起导航宽度' : '向右展开显示完整环节名'}
+                    aria-label={railWide ? '收起导航宽度' : '向右展开显示完整环节名'}
+                  >{railWide ? '«' : '»'}</button>
                 ) : null}
               </nav>
               <div className="detail-timeline-gallery">
