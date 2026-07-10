@@ -2843,7 +2843,8 @@ function ProjectDetail({
       (target || uncategorized).items.push({ src, idx });
     });
     return [
-      ...groups.filter((group) => group.items.length),
+      // 空环节保留占位：移空不消失，避免"环节被删了"的错觉
+      ...groups,
       ...(uncategorized.items.length ? [uncategorized] : []),
     ];
   }, [useTimelineGallery, uploadTimelineSections, visiblePhotoItems, photoMetas, projectId]);
@@ -4759,7 +4760,15 @@ function ProjectDetail({
                       </div>
                       <span className="detail-timeline-count">{group.items.length} 张</span>
                     </div>
-                    {renderTimelineGroupItems(group)}
+                    {group.items.length ? renderTimelineGroupItems(group) : (
+                      <div
+                        className={`detail-timeline-empty${photoDragActive ? ' is-drop-ready' : ''}`}
+                        onDragOver={(e) => { if (photoDragActive) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; } }}
+                        onDrop={(e) => handleRailDrop(e, group)}
+                      >
+                        {photoDragActive ? '松手移入该环节' : '该环节暂无照片 · 可拖拽照片移入'}
+                      </div>
+                    )}
                   </section>
                 ))}
               </div>

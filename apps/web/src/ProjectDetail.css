@@ -163,6 +163,28 @@
   scrollbar-width: thin;
 }
 
+/* 空环节占位：移空不消失，同时是拖放落点 */
+.detail-timeline-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 96px;
+  margin: 0 0 8px;
+  border: 1.5px dashed rgba(53, 79, 113, 0.28);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.28);
+  color: rgba(5, 8, 22, 0.5);
+  font-size: 13px;
+  font-weight: 650;
+  transition: border-color 160ms ease, background 160ms ease, color 160ms ease;
+}
+
+.detail-timeline-empty.is-drop-ready {
+  border-color: rgba(22, 119, 255, 0.6);
+  background: rgba(22, 119, 255, 0.08);
+  color: var(--lg-blue, #1677ff);
+}
+
 /* 照片拖拽中：导航整体放大呼吸，提示可放入（类中转站吸附效果） */
 .detail-timeline-rail.is-drop-mode {
   transform: scale(1.06);
@@ -1585,7 +1607,29 @@
     border-radius: 16px;
   }
 
-  /* 照片拖拽中：导航整体放大呼吸，提示可放入（类中转站吸附效果） */
+  /* 空环节占位：移空不消失，同时是拖放落点 */
+.detail-timeline-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 96px;
+  margin: 0 0 8px;
+  border: 1.5px dashed rgba(53, 79, 113, 0.28);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.28);
+  color: rgba(5, 8, 22, 0.5);
+  font-size: 13px;
+  font-weight: 650;
+  transition: border-color 160ms ease, background 160ms ease, color 160ms ease;
+}
+
+.detail-timeline-empty.is-drop-ready {
+  border-color: rgba(22, 119, 255, 0.6);
+  background: rgba(22, 119, 255, 0.08);
+  color: var(--lg-blue, #1677ff);
+}
+
+/* 照片拖拽中：导航整体放大呼吸，提示可放入（类中转站吸附效果） */
 .detail-timeline-rail.is-drop-mode {
   transform: scale(1.06);
   border-color: rgba(22, 119, 255, 0.45);
