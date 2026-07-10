@@ -884,6 +884,7 @@
   right: 44px;
   z-index: 2;
   display: flex;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 6px;
   pointer-events: none;
@@ -894,9 +895,9 @@
   min-height: 24px;
   box-sizing: border-box;
   padding: 4px 10px;
-  border: 1px solid rgba(255, 255, 255, 0.62);
+  border: var(--liquid-glass-stroke-width, 1px) solid var(--liquid-glass-border, rgba(255, 255, 255, 0.4));
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.66);
+  background: var(--liquid-glass-material-readable, linear-gradient(135deg, rgba(255, 255, 255, 0.56), rgba(255, 255, 255, 0.26)));
   color: #0a0a0a;
   font-size: 12px;
   font-weight: 750;
@@ -905,9 +906,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
   pointer-events: none;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 4px 12px rgba(0, 0, 0, 0.14);
-  backdrop-filter: blur(12px) saturate(1.3);
-  -webkit-backdrop-filter: blur(12px) saturate(1.3);
+  box-shadow: var(--liquid-glass-edge, inset 0 1px 0 rgba(255, 255, 255, 0.55));
+  backdrop-filter: var(--liquid-glass-backdrop, blur(14px) saturate(1.58));
+  -webkit-backdrop-filter: var(--liquid-glass-backdrop, blur(14px) saturate(1.58));
 }
 
 .detail-photo-chip-row .detail-photo-chip {
@@ -979,14 +980,17 @@
   min-height: 22px;
   box-sizing: border-box;
   padding: 2px 9px;
-  border: 1px solid rgba(255, 255, 255, 0.62);
+  border: var(--liquid-glass-stroke-width, 1px) solid var(--liquid-glass-border, rgba(255, 255, 255, 0.4));
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.66);
+  background: var(--liquid-glass-material-readable, linear-gradient(135deg, rgba(255, 255, 255, 0.56), rgba(255, 255, 255, 0.26)));
   color: #0a0a0a;
   font-weight: 700;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  box-shadow: var(--liquid-glass-edge, inset 0 1px 0 rgba(255, 255, 255, 0.55));
+  backdrop-filter: var(--liquid-glass-backdrop, blur(14px) saturate(1.58));
+  -webkit-backdrop-filter: var(--liquid-glass-backdrop, blur(14px) saturate(1.58));
 }
 
 .detail-tag-empty {
@@ -3131,8 +3135,6 @@
 }
 
 .detail-analysis-badge,
-.detail-tag-chip,
-.detail-tag-empty,
 .viewer-chip,
 .viewer-original-btn,
 .viewer-close-btn,
@@ -3151,11 +3153,6 @@
 .detail-tag-overlay {
   border-radius: 0 0 16px 16px;
   background: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.28));
-}
-
-.detail-tag-chip {
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.66);
 }
 
 .detail-select-fab,
