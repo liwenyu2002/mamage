@@ -1,6 +1,6 @@
 ﻿// src/App.jsx
 import React from 'react';
-import { Typography as UiTypography, Button as UiButton, Empty as UiEmpty, Card as UiCard, Toast } from './ui';
+import { Typography as UiTypography, Button as UiButton, Empty as UiEmpty, Card as UiCard, Toast, HexLoader } from './ui';
 import ProjectCard from './ProjectCard';
 import * as authService from './services/authService';
 import { fetchProjectList, createProject } from './services/projectService';
@@ -161,11 +161,7 @@ function toCssImageUrl(src) {
 function AppLoadingState({ title = '正在加载', subtitle = '请稍候', compact = false }) {
   return (
     <div className={`app-loading-state${compact ? ' is-compact' : ''}`}>
-      <div className="app-loading-mark">
-        <span />
-        <span />
-        <span />
-      </div>
+      <HexLoader size={compact ? 46 : 60} className="app-loading-mark" />
       <div className="app-loading-title">{title}</div>
       {subtitle ? <div className="app-loading-subtitle">{subtitle}</div> : null}
     </div>

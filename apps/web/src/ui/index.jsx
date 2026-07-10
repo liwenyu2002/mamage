@@ -351,10 +351,51 @@ function Tag({ children, className = '', size = '', type = '', color = '', onCli
   );
 }
 
-function Spin({ tip = '加载中', className = '' }) {
+// 品牌加载动画：六路编织六边形依次传递高亮（源自 中关村学院 loader，浅色玻璃配色版）
+const HEXLOADER_ANGLES = [0, 60, 120, 180, 240, 300];
+
+function HexLoader({ size = 44, className = '' }) {
+  const uid = React.useId();
+  const loopId = `mamage-hexloader-loop-${uid.replace(/[^a-zA-Z0-9_-]/g, '')}`;
+  return (
+    <svg
+      className={cx('mamage-hexloader', className)}
+      viewBox="-160 -160 320 320"
+      width={size}
+      height={size}
+      role="img"
+      aria-label="加载中"
+    >
+      <defs>
+        <path
+          id={loopId}
+          pathLength="480"
+          d="M 18 -140 L 87.282 -100 V -20 L 18 20 L -51.282 -20 V -100 Z"
+        />
+      </defs>
+      <g className="mamage-hexloader-base">
+        {HEXLOADER_ANGLES.map((deg) => (
+          <use key={deg} href={`#${loopId}`} transform={deg ? `rotate(${deg})` : undefined} />
+        ))}
+      </g>
+      <g aria-hidden="true">
+        {HEXLOADER_ANGLES.map((deg, i) => (
+          <g key={deg} transform={deg ? `rotate(${deg})` : undefined}>
+            <use href={`#${loopId}`} className={`mamage-hexloader-relay is-relay-${i}`} />
+          </g>
+        ))}
+      </g>
+      <polygon className="mamage-hexloader-core" points="0,-18 15.588,-9 15.588,9 0,18 -15.588,9 -15.588,-9" />
+      <rect className="mamage-hexloader-eye" x="-10" y="-6.5" width="5" height="5" rx="0.4" />
+      <rect className="mamage-hexloader-eye" x="5" y="-6.5" width="5" height="5" rx="0.4" />
+    </svg>
+  );
+}
+
+function Spin({ tip = '加载中', size = 44, className = '' }) {
   return (
     <div className={cx('mamage-spin', className)}>
-      <span className="mamage-spin-dot" aria-hidden="true" />
+      <HexLoader size={size} />
       {tip ? <span className="mamage-spin-tip">{tip}</span> : null}
     </div>
   );
@@ -609,6 +650,7 @@ export {
   List,
   Modal,
   Select,
+  HexLoader,
   Spin,
   Tabs,
   Tag,
