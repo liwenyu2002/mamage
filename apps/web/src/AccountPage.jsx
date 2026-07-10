@@ -15,6 +15,61 @@ export default function AccountPage({ currentUser, onUpdated }) {
   const [pwdLoading, setPwdLoading] = React.useState(false);
   const [pwdMessage, setPwdMessage] = React.useState('');
 
+  // superadmin user management states
+  const isSuperAdmin = currentUser?.role === 'superadmin';
+  const [allUsers, setAllUsers] = React.useState([]);
+  const [usersLoading, setUsersLoading] = React.useState(false);
+  const [roleDraft, setRoleDraft] = React.useState({});
+  const [roleSaving, setRoleSaving] = React.useState({});
+  const ROLE_OPTIONS = ['visitor', 'photographer', 'admin', 'superadmin'];
+
+  const fetchAllUsers = React.useCallback(async () => {
+    setUsersLoading(true);
+    try {
+      const token = localStorage.getItem('mamage_jwt_token');
+      const res = await fetch('/api/users/all', { headers: { Authorization: token ? `Bearer ${token}` : '' } });
+      if (!res.ok) { setAllUsers([]); return; }
+      const data = await res.json().catch(() => ({}));
+      setAllUsers(Array.isArray(data.users) ? data.users : []);
+    } catch (err) {
+      console.error('fetchAllUsers failed', err);
+      setAllUsers([]);
+    } finally {
+      setUsersLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    if (isSuperAdmin) fetchAllUsers();
+  }, [isSuperAdmin, fetchAllUsers]);
+
+  const saveUserRole = React.useCallback(async (userId) => {
+    const role = roleDraft[userId];
+    if (!role) return;
+    setRoleSaving((prev) => ({ ...prev, [userId]: true }));
+    try {
+      const token = localStorage.getItem('mamage_jwt_token');
+      const res = await fetch(`/api/users/${userId}/role`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: token ? `Bearer ${token}` : '' },
+        body: JSON.stringify({ role }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        Toast.error(data.message || (data.error === 'LAST_SUPERADMIN' ? '至少保留一名超级管理员' : '修改失败'));
+        return;
+      }
+      Toast.success('角色已更新');
+      setAllUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, role } : u)));
+      setRoleDraft((prev) => { const next = { ...prev }; delete next[userId]; return next; });
+    } catch (err) {
+      console.error('saveUserRole failed', err);
+      Toast.error('修改失败，请稍后重试');
+    } finally {
+      setRoleSaving((prev) => ({ ...prev, [userId]: false }));
+    }
+  }, [roleDraft]);
+
   // admin invite management states
   const [invites, setInvites] = React.useState([]);
   const [invLoading, setInvLoading] = React.useState(false);
@@ -43,7 +98,7 @@ export default function AccountPage({ currentUser, onUpdated }) {
   }, []);
 
   React.useEffect(() => {
-    if (currentUser?.role === 'admin') {
+    if (['admin', 'superadmin'].includes(currentUser?.role)) {
       fetchInvites();
     }
   }, [currentUser, fetchInvites]);
@@ -219,7 +274,7 @@ export default function AccountPage({ currentUser, onUpdated }) {
         {message && <div style={{ marginTop: 8, color: '#e53935' }}>{message}</div>}
       </Card>
 
-      {currentUser?.role === 'admin' && (
+      {['admin', 'superadmin'].includes(currentUser?.role) && (
         <Card title="管理员：管理邀请码" style={{ marginBottom: 16 }}>
           <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12 }}>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -272,6 +327,59 @@ export default function AccountPage({ currentUser, onUpdated }) {
               </div>
             )}
           </div>
+        </Card>
+      )}
+
+      {isSuperAdmin && (
+        <Card title="超级管理员：用户管理" style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <Text type="tertiary" size="small">共 {allUsers.length} 名用户 · 可查看信息与调整角色（不含密码）</Text>
+            <Button size="small" loading={usersLoading} onClick={fetchAllUsers}>刷新</Button>
+          </div>
+          {usersLoading && !allUsers.length ? (
+            <div style={{ padding: 12 }}><Text type="tertiary">加载中…</Text></div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {allUsers.map((u) => {
+                const draft = roleDraft[u.id] ?? u.role;
+                const dirty = draft !== u.role;
+                const isSelf = Number(u.id) === Number(currentUser?.id);
+                return (
+                  <div key={u.id} style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', padding: '8px 10px', background: 'rgba(255,255,255,0.45)', border: '1px solid rgba(255,255,255,0.55)', borderRadius: 12 }}>
+                    <div style={{ minWidth: 130 }}>
+                      <div style={{ fontWeight: 700 }}>{u.name || '（未命名）'}{isSelf ? '（我）' : ''}</div>
+                      <Text type="tertiary" size="small">{u.email || u.student_no || `#${u.id}`}</Text>
+                    </div>
+                    <div style={{ minWidth: 120 }}>
+                      <Text type="tertiary" size="small">{u.organizationName || '无组织'}</Text>
+                    </div>
+                    <div style={{ minWidth: 150 }}>
+                      <Text type="tertiary" size="small">注册 {u.createdAt ? new Date(u.createdAt).toLocaleDateString() : '—'}</Text>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginLeft: 'auto' }}>
+                      <Select
+                        size="small"
+                        value={draft}
+                        disabled={isSelf}
+                        onChange={(v) => setRoleDraft((prev) => ({ ...prev, [u.id]: v }))}
+                        style={{ minWidth: 140 }}
+                      >
+                        {ROLE_OPTIONS.map((r) => <Select.Option key={r} value={r}>{r}</Select.Option>)}
+                      </Select>
+                      <Button
+                        size="small"
+                        type="primary"
+                        disabled={!dirty || isSelf || roleSaving[u.id]}
+                        loading={!!roleSaving[u.id]}
+                        onClick={() => saveUserRole(u.id)}
+                      >保存</Button>
+                    </div>
+                  </div>
+                );
+              })}
+              {!allUsers.length ? <Text type="tertiary">暂无用户数据</Text> : null}
+            </div>
+          )}
         </Card>
       )}
     </div>
