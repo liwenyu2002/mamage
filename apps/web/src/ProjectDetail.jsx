@@ -75,7 +75,9 @@ function getAISelectionColor(label) {
 
 // AI 选片 2.0：0-100 综合分与质量详情（dims/flags/reason）随照片元数据下发
 function getPhotoAiScore(meta) {
-  const v = meta && (meta.aiScore !== undefined ? meta.aiScore : meta.ai_score);
+  const v = meta && (meta.aiScore !== undefined && meta.aiScore !== null ? meta.aiScore : meta.ai_score);
+  // NULL/undefined/'' 必须返回 null——Number(null)=0 会把未评分照片伪装成 0 分
+  if (v === undefined || v === null || v === '') return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 }
@@ -4174,6 +4176,36 @@ function ProjectDetail({
     });
   }, [performSimDelete, DISABLE_DELETE_FEATURE]);
 
+  // 相似组辅助选择：AI 三档标签（tags 优先，缺失时按分数阈值回退，与服务端映射一致）
+  const getSimAiLabel = React.useCallback((p) => {
+    if (!p) return null;
+    let tags = p.tags;
+    if (typeof tags === 'string') { try { tags = JSON.parse(tags); } catch (e) { tags = []; } }
+    if (Array.isArray(tags)) {
+      if (tags.includes('AI recommended')) return 'recommended';
+      if (tags.includes('AI rejected')) return 'rejected';
+      if (tags.includes('AI medium')) return 'medium';
+    }
+    const s = getPhotoAiScore(p);
+    if (s === null) return null;
+    if (s >= 75) return 'recommended';
+    if (s <= 40) return 'rejected';
+    return 'medium';
+  }, []);
+
+  // 仅留最佳：选中组内除最高分外的全部照片
+  const selectSimGroupExceptBest = React.useCallback((group, bestId) => {
+    setSimSelectedMap((prev) => {
+      const next = Object.assign({}, prev || {});
+      (group || []).map((id) => String(id)).forEach((id) => {
+        if (id === bestId) delete next[id];
+        else next[id] = true;
+      });
+      setSimSelectedCount(Object.keys(next).length);
+      return next;
+    });
+  }, []);
+
   // 选择模式下按组全选/取消全选
   const toggleSimSelectGroup = React.useCallback((group) => {
     setSimSelectedMap((prev) => {
@@ -5302,12 +5334,30 @@ function ProjectDetail({
               </div>
             ) : (simGroups && simGroups.length) ? (
               <div className="similarity-list">
-                {simGroups.map((g, gi) => (
+                {simGroups.map((g, gi) => {
+                  // 组内 AI 最高分 = 建议保留（至少两张有分才有比较意义）
+                  const scoredIds = g
+                    .map((id) => ({ id: String(id), score: getPhotoAiScore(simPhotos[id]) }))
+                    .filter((x) => x.score !== null);
+                  const bestId = scoredIds.length >= 2
+                    ? scoredIds.reduce((a, b) => (b.score > a.score ? b : a)).id
+                    : null;
+                  return (
                   <div key={gi} className="similarity-group">
                     <div className="similarity-group-head">
                       <span>相似组 {gi + 1}</span>
                       <span className="similarity-group-head-side">
                         <span className="similarity-group-count">{g.length} 张照片</span>
+                        {canDeletePhotos && simDeleteMode && bestId ? (
+                          <button
+                            type="button"
+                            className="similarity-group-selectall similarity-group-keepbest"
+                            title="选中除 AI 最高分外的全部照片"
+                            onClick={() => selectSimGroupExceptBest(g, bestId)}
+                          >
+                            仅留最佳
+                          </button>
+                        ) : null}
                         {canDeletePhotos && simDeleteMode ? (
                           <button
                             type="button"
@@ -5326,8 +5376,21 @@ function ProjectDetail({
                         const titleText = p ? (p.title || p.name || `#${id}`) : `#${id}`;
                         const url = thumb || (p && (p.url || p.originalSrc)) || (BASE_URL ? `${BASE_URL}/photos/${id}` : `/api/photos/${id}`);
                         const selected = !!simSelectedMap[String(id)];
+                        const aiScore = getPhotoAiScore(p);
+                        const aiLabel = getSimAiLabel(p);
+                        const aiQuality = getPhotoAiQuality(p);
+                        const isBest = bestId !== null && String(id) === bestId;
                         return (
                           <div key={id} className={`similarity-thumb${selected ? ' is-selected' : ''}`}>
+                            {aiScore !== null ? (
+                              <div
+                                className={`similarity-thumb-ai${isBest ? ' is-best' : ''}`}
+                                style={isBest ? undefined : { color: getAISelectionColor(aiLabel) }}
+                                title={formatAiQualityTooltip(aiQuality, aiScore) || undefined}
+                              >
+                                {isBest ? `建议保留 ${aiScore}` : `${getAISelectionLabel(aiLabel).replace(/^AI/, '')} ${aiScore}`}
+                              </div>
+                            ) : null}
                             {thumb ? (
                               <img src={thumb} alt={titleText} className="similarity-thumb-img" onClick={() => {
                                 if (simDeleteMode) {
@@ -5370,7 +5433,8 @@ function ProjectDetail({
                       })}
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <div className="similarity-state">
