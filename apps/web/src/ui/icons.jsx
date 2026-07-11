@@ -189,6 +189,23 @@ export function IconFaceScan(props) {
   );
 }
 
+// 左右切换箭头
+export function IconChevronLeft(props) {
+  return (
+    <IconBase {...props}>
+      <path d="m14.5 5.5-6.5 6.5 6.5 6.5" />
+    </IconBase>
+  );
+}
+
+export function IconChevronRight(props) {
+  return (
+    <IconBase {...props}>
+      <path d="m9.5 5.5 6.5 6.5-6.5 6.5" />
+    </IconBase>
+  );
+}
+
 // 星标：推荐
 export function IconStar(props) {
   return (

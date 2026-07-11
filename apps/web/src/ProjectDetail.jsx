@@ -20,6 +20,8 @@ import {
   IconSliders,
   IconFaceScan,
   IconStar,
+  IconChevronLeft,
+  IconChevronRight,
 } from './ui/icons';
 import './ProjectDetail.css';
 import { getProjectById, updateProject, deleteProject, createTimelineSection, updateTimelineSection, deleteTimelineSection, reorderTimelineSections } from './services/projectService';
@@ -5887,11 +5889,16 @@ function ProjectDetail({
                   ) : null}
                 </div>
               </div>
-              <button
-                className="viewer-nav viewer-nav-left"
-                onClick={(e) => { e.stopPropagation(); navigateViewer(-1); }}
-                aria-label="上一张"
-              />
+              {images.length > 1 ? (
+                <button
+                  type="button"
+                  className="viewer-nav viewer-nav-left"
+                  onClick={(e) => { e.stopPropagation(); navigateViewer(-1); }}
+                  aria-label="上一张"
+                >
+                  <IconChevronLeft />
+                </button>
+              ) : null}
 
               <div
                 className="viewer-img-wrap"
@@ -6216,11 +6223,16 @@ function ProjectDetail({
                 ) : null}
               </div>
 
-              <button
-                className="viewer-nav viewer-nav-right"
-                onClick={(e) => { e.stopPropagation(); navigateViewer(1); }}
-                aria-label="下一张"
-              />
+              {images.length > 1 ? (
+                <button
+                  type="button"
+                  className="viewer-nav viewer-nav-right"
+                  onClick={(e) => { e.stopPropagation(); navigateViewer(1); }}
+                  aria-label="下一张"
+                >
+                  <IconChevronRight />
+                </button>
+              ) : null}
             </div>
           </div>
         ) : null}

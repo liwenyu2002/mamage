@@ -5674,3 +5674,75 @@ body.mamage-viewer-open [data-transfer-station-root="1"] {
     max-height: 20vh;
   }
 }
+
+/* ===== 查看器左右切换钮 v2：深色玻璃圆钮 + SVG 箭头（覆盖历代旧样式） ===== */
+.viewer-nav {
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(10, 10, 12, 0.5);
+  color: #fff;
+  opacity: 0.72;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(12px) saturate(1.2);
+  -webkit-backdrop-filter: blur(12px) saturate(1.2);
+  transition: opacity 140ms ease, transform 160ms ease, background 160ms ease, border-color 160ms ease;
+}
+
+/* 干掉历代字符箭头，换 SVG */
+.viewer-nav::before {
+  content: none;
+}
+
+.viewer-nav svg {
+  width: 20px;
+  height: 20px;
+}
+
+.viewer-nav:hover {
+  opacity: 1;
+  background: rgba(32, 32, 36, 0.72);
+  border-color: rgba(255, 255, 255, 0.4);
+  transform: translateY(-50%) scale(1.08);
+}
+
+.viewer-nav:active {
+  transform: translateY(-50%) scale(0.94);
+  background: rgba(10, 10, 12, 0.6);
+}
+
+.viewer-nav:focus-visible {
+  opacity: 1;
+  outline: 2px solid rgba(255, 255, 255, 0.75);
+  outline-offset: 2px;
+}
+
+.viewer-nav-left {
+  left: clamp(10px, 1.8vw, 26px);
+}
+
+.viewer-nav-right {
+  right: clamp(10px, 1.8vw, 26px);
+}
+
+@media (max-width: 768px) {
+  .viewer-nav {
+    width: 38px;
+    height: 38px;
+    opacity: 0.8;
+  }
+
+  .viewer-nav svg {
+    width: 17px;
+    height: 17px;
+  }
+
+  .viewer-nav-left {
+    left: 6px;
+  }
+
+  .viewer-nav-right {
+    right: 6px;
+  }
+}
