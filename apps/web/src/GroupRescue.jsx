@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { Layout, Card, Button, Toast, Spin, Typography } from './ui';
 import { getAll as getTransferAll, subscribe as subscribeTransfer } from './services/transferStore';
 import { resolveAssetUrl } from './services/request';
@@ -31,6 +32,7 @@ function GroupRescue() {
   const [running, setRunning] = React.useState(false);
   const [step, setStep] = React.useState('');
   const [result, setResult] = React.useState(null); // { kind: 'done'|'noop'|'failed', ... }
+  const [previewOpen, setPreviewOpen] = React.useState(false); // 结果原图全屏预览
   const [isMobile, setIsMobile] = React.useState(() => (typeof window !== 'undefined' ? window.innerWidth <= 768 : false));
 
   React.useEffect(() => {
@@ -41,6 +43,14 @@ function GroupRescue() {
 
   // 实时镜像中转站：新存入的照片立即出现在网格里
   React.useEffect(() => subscribeTransfer((items) => setStationItems(normalizeStationItems(items))), []);
+
+  // Esc 关闭原图预览
+  React.useEffect(() => {
+    if (!previewOpen) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') setPreviewOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [previewOpen]);
 
   // 网格 = 中转站 ∪ 拖入的额外照片（拖入的不在中转站也要显示出来）
   const gridItems = React.useMemo(() => {
@@ -104,13 +114,15 @@ function GroupRescue() {
       const job = await runGroupRescueJob(pickedList.map((p) => Number(p.id)), setStep);
       if (job.status === 'done') {
         let thumbUrl = '';
+        let fullUrl = '';
         let title = '';
         try {
           const p = await getPhotoById(job.resultPhotoId);
           thumbUrl = resolveAssetUrl((p && (p.thumbUrl || p.url)) || '') || '';
+          fullUrl = resolveAssetUrl((p && (p.url || p.thumbUrl)) || '') || '';
           title = (p && p.title) || '';
         } catch (e) { /* 预览取图失败不影响结果提示 */ }
-        setResult({ kind: 'done', replacedCount: job.replacedCount, photoId: job.resultPhotoId, thumbUrl, title });
+        setResult({ kind: 'done', replacedCount: job.replacedCount, photoId: job.resultPhotoId, thumbUrl, fullUrl, title });
         Toast.success(`合成完成：替换了 ${job.replacedCount} 张人脸`);
       } else if (job.status === 'done_noop') {
         setResult({ kind: 'noop', message: job.step || '基准照片里每个人已是最佳状态，无需合成' });
@@ -206,11 +218,23 @@ function GroupRescue() {
               {result.kind === 'done' ? (
                 <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
                   {result.thumbUrl ? (
-                    <img src={result.thumbUrl} alt="合成结果" style={{ width: 220, maxWidth: '100%', borderRadius: 12, display: 'block' }} />
+                    <button
+                      type="button"
+                      title="点击查看原图"
+                      onClick={() => setPreviewOpen(true)}
+                      style={{ padding: 0, border: 'none', background: 'none', cursor: 'zoom-in' }}
+                    >
+                      <img src={result.thumbUrl} alt="合成结果" style={{ width: 220, maxWidth: '100%', borderRadius: 12, display: 'block' }} />
+                    </button>
                   ) : null}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                     <Text>替换了 {result.replacedCount} 张人脸，新照片已加入原相册。</Text>
                     {result.title ? <Text type="secondary">{result.title}</Text> : null}
+                    {result.fullUrl ? (
+                      <div>
+                        <Button size="small" type="tertiary" onClick={() => setPreviewOpen(true)}>查看原图</Button>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               ) : (
@@ -220,6 +244,28 @@ function GroupRescue() {
           ) : null}
         </div>
       </Content>
+
+      {previewOpen && result && (result.fullUrl || result.thumbUrl) ? createPortal(
+        <div
+          style={{ position: 'fixed', inset: 0, zIndex: 4000, background: 'rgba(10, 10, 12, 0.9)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'zoom-out' }}
+          onClick={() => setPreviewOpen(false)}
+        >
+          <img
+            src={result.fullUrl || result.thumbUrl}
+            alt="合成结果原图"
+            style={{ maxWidth: '94vw', maxHeight: '92vh', borderRadius: 10, boxShadow: '0 24px 64px rgba(0,0,0,0.5)', display: 'block' }}
+          />
+          <button
+            type="button"
+            aria-label="关闭"
+            onClick={() => setPreviewOpen(false)}
+            style={{ position: 'absolute', top: 18, right: 20, width: 40, height: 40, borderRadius: '50%', border: 'none', cursor: 'pointer', background: 'rgba(255,255,255,0.16)', color: '#fff', fontSize: 20, lineHeight: '40px', padding: 0 }}
+          >
+            ×
+          </button>
+        </div>,
+        document.body
+      ) : null}
     </Layout>
   );
 }
