@@ -102,3 +102,15 @@
     right: 0;
   }
 }
+
+.auth-sso-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.auth-sso-divider {
+  color: rgba(0, 0, 0, 0.4);
+  font-size: 12px;
+}

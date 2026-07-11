@@ -97,6 +97,15 @@ function Card({ title, children }) {
   return <UiCard title={title}>{children}</UiCard>;
 }
 
+// 钉钉 OAuth 回调把 JWT 挂在 fragment 上（不进服务器日志）；模块加载即落地并清理
+try {
+  const dtkMatch = String(window.location.hash || '').match(/dingtalk_token=([^&]+)/);
+  if (dtkMatch) {
+    localStorage.setItem('mamage_jwt_token', decodeURIComponent(dtkMatch[1]));
+    window.history.replaceState({}, '', window.location.pathname + window.location.search);
+  }
+} catch (e) { /* ignore */ }
+
 function App() {
   React.useEffect(() => initLiquidLens(), []);
   const [projects, setProjects] = React.useState([]);

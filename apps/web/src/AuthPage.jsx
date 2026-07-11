@@ -21,6 +21,23 @@ function validateLoginInput({ email, password }) {
 }
 
 export default function AuthPage({ onAuthenticated }) {
+  const [authProviders, setAuthProviders] = React.useState({ password: true, dingtalk: false });
+  React.useEffect(() => {
+    let canceled = false;
+    fetch('/api/auth/providers')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (!canceled && d) setAuthProviders(d); })
+      .catch(() => {});
+    // 钉钉回调失败时错误信息挂在 hash 上
+    try {
+      const m = String(window.location.hash || '').match(/dingtalk_error=([^&]+)/);
+      if (m) {
+        Toast.error(decodeURIComponent(m[1]));
+        window.history.replaceState({}, '', window.location.pathname + window.location.search);
+      }
+    } catch (e) { /* ignore */ }
+    return () => { canceled = true; };
+  }, []);
   const [active, setActive] = React.useState('login');
   const [loading, setLoading] = React.useState(false);
   // controlled fields
@@ -326,6 +343,14 @@ export default function AuthPage({ onAuthenticated }) {
             <div style={{ marginTop: 12 }}>
               <Button type="primary" theme="solid" loading={loading} onClick={handleLogin}>登录</Button>
             </div>
+            {authProviders.dingtalk ? (
+              <div className="auth-sso-row">
+                <span className="auth-sso-divider">或</span>
+                <Button onClick={() => { window.location.href = '/api/auth/dingtalk/login'; }}>
+                  使用钉钉登录
+                </Button>
+              </div>
+            ) : null}
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
