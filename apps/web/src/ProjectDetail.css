@@ -4825,6 +4825,23 @@ body.mamage-viewer-open [data-transfer-station-root="1"] {
   border-color: rgba(15, 23, 42, 0.28);
 }
 
+/* 合影救场：黑底强调（本组唯一的"生成"动作），任务进行中整站禁用防并发 */
+.similarity-group-rescue {
+  color: rgba(255, 255, 255, 0.92);
+  background: rgba(17, 17, 17, 0.88);
+  border-color: rgba(17, 17, 17, 0.88);
+}
+
+.similarity-group-rescue:hover {
+  background: rgba(17, 17, 17, 1);
+  border-color: rgba(17, 17, 17, 1);
+}
+
+.similarity-group-rescue:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
 .similarity-group-images {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(154px, 1fr));

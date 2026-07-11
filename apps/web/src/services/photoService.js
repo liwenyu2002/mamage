@@ -1050,6 +1050,20 @@ async function deletePhotos(photoIds) {
   throw finalErr;
 }
 
+// 一键合影救场：提交连拍组，返回 { jobId }；随后轮询 getGroupRescueJob
+async function startGroupRescue(photoIds) {
+  const ids = (Array.isArray(photoIds) ? photoIds : [])
+    .map((v) => Number(v))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  if (ids.length < 2) throw new Error('startGroupRescue: need at least 2 photoIds');
+  return request('/api/photos/group-rescue', { method: 'POST', data: { photoIds: ids } });
+}
+
+async function getGroupRescueJob(jobId) {
+  if (!jobId) throw new Error('getGroupRescueJob: jobId is required');
+  return request(`/api/photos/group-rescue/${encodeURIComponent(String(jobId))}`, { method: 'GET' });
+}
+
 export {
   fetchLatestByType,
   fetchRandomByProject,
@@ -1072,4 +1086,6 @@ export {
   uploadPhotoFiles,
   warmUploadApiProbe,
   deletePhotos,
+  startGroupRescue,
+  getGroupRescueJob,
 };

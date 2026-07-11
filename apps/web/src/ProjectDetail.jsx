@@ -26,7 +26,7 @@ import {
 import './ProjectDetail.css';
 import { getProjectById, updateProject, deleteProject, createTimelineSection, updateTimelineSection, deleteTimelineSection, reorderTimelineSections } from './services/projectService';
 import { getToken } from './services/authService';
-import { fetchRandomByProject, searchPhotos, getPhotoById, updatePhoto, assignPhotosTimelineSection, getFacePersonInfo, labelFacePerson, renameFacePerson, uploadPhotoFiles, warmUploadApiProbe, deletePhotos, getPhotoFaces, getUploadFileLimitError } from './services/photoService';
+import { fetchRandomByProject, searchPhotos, getPhotoById, updatePhoto, assignPhotosTimelineSection, getFacePersonInfo, labelFacePerson, renameFacePerson, uploadPhotoFiles, warmUploadApiProbe, deletePhotos, getPhotoFaces, getUploadFileLimitError, startGroupRescue, getGroupRescueJob } from './services/photoService';
 import { resolveAssetUrl, BASE_URL } from './services/request';
 import IfCan from './permissions/IfCan';
 import PermButton from './permissions/PermButton';
@@ -874,6 +874,7 @@ function ProjectDetail({
   const [simSelectedMap, setSimSelectedMap] = React.useState({}); // id -> true
   const [simSelectedCount, setSimSelectedCount] = React.useState(0);
   const [simDeleting, setSimDeleting] = React.useState(false);
+  const [simRescue, setSimRescue] = React.useState(null); // 合影救场进行中的任务 { gi, jobId, step }
   const [isMobile, setIsMobile] = React.useState(() => (typeof window !== 'undefined' ? window.innerWidth <= 768 : false));
   const viewerPointerRef = React.useRef({ active: false, pointerId: null, startX: 0, startY: 0 });
   const [searchKeyword, setSearchKeyword] = React.useState('');
@@ -4212,6 +4213,66 @@ function ProjectDetail({
     });
   }, []);
 
+  // 一键合影救场：整组连拍交给后端合成"全员最佳表情"新照片，轮询进度
+  // 同时只允许一个任务；轮询在弹窗关闭后继续，完成时以 Toast 收尾
+  const simRescueTimerRef = React.useRef(null);
+  React.useEffect(() => () => {
+    if (simRescueTimerRef.current) clearTimeout(simRescueTimerRef.current);
+  }, []);
+
+  // 合成产物追加到主画廊末尾（不动已有索引，避免查看器错位；下次进页面按服务端排序归位）
+  const appendRescuedPhoto = React.useCallback(async (photoId) => {
+    try {
+      const p = await getPhotoById(photoId);
+      if (!p || !p.id) return;
+      const thumbSrc = resolveAssetUrl(getPhotoThumbCandidate(p)) || resolveAssetUrl(p.thumbUrl || p.url);
+      const originalSrc = resolveAssetUrl(getPhotoOriginalCandidate(p)) || resolveAssetUrl(p.url);
+      if (!thumbSrc) return;
+      setImages((prev) => [...(prev || []), thumbSrc]);
+      setPhotoMetas((prev) => [...(prev || []), { ...p, thumbSrc, originalSrc }]);
+    } catch (e) {
+      console.warn('append rescued photo failed', e);
+    }
+  }, []);
+
+  const startSimGroupRescue = React.useCallback(async (group, gi) => {
+    if (simRescue) { Toast.warning('已有合成任务进行中，请稍候'); return; }
+    try {
+      const res = await startGroupRescue(group);
+      const jobId = res && res.jobId;
+      if (!jobId) throw new Error('no jobId');
+      setSimRescue({ gi, jobId, step: '排队中' });
+      const poll = async () => {
+        let job = null;
+        try {
+          job = await getGroupRescueJob(jobId);
+        } catch (e) {
+          setSimRescue(null);
+          Toast.error('查询合成进度失败，请稍后在相册里确认结果');
+          return;
+        }
+        if (job.status === 'running') {
+          setSimRescue({ gi, jobId, step: job.step || '合成中' });
+          simRescueTimerRef.current = setTimeout(poll, 2500);
+          return;
+        }
+        setSimRescue(null);
+        if (job.status === 'done') {
+          Toast.success(`合影救场完成：替换了 ${job.replacedCount} 张人脸，新照片已加入相册`);
+          if (job.resultPhotoId) appendRescuedPhoto(job.resultPhotoId);
+        } else if (job.status === 'done_noop') {
+          Toast.info(job.step || '这组的基准图已是最佳状态，无需合成');
+        } else {
+          Toast.error(`合成失败：${job.error || '未知错误'}`);
+        }
+      };
+      simRescueTimerRef.current = setTimeout(poll, 2500);
+    } catch (e) {
+      console.error('start group rescue failed', e);
+      Toast.error('提交合成任务失败，请稍后重试');
+    }
+  }, [simRescue, appendRescuedPhoto]);
+
   // 选择模式下按组全选/取消全选
   const toggleSimSelectGroup = React.useCallback((group) => {
     setSimSelectedMap((prev) => {
@@ -5354,6 +5415,17 @@ function ProjectDetail({
                       <span>相似组 {gi + 1}</span>
                       <span className="similarity-group-head-side">
                         <span className="similarity-group-count">{g.length} 张照片</span>
+                        {canEditPhotos && !simDeleteMode && !readOnly && g.length >= 2 && g.length <= 5 ? (
+                          <button
+                            type="button"
+                            className="similarity-group-selectall similarity-group-rescue"
+                            title="AI 从这组连拍里为每个人挑最佳表情，合成一张新照片"
+                            disabled={!!simRescue}
+                            onClick={() => startSimGroupRescue(g, gi)}
+                          >
+                            {simRescue && simRescue.gi === gi ? (simRescue.step || '合成中…') : '合影救场'}
+                          </button>
+                        ) : null}
                         {canDeletePhotos && simDeleteMode && bestId ? (
                           <button
                             type="button"
