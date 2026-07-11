@@ -111,6 +111,8 @@ function add(photo) {
     description: photo.description || photo.caption || photo.alt || photo.title || '',
     tags: Array.isArray(photo.tags) ? photo.tags : (photo.tagList || []),
     projectTitle: photo.projectTitle || photo.source || '',
+    photographerId: photo.photographerId || photo.photographer_id || null,
+    photographerName: photo.photographerName || photo.photographer_name || '',
     faceNames,
     personNames: faceNames,
   };

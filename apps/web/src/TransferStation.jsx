@@ -195,6 +195,8 @@ export default function TransferStation() {
           description: it.description || it.caption || it.alt || it.title || '',
           tags: Array.isArray(it.tags) ? it.tags : (it.tagList || []),
           projectTitle: it.projectTitle || it.source || '',
+          photographerId: it.photographerId || it.photographer_id || null,
+          photographerName: it.photographerName || it.photographer_name || '',
           faceNames: Array.isArray(it.faceNames) ? it.faceNames : (Array.isArray(it.personNames) ? it.personNames : []),
           personNames: Array.isArray(it.personNames) ? it.personNames : (Array.isArray(it.faceNames) ? it.faceNames : []),
           faces: Array.isArray(it.faces) ? it.faces : [],

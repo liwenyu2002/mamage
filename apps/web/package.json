@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "dompurify": "^3.4.11",
     "html-to-image": "^1.11.13",
     "marked": "^5.0.2",
     "react": "^18.2.0",

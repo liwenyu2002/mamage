@@ -4,16 +4,10 @@ import { getAll as getTransferAll } from './services/transferStore';
 import { request, resolveAssetUrl } from './services/request';
 import { getToken } from './services/authService';
 import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 import { toPng } from 'html-to-image';
 
 const { Header, Content } = Layout;
-
-// Mock photos
-const mockPhotos = [
-  { id: 1, url: 'https://via.placeholder.com/320x180?text=图1', description: '大会开幕式', tags: ['开幕', '大合照'] },
-  { id: 2, url: 'https://via.placeholder.com/320x180?text=图2', description: '领导致辞', tags: ['致辞'] },
-  { id: 3, url: 'https://via.placeholder.com/320x180?text=图3', description: '展台现场', tags: ['展台', '互动'] },
-];
 
 function toNameList(input) {
   if (!input) return [];
@@ -322,20 +316,13 @@ const AiNewsWriter = () => {
   // Helper: check absolute URL
   const isAbsoluteUrl = (u) => /^https?:\/\//i.test(String(u || ''));
 
+  // 统一走 DOMPurify：手写清洗器曾被 iframe srcdoc / xlink:href 等向量旁路（审查实证复现过 XSS）
   const sanitizeHtml = (dirty) => {
     try {
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(dirty || '', 'text/html');
-      // remove script/style
-      doc.querySelectorAll('script,style').forEach(n => n.remove());
-      // remove event handlers and javascript: href/src
-      doc.querySelectorAll('*').forEach((el) => {
-        for (const attr of Array.from(el.attributes)) {
-          if (/^on/i.test(attr.name)) el.removeAttribute(attr.name);
-          if ((attr.name === 'href' || attr.name === 'src') && String(attr.value).trim().toLowerCase().startsWith('javascript:')) el.removeAttribute(attr.name);
-        }
+      return DOMPurify.sanitize(String(dirty || ''), {
+        FORBID_TAGS: ['style', 'form', 'input', 'iframe', 'object', 'embed'],
+        FORBID_ATTR: ['style'],
       });
-      return doc.body.innerHTML;
     } catch (e) {
       console.error('sanitizeHtml error', e);
       return '';
@@ -832,9 +819,14 @@ const AiNewsWriter = () => {
   // result.photos[].photographerName. Do not fetch from /api/users here; we
   // instead prefer showing photographerName when present.
 
+  // 组件卸载后停止一切轮询（否则任务不结束就永远轮询 + 卸载后 setState）
+  const pollAliveRef = React.useRef(true);
+  React.useEffect(() => () => { pollAliveRef.current = false; }, []);
+
   const pollJob = (jobId, onUpdate) => {
     let stopped = false;
     const poll = async () => {
+      if (stopped || !pollAliveRef.current) return;
       try {
         const resp = await request(`/api/ai/news/jobs/${encodeURIComponent(jobId)}`, { method: 'GET' });
         if (onUpdate) onUpdate(resp);
@@ -845,7 +837,7 @@ const AiNewsWriter = () => {
       } catch (e) {
         console.error('[AiNewsWriter] poll job failed', e);
       }
-      if (!stopped) setTimeout(poll, 2500);
+      if (!stopped && pollAliveRef.current) setTimeout(poll, 2500);
     };
     // start
     poll();
@@ -877,16 +869,10 @@ const AiNewsWriter = () => {
           projectTitle: p.projectTitle || '',
           faceNames: extractFaceNames(p),
           personNames: extractFaceNames(p),
-          // photographer id required by backend
-          photographerId: p.photographerId || p.photographer_id || p.photographer || null,
+          // 摄影师署名：名字直接进 prompt，id 留作占位符元数据
+          photographerId: p.photographerId || p.photographer_id || null,
+          photographerName: p.photographerName || p.photographer_name || '',
         }));
-        // clientPhotoMap should map id -> thumbnail url
-        payload.clientPhotoMap = (selectedPhotos || []).reduce((acc, p, idx) => {
-          const id = String(p.id || p.url || `transfer-${idx}`);
-          const thumb = p.thumbUrl || p.thumbSrc || p.thumb || p.url || null;
-          if (thumb) acc[id] = thumb;
-          return acc;
-        }, {});
       }
       // default async
       const resp = await request('/api/ai/news/generate', { method: 'POST', data: payload });
@@ -922,7 +908,9 @@ const AiNewsWriter = () => {
             succeed = true;
             Toast.success('生成完成');
           } else {
-            Toast.error('生成失败，请重试');
+            // 后端 job 带具体失败原因（模型超时/格式异常/未配置等），如实告诉用户
+            const reason = final && final.error ? String(final.error).slice(0, 140) : '';
+            Toast.error(reason ? `生成失败：${reason}` : '生成失败，请重试');
           }
         });
       } else if (resp.status === 'succeeded' && resp.result) {
@@ -943,7 +931,8 @@ const AiNewsWriter = () => {
       }
     } catch (e) {
       console.error('[AiNewsWriter] generate failed', e);
-      Toast.error('生成请求失败');
+      const reason = e && (e.message || (e.data && e.data.message)) ? String(e.message || e.data.message).slice(0, 140) : '';
+      Toast.error(reason ? `生成请求失败：${reason}` : '生成请求失败');
     } finally {
       stopPseudoProgress(succeed, runId);
       generationRunningRef.current = false;
@@ -1284,7 +1273,8 @@ const AiNewsWriter = () => {
                           description: p.description || p.caption || '',
                           tags: p.tags || p.tagList || [],
                           projectTitle: p.projectTitle || p.source || '',
-                          photographerId: p.photographerId || p.photographer_id || p.photographer || null,
+                          photographerId: p.photographerId || p.photographer_id || null,
+                          photographerName: p.photographerName || p.photographer_name || '',
                           faceNames,
                           personNames: faceNames,
                         };
@@ -1421,7 +1411,7 @@ const AiNewsWriter = () => {
                   <TextArea
                     value={referenceArticle}
                     onChange={(v) => setReferenceArticle((v || '').slice(0, REFERENCE_MAX))}
-                    rows={8}
+                    rows={isMobile ? 5 : 8}
                     placeholder="在此粘贴参考文章的全文或要点，AI 会在生成时适当引用"
                   />
                   <div style={{ fontSize: 12, color: '#666', marginTop: 6 }}>{referenceArticle.length}/{REFERENCE_MAX} 字（上限 20000 字）</div>
@@ -1500,7 +1490,7 @@ const AiNewsWriter = () => {
             >
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <div style={{ fontSize: 12, color: '#666' }}>下面是基于当前表单自动拼出的 prompt，你可以自由编辑，然后点击「应用并生成」。</div>
-                <TextArea value={advancedPrompt} onChange={(v) => setAdvancedPrompt((v || '').slice(0, REFERENCE_MAX))} rows={14} />
+                <TextArea value={advancedPrompt} onChange={(v) => setAdvancedPrompt((v || '').slice(0, REFERENCE_MAX))} rows={isMobile ? 8 : 14} />
                 <div style={{ fontSize: 12, color: '#666' }}>{advancedPrompt.length}/{REFERENCE_MAX} 字</div>
               </div>
             </Modal>
@@ -1537,7 +1527,7 @@ const AiNewsWriter = () => {
 
                 <Tabs defaultActiveKey="editor">
                   <Tabs.TabPane itemKey="editor" tab="Markdown 编辑">
-                    <TextArea value={markdownText} onChange={(v) => setMarkdownText(v)} rows={14} placeholder="生成内容将在这里显示" />
+                    <TextArea value={markdownText} onChange={(v) => setMarkdownText(v)} rows={isMobile ? 8 : 14} placeholder="生成内容将在这里显示" />
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
                       <div>当前字数：{countVisibleChars(markdownText)}</div>
                       <div style={{ display: 'flex', gap: 8, flexWrap: isMobile ? 'wrap' : 'nowrap', justifyContent: isMobile ? 'flex-end' : 'flex-start' }}>
