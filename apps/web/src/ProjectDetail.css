@@ -879,7 +879,8 @@
      面板级 --liquid-glass-edge/material 渐变在小元素上会糊出粗细不均的边 */
   border: 1px solid rgba(255, 255, 255, 0.5);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.68);
+  /* 性能红线：照片角标一页可达数百枚，禁用 backdrop-filter（每枚都是逐帧实时模糊层） */
+  background: rgba(255, 255, 255, 0.8);
   color: #0a0a0a;
   font-size: 12px;
   font-weight: 750;
@@ -889,8 +890,7 @@
   text-overflow: ellipsis;
   pointer-events: none;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
-  backdrop-filter: blur(14px) saturate(1.2);
-  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  contain: layout paint;
 }
 
 .detail-photo-chip-row .detail-photo-chip {
@@ -964,15 +964,14 @@
   padding: 2px 9px;
   border: 1px solid rgba(255, 255, 255, 0.5);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.68);
+  background: rgba(255, 255, 255, 0.8);
   color: #0a0a0a;
   font-weight: 700;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
-  backdrop-filter: blur(14px) saturate(1.2);
-  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  contain: layout paint;
 }
 
 .detail-tag-empty {
@@ -4909,14 +4908,13 @@ body.mamage-viewer-open [data-transfer-station-root="1"] {
   padding: 2px 8px;
   border: 1px solid rgba(255, 255, 255, 0.5);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.88);
   font-size: 11px;
   font-weight: 750;
   line-height: 1.4;
   pointer-events: none;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
-  backdrop-filter: blur(10px) saturate(1.2);
-  -webkit-backdrop-filter: blur(10px) saturate(1.2);
+  contain: layout paint;
 }
 
 .similarity-thumb-ai.is-best {
