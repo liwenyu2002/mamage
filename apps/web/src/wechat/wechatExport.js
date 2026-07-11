@@ -1,41 +1,34 @@
-import { marked } from 'marked';
-import DOMPurify from 'dompurify';
+// 公众号导出：剪贴板写入 + 图片包下载。
+// 渲染逻辑已收敛到 themes.js 的 renderWechatHtml——本文件不再自己跑 marked/DOMPurify，
+// 避免预览和"复制富文本"两条路径各自渲染出不一致的 HTML。
+import { renderWechatHtml } from './themes.js';
 
-// 找不到对应图片 id 时的占位图：与 WechatPreviewEditor 保持同一套（各自内联，两个文件不互相依赖）
-const FALLBACK_IMG = 'data:image/svg+xml;utf8,' + encodeURIComponent(
-  '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80"><rect width="120" height="80" fill="#eee"/><text x="60" y="44" font-size="12" fill="#999" text-anchor="middle">图片缺失</text></svg>'
-);
+/**
+ * 把 { html, plainText } 写入系统剪贴板（text/html + text/plain，兼容"粘贴为纯文本"场景）。
+ * 纯负责剪贴板 I/O，不做任何 markdown/主题渲染——html 必须是调用方（renderWechatHtml）已经产出并清洗过的最终结果。
+ * 失败（浏览器不支持 Clipboard API / 权限被拒）一律 throw，不做静默降级。
+ */
+export async function copyWechatRichText({ html, plainText }) {
+  if (typeof window === 'undefined' || !window.navigator || !window.navigator.clipboard || typeof window.ClipboardItem !== 'function') {
+    throw new Error('当前浏览器不支持富文本剪贴板写入（需要 Clipboard API + ClipboardItem），请更换浏览器或使用「复制 Markdown」代替');
+  }
 
-function resolvePhotoPlaceholders(markdown, photosMap) {
-  const map = photosMap || {};
-  return String(markdown || '').replace(/\(PHOTO:([^)\s]+)\)/g, (m, id) => {
-    const url = map[String(id)];
-    return `(${url || FALLBACK_IMG})`;
-  });
+  try {
+    const item = new window.ClipboardItem({
+      'text/html': new Blob([String(html || '')], { type: 'text/html' }),
+      'text/plain': new Blob([String(plainText || '')], { type: 'text/plain' }),
+    });
+    await window.navigator.clipboard.write([item]);
+  } catch (e) {
+    throw new Error(`写入剪贴板失败：${e && e.message ? e.message : e}`);
+  }
+
+  return { ok: true };
 }
-
-function renderMarkdownToHtml(markdown) {
-  marked.setOptions({ mangle: false, headerIds: false, gfm: true });
-  return marked.parse(String(markdown || ''));
-}
-
-// 公众号编辑器粘贴富文本时会整体丢弃 <style> 标签，唯一可靠的方式是把样式全部内联到每个元素的 style 属性上
-const INLINE_STYLE_MAP = {
-  h1: 'font-size:22px;font-weight:700;color:#1a1a1a;line-height:1.5;margin:0 0 20px;text-align:center;',
-  h2: 'font-size:19px;font-weight:700;color:#1a1a1a;line-height:1.5;margin:30px 0 16px;',
-  h3: 'font-size:17px;font-weight:700;color:#1a1a1a;line-height:1.5;margin:24px 0 12px;',
-  p: 'font-size:15px;line-height:1.75;color:#3f3f3f;letter-spacing:0.05em;margin:0 0 20px;',
-  img: 'display:block;max-width:100%;height:auto;margin:16px auto;border-radius:4px;',
-  blockquote: 'margin:16px 0;padding:8px 16px;background:#f7f7f7;border-left:3px solid #ccc;color:#666;',
-  strong: 'font-weight:700;color:#1a1a1a;',
-  ul: 'margin:0 0 20px;padding-left:24px;font-size:15px;line-height:1.75;color:#3f3f3f;',
-  ol: 'margin:0 0 20px;padding-left:24px;font-size:15px;line-height:1.75;color:#3f3f3f;',
-  li: 'margin-bottom:6px;',
-  a: 'color:#576b95;text-decoration:none;',
-};
 
 // 给每张图片后面追加可见的〔图N〕序号——公众号编辑器不会自动抓取外链图片，
-// 用户需要用 downloadImagePack 另存图片后按序号手动重新上传，这个标记是唯一的对应关系
+// 用户需要用 downloadImagePack 另存图片后按序号手动重新上传，这个标记是唯一的对应关系。
+// 只有 legacy 包装（旧矩阵 Tab 场景）需要这个行为，新主题化编辑器由用户在编辑器内直接操作图片，不再需要它。
 function annotateImages(root) {
   const imgs = Array.from(root.querySelectorAll('img'));
   imgs.forEach((img, idx) => {
@@ -43,64 +36,50 @@ function annotateImages(root) {
     marker.textContent = `〔图${idx + 1}〕`;
     marker.setAttribute(
       'style',
-      'font-size:12px;color:#999;margin-left:4px;vertical-align:middle;',
+      'font-size:12px;color:#999999;margin-left:4px;vertical-align:middle;',
     );
     img.insertAdjacentElement('afterend', marker);
   });
   return imgs.length;
 }
 
-function applyInlineStyles(root) {
-  Object.keys(INLINE_STYLE_MAP).forEach((tag) => {
-    root.querySelectorAll(tag).forEach((el) => {
-      // 直接覆盖 style：这些元素都是 marked 刚渲染出来的，不存在需要合并的既有样式
-      el.setAttribute('style', INLINE_STYLE_MAP[tag]);
-    });
-  });
+// 极简版 markdown 转纯文本：去图片行/标题符号/加粗斜体星号/引用符号/列表短横，
+// 仅供 legacy 包装拼装 text/plain 兜底内容使用，不追求还原排版
+function markdownToPlainTextLegacy(markdown) {
+  return String(markdown || '')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+    .replace(/^#{1,6}\s*/gm, '')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/^>\s?/gm, '')
+    .replace(/^[-*]\s+/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 /**
- * 把 {title, markdown, photosMap} 渲染为公众号可粘贴的富文本，写入系统剪贴板
- * （同时写 text/html 与 text/plain，兼容"粘贴为纯文本"场景）。
- * 返回 {ok, imageCount}；调用方应提示用户"图片需在公众号后台重新上传，已在文中标注序号"。
- * 失败（浏览器不支持 Clipboard API / 权限被拒）一律 throw，不做静默降级。
+ * 旧签名兼容层：维持 AiNewsWriter 矩阵 Tab 现有调用方式 copyWechatRichText({ title, markdown, photosMap })。
+ * 内部固定用 'minimal' 主题跑 renderWechatHtml，再补回旧版本"图片后追加〔图N〕标记"的行为后写入剪贴板。
+ * 注意：这是过渡兼容函数，新的主题化编辑器应直接调用 renderWechatHtml + copyWechatRichText({html, plainText})。
+ * 调用方接入时需把 import 里的 copyWechatRichText 换成 copyWechatRichTextLegacy（详见本次改动说明）。
  */
-export async function copyWechatRichText({ title, markdown, photosMap }) {
-  if (typeof window === 'undefined' || !window.navigator || !window.navigator.clipboard || typeof window.ClipboardItem !== 'function') {
-    throw new Error('当前浏览器不支持富文本剪贴板写入（需要 Clipboard API + ClipboardItem），请更换浏览器或使用「复制 Markdown」代替');
-  }
-
-  const withRealImages = resolvePhotoPlaceholders(markdown, photosMap);
-  const bodyHtml = renderMarkdownToHtml(withRealImages);
-  const safeHtml = DOMPurify.sanitize(bodyHtml, {
-    FORBID_TAGS: ['script', 'style', 'form', 'input', 'iframe', 'object', 'embed'],
+export async function copyWechatRichTextLegacy({ title, markdown, photosMap }) {
+  const { html, imageCount } = renderWechatHtml(markdown, {
+    themeKey: 'minimal',
+    photosMap,
+    title,
   });
 
-  const container = document.createElement('div');
-  container.innerHTML = safeHtml;
-
-  const imageCount = annotateImages(container);
-  applyInlineStyles(container);
-
-  // 标题单独作为一个内联样式的 h1 放在正文最前面：公众号标题栏是独立输入框、无法承接富文本粘贴，
-  // 这里让用户复制后自行剪切标题行，而不是要求二次单独复制
-  const titleEl = document.createElement('h1');
-  titleEl.setAttribute('style', INLINE_STYLE_MAP.h1);
-  titleEl.textContent = String(title || '');
-  container.insertBefore(titleEl, container.firstChild);
-
-  const finalHtml = container.innerHTML;
-  const plainText = `${title || ''}\n\n${container.textContent || ''}`.trim();
-
-  try {
-    const item = new window.ClipboardItem({
-      'text/html': new Blob([finalHtml], { type: 'text/html' }),
-      'text/plain': new Blob([plainText], { type: 'text/plain' }),
-    });
-    await window.navigator.clipboard.write([item]);
-  } catch (e) {
-    throw new Error(`写入剪贴板失败：${e && e.message ? e.message : e}`);
+  if (typeof document === 'undefined') {
+    throw new Error('当前环境不支持 DOM 操作，无法生成图片标记');
   }
+  const container = document.createElement('div');
+  container.innerHTML = html;
+  annotateImages(container);
+
+  const plainText = `${title || ''}\n\n${markdownToPlainTextLegacy(markdown)}`.trim();
+
+  await copyWechatRichText({ html: container.innerHTML, plainText });
 
   return { ok: true, imageCount };
 }

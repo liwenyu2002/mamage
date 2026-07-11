@@ -26,6 +26,7 @@ const Scenery = lazyWithPreload(() => import(/* webpackChunkName: "scenery" */ '
 const AccountPage = lazyWithPreload(() => import(/* webpackChunkName: "account-page" */ './AccountPage'));
 const AiNewsWriter = lazyWithPreload(() => import(/* webpackChunkName: "ai-news-writer" */ './AiNewsWriter.jsx'));
 const GroupRescue = lazyWithPreload(() => import(/* webpackChunkName: "group-rescue" */ './GroupRescue.jsx'));
+const WechatComposer = lazyWithPreload(() => import(/* webpackChunkName: "wechat-composer" */ './WechatComposer.jsx'));
 
 const PROJECT_PAGE_SIZE = 24;
 
@@ -584,6 +585,10 @@ function App() {
         setSelectedNav('function');
         setFunctionPage('group-rescue');
         setCurrentProjectId(null);
+      } else if (path === '/function/wechat-composer') {
+        setSelectedNav('function');
+        setFunctionPage('wechat-composer');
+        setCurrentProjectId(null);
       } else if (path === '/function') {
         setSelectedNav('function');
         setFunctionPage(null);
@@ -629,6 +634,10 @@ function App() {
         } else if (path === '/function/group-rescue') {
           setSelectedNav('function');
           setFunctionPage('group-rescue');
+          setCurrentProjectId(null);
+        } else if (path === '/function/wechat-composer') {
+          setSelectedNav('function');
+          setFunctionPage('wechat-composer');
           setCurrentProjectId(null);
         } else if (path === '/function') {
           setSelectedNav('function');
@@ -1335,6 +1344,10 @@ function App() {
                 <LazyPanel title="正在加载合影救场">
                   <GroupRescue />
                 </LazyPanel>
+              ) : functionPage === 'wechat-composer' ? (
+                <LazyPanel title="正在加载公众号排版器">
+                  <WechatComposer />
+                </LazyPanel>
               ) : (
                 <div style={{ padding: 24 }}>
                   <Card title="功能" bordered>
@@ -1354,6 +1367,14 @@ function App() {
                       >
                         <div className="function-index-card-title">合影救场</div>
                         <div className="function-index-card-desc">连拍合影里有人闭眼？AI 为每个人挑最佳表情合成一张</div>
+                      </button>
+                      <button
+                        type="button"
+                        className="function-index-card"
+                        onClick={() => { try { window.history.pushState({}, '', '/function/wechat-composer'); } catch (e) { } setSelectedNav('function'); setFunctionPage('wechat-composer'); }}
+                      >
+                        <div className="function-index-card-title">公众号排版器</div>
+                        <div className="function-index-card-desc">套主题排版、带图一键复制进公众号后台</div>
                       </button>
                     </div>
                     <div style={{ color: '#666', marginTop: 12 }}>更多功能正在开发中</div>

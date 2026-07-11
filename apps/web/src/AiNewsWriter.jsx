@@ -8,7 +8,7 @@ import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { toPng } from 'html-to-image';
 import WechatPreviewEditor from './wechat/WechatPreviewEditor';
-import { copyWechatRichText, downloadImagePack } from './wechat/wechatExport';
+import { copyWechatRichTextLegacy, downloadImagePack } from './wechat/wechatExport';
 import { exportNewsDocx } from './utils/newsWordExport';
 
 // 渠道状态中文标签（ai_jobs.status 取值集：pending/running/succeeded/failed/cancelled）
@@ -1206,12 +1206,12 @@ const AiNewsWriter = () => {
 
   const handleCopyWechatRich = async () => {
     try {
-      const { imageCount } = await copyWechatRichText({
+      const { imageCount } = await copyWechatRichTextLegacy({
         title: activeContent.title,
         markdown: activeContent.markdownText,
         photosMap: buildPhotosMapForContent(activeContent),
       });
-      Toast.success(`已复制公众号格式（含 ${imageCount} 张图片标记），图片需到公众号后台重新上传`);
+      Toast.success(`已复制公众号格式（含 ${imageCount} 张图片），粘贴后公众号会自动转存图片；要更多排版样式请用「去排版器精修」`);
     } catch (e) {
       Toast.error(e && e.message ? e.message : '复制失败');
     }
@@ -2059,6 +2059,21 @@ const AiNewsWriter = () => {
                         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
                           <Button onClick={handleCopyWechatRich}>复制公众号格式</Button>
                           <Button onClick={handleDownloadWechatImages}>下载图片包</Button>
+                          <Button
+                            type="primary"
+                            onClick={() => {
+                              try {
+                                localStorage.setItem('wechat-composer-import', JSON.stringify({
+                                  title: activeContent.title || '',
+                                  markdown: activeContent.markdownText || '',
+                                }));
+                                window.history.pushState({}, '', '/function/wechat-composer');
+                                window.dispatchEvent(new PopStateEvent('popstate'));
+                              } catch (e) { Toast.error('跳转失败，请从功能页进入排版器'); }
+                            }}
+                          >
+                            去排版器精修 →
+                          </Button>
                         </div>
                       </>
                     ) : (
