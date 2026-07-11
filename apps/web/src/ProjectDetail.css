@@ -4442,6 +4442,41 @@ body.mamage-viewer-open [data-transfer-station-root="1"] {
   font-weight: 760;
 }
 
+/* AI 选片 2.0 评语行（查看器信息卡内） */
+.viewer-ai-verdict {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.viewer-ai-verdict-score {
+  flex: 0 0 auto;
+  padding: 2px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.66);
+  color: #0a0a0a;
+  font-weight: 750;
+}
+
+.viewer-ai-verdict-reason {
+  color: rgba(255, 255, 255, 0.92);
+  font-weight: 650;
+}
+
+.viewer-ai-verdict-flags {
+  color: rgba(255, 200, 120, 0.95);
+  font-weight: 700;
+}
+
+.viewer-info-card.is-editing .viewer-ai-verdict-reason {
+  color: rgba(0, 0, 0, 0.72);
+}
+
 .viewer-info-card:not(.is-editing) .viewer-semantic-tag {
   color: #fff;
   background: rgba(0, 0, 0, 0.42);

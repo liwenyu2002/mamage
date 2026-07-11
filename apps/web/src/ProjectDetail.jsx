@@ -73,6 +73,39 @@ function getAISelectionColor(label) {
   return '#64748b';
 }
 
+// AI 选片 2.0：0-100 综合分与质量详情（dims/flags/reason）随照片元数据下发
+function getPhotoAiScore(meta) {
+  const v = meta && (meta.aiScore !== undefined ? meta.aiScore : meta.ai_score);
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function getPhotoAiQuality(meta) {
+  const raw = meta && (meta.aiQuality || meta.ai_quality);
+  if (!raw) return null;
+  if (typeof raw === 'object') return raw;
+  try { return JSON.parse(raw); } catch (e) { return null; }
+}
+
+function formatAiQualityTooltip(quality, score) {
+  if (!quality) return '';
+  const parts = [];
+  if (score !== null) parts.push(`综合 ${score} 分`);
+  const d = quality.dims || {};
+  const dimText = [
+    d.sharpness !== undefined ? `锐度${d.sharpness}` : null,
+    d.exposure !== undefined ? `曝光${d.exposure}` : null,
+    d.composition !== undefined ? `构图${d.composition}` : null,
+    d.subject !== undefined ? `主体${d.subject}` : null,
+    d.moment !== undefined ? `瞬间${d.moment}` : null,
+    d.aesthetics !== undefined ? `美感${d.aesthetics}` : null,
+  ].filter(Boolean).join(' · ');
+  if (dimText) parts.push(dimText);
+  if (Array.isArray(quality.flags) && quality.flags.length) parts.push(`缺陷：${quality.flags.join('、')}`);
+  if (quality.reason) parts.push(quality.reason);
+  return parts.join('\n');
+}
+
 function getAISelectionChipClass(label) {
   if (label === 'recommended') return 'viewer-chip--good';
   if (label === 'medium') return 'viewer-chip--medium';
@@ -4536,9 +4569,10 @@ function ProjectDetail({
           )}
           {!isVideo && showAILabels && photoAILabelMap[photoMetas?.[overallIndex]?.id] && (() => {
             const label = photoAILabelMap[photoMetas?.[overallIndex]?.id];
+            const score = getPhotoAiScore(photoMetas?.[overallIndex]);
             return (
               <div className="detail-photo-chip detail-photo-chip--floating" style={{ right: 8, top: 8, color: getAISelectionColor(label) }}>
-                {getAISelectionLabel(label)}
+                {getAISelectionLabel(label)}{score !== null ? ` ${score}` : ''}
               </div>
             );
           })()}
@@ -5862,9 +5896,16 @@ function ProjectDetail({
                     ) : null}
                     {!currentViewerIsVideo && showAILabels && photoAILabelMap[photoMetas[viewerIndex].id] && (() => {
                       const label = photoAILabelMap[photoMetas[viewerIndex].id];
+                      const meta = photoMetas[viewerIndex];
+                      const score = getPhotoAiScore(meta);
+                      const quality = getPhotoAiQuality(meta);
                       return (
-                        <div className={`viewer-chip ${getAISelectionChipClass(label)}`} style={{ right: 16, top: 16 }}>
-                          {getAISelectionLabel(label)}
+                        <div
+                          className={`viewer-chip ${getAISelectionChipClass(label)}`}
+                          style={{ right: 16, top: 16 }}
+                          title={formatAiQualityTooltip(quality, score) || undefined}
+                        >
+                          {getAISelectionLabel(label)}{score !== null ? ` ${score}` : ''}
                         </div>
                       );
                     })()}
@@ -5934,6 +5975,21 @@ function ProjectDetail({
 	                                  ))}
 	                                </div>
                               )}
+                              {(() => {
+                                const meta = photoMetas[viewerIndex] || {};
+                                const quality = getPhotoAiQuality(meta);
+                                const score = getPhotoAiScore(meta);
+                                if (!quality || (!quality.reason && score === null)) return null;
+                                return (
+                                  <div className="viewer-ai-verdict" title={formatAiQualityTooltip(quality, score) || undefined}>
+                                    <span className="viewer-ai-verdict-score">AI 选片{score !== null ? ` ${score} 分` : ''}</span>
+                                    {quality.reason ? <span className="viewer-ai-verdict-reason">{quality.reason}</span> : null}
+                                    {Array.isArray(quality.flags) && quality.flags.length ? (
+                                      <span className="viewer-ai-verdict-flags">{quality.flags.join(' · ')}</span>
+                                    ) : null}
+                                  </div>
+                                );
+                              })()}
                             </div>
                           )}
                         </div>
