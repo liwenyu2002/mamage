@@ -149,6 +149,55 @@ export function IconTimelineFlow(props) {
   );
 }
 
+// 下载：托盘落箭头
+export function IconDownload(props) {
+  return (
+    <IconBase {...props}>
+      <path d="M12 4v10" />
+      <path d="m8 10 4 4 4-4" />
+      <path d="M5 19h14" />
+    </IconBase>
+  );
+}
+
+// 调色：竖排滑杆
+export function IconSliders(props) {
+  return (
+    <IconBase {...props}>
+      <path d="M6 5v14" />
+      <path d="M12 5v14" />
+      <path d="M18 5v14" />
+      <circle cx="6" cy="15" r="2.2" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="9" r="2.2" fill="currentColor" stroke="none" />
+      <circle cx="18" cy="13" r="2.2" fill="currentColor" stroke="none" />
+    </IconBase>
+  );
+}
+
+// 人脸框：取景角+脸
+export function IconFaceScan(props) {
+  return (
+    <IconBase {...props}>
+      <path d="M4 8V6a2 2 0 0 1 2-2h2" />
+      <path d="M16 4h2a2 2 0 0 1 2 2v2" />
+      <path d="M20 16v2a2 2 0 0 1-2 2h-2" />
+      <path d="M8 20H6a2 2 0 0 1-2-2v-2" />
+      <circle cx="9.6" cy="10.4" r="0.6" fill="currentColor" stroke="none" />
+      <circle cx="14.4" cy="10.4" r="0.6" fill="currentColor" stroke="none" />
+      <path d="M9.5 14.2c.7.8 1.5 1.2 2.5 1.2s1.8-.4 2.5-1.2" />
+    </IconBase>
+  );
+}
+
+// 星标：推荐
+export function IconStar(props) {
+  return (
+    <IconBase {...props}>
+      <path d="m12 4.6 2.2 4.5 4.9.7-3.6 3.5.9 4.9-4.4-2.3-4.4 2.3.9-4.9-3.6-3.5 4.9-.7Z" />
+    </IconBase>
+  );
+}
+
 // 垃圾桶：删除
 export function IconTrash(props) {
   return (

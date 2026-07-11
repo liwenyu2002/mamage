@@ -16,6 +16,10 @@ import {
   IconPlus,
   IconSearch,
   IconTrash,
+  IconDownload,
+  IconSliders,
+  IconFaceScan,
+  IconStar,
 } from './ui/icons';
 import './ProjectDetail.css';
 import { getProjectById, updateProject, deleteProject, createTimelineSection, updateTimelineSection, deleteTimelineSection, reorderTimelineSections } from './services/projectService';
@@ -5826,14 +5830,63 @@ function ProjectDetail({
         {viewerVisible ? (
         <div className="viewer-overlay is-open" onClick={closeViewer} aria-hidden="false">
             <div className="viewer-wrap">
-              <button
-                type="button"
-                className="viewer-close-btn"
-                aria-label="关闭"
-                onClick={(e) => { e.stopPropagation(); closeViewer(); }}
-              >
-                ×
-              </button>
+              {/* 顶部状态栏：关闭+计数+摄影师·环节 | AI 分+推荐+原图开关（只读状态集中于此） */}
+              <div className="viewer-topbar" onClick={(e) => e.stopPropagation()}>
+                <div className="viewer-topbar-left">
+                  <button type="button" className="viewer-topbar-close" aria-label="关闭" onClick={() => closeViewer()}>
+                    <IconClose />
+                  </button>
+                  <span className="viewer-topbar-counter">{Math.min(viewerIndex + 1, images.length)} / {images.length}</span>
+                  {(() => {
+                    const meta = (photoMetas && photoMetas[viewerIndex]) || {};
+                    const rawName = meta.photographerName || meta.photographer_name || meta.photographer || (meta.photographerId ? String(meta.photographerId) : null) || (meta.photographer_id ? String(meta.photographer_id) : null);
+                    let label = rawName && String(rawName).trim() ? String(rawName) : null;
+                    if (!label) {
+                      try {
+                        const list = (project && (project.photos || project.images || project.gallery)) || (initialProject && (initialProject.photos || initialProject.images || initialProject.gallery)) || [];
+                        const found = Array.isArray(list) ? list.find(p => p && (String(p.id) === String(meta.id) || String(p.photoId) === String(meta.id))) : null;
+                        const fb = found ? (found.photographerName || found.photographer || found.photographer_name || found.photographerId || found.photographer_id) : null;
+                        if (fb) label = String(fb);
+                      } catch (e) { /* ignore */ }
+                      if (!label) label = meta.photographerId ? `摄影师#${meta.photographerId}` : (meta.photographer_id ? `摄影师#${meta.photographer_id}` : null);
+                    }
+                    const section = meta.timelineSectionName || null;
+                    const text = [label, section].filter(Boolean).join(' · ');
+                    return text ? <span className="viewer-topbar-meta" title={text}>{text}</span> : null;
+                  })()}
+                </div>
+                <div className="viewer-topbar-right">
+                  {!currentViewerIsVideo && showAILabels && photoMetas?.[viewerIndex]?.id && photoAILabelMap[photoMetas[viewerIndex].id] ? (() => {
+                    const label = photoAILabelMap[photoMetas[viewerIndex].id];
+                    const meta = photoMetas[viewerIndex];
+                    const score = getPhotoAiScore(meta);
+                    const quality = getPhotoAiQuality(meta);
+                    return (
+                      <span
+                        className={`viewer-chip viewer-topbar-chip ${getAISelectionChipClass(label)}`}
+                        title={formatAiQualityTooltip(quality, score) || undefined}
+                      >
+                        {getAISelectionLabel(label)}{score !== null ? ` ${score}` : ''}
+                      </span>
+                    );
+                  })() : null}
+                  {(() => {
+                    const pid = photoMetas?.[viewerIndex]?.id;
+                    if (currentViewerIsVideo || !pid) return null;
+                    if (!(photoTagsMap[pid] || []).includes('推荐')) return null;
+                    return <span className="viewer-chip viewer-topbar-chip viewer-chip--recommend">推荐</span>;
+                  })()}
+                  {!currentViewerIsVideo && photoMetas && photoMetas[viewerIndex] ? (
+                    <button
+                      type="button"
+                      className={`viewer-topbar-toggle${viewerShowOriginal ? ' is-on' : ''}`}
+                      onClick={() => { setViewerEnableOpenZoom(false); setViewerShowOriginal((v) => !v); }}
+                    >
+                      {viewerShowOriginal ? '缩略图' : '原图'}
+                    </button>
+                  ) : null}
+                </div>
+              </div>
               <button
                 className="viewer-nav viewer-nav-left"
                 onClick={(e) => { e.stopPropagation(); navigateViewer(-1); }}
@@ -5928,137 +5981,6 @@ function ProjectDetail({
                         })}
                       </div>
                     </div>
-                    {(() => {
-                      const meta = photoMetas[viewerIndex] || {};
-                      const rawName = meta.photographerName || meta.photographer_name || meta.photographer || (meta.photographerId ? String(meta.photographerId) : null) || (meta.photographer_id ? String(meta.photographer_id) : null);
-                      const hasName = rawName && String(rawName).trim();
-                      let label = null;
-                      if (hasName) {
-                        label = String(rawName);
-                      } else {
-                        try {
-                          const list = (project && (project.photos || project.images || project.gallery)) || (initialProject && (initialProject.photos || initialProject.images || initialProject.gallery)) || [];
-                          const found = Array.isArray(list) ? list.find(p => p && (String(p.id) === String(meta.id) || String(p.photoId) === String(meta.id))) : null;
-                          const fb = found ? (found.photographerName || found.photographer || found.photographer_name || found.photographerId || found.photographer_id) : null;
-                          if (fb) label = String(fb);
-                        } catch (e) { /* ignore */ }
-                        if (!label) label = meta.photographerId ? `摄影师#${meta.photographerId}` : (meta.photographer_id ? `摄影师#${meta.photographer_id}` : null);
-                      }
-                      if (!label) return null;
-                      return (
-                        <div className="viewer-chip viewer-chip--left">
-                          {label}
-                        </div>
-                      );
-                    })()}
-                    {!currentViewerIsVideo ? (
-                    <div className="viewer-original-toggle">
-                      <button type="button" className="viewer-original-btn" onClick={(e) => { e.stopPropagation(); setViewerEnableOpenZoom(false); setViewerShowOriginal((v) => !v); }}>
-                        {viewerShowOriginal ? '查看缩略图' : '查看原图'}
-                      </button>
-                    </div>
-                    ) : null}
-                    {!currentViewerIsVideo && showAILabels && photoAILabelMap[photoMetas[viewerIndex].id] && (() => {
-                      const label = photoAILabelMap[photoMetas[viewerIndex].id];
-                      const meta = photoMetas[viewerIndex];
-                      const score = getPhotoAiScore(meta);
-                      const quality = getPhotoAiQuality(meta);
-                      return (
-                        <div
-                          className={`viewer-chip ${getAISelectionChipClass(label)}`}
-                          style={{ right: 16, top: 16 }}
-                          title={formatAiQualityTooltip(quality, score) || undefined}
-                        >
-                          {getAISelectionLabel(label)}{score !== null ? ` ${score}` : ''}
-                        </div>
-                      );
-                    })()}
-                    {(() => {
-                      const pid = photoMetas[viewerIndex]?.id;
-                      if (currentViewerIsVideo || !pid) return null;
-                      const hasRecommend = (photoTagsMap[pid] || []).includes('推荐');
-                      if (!hasRecommend) return null;
-                      const hasAI = showAILabels && photoAILabelMap[pid];
-                      return (
-                        <div className="viewer-chip viewer-chip--recommend" style={{ right: 16, top: hasAI ? 52 : 16 }}>
-                          推荐
-                        </div>
-                      );
-	                    })()}
-	                    {(() => {
-	                      const state = getPhotoSemanticState(photoMetas[viewerIndex] || {});
-	                      const { description, tags, pending } = state;
-	                      const hasDesc = !!description;
-	                      const hasTags = tags.length > 0;
-	                      if (!hasDesc && !hasTags && !pending && !viewerEditVisible) return null;
-	                      return (
-	                        <div
-	                          className={`viewer-info-card${viewerEditVisible ? ' is-editing' : ''}`}
-                          onClick={viewerEditVisible ? (e) => e.stopPropagation() : undefined}
-                        >
-                          {viewerEditVisible ? (
-                            <div className="viewer-edit-panel">
-                              <TextArea className="viewer-edit-textarea" value={viewerEditDescription} onChange={(v) => setViewerEditDescription(v)} rows={4} placeholder="照片描述" />
-                              <div className="viewer-edit-label">照片标签（按回车添加）</div>
-                              <div className="viewer-edit-tags">
-                                {(viewerEditTags || []).map((t, i) => (
-                                  <Tag key={t + i} size="small" type="light">{t}
-                                    <button className="viewer-edit-tag-remove" onClick={(e) => { e.stopPropagation(); setViewerEditTags((s) => s.filter(x => x !== t)); }}>×</button>
-                                  </Tag>
-                                ))}
-                                <input className="viewer-edit-tag-input" value={viewerEditTagInput} onChange={(e) => setViewerEditTagInput(e.target.value)} onKeyDown={(e) => {
-                                  if (e.key === 'Enter' || e.key === ',') {
-                                    e.preventDefault();
-                                    const v = (viewerEditTagInput || '').trim();
-                                    if (v && !(viewerEditTags || []).includes(v)) setViewerEditTags((s) => [...(s || []), v]);
-                                    setViewerEditTagInput('');
-                                  }
-                                }} placeholder="输入标签并回车" />
-
-                                <div className="viewer-edit-actions">
-                                  <button type="button" className="viewer-original-btn viewer-action-primary" onClick={(e) => { e.stopPropagation(); saveViewerPhotoEdit(); }}>保存</button>
-                                  <button type="button" className="viewer-original-btn viewer-action-muted" onClick={(e) => { e.stopPropagation(); setViewerEditVisible(false); }}>取消</button>
-                                </div>
-                              </div>
-                            </div>
-	                          ) : (
-	                            <div className="viewer-semantic-panel">
-	                              {pending && !hasDesc && !hasTags && (
-	                                <div className="viewer-analysis-pending">
-	                                  <span className="detail-analysis-dot" />
-	                                  语义分析中
-	                                </div>
-	                              )}
-	                              {hasDesc && (
-	                                <div className="viewer-description">{description}</div>
-	                              )}
-	                              {hasTags && (
-	                                <div className="viewer-semantic-tags">
-	                                  {tags.map((tag, i) => (
-	                                    <span key={i} className="viewer-semantic-tag">{tag}</span>
-	                                  ))}
-	                                </div>
-                              )}
-                              {(() => {
-                                const meta = photoMetas[viewerIndex] || {};
-                                const quality = getPhotoAiQuality(meta);
-                                const score = getPhotoAiScore(meta);
-                                if (!quality || (!quality.reason && score === null)) return null;
-                                return (
-                                  <div className="viewer-ai-verdict" title={formatAiQualityTooltip(quality, score) || undefined}>
-                                    <span className="viewer-ai-verdict-score">AI 选片{score !== null ? ` ${score} 分` : ''}</span>
-                                    {quality.reason ? <span className="viewer-ai-verdict-reason">{quality.reason}</span> : null}
-                                    {Array.isArray(quality.flags) && quality.flags.length ? (
-                                      <span className="viewer-ai-verdict-flags">{quality.flags.join(' · ')}</span>
-                                    ) : null}
-                                  </div>
-                                );
-                              })()}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })()}
                   </>
                 ) : images[viewerIndex] ? (
                     <div className="viewer-img-stage" onClick={(e) => e.stopPropagation()}>
@@ -6150,66 +6072,147 @@ function ProjectDetail({
                 </div>
               ) : null}
 
-              <div className="viewer-action-bar">
-                <button
-                  type="button"
-                  className="viewer-original-btn"
-                  onClick={(e) => { e.stopPropagation(); downloadCurrentPhoto(); }}
-                >
-                  {currentViewerIsVideo ? '下载该视频' : '下载该照片'}
-                </button>
+              {/* 底部信息+操作坞：语义信息卡 + 一条图标操作栏，全部集中在此 */}
+              <div className="viewer-dock" onClick={(e) => e.stopPropagation()}>
+                {photoMetas && photoMetas[viewerIndex] ? (() => {
+                       const state = getPhotoSemanticState(photoMetas[viewerIndex] || {});
+                       const { description, tags, pending } = state;
+                       const hasDesc = !!description;
+                       const hasTags = tags.length > 0;
+                       const hasVerdict = !!getPhotoAiQuality(photoMetas[viewerIndex]);
+                       if (!hasDesc && !hasTags && !pending && !viewerEditVisible && !hasVerdict) return null;
+                       return (
+                         <div
+                           className={`viewer-info-card${viewerEditVisible ? ' is-editing' : ''}`}
+                          onClick={viewerEditVisible ? (e) => e.stopPropagation() : undefined}
+                        >
+                          {viewerEditVisible ? (
+                            <div className="viewer-edit-panel">
+                              <TextArea className="viewer-edit-textarea" value={viewerEditDescription} onChange={(v) => setViewerEditDescription(v)} rows={4} placeholder="照片描述" />
+                              <div className="viewer-edit-label">照片标签（按回车添加）</div>
+                              <div className="viewer-edit-tags">
+                                {(viewerEditTags || []).map((t, i) => (
+                                  <Tag key={t + i} size="small" type="light">{t}
+                                    <button className="viewer-edit-tag-remove" onClick={(e) => { e.stopPropagation(); setViewerEditTags((s) => s.filter(x => x !== t)); }}>×</button>
+                                  </Tag>
+                                ))}
+                                <input className="viewer-edit-tag-input" value={viewerEditTagInput} onChange={(e) => setViewerEditTagInput(e.target.value)} onKeyDown={(e) => {
+                                  if (e.key === 'Enter' || e.key === ',') {
+                                    e.preventDefault();
+                                    const v = (viewerEditTagInput || '').trim();
+                                    if (v && !(viewerEditTags || []).includes(v)) setViewerEditTags((s) => [...(s || []), v]);
+                                    setViewerEditTagInput('');
+                                  }
+                                }} placeholder="输入标签并回车" />
 
-                {!readOnly && !currentViewerIsVideo && (photoMetas && photoMetas[viewerIndex]) && (
-                  <button
-                  type="button"
-                    className="viewer-original-btn viewer-action-teal"
-                    onClick={(e) => { e.stopPropagation(); handleDetectViewerFaces(); }}
-                  >
-                    {viewerFaceOverlayVisible ? '隐藏人脸框' : '显示人脸框'}
-                  </button>
-                )}
-
-                {!readOnly && !currentViewerIsVideo && canEditPhotos && (photoMetas && photoMetas[viewerIndex]) && (
-                  <button
-                    type="button"
-                    className={`viewer-original-btn${viewerToneVisible ? ' viewer-action-primary' : ''}`}
-                    onClick={(e) => { e.stopPropagation(); openToneEditor(); }}
-                  >
-                    {viewerToneVisible ? '关闭调色' : '调色'}
-                  </button>
-                )}
-
-                {(photoMetas && photoMetas[viewerIndex]) && (
-                  <button
-                  type="button"
-                    className="viewer-original-btn viewer-action-primary"
-                    onClick={(e) => { e.stopPropagation(); openPhotoEditModal(); }}
-                  >
-                    {currentViewerIsVideo ? '修改视频信息' : '修改照片信息'}
-                  </button>
-                )}
-
-                {(() => {
-                  const meta = photoMetas?.[viewerIndex];
-                  if (!meta || !meta.id) return null;
-                  const hasRecommendTag = (photoTagsMap[meta.id] || []).includes('推荐');
-                  const hasAIRecommend = photoAILabelMap[meta.id] === 'recommended';
-                  if (!canEditTags || hasRecommendTag || hasAIRecommend) return null;
-                  return (
+                                <div className="viewer-edit-actions">
+                                  <button type="button" className="viewer-original-btn viewer-action-primary" onClick={(e) => { e.stopPropagation(); saveViewerPhotoEdit(); }}>保存</button>
+                                  <button type="button" className="viewer-original-btn viewer-action-muted" onClick={(e) => { e.stopPropagation(); setViewerEditVisible(false); }}>取消</button>
+                                </div>
+                              </div>
+                            </div>
+                           ) : (
+                             <div className="viewer-semantic-panel">
+                               {pending && !hasDesc && !hasTags && (
+                                 <div className="viewer-analysis-pending">
+                                   <span className="detail-analysis-dot" />
+                                   语义分析中
+                                 </div>
+                               )}
+                               {hasDesc && (
+                                 <div className="viewer-description">{description}</div>
+                               )}
+                               {hasTags && (
+                                 <div className="viewer-semantic-tags">
+                                   {tags.map((tag, i) => (
+                                     <span key={i} className="viewer-semantic-tag">{tag}</span>
+                                   ))}
+                                 </div>
+                              )}
+                              {(() => {
+                                const meta = photoMetas[viewerIndex] || {};
+                                const quality = getPhotoAiQuality(meta);
+                                const score = getPhotoAiScore(meta);
+                                if (!quality || (!quality.reason && score === null)) return null;
+                                return (
+                                  <div className="viewer-ai-verdict" title={formatAiQualityTooltip(quality, score) || undefined}>
+                                    <span className="viewer-ai-verdict-score">AI 选片{score !== null ? ` ${score} 分` : ''}</span>
+                                    {quality.reason ? <span className="viewer-ai-verdict-reason">{quality.reason}</span> : null}
+                                    {Array.isArray(quality.flags) && quality.flags.length ? (
+                                      <span className="viewer-ai-verdict-flags">{quality.flags.join(' · ')}</span>
+                                    ) : null}
+                                  </div>
+                                );
+                              })()}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })() : null}
+                <div className="viewer-dock-actions">
+                  {!readOnly && !currentViewerIsVideo && (photoMetas && photoMetas[viewerIndex]) && (
                     <button
                       type="button"
-                      className="viewer-original-btn viewer-action-success"
-                      onClick={(e) => { e.stopPropagation(); addRecommendationTag(); }}
+                      className={`viewer-dock-btn${viewerFaceOverlayVisible ? ' is-active' : ''}`}
+                      title={viewerFaceOverlayVisible ? '隐藏人脸框' : '显示人脸框'}
+                      onClick={(e) => { e.stopPropagation(); handleDetectViewerFaces(); }}
                     >
-                      推荐标记
+                      <IconFaceScan />
+                      <span>人脸框</span>
                     </button>
-                  );
-                })()}
-
+                  )}
+                  {!readOnly && !currentViewerIsVideo && canEditPhotos && (photoMetas && photoMetas[viewerIndex]) && (
+                    <button
+                      type="button"
+                      className={`viewer-dock-btn${viewerToneVisible ? ' is-active' : ''}`}
+                      title={viewerToneVisible ? '关闭调色' : '调色'}
+                      onClick={(e) => { e.stopPropagation(); openToneEditor(); }}
+                    >
+                      <IconSliders />
+                      <span>调色</span>
+                    </button>
+                  )}
+                  {(photoMetas && photoMetas[viewerIndex]) && (
+                    <button
+                      type="button"
+                      className="viewer-dock-btn"
+                      title={currentViewerIsVideo ? '修改视频信息' : '修改照片信息'}
+                      onClick={(e) => { e.stopPropagation(); openPhotoEditModal(); }}
+                    >
+                      <IconInfoEdit />
+                      <span>编辑信息</span>
+                    </button>
+                  )}
+                  {(() => {
+                    const meta = photoMetas?.[viewerIndex];
+                    if (!meta || !meta.id) return null;
+                    const hasRecommendTag = (photoTagsMap[meta.id] || []).includes('推荐');
+                    const hasAIRecommend = photoAILabelMap[meta.id] === 'recommended';
+                    if (!canEditTags || hasRecommendTag || hasAIRecommend) return null;
+                    return (
+                      <button
+                        type="button"
+                        className="viewer-dock-btn"
+                        title="添加推荐标记"
+                        onClick={(e) => { e.stopPropagation(); addRecommendationTag(); }}
+                      >
+                        <IconStar />
+                        <span>推荐</span>
+                      </button>
+                    );
+                  })()}
+                  <button
+                    type="button"
+                    className="viewer-dock-btn viewer-dock-btn--primary"
+                    title={currentViewerIsVideo ? '下载该视频' : '下载该照片'}
+                    onClick={(e) => { e.stopPropagation(); downloadCurrentPhoto(); }}
+                  >
+                    <IconDownload />
+                    <span>下载</span>
+                  </button>
+                </div>
                 {currentViewerFaceError ? (
-                  <span className="viewer-face-error" title={currentViewerFaceError}>
-                    {currentViewerFaceError}
-                  </span>
+                  <div className="viewer-dock-error" title={currentViewerFaceError}>{currentViewerFaceError}</div>
                 ) : null}
               </div>
 
