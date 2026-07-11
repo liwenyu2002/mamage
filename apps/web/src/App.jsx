@@ -25,6 +25,7 @@ const PhotoPreviewOverlay = lazyWithPreload(() => import(/* webpackChunkName: "p
 const Scenery = lazyWithPreload(() => import(/* webpackChunkName: "scenery" */ './Scenery'));
 const AccountPage = lazyWithPreload(() => import(/* webpackChunkName: "account-page" */ './AccountPage'));
 const AiNewsWriter = lazyWithPreload(() => import(/* webpackChunkName: "ai-news-writer" */ './AiNewsWriter.jsx'));
+const GroupRescue = lazyWithPreload(() => import(/* webpackChunkName: "group-rescue" */ './GroupRescue.jsx'));
 
 const PROJECT_PAGE_SIZE = 24;
 
@@ -579,6 +580,14 @@ function App() {
         setSelectedNav('function');
         setFunctionPage('ai-writer');
         setCurrentProjectId(null);
+      } else if (path === '/function/group-rescue') {
+        setSelectedNav('function');
+        setFunctionPage('group-rescue');
+        setCurrentProjectId(null);
+      } else if (path === '/function') {
+        setSelectedNav('function');
+        setFunctionPage(null);
+        setCurrentProjectId(null);
       } else if (pid) {
         setSelectedNav('projects');
         setCurrentProjectId(pid);
@@ -616,6 +625,14 @@ function App() {
         } else if (path === '/function/ai-writer') {
           setSelectedNav('function');
           setFunctionPage('ai-writer');
+          setCurrentProjectId(null);
+        } else if (path === '/function/group-rescue') {
+          setSelectedNav('function');
+          setFunctionPage('group-rescue');
+          setCurrentProjectId(null);
+        } else if (path === '/function') {
+          setSelectedNav('function');
+          setFunctionPage(null);
           setCurrentProjectId(null);
         } else if (p) {
           setSelectedNav('projects');
@@ -777,11 +794,12 @@ function App() {
     try { window.history.pushState({}, '', '/scenery'); } catch (e) { }
   }, []);
 
+  // 功能导航落在功能列表页（功能不止一个后，由用户自己选）
   const handleNavigateFunction = React.useCallback(() => {
     setSelectedNav('function');
     setCurrentProjectId(null);
-    setFunctionPage('ai-writer');
-    try { window.history.pushState({}, '', '/function/ai-writer'); } catch (e) { }
+    setFunctionPage(null);
+    try { window.history.pushState({}, '', '/function'); } catch (e) { }
   }, []);
 
   const handleNavigateAbout = React.useCallback(() => {
@@ -1313,15 +1331,32 @@ function App() {
                 <LazyPanel title="正在加载 AI 写作">
                   <AiNewsWriter />
                 </LazyPanel>
+              ) : functionPage === 'group-rescue' ? (
+                <LazyPanel title="正在加载合影救场">
+                  <GroupRescue />
+                </LazyPanel>
               ) : (
                 <div style={{ padding: 24 }}>
                   <Card title="功能" bordered>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                      <div style={{ display: 'flex', gap: 8 }}>
-                        <Button onClick={() => { try { window.history.pushState({}, '', '/function/ai-writer'); } catch (e) { } setSelectedNav('function'); setFunctionPage('ai-writer'); }}>AI 写新闻稿</Button>
-                      </div>
-                      <div style={{ color: '#666' }}>更多功能正在开发中</div>
+                    <div className="function-index-grid">
+                      <button
+                        type="button"
+                        className="function-index-card"
+                        onClick={() => { try { window.history.pushState({}, '', '/function/ai-writer'); } catch (e) { } setSelectedNav('function'); setFunctionPage('ai-writer'); }}
+                      >
+                        <div className="function-index-card-title">AI 写新闻稿</div>
+                        <div className="function-index-card-desc">挑好照片，AI 按新闻稿格式生成图文初稿</div>
+                      </button>
+                      <button
+                        type="button"
+                        className="function-index-card"
+                        onClick={() => { try { window.history.pushState({}, '', '/function/group-rescue'); } catch (e) { } setSelectedNav('function'); setFunctionPage('group-rescue'); }}
+                      >
+                        <div className="function-index-card-title">合影救场</div>
+                        <div className="function-index-card-desc">连拍合影里有人闭眼？AI 为每个人挑最佳表情合成一张</div>
+                      </button>
                     </div>
+                    <div style={{ color: '#666', marginTop: 12 }}>更多功能正在开发中</div>
                   </Card>
                 </div>
               )

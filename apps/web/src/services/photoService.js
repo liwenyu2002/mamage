@@ -1064,6 +1064,20 @@ async function getGroupRescueJob(jobId) {
   return request(`/api/photos/group-rescue/${encodeURIComponent(String(jobId))}`, { method: 'GET' });
 }
 
+// 提交合影救场并轮询到终态；onStep(text) 报告进度。返回终态 job
+// { status: 'done'|'done_noop'|'failed', resultPhotoId, replacedCount, error, step }
+async function runGroupRescueJob(photoIds, onStep) {
+  const res = await startGroupRescue(photoIds);
+  const jobId = res && res.jobId;
+  if (!jobId) throw new Error('runGroupRescueJob: no jobId in response');
+  for (;;) {
+    await new Promise((r) => setTimeout(r, 2500));
+    const job = await getGroupRescueJob(jobId);
+    if (job.status !== 'running') return job;
+    if (typeof onStep === 'function' && job.step) onStep(job.step);
+  }
+}
+
 export {
   fetchLatestByType,
   fetchRandomByProject,
@@ -1088,4 +1102,5 @@ export {
   deletePhotos,
   startGroupRescue,
   getGroupRescueJob,
+  runGroupRescueJob,
 };

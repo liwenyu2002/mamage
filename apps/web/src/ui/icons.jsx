@@ -228,6 +228,19 @@ export function IconTrash(props) {
   );
 }
 
+// 合影救场：两个人形 + 右上修复星
+export function IconGroupRescue(props) {
+  return (
+    <IconBase {...props}>
+      <circle cx="9" cy="8.5" r="2.6" />
+      <path d="M4 19.5v-1.3a5 5 0 0 1 5-5 5 5 0 0 1 5 5v1.3" />
+      <path d="M15.2 9.2a2.6 2.6 0 1 0-1.4-4.8" />
+      <path d="M16.4 13.3a5 5 0 0 1 3.6 4.9v1.3" />
+      <path d="M18.5 3.5v3M17 5h3" />
+    </IconBase>
+  );
+}
+
 // 信息卡编辑：卡片 + 笔
 export function IconInfoEdit(props) {
   return (

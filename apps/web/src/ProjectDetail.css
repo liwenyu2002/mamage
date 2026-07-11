@@ -4825,21 +4825,104 @@ body.mamage-viewer-open [data-transfer-station-root="1"] {
   border-color: rgba(15, 23, 42, 0.28);
 }
 
-/* 合影救场：黑底强调（本组唯一的"生成"动作），任务进行中整站禁用防并发 */
-.similarity-group-rescue {
-  color: rgba(255, 255, 255, 0.92);
-  background: rgba(17, 17, 17, 0.88);
-  border-color: rgba(17, 17, 17, 0.88);
+/* 合影救场确认层（查看器语义入口打开）：连拍组勾选 + 任务进度 */
+.viewer-rescue-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
 
-.similarity-group-rescue:hover {
-  background: rgba(17, 17, 17, 1);
-  border-color: rgba(17, 17, 17, 1);
+.viewer-rescue-hint {
+  font-size: 13px;
+  line-height: 1.6;
+  color: rgba(0, 0, 0, 0.62);
 }
 
-.similarity-group-rescue:disabled {
-  cursor: default;
+.viewer-rescue-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 28px 12px;
+  text-align: center;
+}
+
+.viewer-rescue-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+  gap: 10px;
+}
+
+.viewer-rescue-thumb {
+  position: relative;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 12px;
+  overflow: hidden;
+  cursor: pointer;
+  background: rgba(0, 0, 0, 0.04);
   opacity: 0.55;
+  transition: opacity 140ms ease, border-color 140ms ease;
+}
+
+.viewer-rescue-thumb.is-picked {
+  opacity: 1;
+  border-color: #111;
+}
+
+.viewer-rescue-thumb img {
+  display: block;
+  width: 100%;
+  height: 96px;
+  object-fit: cover;
+}
+
+.viewer-rescue-thumb-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 96px;
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.4);
+}
+
+.viewer-rescue-thumb-badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgba(17, 17, 17, 0.85);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.viewer-rescue-thumb-check {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85);
+  color: transparent;
+  font-size: 12px;
+  line-height: 20px;
+  text-align: center;
+  border: 1px solid rgba(0, 0, 0, 0.18);
+}
+
+.viewer-rescue-thumb-check.is-on {
+  background: #111;
+  color: #fff;
+  border-color: #111;
+}
+
+.viewer-rescue-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
 }
 
 .similarity-group-images {

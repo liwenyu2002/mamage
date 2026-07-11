@@ -1661,3 +1661,43 @@ textarea {
 .app-photo-search-card__meta:hover {
     background: rgba(255, 255, 255, 0.4);
 }
+
+/* 功能列表页：功能入口卡片（AI 写新闻稿 / 合影救场 并列） */
+.function-index-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 12px;
+}
+
+.function-index-card {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 16px;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.6);
+    cursor: pointer;
+    text-align: left;
+    font: inherit;
+    transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
+}
+
+.function-index-card:hover {
+    border-color: rgba(0, 0, 0, 0.32);
+    background: rgba(255, 255, 255, 0.85);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+}
+
+.function-index-card-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: #111;
+}
+
+.function-index-card-desc {
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: rgba(0, 0, 0, 0.55);
+}

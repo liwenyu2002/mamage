@@ -22,11 +22,12 @@ import {
   IconStar,
   IconChevronLeft,
   IconChevronRight,
+  IconGroupRescue,
 } from './ui/icons';
 import './ProjectDetail.css';
 import { getProjectById, updateProject, deleteProject, createTimelineSection, updateTimelineSection, deleteTimelineSection, reorderTimelineSections } from './services/projectService';
 import { getToken } from './services/authService';
-import { fetchRandomByProject, searchPhotos, getPhotoById, updatePhoto, assignPhotosTimelineSection, getFacePersonInfo, labelFacePerson, renameFacePerson, uploadPhotoFiles, warmUploadApiProbe, deletePhotos, getPhotoFaces, getUploadFileLimitError, startGroupRescue, getGroupRescueJob } from './services/photoService';
+import { fetchRandomByProject, searchPhotos, getPhotoById, updatePhoto, assignPhotosTimelineSection, getFacePersonInfo, labelFacePerson, renameFacePerson, uploadPhotoFiles, warmUploadApiProbe, deletePhotos, getPhotoFaces, getUploadFileLimitError, runGroupRescueJob } from './services/photoService';
 import { resolveAssetUrl, BASE_URL } from './services/request';
 import IfCan from './permissions/IfCan';
 import PermButton from './permissions/PermButton';
@@ -874,7 +875,8 @@ function ProjectDetail({
   const [simSelectedMap, setSimSelectedMap] = React.useState({}); // id -> true
   const [simSelectedCount, setSimSelectedCount] = React.useState(0);
   const [simDeleting, setSimDeleting] = React.useState(false);
-  const [simRescue, setSimRescue] = React.useState(null); // 合影救场进行中的任务 { gi, jobId, step }
+  // 合影救场（查看器入口）状态机：null | { phase: 'loading'|'pick'|'running'|'done'|'noop'|'failed'|'nogroup', ... }
+  const [viewerRescue, setViewerRescue] = React.useState(null);
   const [isMobile, setIsMobile] = React.useState(() => (typeof window !== 'undefined' ? window.innerWidth <= 768 : false));
   const viewerPointerRef = React.useRef({ active: false, pointerId: null, startX: 0, startY: 0 });
   const [searchKeyword, setSearchKeyword] = React.useState('');
@@ -4050,10 +4052,10 @@ function ProjectDetail({
   }, [viewerIndex, viewerEditTags, viewerEditDescription, projectId, photoMetas, readOnly]);
 
   // 打开 / 关闭 鐩镐技鍒嗙粍寮圭獥骞跺姞杞芥暟鎹?
-  const openSimilarityModal = React.useCallback(async () => {
-    if (!projectId) return;
-    setSimModalVisible(true);
-    if (simGroups !== null) return; // already loaded
+  // 相似分组加载（弹窗与查看器合影救场共用）：返回 {groups, photos}，缓存命中直接回吐 state
+  const loadSimGroups = React.useCallback(async () => {
+    if (!projectId) return { groups: [], photos: {} };
+    if (simGroups !== null) return { groups: simGroups, photos: simPhotos };
     setSimLoading(true);
     setSimError(null);
     try {
@@ -4065,10 +4067,10 @@ function ProjectDetail({
       const groups = data && Array.isArray(data.groups) ? data.groups : [];
       setSimGroups(groups);
       const ids = Array.from(new Set((groups || []).flat()));
+      let map = {};
       if (ids.length) {
         if (readOnly) {
           const wanted = new Set(ids.map((x) => String(x)));
-          const map = {};
           (photoMetas || []).forEach((m) => {
             if (!m) return;
             const pid = m.id || m.photoId || m.photo_id;
@@ -4082,24 +4084,28 @@ function ProjectDetail({
               projectId,
             };
           });
-          setSimPhotos(map);
         } else {
           const metas = await Promise.all(ids.map(id => fetch(`/api/photos/${id}`, { headers }).then(rr => rr.ok ? rr.json() : null).catch(() => null)));
-          const map = {};
           ids.forEach((id, i) => { if (metas[i]) map[id] = metas[i]; });
-          setSimPhotos(map);
         }
-      } else {
-        setSimPhotos({});
       }
+      setSimPhotos(map);
+      return { groups, photos: map };
     } catch (e) {
       console.error('load similarity groups error', e);
       setSimError('加载失败，请重试');
       setSimGroups([]);
+      return { groups: [], photos: {} };
     } finally {
       setSimLoading(false);
     }
-  }, [projectId, simGroups, readOnly, photoMetas]);
+  }, [projectId, simGroups, simPhotos, readOnly, photoMetas]);
+
+  const openSimilarityModal = React.useCallback(() => {
+    if (!projectId) return;
+    setSimModalVisible(true);
+    loadSimGroups();
+  }, [projectId, loadSimGroups]);
 
   // 关闭时一并重置批量选择态：×/遮罩/Esc/跳查看器等任何关闭路径都不把选择模式泄漏到下次打开
   const closeSimilarityModal = React.useCallback(() => {
@@ -4213,11 +4219,14 @@ function ProjectDetail({
     });
   }, []);
 
-  // 一键合影救场：整组连拍交给后端合成"全员最佳表情"新照片，轮询进度
-  // 同时只允许一个任务；轮询在弹窗关闭后继续，完成时以 Toast 收尾
-  const simRescueTimerRef = React.useRef(null);
-  React.useEffect(() => () => {
-    if (simRescueTimerRef.current) clearTimeout(simRescueTimerRef.current);
+  // 一键合影救场（查看器入口）：AI 语义识别为"合影"的照片才在 dock 浮现入口，
+  // 打开确认层后自动定位这张照片所在的连拍相似组；关层不打断后台任务
+  const isGroupPhotoMeta = React.useCallback((meta) => {
+    if (!meta) return false;
+    let tags = meta.tags;
+    if (typeof tags === 'string') { try { tags = JSON.parse(tags); } catch (e) { tags = []; } }
+    if (Array.isArray(tags) && tags.some((t) => String(t).includes('合影'))) return true;
+    return String(meta.description || meta.desc || '').includes('合影');
   }, []);
 
   // 合成产物追加到主画廊末尾（不动已有索引，避免查看器错位；下次进页面按服务端排序归位）
@@ -4235,43 +4244,70 @@ function ProjectDetail({
     }
   }, []);
 
-  const startSimGroupRescue = React.useCallback(async (group, gi) => {
-    if (simRescue) { Toast.warning('已有合成任务进行中，请稍候'); return; }
-    try {
-      const res = await startGroupRescue(group);
-      const jobId = res && res.jobId;
-      if (!jobId) throw new Error('no jobId');
-      setSimRescue({ gi, jobId, step: '排队中' });
-      const poll = async () => {
-        let job = null;
-        try {
-          job = await getGroupRescueJob(jobId);
-        } catch (e) {
-          setSimRescue(null);
-          Toast.error('查询合成进度失败，请稍后在相册里确认结果');
-          return;
-        }
-        if (job.status === 'running') {
-          setSimRescue({ gi, jobId, step: job.step || '合成中' });
-          simRescueTimerRef.current = setTimeout(poll, 2500);
-          return;
-        }
-        setSimRescue(null);
-        if (job.status === 'done') {
-          Toast.success(`合影救场完成：替换了 ${job.replacedCount} 张人脸，新照片已加入相册`);
-          if (job.resultPhotoId) appendRescuedPhoto(job.resultPhotoId);
-        } else if (job.status === 'done_noop') {
-          Toast.info(job.step || '这组的基准图已是最佳状态，无需合成');
-        } else {
-          Toast.error(`合成失败：${job.error || '未知错误'}`);
-        }
-      };
-      simRescueTimerRef.current = setTimeout(poll, 2500);
-    } catch (e) {
-      console.error('start group rescue failed', e);
-      Toast.error('提交合成任务失败，请稍后重试');
+  const openViewerRescue = React.useCallback(async (meta) => {
+    const photoId = meta && (meta.id || meta.photoId || meta.photo_id);
+    if (!photoId) return;
+    const sid = String(photoId);
+    setViewerRescue({ phase: 'loading', photoId: sid });
+    const { groups } = await loadSimGroups();
+    const group = (groups || []).find((g) => (g || []).map(String).includes(sid));
+    if (!group || group.length < 2) {
+      setViewerRescue({ phase: 'nogroup', photoId: sid });
+      return;
     }
-  }, [simRescue, appendRescuedPhoto]);
+    const ids = group.map(String);
+    // 后端上限 5 张：本照片必选，其余按组序补足
+    const picked = { [sid]: true };
+    for (const id of ids) {
+      if (Object.keys(picked).length >= 5) break;
+      picked[id] = true;
+    }
+    setViewerRescue({ phase: 'pick', photoId: sid, groupIds: ids, pickedMap: picked });
+  }, [loadSimGroups]);
+
+  const toggleViewerRescuePick = React.useCallback((id) => {
+    setViewerRescue((prev) => {
+      if (!prev || prev.phase !== 'pick') return prev;
+      const next = Object.assign({}, prev.pickedMap || {});
+      if (next[id]) delete next[id]; else next[id] = true;
+      return { ...prev, pickedMap: next };
+    });
+  }, []);
+
+  const startViewerRescue = React.useCallback(async () => {
+    if (!viewerRescue || viewerRescue.phase !== 'pick') return;
+    const ids = Object.keys(viewerRescue.pickedMap || {});
+    if (ids.length < 2) { Toast.warning('至少保留 2 张连拍照片'); return; }
+    if (ids.length > 5) { Toast.warning('最多选择 5 张照片'); return; }
+    setViewerRescue({ ...viewerRescue, phase: 'running', step: '排队中' });
+    try {
+      const job = await runGroupRescueJob(ids, (step) => {
+        setViewerRescue((prev) => (prev && prev.phase === 'running' ? { ...prev, step } : prev));
+      });
+      if (job.status === 'done') {
+        if (job.resultPhotoId) appendRescuedPhoto(job.resultPhotoId);
+        Toast.success(`合影救场完成：替换了 ${job.replacedCount} 张人脸，新照片已加入相册`);
+        setViewerRescue((prev) => (prev ? { ...prev, phase: 'done', replacedCount: job.replacedCount, resultPhotoId: job.resultPhotoId } : prev));
+      } else if (job.status === 'done_noop') {
+        setViewerRescue((prev) => (prev ? { ...prev, phase: 'noop', step: job.step || '这张合影里每个人已是最佳状态' } : prev));
+      } else {
+        setViewerRescue((prev) => (prev ? { ...prev, phase: 'failed', error: job.error || '未知错误' } : prev));
+      }
+    } catch (e) {
+      console.error('viewer rescue failed', e);
+      setViewerRescue((prev) => (prev ? { ...prev, phase: 'failed', error: '任务提交或进度查询失败' } : prev));
+    }
+  }, [viewerRescue, appendRescuedPhoto]);
+
+  const closeViewerRescue = React.useCallback(() => {
+    setViewerRescue((prev) => {
+      if (prev && prev.phase === 'running') {
+        Toast.info('合成继续在后台进行，完成后会提示');
+        return { ...prev, hidden: true }; // 保留任务态，完成 Toast 仍会触发
+      }
+      return null;
+    });
+  }, []);
 
   // 选择模式下按组全选/取消全选
   const toggleSimSelectGroup = React.useCallback((group) => {
@@ -5415,17 +5451,6 @@ function ProjectDetail({
                       <span>相似组 {gi + 1}</span>
                       <span className="similarity-group-head-side">
                         <span className="similarity-group-count">{g.length} 张照片</span>
-                        {canEditPhotos && !simDeleteMode && !readOnly && g.length >= 2 && g.length <= 5 ? (
-                          <button
-                            type="button"
-                            className="similarity-group-selectall similarity-group-rescue"
-                            title="AI 从这组连拍里为每个人挑最佳表情，合成一张新照片"
-                            disabled={!!simRescue}
-                            onClick={() => startSimGroupRescue(g, gi)}
-                          >
-                            {simRescue && simRescue.gi === gi ? (simRescue.step || '合成中…') : '合影救场'}
-                          </button>
-                        ) : null}
                         {canDeletePhotos && simDeleteMode && bestId ? (
                           <button
                             type="button"
@@ -6280,6 +6305,17 @@ function ProjectDetail({
                       </button>
                     );
                   })()}
+                  {!readOnly && !currentViewerIsVideo && canEditPhotos && isGroupPhotoMeta(photoMetas?.[viewerIndex]) ? (
+                    <button
+                      type="button"
+                      className="viewer-dock-btn"
+                      title="AI 从连拍中为每个人挑最佳表情，合成一张新合影"
+                      onClick={(e) => { e.stopPropagation(); openViewerRescue(photoMetas?.[viewerIndex]); }}
+                    >
+                      <IconGroupRescue />
+                      <span>合影救场</span>
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     className="viewer-dock-btn viewer-dock-btn--primary"
@@ -6310,6 +6346,82 @@ function ProjectDetail({
         ) : null}
 
         {/* Inline viewer edit 鈥?replaced modal with inline editor under the photo */}
+
+        {/* 合影救场确认层：查看器语义入口打开，自动圈出连拍组 */}
+        {viewerRescue && !viewerRescue.hidden ? (
+          <Modal
+            title="合影救场"
+            className="viewer-rescue-modal"
+            visible
+            onCancel={closeViewerRescue}
+            footer={null}
+            width={isMobile ? 'calc(100vw - 16px)' : 560}
+          >
+            <div className="viewer-rescue-body">
+              {viewerRescue.phase === 'loading' ? (
+                <div className="viewer-rescue-state"><Spin tip="正在寻找这张合影的连拍组" /></div>
+              ) : viewerRescue.phase === 'nogroup' ? (
+                <div className="viewer-rescue-state">
+                  <Text type="secondary">没有找到这张照片的连拍相似组，无法自动圈选。可以手动挑选照片来合成。</Text>
+                  <Button type="primary" onClick={() => { window.location.href = '/function/group-rescue'; }}>去手动选择照片</Button>
+                </div>
+              ) : viewerRescue.phase === 'pick' ? (
+                <>
+                  <div className="viewer-rescue-hint">
+                    找到 {viewerRescue.groupIds.length} 张连拍。AI 会为每个人挑睁眼、表情最自然的瞬间，合成一张新照片加入相册（原照片不受影响，最多选 5 张）。
+                  </div>
+                  <div className="viewer-rescue-grid">
+                    {viewerRescue.groupIds.map((id) => {
+                      const p = simPhotos[id];
+                      const thumb = p ? (p.thumbUrl || p.url || p.thumbSrc) : null;
+                      const picked = !!(viewerRescue.pickedMap && viewerRescue.pickedMap[id]);
+                      const isCurrent = id === viewerRescue.photoId;
+                      return (
+                        <button
+                          key={id}
+                          type="button"
+                          className={`viewer-rescue-thumb${picked ? ' is-picked' : ''}`}
+                          onClick={() => toggleViewerRescuePick(id)}
+                          title={picked ? '点击取消选择' : '点击选择'}
+                        >
+                          {thumb ? <img src={thumb} alt={`#${id}`} loading="lazy" /> : <span className="viewer-rescue-thumb-fallback">#{id}</span>}
+                          {isCurrent ? <span className="viewer-rescue-thumb-badge">当前</span> : null}
+                          <span className={`viewer-rescue-thumb-check${picked ? ' is-on' : ''}`} aria-hidden>✓</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="viewer-rescue-actions">
+                    <Button onClick={closeViewerRescue} type="tertiary">取消</Button>
+                    <Button type="primary" onClick={startViewerRescue}>
+                      开始合成（{Object.keys(viewerRescue.pickedMap || {}).length} 张）
+                    </Button>
+                  </div>
+                </>
+              ) : viewerRescue.phase === 'running' ? (
+                <div className="viewer-rescue-state">
+                  <Spin tip={viewerRescue.step || '合成中'} />
+                  <Text type="secondary">大约需要 1-2 分钟。可以关闭此窗口，完成后会提示。</Text>
+                </div>
+              ) : viewerRescue.phase === 'done' ? (
+                <div className="viewer-rescue-state">
+                  <Text>合成完成：替换了 {viewerRescue.replacedCount} 张人脸，新照片已加入相册末尾。</Text>
+                  <Button type="primary" onClick={() => setViewerRescue(null)}>好的</Button>
+                </div>
+              ) : viewerRescue.phase === 'noop' ? (
+                <div className="viewer-rescue-state">
+                  <Text>{viewerRescue.step || '这张合影里每个人已是最佳状态，无需合成。'}</Text>
+                  <Button onClick={() => setViewerRescue(null)} type="tertiary">知道了</Button>
+                </div>
+              ) : (
+                <div className="viewer-rescue-state">
+                  <Text type="danger">合成失败：{viewerRescue.error || '未知错误'}</Text>
+                  <Button onClick={() => setViewerRescue(null)} type="tertiary">关闭</Button>
+                </div>
+              )}
+            </div>
+          </Modal>
+        ) : null}
 
       </div>
     </div>
