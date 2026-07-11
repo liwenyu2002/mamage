@@ -520,10 +520,25 @@ export default function TransferStation() {
     }
   }, []);
 
+  // 条目拖出（如拖到"合影救场"候选区）：payload 与相册拖入一致；
+  // 拖出过程中自己也是 drop 目标，标记内部拖动避免"拖回自己"触发重复入站提示
+  const internalDragRef = React.useRef(false);
+  const handleItemDragStart = React.useCallback((e, p) => {
+    internalDragRef.current = true;
+    try {
+      e.dataTransfer.effectAllowed = 'copy';
+      e.dataTransfer.setData('application/x-mamage-photo', JSON.stringify(p));
+      e.dataTransfer.setData('application/json', JSON.stringify(p));
+      e.dataTransfer.setData('text/plain', p.url || '');
+    } catch (err) { }
+  }, []);
+  const handleItemDragEnd = React.useCallback(() => { internalDragRef.current = false; }, []);
+
   const handleDrop = React.useCallback((e) => {
     e.preventDefault();
     setDragOver(false);
     setIsDraggingPhoto(false);
+    if (internalDragRef.current) { internalDragRef.current = false; return; }
 
     let payload = null;
     try {
@@ -830,7 +845,14 @@ export default function TransferStation() {
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {items && items.length ? items.map((p, idx) => (
-          <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px', borderRadius: 12, background: 'rgba(255,255,255,0.55)', border: '1px solid rgba(255,255,255,0.66)' }}>
+          <div
+            key={idx}
+            draggable
+            onDragStart={(e) => handleItemDragStart(e, p)}
+            onDragEnd={handleItemDragEnd}
+            title="可拖到合影救场等功能页使用"
+            style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px', borderRadius: 12, background: 'rgba(255,255,255,0.55)', border: '1px solid rgba(255,255,255,0.66)', cursor: 'grab' }}
+          >
             <div style={{ width: 72, height: 72, overflow: 'hidden', borderRadius: 8, flex: '0 0 72px', background: '#f1f5f9' }}>
               <img src={p.thumbSrc || p.url} alt={`thumb-${idx}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
             </div>

@@ -1701,3 +1701,90 @@ textarea {
     line-height: 1.5;
     color: rgba(0, 0, 0, 0.55);
 }
+
+/* 合影救场手动模式：中转站照片点选网格 + 拖放落点 */
+.rescue-pick-drop {
+    border-radius: 12px;
+    transition: outline-color 140ms ease;
+    outline: 2px dashed transparent;
+    outline-offset: 6px;
+}
+
+.rescue-pick-drop.is-hover {
+    outline-color: rgba(17, 17, 17, 0.55);
+}
+
+.rescue-pick-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+    gap: 10px;
+}
+
+.rescue-pick-thumb {
+    position: relative;
+    padding: 0;
+    border: 2px solid transparent;
+    border-radius: 12px;
+    overflow: hidden;
+    cursor: pointer;
+    background: rgba(0, 0, 0, 0.04);
+    opacity: 0.55;
+    transition: opacity 140ms ease, border-color 140ms ease;
+}
+
+.rescue-pick-thumb.is-picked {
+    opacity: 1;
+    border-color: #111;
+}
+
+.rescue-pick-thumb img {
+    display: block;
+    width: 100%;
+    height: 96px;
+    object-fit: cover;
+}
+
+.rescue-pick-thumb-fallback {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 96px;
+    font-size: 12px;
+    color: rgba(0, 0, 0, 0.4);
+}
+
+.rescue-pick-thumb-check {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.85);
+    color: transparent;
+    font-size: 12px;
+    line-height: 20px;
+    text-align: center;
+    border: 1px solid rgba(0, 0, 0, 0.18);
+}
+
+.rescue-pick-thumb-check.is-on {
+    background: #111;
+    color: #fff;
+    border-color: #111;
+}
+
+.rescue-pick-thumb-title {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 2px 8px;
+    background: rgba(0, 0, 0, 0.45);
+    color: #fff;
+    font-size: 11px;
+    text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
