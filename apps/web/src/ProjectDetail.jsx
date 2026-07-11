@@ -4249,20 +4249,14 @@ function ProjectDetail({
     if (!photoId) return;
     const sid = String(photoId);
     setViewerRescue({ phase: 'loading', photoId: sid });
+    // 当前照片就是基底；连拍相似组的其他照片作为默认参考（可取消）。
+    // 没有连拍也能开始 —— 后端会自动从人脸库找同一人的其他脸。
     const { groups } = await loadSimGroups();
     const group = (groups || []).find((g) => (g || []).map(String).includes(sid));
-    if (!group || group.length < 2) {
-      setViewerRescue({ phase: 'nogroup', photoId: sid });
-      return;
-    }
-    const ids = group.map(String);
-    // 后端上限 5 张：本照片必选，其余按组序补足
-    const picked = { [sid]: true };
-    for (const id of ids) {
-      if (Object.keys(picked).length >= 5) break;
-      picked[id] = true;
-    }
-    setViewerRescue({ phase: 'pick', photoId: sid, groupIds: ids, pickedMap: picked });
+    const refIds = (group || []).map(String).filter((id) => id !== sid).slice(0, 4);
+    const picked = {};
+    refIds.forEach((id) => { picked[id] = true; });
+    setViewerRescue({ phase: 'pick', photoId: sid, refIds, pickedMap: picked });
   }, [loadSimGroups]);
 
   const toggleViewerRescuePick = React.useCallback((id) => {
@@ -4276,12 +4270,11 @@ function ProjectDetail({
 
   const startViewerRescue = React.useCallback(async () => {
     if (!viewerRescue || viewerRescue.phase !== 'pick') return;
-    const ids = Object.keys(viewerRescue.pickedMap || {});
-    if (ids.length < 2) { Toast.warning('至少保留 2 张连拍照片'); return; }
-    if (ids.length > 5) { Toast.warning('最多选择 5 张照片'); return; }
+    const refs = Object.keys(viewerRescue.pickedMap || {});
+    if (refs.length > 4) { Toast.warning('参考照片最多 4 张'); return; }
     setViewerRescue({ ...viewerRescue, phase: 'running', step: '排队中' });
     try {
-      const job = await runGroupRescueJob(ids, (step) => {
+      const job = await runGroupRescueJob({ basePhotoId: viewerRescue.photoId, referencePhotoIds: refs }, (step) => {
         setViewerRescue((prev) => (prev && prev.phase === 'running' ? { ...prev, step } : prev));
       });
       if (job.status === 'done') {
@@ -6359,42 +6352,44 @@ function ProjectDetail({
           >
             <div className="viewer-rescue-body">
               {viewerRescue.phase === 'loading' ? (
-                <div className="viewer-rescue-state"><Spin tip="正在寻找这张合影的连拍组" /></div>
-              ) : viewerRescue.phase === 'nogroup' ? (
-                <div className="viewer-rescue-state">
-                  <Text type="secondary">没有找到这张照片的连拍相似组，无法自动圈选。可以手动挑选照片来合成。</Text>
-                  <Button type="primary" onClick={() => { window.location.href = '/function/group-rescue'; }}>去手动选择照片</Button>
-                </div>
+                <div className="viewer-rescue-state"><Spin tip="正在寻找这张照片的连拍参考" /></div>
               ) : viewerRescue.phase === 'pick' ? (
                 <>
                   <div className="viewer-rescue-hint">
-                    找到 {viewerRescue.groupIds.length} 张连拍。AI 会为每个人挑睁眼、表情最自然的瞬间，合成一张新照片加入相册（原照片不受影响，最多选 5 张）。
+                    以<b>当前照片为基底</b>，AI 会为里面的每个人检查表情：闭眼或状态不佳的，从参考照片
+                    {viewerRescue.refIds && viewerRescue.refIds.length ? '和人脸库' : '（这张没有连拍参考）或人脸库'}
+                    里找同一人的最佳瞬间换上。原照片不受影响。
                   </div>
-                  <div className="viewer-rescue-grid">
-                    {viewerRescue.groupIds.map((id) => {
-                      const p = simPhotos[id];
-                      const thumb = p ? (p.thumbUrl || p.url || p.thumbSrc) : null;
-                      const picked = !!(viewerRescue.pickedMap && viewerRescue.pickedMap[id]);
-                      const isCurrent = id === viewerRescue.photoId;
-                      return (
-                        <button
-                          key={id}
-                          type="button"
-                          className={`viewer-rescue-thumb${picked ? ' is-picked' : ''}`}
-                          onClick={() => toggleViewerRescuePick(id)}
-                          title={picked ? '点击取消选择' : '点击选择'}
-                        >
-                          {thumb ? <img src={thumb} alt={`#${id}`} loading="lazy" /> : <span className="viewer-rescue-thumb-fallback">#{id}</span>}
-                          {isCurrent ? <span className="viewer-rescue-thumb-badge">当前</span> : null}
-                          <span className={`viewer-rescue-thumb-check${picked ? ' is-on' : ''}`} aria-hidden>✓</span>
-                        </button>
-                      );
-                    })}
-                  </div>
+                  {viewerRescue.refIds && viewerRescue.refIds.length ? (
+                    <>
+                      <div className="viewer-rescue-subtitle">连拍参考（可取消勾选）</div>
+                      <div className="viewer-rescue-grid">
+                        {viewerRescue.refIds.map((id) => {
+                          const p = simPhotos[id];
+                          const thumb = p ? (p.thumbUrl || p.url || p.thumbSrc) : null;
+                          const picked = !!(viewerRescue.pickedMap && viewerRescue.pickedMap[id]);
+                          return (
+                            <button
+                              key={id}
+                              type="button"
+                              className={`viewer-rescue-thumb${picked ? ' is-picked' : ''}`}
+                              onClick={() => toggleViewerRescuePick(id)}
+                              title={picked ? '点击取消选择' : '点击选择'}
+                            >
+                              {thumb ? <img src={thumb} alt={`#${id}`} loading="lazy" /> : <span className="viewer-rescue-thumb-fallback">#{id}</span>}
+                              <span className={`viewer-rescue-thumb-check${picked ? ' is-on' : ''}`} aria-hidden>✓</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="viewer-rescue-subtitle">没有找到连拍，将直接从人脸库为每个人寻找替补脸。</div>
+                  )}
                   <div className="viewer-rescue-actions">
                     <Button onClick={closeViewerRescue} type="tertiary">取消</Button>
                     <Button type="primary" onClick={startViewerRescue}>
-                      开始合成（{Object.keys(viewerRescue.pickedMap || {}).length} 张）
+                      开始修复{Object.keys(viewerRescue.pickedMap || {}).length ? `（${Object.keys(viewerRescue.pickedMap || {}).length} 张参考）` : '（用人脸库）'}
                     </Button>
                   </div>
                 </>

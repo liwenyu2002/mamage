@@ -1788,3 +1788,25 @@ textarea {
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+
+/* 合影救场：已选照片的角色标（基底/参考），点"参考"可改设基底 */
+.rescue-pick-role {
+    position: absolute;
+    top: 6px;
+    left: 6px;
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.85);
+    color: rgba(0, 0, 0, 0.7);
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    border: 1px solid rgba(0, 0, 0, 0.15);
+}
+
+.rescue-pick-role.is-base {
+    background: #111;
+    color: #fff;
+    border-color: #111;
+    cursor: default;
+}

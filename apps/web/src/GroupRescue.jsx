@@ -28,6 +28,7 @@ function normalizeStationItems(items) {
 function GroupRescue() {
   const [stationItems, setStationItems] = React.useState(() => normalizeStationItems(getTransferAll()));
   const [picked, setPicked] = React.useState({}); // id -> item（点选/拖入都写这里）
+  const [baseId, setBaseId] = React.useState(null); // 基底照片（要修的那张；默认第一张选中的）
   const [dragHover, setDragHover] = React.useState(false);
   const [running, setRunning] = React.useState(false);
   const [step, setStep] = React.useState('');
@@ -65,14 +66,22 @@ function GroupRescue() {
   const togglePick = React.useCallback((item) => {
     setPicked((prev) => {
       const next = Object.assign({}, prev);
-      if (next[item.id]) delete next[item.id]; else next[item.id] = item;
+      if (next[item.id]) {
+        delete next[item.id];
+        // 取消的是基底 → 顺位第一个选中照片接任基底
+        setBaseId((b) => (b === item.id ? (Object.keys(next)[0] || null) : b));
+      } else {
+        next[item.id] = item;
+        setBaseId((b) => b || item.id);
+      }
       return next;
     });
   }, []);
 
-  const clearPicked = React.useCallback(() => setPicked({}), []);
+  const clearPicked = React.useCallback(() => { setPicked({}); setBaseId(null); }, []);
   const pickAll = React.useCallback(() => {
     setPicked(Object.fromEntries(gridItems.map((it) => [it.id, it])));
+    setBaseId((b) => b || (gridItems[0] && gridItems[0].id) || null);
   }, [gridItems]);
 
   // 从中转站浮窗把单张照片拖进来 = 选中它
@@ -93,25 +102,22 @@ function GroupRescue() {
         list.forEach((it) => { next[it.id] = it; });
         return next;
       });
+      setBaseId((b) => b || list[0].id);
       Toast.success(`已选入 ${list.length} 张`);
     }
     if (badCount > 0) Toast.warning(`${badCount} 张缺少照片编号，无法参与合成`);
   }, []);
 
-  const projectTitles = React.useMemo(() => {
-    const set = new Set(pickedList.map((p) => p.projectTitle).filter(Boolean));
-    return Array.from(set);
-  }, [pickedList]);
-
   const start = React.useCallback(async () => {
     if (running) return;
-    if (pickedCount < 2) { Toast.warning('至少选择同一组连拍中的 2 张照片'); return; }
-    if (pickedCount > 5) { Toast.warning('最多支持 5 张，请取消多余的照片'); return; }
+    if (!baseId || !picked[baseId]) { Toast.warning('先选一张要修的基底照片'); return; }
+    const refs = pickedList.map((p) => p.id).filter((id) => id !== baseId);
+    if (refs.length > 4) { Toast.warning('参考照片最多 4 张，请取消多余的'); return; }
     setRunning(true);
     setResult(null);
     setStep('排队中');
     try {
-      const job = await runGroupRescueJob(pickedList.map((p) => Number(p.id)), setStep);
+      const job = await runGroupRescueJob({ basePhotoId: Number(baseId), referencePhotoIds: refs.map(Number) }, setStep);
       if (job.status === 'done') {
         let thumbUrl = '';
         let fullUrl = '';
@@ -136,7 +142,7 @@ function GroupRescue() {
       setRunning(false);
       setStep('');
     }
-  }, [pickedCount, pickedList, running]);
+  }, [baseId, picked, pickedList, running]);
 
   return (
     <Layout style={{ padding: isMobile ? 10 : 16, overflowX: 'hidden' }}>
@@ -144,7 +150,8 @@ function GroupRescue() {
         <h2 style={{ margin: 0 }}>合影救场</h2>
         <div style={{ marginTop: 6 }}>
           <Text type="secondary">
-            从同一组连拍里为每个人挑出睁眼、表情最自然的瞬间，合成一张全员状态最好的新合影（原照片不受影响）。
+            选一张要修的照片作为<b>基底</b>，AI 为里面闭眼或状态不佳的人换上最佳瞬间的脸。
+            替补优先来自你附加的参考照片（连拍最好，跨相册也行），没有参考时自动从人脸库找同一人的其他照片。原照片不受影响。
           </Text>
         </div>
       </Header>
@@ -154,7 +161,7 @@ function GroupRescue() {
           <Card
             title={(
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                <div>挑选连拍（来自中转站，点选或拖入）</div>
+                <div>挑选照片（来自中转站，点选或拖入；点"参考"标签可改设基底）</div>
                 {gridItems.length ? (
                   <div style={{ display: 'flex', gap: 8 }}>
                     <Button size="small" type="tertiary" onClick={pickAll}>全选</Button>
@@ -176,6 +183,7 @@ function GroupRescue() {
                   <div className="rescue-pick-grid">
                     {gridItems.map((it) => {
                       const isPicked = !!picked[it.id];
+                      const isBase = it.id === baseId;
                       return (
                         <button
                           key={it.id}
@@ -186,31 +194,44 @@ function GroupRescue() {
                         >
                           {it.thumbUrl ? <img src={it.thumbUrl} alt={`#${it.id}`} loading="lazy" /> : <span className="rescue-pick-thumb-fallback">#{it.id}</span>}
                           <span className={`rescue-pick-thumb-check${isPicked ? ' is-on' : ''}`} aria-hidden>✓</span>
+                          {isPicked ? (
+                            <span
+                              className={`rescue-pick-role${isBase ? ' is-base' : ''}`}
+                              title={isBase ? '基底照片（要修的这张）' : '点击设为基底'}
+                              onClick={(e) => { e.stopPropagation(); setBaseId(it.id); }}
+                            >
+                              {isBase ? '基底' : '参考'}
+                            </span>
+                          ) : null}
                           {it.projectTitle ? <span className="rescue-pick-thumb-title">{it.projectTitle}</span> : null}
                         </button>
                       );
                     })}
                   </div>
-                  {projectTitles.length > 1 ? (
+                  {baseId && picked[baseId] ? (
                     <div style={{ marginTop: 10 }}>
-                      <Text type="warning">选中的照片好像来自不同相册（{projectTitles.join(' / ')}），只有同一相册的连拍才能合成。</Text>
+                      <Text type="secondary">新照片将加入基底照片所在的相册{picked[baseId].projectTitle ? `《${picked[baseId].projectTitle}》` : ''}。</Text>
                     </div>
                   ) : null}
                 </>
               ) : (
                 <Text type="secondary">
-                  中转站还没有可用照片。先打开相册，选中同一组连拍（2-5 张，人物位置基本不变的抓拍）存入右侧中转站；回到这里点选，或直接把照片从中转站拖进这个区域。
+                  中转站还没有可用照片。先打开相册，把要修的照片（和可选的参考照片）存入右侧中转站；回到这里点选，或直接把照片从中转站拖进这个区域。只选一张也可以 —— 会自动从人脸库找替补。
                 </Text>
               )}
             </div>
           </Card>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            <Button type="primary" disabled={running || pickedCount < 2 || pickedCount > 5} onClick={start}>
-              {running ? (step || '合成中…') : `开始合成（已选 ${pickedCount} 张）`}
+            <Button type="primary" disabled={running || pickedCount < 1 || pickedCount > 5} onClick={start}>
+              {running
+                ? (step || '修复中…')
+                : pickedCount <= 1
+                  ? '开始修复（用人脸库找替补）'
+                  : `开始修复（基底 + ${pickedCount - 1} 张参考）`}
             </Button>
             {running ? <Spin size={22} tip="" /> : null}
-            {!running && pickedCount > 5 ? <Text type="warning">最多 5 张，请取消多余照片</Text> : null}
+            {!running && pickedCount > 5 ? <Text type="warning">基底加参考最多 5 张，请取消多余照片</Text> : null}
           </div>
 
           {result ? (

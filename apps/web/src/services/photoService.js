@@ -1050,13 +1050,15 @@ async function deletePhotos(photoIds) {
   throw finalErr;
 }
 
-// 一键合影救场：提交连拍组，返回 { jobId }；随后轮询 getGroupRescueJob
-async function startGroupRescue(photoIds) {
-  const ids = (Array.isArray(photoIds) ? photoIds : [])
+// 合影救场：以基底照片为中心修脸。{ basePhotoId, referencePhotoIds?: [] }，
+// 参考可为空（自动从人脸库找该人的其他脸）。返回 { jobId }；随后轮询 getGroupRescueJob
+async function startGroupRescue({ basePhotoId, referencePhotoIds } = {}) {
+  const base = Number(basePhotoId);
+  if (!Number.isFinite(base) || base <= 0) throw new Error('startGroupRescue: basePhotoId is required');
+  const refs = (Array.isArray(referencePhotoIds) ? referencePhotoIds : [])
     .map((v) => Number(v))
-    .filter((n) => Number.isFinite(n) && n > 0);
-  if (ids.length < 2) throw new Error('startGroupRescue: need at least 2 photoIds');
-  return request('/api/photos/group-rescue', { method: 'POST', data: { photoIds: ids } });
+    .filter((n) => Number.isFinite(n) && n > 0 && n !== base);
+  return request('/api/photos/group-rescue', { method: 'POST', data: { basePhotoId: base, referencePhotoIds: refs } });
 }
 
 async function getGroupRescueJob(jobId) {
@@ -1066,8 +1068,8 @@ async function getGroupRescueJob(jobId) {
 
 // 提交合影救场并轮询到终态；onStep(text) 报告进度。返回终态 job
 // { status: 'done'|'done_noop'|'failed', resultPhotoId, replacedCount, error, step }
-async function runGroupRescueJob(photoIds, onStep) {
-  const res = await startGroupRescue(photoIds);
+async function runGroupRescueJob(params, onStep) {
+  const res = await startGroupRescue(params);
   const jobId = res && res.jobId;
   if (!jobId) throw new Error('runGroupRescueJob: no jobId in response');
   for (;;) {
