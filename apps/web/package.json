@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "docx": "^9.7.1",
     "dompurify": "^3.4.11",
     "html-to-image": "^1.11.13",
     "marked": "^5.0.2",

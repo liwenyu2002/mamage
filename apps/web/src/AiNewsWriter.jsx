@@ -3,9 +3,44 @@ import { Layout, Card, Input, TextArea, Modal, Select, DatePicker, Button, Tag, 
 import { getAll as getTransferAll } from './services/transferStore';
 import { request, resolveAssetUrl } from './services/request';
 import { getToken } from './services/authService';
+import { CHANNELS, DEFAULT_CHANNEL_KEYS, startBatch, getBatch, retryJob } from './services/newsMatrixService';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { toPng } from 'html-to-image';
+import WechatPreviewEditor from './wechat/WechatPreviewEditor';
+import { copyWechatRichText, downloadImagePack } from './wechat/wechatExport';
+import { exportNewsDocx } from './utils/newsWordExport';
+
+// 渠道状态中文标签（ai_jobs.status 取值集：pending/running/succeeded/failed/cancelled）
+const CHANNEL_STATUS_LABEL = {
+  pending: '排队中',
+  running: '生成中',
+  succeeded: '已完成',
+  failed: '失败',
+  cancelled: '已取消',
+};
+
+// 事实校验 issue.type 中文化（后端 lib/news_fact_check.js 的四类可比对项）
+const FACT_ISSUE_TYPE_LABEL = {
+  name: '人名',
+  date: '日期',
+  location: '地点',
+  number: '数字',
+};
+
+function emptyChannelContent() {
+  // factCheck 形状约定为 { issues: [{type,expect,found,snippet}], forbiddenHits: [{word,snippet}] }（后端未挂载前为 null）
+  return { title: '', subtitle: '', markdownText: '', generatedHtml: '', extra: {}, photos: [], factCheck: null };
+}
+
+// 该渠道结果是否存在需要人工核对的事实/禁用词命中
+function hasFactIssues(content) {
+  const fc = content && content.factCheck;
+  if (!fc) return false;
+  const issues = Array.isArray(fc.issues) ? fc.issues : [];
+  const hits = Array.isArray(fc.forbiddenHits) ? fc.forbiddenHits : (Array.isArray(fc.hits) ? fc.hits : []);
+  return issues.length > 0 || hits.length > 0;
+}
 
 const { Header, Content } = Layout;
 
@@ -66,10 +101,39 @@ const AiNewsWriter = () => {
   const [stylePreset, setStylePreset] = React.useState('默认风格');
   const [interviewText, setInterviewText] = React.useState('');
 
-  const [title, setTitle] = React.useState('');
-  const [subtitle, setSubtitle] = React.useState('');
-  const [markdownText, setMarkdownText] = React.useState('');
-  const [generatedHtml, setGeneratedHtml] = React.useState('');
+  // 矩阵生成：渠道多选 + 批次状态 + 逐渠道内容（原单份 title/subtitle/markdownText/generatedHtml
+  // 拆成 keyed map，key 为 channel_key；下方所有引用点同步改为读写 channelContent[activeChannelKey]）
+  const [selectedChannels, setSelectedChannels] = React.useState(DEFAULT_CHANNEL_KEYS);
+  const [batchId, setBatchId] = React.useState(null);
+  const [batchStatus, setBatchStatus] = React.useState('');
+  const [channelJobs, setChannelJobs] = React.useState({}); // channelKey -> { jobId, status, error }
+  const [channelContent, setChannelContent] = React.useState({}); // channelKey -> emptyChannelContent() 形状
+  const [activeChannelKey, setActiveChannelKey] = React.useState(null);
+  // 轮询期间避免同一 job 的成功结果被重复处理（占位符替换是异步的，重复跑会闪烁/重复请求）
+  const processedJobIdsRef = React.useRef(new Set());
+
+  const updateChannelContent = React.useCallback((channelKey, patch) => {
+    if (!channelKey) return;
+    setChannelContent((prev) => {
+      const base = prev[channelKey] || emptyChannelContent();
+      const next = typeof patch === 'function' ? patch(base) : { ...base, ...patch };
+      return { ...prev, [channelKey]: next };
+    });
+  }, []);
+
+  const activeContent = channelContent[activeChannelKey] || emptyChannelContent();
+  const setActiveMarkdownText = React.useCallback((v) => {
+    if (activeChannelKey) updateChannelContent(activeChannelKey, { markdownText: v });
+  }, [activeChannelKey, updateChannelContent]);
+  // 小红书 Tab 话题标签的输入框草稿（回车确认后写入 activeContent.extra.hashtags）
+  const [hashtagDraft, setHashtagDraft] = React.useState('');
+
+  // 智能预填：出席人物 chips（来自已选照片 faceNames 汇总去重 + 手输追加），提交时并入 form.participants
+  const [participantChips, setParticipantChips] = React.useState([]);
+  const [participantDraft, setParticipantDraft] = React.useState('');
+  // 校验标红：某渠道被用户点「忽略」后折叠警示条，channelKey -> true
+  const [collapsedWarnings, setCollapsedWarnings] = React.useState({});
+
   const [isGenerating, setIsGenerating] = React.useState(false);
   const [generationProgress, setGenerationProgress] = React.useState(0);
   const generationProgressTimerRef = React.useRef(null);
@@ -112,12 +176,18 @@ const AiNewsWriter = () => {
     setReferenceArticle('');
     setInterviewText('');
     setStylePreset('默认风格');
-    setTitle('');
-    setSubtitle('');
-    setMarkdownText('');
-    setGeneratedHtml('');
+    setSelectedChannels(DEFAULT_CHANNEL_KEYS);
+    setBatchId(null);
+    setBatchStatus('');
+    setChannelJobs({});
+    setChannelContent({});
+    setActiveChannelKey(null);
+    processedJobIdsRef.current = new Set();
     setAdvancedPrompt('');
     setShowAdvancedEditor(false);
+    setParticipantChips([]);
+    setParticipantDraft('');
+    setCollapsedWarnings({});
     Toast.success('已清空本页缓存');
   }, [DRAFT_STORAGE_KEY, INITIAL_FORM_VALUES]);
 
@@ -150,13 +220,21 @@ const AiNewsWriter = () => {
       if (typeof draft.referenceArticle === 'string') setReferenceArticle(draft.referenceArticle);
       if (typeof draft.interviewText === 'string') setInterviewText(draft.interviewText);
       if (typeof draft.advancedPrompt === 'string') setAdvancedPrompt(draft.advancedPrompt);
-      if (typeof draft.title === 'string') setTitle(draft.title);
-      if (typeof draft.subtitle === 'string') setSubtitle(draft.subtitle);
-      if (typeof draft.markdownText === 'string') setMarkdownText(draft.markdownText);
-      if (typeof draft.generatedHtml === 'string') setGeneratedHtml(draft.generatedHtml);
+
+      if (Array.isArray(draft.selectedChannels) && draft.selectedChannels.length) {
+        setSelectedChannels(draft.selectedChannels);
+      }
+      if (draft.channelContent && typeof draft.channelContent === 'object') {
+        setChannelContent(draft.channelContent);
+        const keys = Object.keys(draft.channelContent);
+        if (keys.length) setActiveChannelKey(draft.activeChannelKey && keys.includes(draft.activeChannelKey) ? draft.activeChannelKey : keys[0]);
+      }
 
       if (Array.isArray(draft.selectedPhotos)) {
         setSelectedPhotos(draft.selectedPhotos);
+      }
+      if (Array.isArray(draft.participantChips)) {
+        setParticipantChips(draft.participantChips);
       }
     } catch (e) {
       // ignore storage/parse errors
@@ -181,11 +259,11 @@ const AiNewsWriter = () => {
           referenceArticle,
           interviewText,
           selectedPhotos,
-          title,
-          subtitle,
-          markdownText,
-          generatedHtml,
+          selectedChannels,
+          channelContent,
+          activeChannelKey,
           advancedPrompt,
+          participantChips,
           savedAt: Date.now(),
         };
         window.localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(payload));
@@ -199,12 +277,83 @@ const AiNewsWriter = () => {
     referenceArticle,
     interviewText,
     selectedPhotos,
-    title,
-    subtitle,
-    markdownText,
-    generatedHtml,
+    selectedChannels,
+    channelContent,
+    activeChannelKey,
     advancedPrompt,
+    participantChips,
   ]);
+
+  // 已选照片的稳定签名：id 列表拼接，用于下面几个「智能预填」effect 的依赖项
+  // （避免 selectedPhotos 数组引用变化但内容未变时反复重算/重设 state）
+  const selectedPhotosSignature = React.useMemo(
+    () => (selectedPhotos || []).map((p) => p.id).join(','),
+    [selectedPhotos],
+  );
+
+  // 智能预填 1/3：已选照片 faceNames 汇总去重，合并进 participantChips（只增不减，
+  // 用户手动删除的 chip 不会因为照片列表引用变化而复活，除非新照片带来同名人物）
+  React.useEffect(() => {
+    const names = [];
+    (selectedPhotos || []).forEach((p) => {
+      extractFaceNames(p).forEach((n) => { if (!names.includes(n)) names.push(n); });
+    });
+    if (!names.length) return;
+    setParticipantChips((prev) => {
+      const merged = [...prev];
+      let changed = false;
+      names.forEach((n) => { if (!merged.includes(n)) { merged.push(n); changed = true; } });
+      return changed ? merged : prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPhotosSignature]);
+
+  // 智能预填 2/3：活动名称为空时，用已选照片里出现次数最多的 projectTitle 预填一次；
+  // 用户已手输过就不再覆盖（setFormValues 内部读当次最新值判断，不用把 formValues 加进依赖）
+  React.useEffect(() => {
+    const photos = selectedPhotos || [];
+    if (!photos.length) return;
+    const counts = new Map();
+    photos.forEach((p) => {
+      const t = String(p.projectTitle || '').trim();
+      if (!t) return;
+      counts.set(t, (counts.get(t) || 0) + 1);
+    });
+    if (!counts.size) return;
+    let best = '';
+    let bestCount = 0;
+    counts.forEach((c, t) => { if (c > bestCount) { bestCount = c; best = t; } });
+    if (!best) return;
+    setFormValues((s) => (s.eventName ? s : { ...s, eventName: best }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPhotosSignature]);
+
+  // 智能预填 3/3：活动亮点为空时给出的建议文案 —— 取标签命中频次最高的 3 张照片的
+  // description 拼接（纯前端字符串拼装，不调用任何模型），供用户点「采纳」一键填入
+  const highlightSuggestion = React.useMemo(() => {
+    const photos = selectedPhotos || [];
+    if (!photos.length) return '';
+    const tagFreq = new Map();
+    photos.forEach((p) => {
+      (Array.isArray(p.tags) ? p.tags : []).forEach((t) => {
+        const k = String(t || '').trim();
+        if (k) tagFreq.set(k, (tagFreq.get(k) || 0) + 1);
+      });
+    });
+    if (!tagFreq.size) return '';
+    const scored = photos
+      .map((p) => {
+        const score = (Array.isArray(p.tags) ? p.tags : [])
+          .reduce((sum, t) => sum + (tagFreq.get(String(t || '').trim()) || 0), 0);
+        return { p, score };
+      })
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.score - a.score);
+    const descs = scored.slice(0, 3).map((x) => String(x.p.description || '').trim()).filter(Boolean);
+    if (!descs.length) return '';
+    return `现场亮点：${descs.join('；')}。`;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPhotosSignature]);
 
   React.useEffect(() => {
     if (typeof window === 'undefined') return undefined;
@@ -823,39 +972,102 @@ const AiNewsWriter = () => {
   const pollAliveRef = React.useRef(true);
   React.useEffect(() => () => { pollAliveRef.current = false; }, []);
 
-  const pollJob = (jobId, onUpdate) => {
+  // 把单个渠道的生成结果（PHOTO:id 占位符）处理成可编辑 markdown，写入该渠道的 keyed state。
+  // 每个渠道各跑一遍 replacePhotoPlaceholders/injectPhotoUrls/normalizeMarkdownForRendering，互不干扰。
+  const applyChannelResult = React.useCallback(async (channelKey, result) => {
+    try {
+      const processed = await replacePhotoPlaceholders({ ...result });
+      let cleaned = '';
+      if (processed.markdown) {
+        const injected = injectPhotoUrls(processed.markdown, processed.photos || selectedPhotos);
+        cleaned = normalizeMarkdownForRendering(fixNestedMarkdownImages(injected));
+      }
+      updateChannelContent(channelKey, {
+        title: processed.title || formValues.eventName || '',
+        subtitle: processed.subtitle || '',
+        markdownText: cleaned,
+        generatedHtml: processed.html || '',
+        extra: processed.extra || {},
+        photos: processed.photos || [],
+        factCheck: processed.factCheck || null,
+      });
+      setActiveChannelKey((prev) => prev || channelKey);
+      // 新结果落地：展开该渠道的校验警示条（若旧一轮曾被用户「忽略」过）
+      setCollapsedWarnings((prev) => (prev[channelKey] ? { ...prev, [channelKey]: false } : prev));
+    } catch (e) {
+      console.error('[AiNewsWriter] apply channel result failed', channelKey, e);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPhotos, formValues.eventName, updateChannelContent]);
+
+  // 汇总一次 batch 轮询响应：更新每渠道 job 状态，并对新完成的渠道跑一遍占位符处理。
+  const applyBatchResponse = React.useCallback(async (resp) => {
+    if (!resp) return;
+    setBatchStatus(resp.status || '');
+    const jobs = Array.isArray(resp.jobs) ? resp.jobs : [];
+    setChannelJobs((prev) => {
+      const next = { ...prev };
+      jobs.forEach((job) => {
+        next[job.channelKey] = { jobId: job.jobId, status: job.status, error: job.error || null };
+      });
+      return next;
+    });
+    for (const job of jobs) {
+      if (job.status === 'succeeded' && job.result && !processedJobIdsRef.current.has(job.jobId)) {
+        processedJobIdsRef.current.add(job.jobId);
+        // eslint-disable-next-line no-await-in-loop
+        await applyChannelResult(job.channelKey, job.result);
+      }
+    }
+  }, [applyChannelResult]);
+
+  // 轮询一个 batch 直到整体状态落定（succeeded/failed/partial 三种终态之一），2.5s 一次；
+  // 组件卸载后 pollAliveRef 变 false 即停止，不再 setState。
+  const pollBatchUntilDone = React.useCallback((id) => new Promise((resolve) => {
     let stopped = false;
-    const poll = async () => {
-      if (stopped || !pollAliveRef.current) return;
+    const tick = async () => {
+      if (stopped || !pollAliveRef.current) { resolve(null); return; }
       try {
-        const resp = await request(`/api/ai/news/jobs/${encodeURIComponent(jobId)}`, { method: 'GET' });
-        if (onUpdate) onUpdate(resp);
-        if (resp.status === 'succeeded' || resp.status === 'failed' || resp.status === 'cancelled') {
+        const resp = await getBatch(id);
+        await applyBatchResponse(resp);
+        if (resp.status === 'succeeded' || resp.status === 'failed' || resp.status === 'partial') {
           stopped = true;
-          return resp;
+          resolve(resp);
+          return;
         }
       } catch (e) {
-        console.error('[AiNewsWriter] poll job failed', e);
+        console.error('[AiNewsWriter] poll batch failed', e);
       }
-      if (!stopped && pollAliveRef.current) setTimeout(poll, 2500);
+      if (!stopped && pollAliveRef.current) setTimeout(tick, 2500);
     };
-    // start
-    poll();
-    return () => { stopped = true; };
-  };
+    tick();
+  }), [applyBatchResponse]);
 
-  const handleGenerate = async (prompt) => {
+  const toggleChannel = React.useCallback((key) => {
+    setSelectedChannels((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
+  }, []);
+
+  const handleGenerate = async () => {
     if (generationRunningRef.current) return;
+    if (!selectedChannels.length) {
+      Toast.warning('请至少选择一个生成渠道');
+      return;
+    }
     generationRunningRef.current = true;
     setIsGenerating(true);
     const runId = startPseudoProgress();
     let succeed = false;
     try {
-      const payload = {};
-      if (prompt) payload.fullPrompt = prompt;
-      else payload.form = formValues;
-      if (referenceArticle) payload.referenceArticle = referenceArticle;
-      if (interviewText) payload.interviewText = interviewText;
+      // 智能预填：出席人物 chips 只在提交时并入 form.participants，不回写到可见输入框，
+      // 避免用户还在编辑时输入框被静默改写
+      const mergedParticipantNames = toNameList(formValues.participants);
+      participantChips.forEach((n) => { if (!mergedParticipantNames.includes(n)) mergedParticipantNames.push(n); });
+      const payload = {
+        form: { ...formValues, participants: mergedParticipantNames.join('、') },
+        referenceArticle: referenceArticle || '',
+        interviewText: interviewText || '',
+        channels: selectedChannels,
+      };
       if (selectedPhotos && selectedPhotos.length) {
         // Per backend request: only send a single thumbnail field (thumbUrl) and projectTitle
         payload.selectedPhotos = selectedPhotos.map((p, idx) => ({
@@ -874,60 +1086,27 @@ const AiNewsWriter = () => {
           photographerName: p.photographerName || p.photographer_name || '',
         }));
       }
-      // default async
-      const resp = await request('/api/ai/news/generate', { method: 'POST', data: payload });
-      // resp may be { jobId } or { status, result }
-      if (resp.jobId && resp.status !== 'succeeded') {
-        const jobId = resp.jobId;
-        Toast.info('生成已提交，正在处理中');
-        // poll until succeeded
-        await new Promise((resolve) => {
-          const stop = pollJob(jobId, async (update) => {
-            if (update.status === 'succeeded') {
-              stop();
-              resolve(update);
-            }
-            if (update.status === 'failed') {
-              stop();
-              resolve(update);
-            }
-          });
-        }).then(async (final) => {
-          if (!final) return;
-          if (final.status === 'succeeded' && final.result) {
-            let processed = await replacePhotoPlaceholders(final.result);
-            if (processed.markdown) {
-              const injected = injectPhotoUrls(processed.markdown, processed.photos || selectedPhotos);
-              // Cleanup AI output to remove BOM/ZWSP and normalize headings before putting into textarea
-              const cleaned = normalizeMarkdownForRendering(fixNestedMarkdownImages(injected));
-              setMarkdownText(cleaned);
-            }
-            if (processed.html) setGeneratedHtml(processed.html);
-            setTitle(processed.title || formValues.eventName || '');
-            setSubtitle(processed.subtitle || '');
-            succeed = true;
-            Toast.success('生成完成');
-          } else {
-            // 后端 job 带具体失败原因（模型超时/格式异常/未配置等），如实告诉用户
-            const reason = final && final.error ? String(final.error).slice(0, 140) : '';
-            Toast.error(reason ? `生成失败：${reason}` : '生成失败，请重试');
-          }
-        });
-      } else if (resp.status === 'succeeded' && resp.result) {
-        let processed = await replacePhotoPlaceholders(resp.result);
-        if (processed.markdown) {
-          const injected = injectPhotoUrls(processed.markdown, processed.photos || selectedPhotos);
-          const cleaned = normalizeMarkdownForRendering(fixNestedMarkdownImages(injected));
-          setMarkdownText(cleaned);
-        }
-        if (processed.html) setGeneratedHtml(processed.html);
-        setTitle(processed.title || formValues.eventName || '');
-        setSubtitle(processed.subtitle || '');
+
+      const resp = await startBatch(payload);
+      if (!resp || !resp.batchId) throw new Error('批次创建失败：响应缺少 batchId');
+
+      // 新一轮生成：清空上一轮的渠道内容/状态，避免旧结果与新 Tab 混在一起
+      processedJobIdsRef.current = new Set();
+      setChannelContent({});
+      setActiveChannelKey(null);
+      setBatchId(resp.batchId);
+      const initialJobs = {};
+      (resp.jobs || []).forEach((j) => { initialJobs[j.channelKey] = { jobId: j.jobId, status: 'pending', error: null }; });
+      setChannelJobs(initialJobs);
+      setBatchStatus('pending');
+      Toast.info('生成已提交，正在处理中');
+
+      const final = await pollBatchUntilDone(resp.batchId);
+      if (final && (final.status === 'succeeded' || final.status === 'partial')) {
         succeed = true;
-        Toast.success('生成完成（同步返回）');
-      } else {
-        // unexpected shape
-        Toast.error('生成接口返回格式异常');
+        Toast.success(final.status === 'succeeded' ? '全部渠道生成完成' : '部分渠道生成完成，失败的可点击重试');
+      } else if (final && final.status === 'failed') {
+        Toast.error('生成失败，请检查各渠道状态或重试');
       }
     } catch (e) {
       console.error('[AiNewsWriter] generate failed', e);
@@ -939,9 +1118,26 @@ const AiNewsWriter = () => {
     }
   };
 
+  // 单渠道失败重试：复用原 prompt 重新入队，然后恢复轮询直到该 batch 再次落定终态。
+  const handleRetryChannel = React.useCallback(async (channelKey) => {
+    const job = channelJobs[channelKey];
+    if (!job || !job.jobId || !batchId) return;
+    try {
+      const resp = await retryJob(job.jobId);
+      setChannelJobs((prev) => ({ ...prev, [channelKey]: { ...prev[channelKey], status: resp.status || 'pending', error: null } }));
+      Toast.info('已重新提交，正在处理中');
+      pollBatchUntilDone(batchId);
+    } catch (e) {
+      console.error('[AiNewsWriter] retry job failed', channelKey, e);
+      const reason = e && (e.message || (e.data && e.data.message)) ? String(e.message || e.data.message).slice(0, 140) : '';
+      Toast.error(reason ? `重试失败：${reason}` : '重试失败');
+    }
+  }, [channelJobs, batchId, pollBatchUntilDone]);
+
+  // 以下导出/预览函数均只作用于当前激活的渠道 Tab（activeContent），下一位 agent 会在此基础上做渠道特定导出
   const copyMarkdown = async () => {
     try {
-      await navigator.clipboard.writeText(markdownText);
+      await navigator.clipboard.writeText(activeContent.markdownText);
       Toast.success('已复制为 Markdown');
     } catch (e) {
       Toast.error('复制失败');
@@ -951,6 +1147,7 @@ const AiNewsWriter = () => {
   const copyHtml = async () => {
     try {
       // prefer server-provided html when available
+      const { markdownText, generatedHtml } = activeContent;
       const htmlToCopy = generatedHtml && generatedHtml.length ? generatedHtml : (markdownText.split('\n\n').map(p => `<p>${p.replace(/\n/g, '<br/>')}</p>`).join(''));
       await navigator.clipboard.writeText(htmlToCopy);
       Toast.success('已复制为 HTML');
@@ -959,7 +1156,123 @@ const AiNewsWriter = () => {
     }
   };
 
+  // ---- 渠道导出接线：以下均只作用于当前激活渠道（activeContent），公用工具函数放这里 ----
+
+  // 摄影师署名整行：selectedPhotos 里 photographerName 去重拼接，press_release/report_brief 的 Word 导出用
+  const photographerLine = React.useMemo(() => {
+    const names = [];
+    (selectedPhotos || []).forEach((p) => {
+      const n = String(p.photographerName || p.photographer_name || '').trim();
+      if (n && !names.includes(n)) names.push(n);
+    });
+    return names.length ? `摄影：${names.join('、')}` : '';
+  }, [selectedPhotos]);
+
+  // 图片 id -> 可访问 URL 映射：优先用 activeContent.photos（后端结果自带），
+  // 兜底用 selectedPhotos 的缩略图（覆盖 markdown 里已被 injectPhotoUrls 替换、不再含 PHOTO:id 的常见情况）
+  const buildPhotosMapForContent = React.useCallback((content) => {
+    const map = {};
+    (selectedPhotos || []).forEach((p) => {
+      const cand = p.thumbUrl || p.thumbSrc || p.thumb || p.url;
+      if (p.id != null && cand) map[String(p.id)] = cand;
+    });
+    (content?.photos || []).forEach((p) => {
+      if (p && p.id != null && p.url) map[String(p.id)] = p.url;
+    });
+    return map;
+  }, [selectedPhotos]);
+
+  // 导出用图片列表 [{id,url}]：优先用后端结果里的 photos，没有则退回已选照片
+  const getPhotosForExport = React.useCallback((content) => {
+    const list = (content?.photos && content.photos.length) ? content.photos : (selectedPhotos || []);
+    return list
+      .map((p) => ({ id: p.id, url: p.url || p.thumbUrl || p.thumbSrc || p.thumb }))
+      .filter((p) => p.url);
+  }, [selectedPhotos]);
+
+  // markdown 纯文本化：去图片行/标题符号/加粗星号/列表短横，供小红书、微博的「复制正文」使用
+  const markdownToPlainText = (md) => String(md || '')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+    .replace(/^#{1,6}\s*/gm, '')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/^-\s+/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  const hashtagsToText = (content) => (Array.isArray(content?.extra?.hashtags) ? content.extra.hashtags : [])
+    .map((t) => `#${t}#`)
+    .join(' ');
+
+  const handleCopyWechatRich = async () => {
+    try {
+      const { imageCount } = await copyWechatRichText({
+        title: activeContent.title,
+        markdown: activeContent.markdownText,
+        photosMap: buildPhotosMapForContent(activeContent),
+      });
+      Toast.success(`已复制公众号格式（含 ${imageCount} 张图片标记），图片需到公众号后台重新上传`);
+    } catch (e) {
+      Toast.error(e && e.message ? e.message : '复制失败');
+    }
+  };
+
+  const handleDownloadWechatImages = async () => {
+    try {
+      const n = await downloadImagePack({ photos: getPhotosForExport(activeContent), baseName: activeContent.title || '公众号图片' });
+      Toast.success(`已下载 ${n} 张图片`);
+    } catch (e) {
+      Toast.error(e && e.message ? e.message : '下载失败');
+    }
+  };
+
+  const handleExportWord = async () => {
+    try {
+      await exportNewsDocx({
+        title: activeContent.title,
+        subtitle: activeContent.subtitle,
+        markdown: activeContent.markdownText,
+        photosMap: buildPhotosMapForContent(activeContent),
+        captions: {},
+        photographerLine,
+      });
+      Toast.success('已导出 Word 文档');
+    } catch (e) {
+      Toast.error(e && e.message ? e.message : '导出 Word 失败');
+    }
+  };
+
+  const handleCopyXhsTitle = async () => {
+    try {
+      await navigator.clipboard.writeText(activeContent.title || '');
+      Toast.success('已复制标题');
+    } catch (e) {
+      Toast.error('复制失败');
+    }
+  };
+
+  const handleCopyBodyWithHashtags = async () => {
+    try {
+      const body = markdownToPlainText(activeContent.markdownText);
+      const tags = hashtagsToText(activeContent);
+      await navigator.clipboard.writeText(tags ? `${body}\n\n${tags}` : body);
+      Toast.success('已复制正文+话题');
+    } catch (e) {
+      Toast.error('复制失败');
+    }
+  };
+
+  const handleSaveActiveImages = async () => {
+    try {
+      const n = await downloadImagePack({ photos: getPhotosForExport(activeContent), baseName: activeContent.title || '图片' });
+      Toast.success(`已保存 ${n} 张图片`);
+    } catch (e) {
+      Toast.error(e && e.message ? e.message : '保存失败');
+    }
+  };
+
   const getFinalPreviewHtml = () => {
+    const { markdownText, generatedHtml } = activeContent;
     if (markdownText) {
       return sanitizeHtml(
         normalizePreviewHtml(
@@ -1386,11 +1699,46 @@ const AiNewsWriter = () => {
                   <div>
                     <div style={{ marginBottom: 6, fontSize: 12, color: '#444' }}>出席嘉宾 / 参与对象</div>
                     <TextArea value={formValues.participants} onChange={(v) => setFormValues((s) => ({ ...s, participants: v }))} rows={3} placeholder="出席嘉宾 / 参与对象（可选）" />
+                    {/* 智能预填：已选照片人脸姓名汇总去重生成的可删除 chips，提交时并入 participants，不回写到上面的输入框 */}
+                    <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                      {participantChips.length ? (
+                        <span style={{ fontSize: 11, color: '#888' }}>识别自照片：</span>
+                      ) : null}
+                      {participantChips.map((name) => (
+                        <Tag
+                          key={name}
+                          size="small"
+                          type="light"
+                          onClick={() => setParticipantChips((prev) => prev.filter((n) => n !== name))}
+                        >
+                          {name} ×
+                        </Tag>
+                      ))}
+                      <Input
+                        placeholder="手动添加出席人物，回车确认"
+                        style={{ width: 160 }}
+                        value={participantDraft}
+                        onChange={setParticipantDraft}
+                        onEnterPress={() => {
+                          const n = participantDraft.trim();
+                          if (!n) return;
+                          setParticipantChips((prev) => (prev.includes(n) ? prev : [...prev, n]));
+                          setParticipantDraft('');
+                        }}
+                      />
+                    </div>
                   </div>
 
                   <div>
                     <div style={{ marginBottom: 6, fontSize: 12, color: '#444' }}>活动亮点</div>
                     <TextArea value={formValues.highlights} onChange={(v) => setFormValues((s) => ({ ...s, highlights: v }))} rows={4} placeholder="活动亮点 / 希望重点表达的内容（必填）" />
+                    {/* 智能预填：亮点为空且能从照片标签拼出建议时才展示，纯前端字符串拼接，不调用模型 */}
+                    {!formValues.highlights && highlightSuggestion ? (
+                      <div style={{ marginTop: 6, display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12, color: '#666', background: 'rgba(0,0,0,0.03)', borderRadius: 6, padding: '6px 8px' }}>
+                        <span style={{ flex: 1 }}>AI 建议：{highlightSuggestion}</span>
+                        <Button size="small" onClick={() => setFormValues((s) => ({ ...s, highlights: highlightSuggestion }))}>采纳</Button>
+                      </div>
+                    ) : null}
                   </div>
 
                   {/* 稿件用途和文风偏好已隐藏，后端未就绪 */}
@@ -1424,6 +1772,62 @@ const AiNewsWriter = () => {
                   <TextArea value={interviewText} onChange={(v) => setInterviewText(v)} rows={4} placeholder="可以粘贴采访录音转写稿的文本，AI 会适当引用其中的内容" />
                 </div>
 
+                {/* 生成渠道多选：勾选态黑边+右上角勾角标，视觉语言参照 rescue-pick-thumb 但做成更小的胶囊卡片 */}
+                <div style={{ marginTop: 16 }}>
+                  <h4 style={{ margin: '0 0 8px 0' }}>生成渠道（可多选）</h4>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {CHANNELS.map((ch) => {
+                      const picked = selectedChannels.includes(ch.key);
+                      return (
+                        <button
+                          key={ch.key}
+                          type="button"
+                          title={ch.desc}
+                          onClick={() => toggleChannel(ch.key)}
+                          style={{
+                            position: 'relative',
+                            padding: '7px 14px',
+                            borderRadius: 999,
+                            border: `1.5px solid ${picked ? '#111' : 'rgba(0,0,0,0.16)'}`,
+                            background: picked ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.5)',
+                            color: picked ? '#111' : '#555',
+                            fontSize: 12.5,
+                            fontWeight: picked ? 700 : 500,
+                            cursor: 'pointer',
+                            lineHeight: 1.4,
+                          }}
+                        >
+                          {ch.name}
+                          {picked ? (
+                            <span
+                              aria-hidden
+                              style={{
+                                position: 'absolute',
+                                top: -6,
+                                right: -6,
+                                width: 15,
+                                height: 15,
+                                borderRadius: '50%',
+                                background: '#111',
+                                color: '#fff',
+                                fontSize: 9,
+                                lineHeight: '15px',
+                                textAlign: 'center',
+                                border: '1px solid #fff',
+                              }}
+                            >
+                              ✓
+                            </span>
+                          ) : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div style={{ fontSize: 12, color: selectedChannels.length ? '#666' : '#dc2626', marginTop: 6 }}>
+                    {selectedChannels.length ? `已选 ${selectedChannels.length} 个渠道，将并行生成` : '至少选择 1 个渠道才能生成'}
+                  </div>
+                </div>
+
                 <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 8 }}>
                   <div style={{ display: 'flex', justifyContent: 'flex-start', gap: 8, flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
                     <Button onClick={async () => {
@@ -1450,7 +1854,7 @@ const AiNewsWriter = () => {
                       }
                       setShowAdvancedEditor(true);
                     }}>高级编辑</Button>
-                    <Button type="primary" onClick={() => handleGenerate()} disabled={isGenerating}>
+                    <Button type="primary" onClick={() => handleGenerate()} disabled={isGenerating || !selectedChannels.length}>
                       {isGenerating ? `生成中 ${Math.max(1, Math.min(99, Math.round(generationProgress)))}%` : '生成初稿'}
                     </Button>
                   </div>
@@ -1473,6 +1877,53 @@ const AiNewsWriter = () => {
                         <div style={{ marginTop: 6, fontSize: 12, color: '#64748b' }}>约 25 秒到 99%，随后等待完成</div>
                     </div>
                   )}
+                  {Object.keys(channelJobs).length > 0 && (
+                    <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {CHANNELS.filter((ch) => channelJobs[ch.key]).map((ch) => {
+                        const job = channelJobs[ch.key];
+                        const label = CHANNEL_STATUS_LABEL[job.status] || job.status || '未知';
+                        const isFailed = job.status === 'failed';
+                        const isDone = job.status === 'succeeded';
+                        return (
+                          <div
+                            key={ch.key}
+                            style={{
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 2,
+                              padding: '7px 10px',
+                              borderRadius: 8,
+                              background: 'rgba(0,0,0,0.03)',
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <span style={{ fontSize: 13, fontWeight: 600 }}>{ch.name}</span>
+                                <span
+                                  style={{
+                                    fontSize: 11.5,
+                                    padding: '2px 8px',
+                                    borderRadius: 999,
+                                    background: isDone ? '#111' : isFailed ? 'rgba(220,38,38,0.12)' : 'rgba(0,0,0,0.08)',
+                                    color: isDone ? '#fff' : isFailed ? '#b91c1c' : '#444',
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  {label}
+                                </span>
+                              </div>
+                              {isFailed ? (
+                                <Button size="small" type="danger" theme="borderless" onClick={() => handleRetryChannel(ch.key)}>重试</Button>
+                              ) : null}
+                            </div>
+                            {isFailed && job.error ? (
+                              <div style={{ fontSize: 11, color: '#b91c1c' }}>{String(job.error).slice(0, 140)}</div>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </Card>
             </div>
@@ -1482,9 +1933,10 @@ const AiNewsWriter = () => {
               visible={showAdvancedEditor}
               onCancel={() => setShowAdvancedEditor(false)}
               onOk={() => {
-                // 在弹窗中应用当前 advancedPrompt 并生成
+                // 矩阵批次接口只吃结构化 form/channels，不支持直接注入整段 prompt；
+                // 这里的编辑内容仅供预览核对，「应用并生成」等价于走一次正常的批次生成。
                 setShowAdvancedEditor(false);
-                handleGenerate(advancedPrompt);
+                handleGenerate();
               }}
               okText="应用并生成"
             >
@@ -1523,48 +1975,193 @@ const AiNewsWriter = () => {
               <Card title="AI 生成结果编辑区" bordered>
                 {/* 标题、副标题改为不在编辑区单独输入，保持单一 Markdown 编辑区 */}
 
-                {/* 说明文本已移除：后端插入图片占位符的说明不再显示 */}
+                {Object.keys(channelContent).length ? (
+                  <>
+                    {/* 渠道 Tab：胶囊按钮组，选中黑底白字，切换后下方编辑器/预览随之切到该渠道的 keyed state；
+                        存在待核对的事实/禁用词命中时右上角加红点 */}
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+                      {CHANNELS.filter((ch) => channelContent[ch.key]).map((ch) => {
+                        const isActive = ch.key === activeChannelKey;
+                        const flagged = hasFactIssues(channelContent[ch.key]);
+                        return (
+                          <button
+                            key={ch.key}
+                            type="button"
+                            onClick={() => setActiveChannelKey(ch.key)}
+                            style={{
+                              position: 'relative',
+                              padding: '8px 16px',
+                              borderRadius: 999,
+                              border: `1px solid ${isActive ? '#111' : 'rgba(0,0,0,0.16)'}`,
+                              background: isActive ? 'linear-gradient(135deg, #2f2f2f, #101010)' : 'rgba(255,255,255,0.5)',
+                              color: isActive ? '#fff' : '#111',
+                              fontSize: 13,
+                              fontWeight: 800,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            {ch.name}
+                            {flagged ? (
+                              <span
+                                aria-hidden
+                                title="存在待核对信息"
+                                style={{
+                                  position: 'absolute',
+                                  top: -3,
+                                  right: -3,
+                                  width: 9,
+                                  height: 9,
+                                  borderRadius: '50%',
+                                  background: '#dc2626',
+                                  border: '1px solid #fff',
+                                }}
+                              />
+                            ) : null}
+                          </button>
+                        );
+                      })}
+                    </div>
 
-                <Tabs defaultActiveKey="editor">
-                  <Tabs.TabPane itemKey="editor" tab="Markdown 编辑">
-                    <TextArea value={markdownText} onChange={(v) => setMarkdownText(v)} rows={isMobile ? 8 : 14} placeholder="生成内容将在这里显示" />
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
-                      <div>当前字数：{countVisibleChars(markdownText)}</div>
-                      <div style={{ display: 'flex', gap: 8, flexWrap: isMobile ? 'wrap' : 'nowrap', justifyContent: isMobile ? 'flex-end' : 'flex-start' }}>
-                        <Button onClick={copyMarkdown}>复制为 Markdown</Button>
-                        <Button onClick={copyHtml}>复制为 HTML</Button>
+                    {/* 校验标红：事实核对/禁用词命中列表，可点「忽略」折叠（不删除数据，仅隐藏本渠道的提示条） */}
+                    {hasFactIssues(activeContent) && !collapsedWarnings[activeChannelKey] ? (
+                      <div style={{ marginBottom: 14, padding: '10px 12px', borderRadius: 8, border: '1px solid rgba(220,38,38,0.35)', background: 'rgba(220,38,38,0.06)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                          <strong style={{ fontSize: 13, color: '#b91c1c' }}>校验提醒：以下内容可能与表单信息不符，请人工核对</strong>
+                          <Button size="small" theme="borderless" onClick={() => setCollapsedWarnings((prev) => ({ ...prev, [activeChannelKey]: true }))}>忽略</Button>
+                        </div>
+                        <ul style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 12.5, color: '#7f1d1d', lineHeight: 1.7 }}>
+                          {(activeContent.factCheck?.issues || []).map((iss, idx) => (
+                            <li key={`issue-${idx}`}>
+                              {FACT_ISSUE_TYPE_LABEL[iss.type] || iss.type}：表单为「{iss.expect}」，正文出现「{iss.found}」
+                              {iss.snippet ? <span style={{ color: '#991b1b' }}>（原文：…{iss.snippet}…）</span> : null}
+                            </li>
+                          ))}
+                          {(activeContent.factCheck?.forbiddenHits || activeContent.factCheck?.hits || []).map((hit, idx) => (
+                            <li key={`forbidden-${idx}`}>
+                              禁用词：命中「{hit.word}」
+                              {hit.snippet ? <span style={{ color: '#991b1b' }}>（原文：…{hit.snippet}…）</span> : null}
+                            </li>
+                          ))}
+                        </ul>
                       </div>
-                    </div>
-                  </Tabs.TabPane>
-                  <Tabs.TabPane itemKey="preview" tab="预览">
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
-                      <Button
-                        onClick={generatePreviewImage}
-                        loading={isGeneratingPreviewImage}
-                        disabled={!finalPreviewHtml}
-                      >
-                        生成预览图
-                      </Button>
-                    </div>
-                    <div
-                      ref={previewContentRef}
-                      style={{
-                        border: '1px solid #eee',
-                        padding: isMobile ? 14 : 18,
-                        borderRadius: 4,
-                        minHeight: 240,
-                        fontSize: isMobile ? 17 : 19,
-                        lineHeight: 1.9,
-                      }}
-                    >
-                      {finalPreviewHtml ? (
-                        <div dangerouslySetInnerHTML={{ __html: finalPreviewHtml }} />
-                      ) : (
-                        <div style={{ color: '#999' }}>暂无内容</div>
-                      )}
-                    </div>
-                  </Tabs.TabPane>
-                </Tabs>
+                    ) : null}
+
+                    {activeChannelKey === 'wechat_article' ? (
+                      /* 公众号 Tab：整块换成排版预览编辑器 + 复制富文本/下载图片包，不复用通用 Markdown/预览 Tabs */
+                      <>
+                        <WechatPreviewEditor
+                          title={activeContent.title}
+                          markdown={activeContent.markdownText}
+                          photosMap={buildPhotosMapForContent(activeContent)}
+                          onChangeMarkdown={setActiveMarkdownText}
+                          onChangeTitle={(v) => updateChannelContent(activeChannelKey, { title: v })}
+                        />
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+                          <Button onClick={handleCopyWechatRich}>复制公众号格式</Button>
+                          <Button onClick={handleDownloadWechatImages}>下载图片包</Button>
+                        </div>
+                      </>
+                    ) : (
+                      <Tabs defaultActiveKey="editor" key={activeChannelKey}>
+                        <Tabs.TabPane itemKey="editor" tab="Markdown 编辑">
+                          <TextArea value={activeContent.markdownText} onChange={setActiveMarkdownText} rows={isMobile ? 8 : 14} placeholder="生成内容将在这里显示" />
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, flexWrap: 'wrap', gap: 8 }}>
+                            <div>当前字数：{countVisibleChars(activeContent.markdownText)}</div>
+                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: isMobile ? 'flex-end' : 'flex-start' }}>
+                              <Button onClick={copyMarkdown}>复制为 Markdown</Button>
+                              <Button onClick={copyHtml}>复制为 HTML</Button>
+                              {/* 渠道专属导出：新闻稿/通讯稿导出 Word；小红书复制标题/正文+话题/保存图片；微博复制全文 */}
+                              {(activeChannelKey === 'press_release' || activeChannelKey === 'report_brief') ? (
+                                <Button onClick={handleExportWord}>导出 Word</Button>
+                              ) : null}
+                              {activeChannelKey === 'xiaohongshu' ? (
+                                <>
+                                  <Button onClick={handleCopyXhsTitle}>复制标题</Button>
+                                  <Button onClick={handleCopyBodyWithHashtags}>复制正文+话题</Button>
+                                  <Button onClick={handleSaveActiveImages}>保存图片</Button>
+                                </>
+                              ) : null}
+                              {activeChannelKey === 'weibo' ? (
+                                <Button onClick={handleCopyBodyWithHashtags}>复制全文</Button>
+                              ) : null}
+                            </div>
+                          </div>
+
+                          {/* 小红书专属：extra.hashtags 话题胶囊，可删、可输入添加，不写进 markdown 正文 */}
+                          {activeChannelKey === 'xiaohongshu' ? (
+                            <div style={{ marginTop: 14 }}>
+                              <div style={{ fontSize: 12, color: '#444', marginBottom: 6 }}>话题标签</div>
+                              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                                {(Array.isArray(activeContent.extra?.hashtags) ? activeContent.extra.hashtags : []).map((tagText, idx) => (
+                                  <Tag
+                                    key={`${tagText}-${idx}`}
+                                    size="small"
+                                    type="light"
+                                    onClick={() => {
+                                      updateChannelContent(activeChannelKey, (base) => ({
+                                        ...base,
+                                        extra: { ...base.extra, hashtags: (base.extra?.hashtags || []).filter((_, i) => i !== idx) },
+                                      }));
+                                    }}
+                                  >
+                                    #{tagText} ×
+                                  </Tag>
+                                ))}
+                                <Input
+                                  placeholder="添加话题，回车确认"
+                                  style={{ width: 140 }}
+                                  value={hashtagDraft}
+                                  onChange={setHashtagDraft}
+                                  onEnterPress={() => {
+                                    const t = hashtagDraft.trim().replace(/^#/, '');
+                                    if (!t) return;
+                                    updateChannelContent(activeChannelKey, (base) => ({
+                                      ...base,
+                                      extra: { ...base.extra, hashtags: [...(base.extra?.hashtags || []), t] },
+                                    }));
+                                    setHashtagDraft('');
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          ) : null}
+                        </Tabs.TabPane>
+                        <Tabs.TabPane itemKey="preview" tab="预览">
+                          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+                            <Button
+                              onClick={generatePreviewImage}
+                              loading={isGeneratingPreviewImage}
+                              disabled={!finalPreviewHtml}
+                            >
+                              生成预览图
+                            </Button>
+                          </div>
+                          <div
+                            ref={previewContentRef}
+                            style={{
+                              border: '1px solid #eee',
+                              padding: isMobile ? 14 : 18,
+                              borderRadius: 4,
+                              minHeight: 240,
+                              fontSize: isMobile ? 17 : 19,
+                              lineHeight: 1.9,
+                            }}
+                          >
+                            {finalPreviewHtml ? (
+                              <div dangerouslySetInnerHTML={{ __html: finalPreviewHtml }} />
+                            ) : (
+                              <div style={{ color: '#999' }}>暂无内容</div>
+                            )}
+                          </div>
+                        </Tabs.TabPane>
+                      </Tabs>
+                    )}
+                  </>
+                ) : (
+                  <div style={{ color: '#999', padding: '32px 0', textAlign: 'center' }}>
+                    选择生成渠道后点击「生成初稿」，各渠道结果会在这里以 Tab 形式分开展示
+                  </div>
+                )}
 
                 {/* 编辑区底部的实验性功能按钮已移除 */}
               </Card>

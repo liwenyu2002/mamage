@@ -1,0 +1,189 @@
+/* 公众号排版预览编辑器样式。
+   类名统一 .wechat- 前缀，与全站 ui 组件（.mamage-*）不冲突，方便被任意父容器直接引入。
+   正文阅读区强制白底黑字（贴近公众号真实发布效果），不跟随站内深色主题——
+   因为这里预览的是"发布到公众号后的样子"，不是站内界面本身。 */
+
+.wechat-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+.wechat-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.wechat-mode-switch {
+  display: flex;
+  gap: 8px;
+}
+
+.wechat-title-count {
+  font-size: 12px;
+  color: #8a8a8a;
+}
+
+.wechat-title-count.is-over {
+  color: #d92c2c;
+  font-weight: 600;
+}
+
+/* 外层负责窄屏自适应，内层 canvas 固定 677px 贴近公众号正文实际可见宽度 */
+.wechat-canvas-wrap {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  display: flex;
+  justify-content: center;
+  background: #efefef;
+  border-radius: 12px;
+  padding: 24px 12px;
+}
+
+.wechat-canvas {
+  width: 677px;
+  max-width: 100%;
+  background: #ffffff;
+  border-radius: 4px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  padding: 24px 24px 40px;
+  box-sizing: border-box;
+}
+
+.wechat-title-input {
+  width: 100%;
+  border: none;
+  outline: none;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.4;
+  color: #1a1a1a;
+  padding: 4px 0 16px;
+  border-bottom: 1px solid #eee;
+  margin-bottom: 16px;
+  background: transparent;
+  box-sizing: border-box;
+}
+
+.wechat-title-input.is-over {
+  color: #d92c2c;
+}
+
+.wechat-title-input::placeholder {
+  color: #bbb;
+}
+
+.wechat-body-textarea {
+  width: 100%;
+  min-height: 420px;
+  border: 1px solid #eee;
+  border-radius: 4px;
+  padding: 16px;
+  font-size: 14px;
+  line-height: 1.75;
+  color: #333;
+  font-family: inherit;
+  resize: vertical;
+  box-sizing: border-box;
+  background: #fafafa;
+}
+
+.wechat-body-textarea:focus {
+  outline: none;
+  border-color: #ccc;
+  background: #fff;
+}
+
+/* 正文阅读态：15px / 1.75 行高 / 两端留白，贴近公众号真实排版观感 */
+.wechat-body-preview {
+  font-size: 15px;
+  line-height: 1.75;
+  color: #3f3f3f;
+  letter-spacing: 0.05em;
+  word-break: break-word;
+}
+
+.wechat-body-preview p {
+  margin: 0 0 20px;
+  padding: 0 2px;
+}
+
+.wechat-body-preview h1,
+.wechat-body-preview h2 {
+  font-size: 19px;
+  font-weight: 700;
+  color: #1a1a1a;
+  margin: 30px 0 16px;
+  line-height: 1.5;
+}
+
+.wechat-body-preview h3 {
+  font-size: 17px;
+  font-weight: 700;
+  color: #1a1a1a;
+  margin: 24px 0 12px;
+  line-height: 1.5;
+}
+
+.wechat-body-preview strong {
+  font-weight: 700;
+  color: #1a1a1a;
+}
+
+.wechat-body-preview img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 16px auto;
+  border-radius: 4px;
+}
+
+.wechat-body-preview blockquote {
+  margin: 16px 0;
+  padding: 8px 16px;
+  background: #f7f7f7;
+  border-left: 3px solid #ccc;
+  color: #666;
+}
+
+.wechat-body-preview ul,
+.wechat-body-preview ol {
+  margin: 0 0 20px;
+  padding-left: 24px;
+}
+
+.wechat-body-preview li {
+  margin-bottom: 6px;
+}
+
+.wechat-body-preview em {
+  color: #666;
+}
+
+.wechat-body-preview a {
+  color: #576b95;
+  text-decoration: none;
+}
+
+.wechat-body-preview hr {
+  border: none;
+  border-top: 1px solid #eee;
+  margin: 24px 0;
+}
+
+.wechat-empty-hint {
+  color: #bbb;
+}
+
+@media (max-width: 720px) {
+  .wechat-canvas-wrap {
+    padding: 12px 4px;
+  }
+  .wechat-canvas {
+    padding: 16px 16px 28px;
+  }
+}
