@@ -5591,3 +5591,82 @@ body.mamage-viewer-open [data-transfer-station-root="1"] {
     max-height: 24vh;
   }
 }
+
+/* ===== 查看器 flex 三段式 v2：顶栏/图片区/坞纵向排布，图片高度=剩余空间，杜绝重叠裁切 ===== */
+.viewer-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 10px 14px 12px;
+  box-sizing: border-box;
+}
+
+.viewer-topbar {
+  position: static;
+  padding: 2px 4px;
+  background: none;
+  pointer-events: auto;
+}
+
+.viewer-img-wrap {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  height: auto;
+  padding: 0 clamp(52px, 6vw, 84px);
+  container-type: size;
+}
+
+.viewer-img-stage {
+  height: 100%;
+  max-height: 100%;
+}
+
+/* 图片上限由 img-wrap 容器高度直接决定（中间层高度不定也不受影响），
+   人脸框层贴 surface=图片实盒，坐标不受影响 */
+@supports (height: 100cqh) {
+  .viewer-carousel-img {
+    max-height: calc(100cqh - 8px);
+  }
+}
+
+.viewer-dock {
+  position: static;
+  left: auto;
+  bottom: auto;
+  transform: none;
+  width: min(100%, 880px);
+  margin: 0 auto;
+  flex: 0 0 auto;
+}
+
+.viewer-dock .viewer-info-card {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 16px;
+  background: rgba(12, 12, 14, 0.55);
+  backdrop-filter: blur(16px) saturate(1.2);
+  -webkit-backdrop-filter: blur(16px) saturate(1.2);
+  max-height: 24vh;
+}
+
+@media (max-width: 768px) {
+  .viewer-wrap {
+    padding: 8px 8px 10px;
+    gap: 8px;
+  }
+
+  .viewer-img-wrap {
+    padding: 0 46px;
+  }
+
+  .viewer-dock {
+    width: 100%;
+  }
+
+  .viewer-dock .viewer-info-card {
+    max-height: 20vh;
+  }
+}
