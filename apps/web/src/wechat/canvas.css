@@ -59,13 +59,22 @@
   background: rgba(47, 107, 214, 0.05);
 }
 
-/* 框选橡皮筋矩形（画布相对定位） */
+/* 框选橡皮筋矩形（画布相对定位；起手点在画布外时坐标为负值/越界，
+   .cve-canvas 无 overflow 裁剪，越界部分照常可见） */
 .cve-rubber {
   position: absolute;
   z-index: 16;
   border: 1px solid #2f6bd6;
   background: rgba(47, 107, 214, 0.1);
   pointer-events: none;
+}
+
+/* 框选进行中（从画布空白或页面背景起手）：全页禁文本选择，
+   避免橡皮筋扫过标题/文案时拉出蓝色文本选区 */
+body.cve-box-selecting,
+body.cve-box-selecting * {
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 /* 多选浮动操作条：固定视口底部居中，批量收藏/删除 */

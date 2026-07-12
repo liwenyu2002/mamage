@@ -1000,11 +1000,12 @@ function CanvasEditor({
   // 卸载兜底：框选进行中组件被卸载时，移除挂在 document 上的监听器，防泄漏
   React.useEffect(() => () => { if (boxCleanupRef.current) boxCleanupRef.current(); }, []);
 
-  const handleCanvasPointerDown = (e) => {
-    if (e.button !== 0 || e.target !== canvasRef.current) return; // 只在背景起手,块内留给文本选择/编辑
+  const startBoxSelect = React.useCallback((e) => {
     if (boxCleanupRef.current) boxCleanupRef.current(); // 起手前先清掉上一会话残留（防叠加两组监听器）
     const start = { x: e.clientX, y: e.clientY, moved: false };
     boxStateRef.current = start;
+    // 全页禁文本选择：从页面背景起手拖过标题/文案时不拉出蓝色文本选区
+    document.body.classList.add('cve-box-selecting');
 
     const compute = (cx, cy) => {
       const canvas = canvasRef.current;
@@ -1017,6 +1018,7 @@ function CanvasEditor({
         const r = el.getBoundingClientRect();
         if (!(r.right < x1 || r.left > x2 || r.bottom < y1 || r.top > y2)) hits.add(el.getAttribute('data-cve-uid'));
       });
+      // rect 存画布相对坐标；起手点在画布外时为负值/越界,.cve-canvas 无 overflow 裁剪,橡皮筋照常显示
       return { rect: { left: x1 - cr.left, top: y1 - cr.top, width: x2 - x1, height: y2 - y1 }, hits };
     };
 
@@ -1024,6 +1026,7 @@ function CanvasEditor({
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
       document.removeEventListener('pointercancel', onCancel);
+      document.body.classList.remove('cve-box-selecting');
       boxCleanupRef.current = null;
       setBoxRect(null);
       boxStateRef.current = null;
@@ -1049,7 +1052,35 @@ function CanvasEditor({
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
     document.addEventListener('pointercancel', onCancel);
+  }, [onSelect]);
+
+  const handleCanvasPointerDown = (e) => {
+    if (e.button !== 0 || e.target !== canvasRef.current) return; // 只在画布空白起手,块内留给文本选择/编辑
+    startBoxSelect(e);
   };
+
+  // 页面背景也可起手框选：target 必须精确等于这些容器自身（matches 不含 closest 语义），
+  // 任何子元素——按钮/输入框/样式块/面板内容——都不会命中，不劫持既有交互；
+  // 画布自身由上面的 React onPointerDown 处理（此处显式跳过防双开）。
+  React.useEffect(() => {
+    const BG_SELECTOR = [
+      '.wxc-workspace', '.wxc-workarea', '.wxc-canvas-region',
+      '.wxc-canvas-toolbar', '.wxc-canvas-toolbar-left', '.wxc-canvas-toolbar-right',
+      '.wxc-export-row', '.wxc-page-header', '.wxc-meta-row',
+      '.semi-layout', '.semi-layout-content',
+      '.cve-empty-hint',
+    ].join(', ');
+    const onDocPointerDown = (e) => {
+      if (e.button !== 0) return;
+      const t = e.target;
+      if (!t || typeof t.matches !== 'function') return;
+      if (t === canvasRef.current) return;
+      if (!t.matches(BG_SELECTOR)) return;
+      startBoxSelect(e);
+    };
+    document.addEventListener('pointerdown', onDocPointerDown);
+    return () => document.removeEventListener('pointerdown', onDocPointerDown);
+  }, [startBoxSelect]);
 
   const favoriteSelection = React.useCallback(() => {
     const blocks = list.filter((b) => multiSel.has(b.uid));
