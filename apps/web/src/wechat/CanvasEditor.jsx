@@ -1094,6 +1094,35 @@ function CanvasEditor({
     clearMultiSel();
   }, [list, multiSel, onChange, clearMultiSel]);
 
+  // 键盘操作：⌘/Ctrl+A 全选画布块，Delete/Backspace（mac 退格）删除选中块（多选优先，其次单选）。
+  // 输入场景一律放行原生行为——input/textarea/原地编辑 contenteditable 里 ⌘A 是选文字、退格是删字；
+  // 任一弹窗（图片选择器/导入预览等）打开时也不接管，防止焦点在弹窗空白处时误删画布块。
+  // 删除走 onChange 进历史栈，⌘Z 可撤销。
+  React.useEffect(() => {
+    const onKeyDown = (e) => {
+      const t = e.target;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      if (document.querySelector('.semi-modal')) return;
+      const key = String(e.key || '').toLowerCase();
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && key === 'a') {
+        if (!list.length) return;
+        e.preventDefault();
+        setMultiSel(new Set(list.map((b) => b.uid)));
+        onSelect(null); // 全选进多选态，清单选（避免两套高亮并存）
+      } else if (!e.metaKey && !e.ctrlKey && !e.altKey && (key === 'delete' || key === 'backspace')) {
+        if (multiSel.size) {
+          e.preventDefault();
+          deleteSelection();
+        } else if (selectedUid) {
+          e.preventDefault();
+          deleteBlock(selectedUid);
+        }
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [list, multiSel, selectedUid, deleteSelection, deleteBlock, onSelect]);
+
   return (
     <>
     <div
