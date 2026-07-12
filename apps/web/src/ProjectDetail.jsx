@@ -5545,6 +5545,31 @@ function ProjectDetail({
         </Modal>
 
         {/* 涓婁紶棰勮弹窗 */}
+        {uploading && uploadProgress && !uploadMode ? (
+          <div className="detail-float-upload" role="status" aria-live="polite">
+            <div className="detail-float-upload-row">
+              <span className="detail-float-upload-title">
+                {getUploadProgressTitle(uploadProgress)}
+                <span className="detail-float-upload-count">
+                  {uploadProgress.completedFiles + uploadProgress.failedFiles}/{uploadProgress.totalFiles}
+                </span>
+              </span>
+              <b className="detail-float-upload-pct">{uploadProgress.percent || 0}%</b>
+            </div>
+            <div className={`detail-float-upload-track${(uploadProgress.percent || 0) >= 100 ? ' is-waiting' : ''}`}>
+              <span style={{ width: `${uploadProgress.percent || 0}%` }} />
+            </div>
+            <div className="detail-float-upload-foot">
+              <span className="detail-float-upload-active">
+                {uploadProgress.activeFileName
+                  ? `${getUploadPhaseLabel(uploadProgress.activePhase)}：${uploadProgress.activeFileName}`
+                  : ((uploadProgress.percent || 0) >= 100 ? '处理中…' : '上传中…')}
+              </span>
+              <button type="button" className="detail-float-upload-expand" onClick={() => setUploadMode(true)}>展开</button>
+            </div>
+          </div>
+        ) : null}
+
         <Modal
           title={`准备上传 (${stagingFiles.length})`}
           visible={uploadMode}

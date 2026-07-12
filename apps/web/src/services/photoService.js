@@ -2,8 +2,12 @@
 import { request, BASE_URL } from './request';
 import { fetchLatestByType, fetchRandomByProject, searchPhotos } from './photoQueryService';
 
+// 默认串行(并发 1，原 4)：公网经 cloudflared 慢隧道(~0.37MB/s)上传，多张并发会把带宽切分，
+// 单张大图耗时轻松超过 Cloudflare 源站 100s 上限触发 524。串行让每张都独享全部隧道带宽——
+// 100s×0.37MB/s≈37MB，覆盖几乎所有原图，从而在【完全不压缩、不掉画质】的前提下稳过超时。
+// 代价是多张照片依次上传较慢，但可靠且原图无损；需要更快可用 window.__MAMAGE_UPLOAD_CONCURRENCY__ 调高。
 const DEFAULT_UPLOAD_CONCURRENCY = Math.max(1, Number(
-  (typeof window !== 'undefined' && window.__MAMAGE_UPLOAD_CONCURRENCY__) || 4
+  (typeof window !== 'undefined' && window.__MAMAGE_UPLOAD_CONCURRENCY__) || 1
 ));
 const FRONTEND_MAX_VIDEO_UPLOAD_BYTES = 3 * 1024 * 1024 * 1024;
 const DEFAULT_LAN_UPLOAD_API_BASES = [];
