@@ -708,11 +708,78 @@ body.wxc-dragging {
   -webkit-user-drag: none;
 }
 
-/* ---- 整文复现确认弹层 ---- */
+/* ---- 左侧面板顶层三 Tab（样式/相册/收藏）---- */
 
-.wxc-import-summary {
-  margin: 0 0 16px;
-  font-size: 13.5px;
-  line-height: 1.7;
+.wxc-side-toptabs {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.wxc-side-toptab {
+  flex: 1;
+  padding: 7px 0;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.6);
+  font-size: 13px;
+  font-weight: 700;
+  color: rgba(0, 0, 0, 0.65);
+  cursor: pointer;
+}
+
+.wxc-side-toptab.is-active {
+  background: linear-gradient(135deg, #2f2f2f, #101010);
+  border-color: #111;
+  color: #fff;
+}
+
+/* 样式 tab 的显隐容器：display:none 保状态,可见时接管父面板的 flex 列布局 */
+.wxc-style-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+  min-height: 0;
+}
+
+/* 相册/收藏 Tab 的显隐包裹：同 style-pane,首次访问后常驻挂载,靠 display 切换保状态 */
+.wxc-tabpane {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.wxc-fav-loaderr {
+  padding: 24px 12px;
+  text-align: center;
+  font-size: 13px;
+  color: rgba(0, 0, 0, 0.55);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+}
+
+/* ---- 样式块卡收藏星标：黑白 chrome,收藏态实心星 ---- */
+
+.wxc-lib-block-star {
+  appearance: none;
+  border: none;
+  background: transparent;
+  padding: 0 2px;
+  font-size: 14px;
+  line-height: 1;
+  color: rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.wxc-lib-block-star:hover {
   color: rgba(0, 0, 0, 0.75);
+}
+
+.wxc-lib-block-star.is-on {
+  color: #111111;
 }

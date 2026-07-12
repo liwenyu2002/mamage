@@ -150,15 +150,69 @@
   left: 50%;
   transform: translateX(-50%);
   display: flex;
+  flex-direction: column;
   align-items: center;
   gap: 2px;
   padding: 4px 6px;
-  border-radius: 999px;
+  border-radius: 18px;
   background: rgba(17, 17, 17, 0.94);
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
   z-index: 20;
   white-space: nowrap;
   cursor: default;
+}
+
+.cve-toolbar-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* 第二行上下文区与第一行之间一条细分隔 */
+.cve-toolbar-row--ctx {
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+  padding-top: 3px;
+  margin-top: 1px;
+}
+
+.cve-toolbar-sep {
+  width: 1px;
+  height: 14px;
+  margin: 0 4px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.cve-toolbar-label {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 11.5px;
+  padding: 0 4px;
+}
+
+.cve-toolbar-btn.is-on {
+  background: rgba(255, 255, 255, 0.24);
+}
+
+.cve-toolbar-btn--sz {
+  min-width: 26px;
+}
+
+.cve-dot-preview--text {
+  display: inline-block;
+  width: auto;
+  height: auto;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 700;
+  text-decoration: underline;
+}
+
+/* raw 块内选中的图片：黑色描边高亮（属性由 RawView 手工管理，innerHTML 非 React 域） */
+.cve-raw-host img[data-cve-img-active] {
+  outline: 2px solid #111111;
+  outline-offset: 2px;
 }
 
 .cve-toolbar--above {

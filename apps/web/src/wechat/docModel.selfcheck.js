@@ -14,6 +14,9 @@ import {
   createHistory,
   sanitizeParaHtml,
   sanitizeRawHtml,
+  splitRawHtml,
+  replaceRawImgSrc,
+  applyRawImgStyle,
 } from './docModel.js';
 
 let failCount = 0;
@@ -393,6 +396,44 @@ check(
 
 check('空输入返回空串', sanitizeParaHtml('') === '' && sanitizeParaHtml(null) === '' && sanitizeParaHtml(undefined) === '');
 
+// ---- v5 扩展：u/span 白名单、b/i 归一 ----
+
+check('u 标签保留', sanitizeParaHtml('<u>下划线</u>') === '<u>下划线</u>');
+
+check('b 归一为 strong（开闭标签都归一）', sanitizeParaHtml('<b>粗体</b>') === '<strong>粗体</strong>');
+
+check('i 归一为 em（开闭标签都归一）', sanitizeParaHtml('<i>斜体</i>') === '<em>斜体</em>');
+
+check(
+  'span style 白名单声明保留（color/font-size），值原样拼接',
+  sanitizeParaHtml('<span style="color:#ff0000;font-size:14px;">彩字</span>') === '<span style="color:#ff0000;font-size:14px;">彩字</span>',
+);
+
+check(
+  'span style 危险声明（非白名单 width）被剥除，其余白名单声明保留',
+  sanitizeParaHtml('<span style="width:100px;color:blue">x</span>') === '<span style="color:blue;">x</span>',
+);
+
+check(
+  'span style 全部声明都被剥除时退化为裸 <span>（不留 style=""）',
+  sanitizeParaHtml('<span style="width:10px">x</span>') === '<span>x</span>',
+);
+
+check(
+  'span 除 style 外的其它属性（class/onclick）整体丢弃',
+  sanitizeParaHtml('<span class="evil" onclick="alert(1)" style="color:red">x</span>') === '<span style="color:red;">x</span>',
+);
+
+check(
+  'span style 值里含 url( 的声明整条剥除，防 CSS 注入',
+  sanitizeParaHtml('<span style="color:red;background:url(javascript:alert(1))">x</span>') === '<span style="color:red;">x</span>',
+);
+
+check(
+  'span style 值里含 expression( 的声明整条剥除',
+  sanitizeParaHtml('<span style="width:expression(alert(1));color:blue">x</span>') === '<span style="color:blue;">x</span>',
+);
+
 // ===========================================================================
 // raw 块（整文导入）：docToHtmlRaw 原样拼接、纯文本剥标签、Node 环境 sanitizeRawHtml 正则兜底
 // ===========================================================================
@@ -421,6 +462,160 @@ check(
 check(
   'sanitizeRawHtml 空输入返回空串',
   sanitizeRawHtml('') === '' && sanitizeRawHtml(null) === '',
+);
+
+// ===========================================================================
+// 8. splitRawHtml：Node 无 DOMParser 时的回退路径（浏览器实际拆分路径由集成测试覆盖）
+// ===========================================================================
+console.log('\n== splitRawHtml（Node 回退） ==');
+
+check(
+  'typeof DOMParser === undefined 时原样回退为单元素数组',
+  JSON.stringify(splitRawHtml('<section><p>a</p><p>b</p></section>')) === JSON.stringify(['<section><p>a</p><p>b</p></section>']),
+);
+
+check('空输入同样回退为 [""]', JSON.stringify(splitRawHtml('')) === JSON.stringify(['']));
+
+// ===========================================================================
+// 9. replaceRawImgSrc：按 0 基 imgIndex 替换/插入指定 <img> 的 src
+// ===========================================================================
+console.log('\n== replaceRawImgSrc ==');
+
+check(
+  '替换第 0 个（首图）src',
+  replaceRawImgSrc('<p><img src="a.jpg"><img src="b.jpg"></p>', 0, 'c.jpg') === '<p><img src="c.jpg"><img src="b.jpg"></p>',
+);
+
+check(
+  '替换第 1 个（第 2 张图）src，首图不受影响',
+  replaceRawImgSrc('<p><img src="a.jpg"><img src="b.jpg"></p>', 1, 'c.jpg') === '<p><img src="a.jpg"><img src="c.jpg"></p>',
+);
+
+check(
+  'imgIndex 越界（超出图片数量）原样返回',
+  replaceRawImgSrc('<p><img src="a.jpg"></p>', 5, 'c.jpg') === '<p><img src="a.jpg"></p>',
+);
+
+check(
+  'newSrc 里的引号/尖括号被转义，防属性逃逸',
+  replaceRawImgSrc('<p><img src="a.jpg"></p>', 0, 'x" onerror="alert(1)') === '<p><img src="x&quot; onerror=&quot;alert(1)"></p>',
+);
+
+check(
+  '目标 img 原本无 src 属性时插入一个',
+  replaceRawImgSrc('<p><img class="x"></p>', 0, 'new.jpg') === '<p><img src="new.jpg" class="x"></p>',
+);
+
+// ===========================================================================
+// 10. applyRawImgStyle：按 0 基 imgIndex 合并 width/radius style 声明
+// ===========================================================================
+console.log('\n== applyRawImgStyle ==');
+
+check(
+  'widthPct 合并为 width:XX%，且移除已有的旧 width 声明',
+  applyRawImgStyle('<img src="a.jpg" style="width:60%;opacity:0.9">', 0, { widthPct: 40 })
+    === '<img src="a.jpg" style="opacity:0.9;width:40%;">',
+);
+
+check(
+  // 标签本没有 style 属性时，新 style 插在 <img 后（tag 内第一个属性位），src 等原有属性顺延，不重排
+  'widthPct 生效时顺带移除 HTML width/height 属性防冲突',
+  applyRawImgStyle('<img src="a.jpg" width="100" height="50">', 0, { widthPct: 40 })
+    === '<img style="width:40%;" src="a.jpg">',
+);
+
+check(
+  'radius>0 添加 border-radius 声明',
+  applyRawImgStyle('<img src="a.jpg">', 0, { radius: 12 }) === '<img style="border-radius:12px;" src="a.jpg">',
+);
+
+check(
+  'radius=0 移除已有的 border-radius 声明（结果为空时连 style 属性一起摘掉）',
+  applyRawImgStyle('<img src="a.jpg" style="border-radius:4px">', 0, { radius: 0 }) === '<img src="a.jpg">',
+);
+
+check(
+  '保留原有其它 style 声明（只动 width/radius 涉及的部分）',
+  applyRawImgStyle('<img src="a.jpg" style="opacity:0.9;border-radius:4px">', 0, { widthPct: 50 })
+    === '<img src="a.jpg" style="opacity:0.9;border-radius:4px;width:50%;">',
+);
+
+check(
+  'imgIndex 越界原样返回 html',
+  applyRawImgStyle('<img src="a.jpg">', 3, { radius: 12 }) === '<img src="a.jpg">',
+);
+
+// ===========================================================================
+// 11. docToHtmlRaw：imageCard 的 imgStyle 后处理（widthPct/radius/aspect）
+// ===========================================================================
+console.log('\n== docToHtmlRaw imageCard imgStyle ==');
+
+const IMG_STYLE_MOCK_BLOCKS = {
+  'mock-image-style': {
+    id: 'mock-image-style',
+    type: 'imageCard',
+    htmlTemplate: '<section><img src="{{src}}" style="width:100%;height:auto;display:block;margin:0;border-radius:4px;"/></section>',
+  },
+};
+function renderImgStyleDoc(imgStyle) {
+  const doc = [{ uid: 'b1', kind: 'styled', type: 'imageCard', blockId: 'mock-image-style', content: '', src: 'a.jpg', caption: '', accent: null, imgStyle }];
+  return docToHtmlRaw(doc, { blocksById: IMG_STYLE_MOCK_BLOCKS }).html;
+}
+const IMG_STYLE_BASELINE = renderImgStyleDoc(undefined);
+
+check(
+  '无 imgStyle 时输出与现状逐字节一致',
+  IMG_STYLE_BASELINE.includes('<img src="a.jpg" style="width:100%;height:auto;display:block;margin:0;border-radius:4px;"/>'),
+);
+
+check(
+  'imgStyle 全默认值（widthPct:100）时输出与 baseline 逐字节一致，不破坏既有 golden 语义',
+  renderImgStyleDoc({ widthPct: 100 }) === IMG_STYLE_BASELINE,
+);
+
+check(
+  'widthPct<100 合并 width:XX% 且加上居中三件套（display:block + margin-left/right:auto）',
+  /<img src="a\.jpg" style="[^"]*width:60%;display:block;margin-left:auto;margin-right:auto;"\/>/.test(renderImgStyleDoc({ widthPct: 60 })),
+);
+
+check(
+  'radius>0 合并 border-radius:XXpx 到 img 自身（非 aspect 场景不需要容器）',
+  renderImgStyleDoc({ radius: 20 }).includes('border-radius:20px') && !renderImgStyleDoc({ radius: 20 }).includes('<section style="overflow'),
+);
+
+check(
+  'aspect=4:3 时用 padding-bottom:75% 的容器包裹第一个 img（高/宽*100）',
+  renderImgStyleDoc({ aspect: '4:3' }).includes('<section style="overflow:hidden;height:0;padding-bottom:75%;">'),
+);
+
+check(
+  'aspect=16:9 时 padding-bottom 为 56.25%',
+  renderImgStyleDoc({ aspect: '16:9' }).includes('padding-bottom:56.25%;'),
+);
+
+check(
+  'aspect=3:4 时 padding-bottom 为 133.33%（锁定两位小数，不用浮点连乘算）',
+  renderImgStyleDoc({ aspect: '3:4' }).includes('padding-bottom:133.33%;'),
+);
+
+check(
+  'aspect 容器内 img 合并 width:100%;display:block',
+  /<section style="overflow:hidden;height:0;padding-bottom:100%;"><img src="a\.jpg" style="[^"]*width:100%;display:block;"\/><\/section>/.test(
+    renderImgStyleDoc({ aspect: '1:1' }),
+  ),
+);
+
+check(
+  'aspect + radius 同时给出时，border-radius 从 img 上摘掉、改放到裁切容器上',
+  (() => {
+    const html = renderImgStyleDoc({ aspect: '16:9', radius: 8 });
+    return html.includes('padding-bottom:56.25%;border-radius:8px;') && !/img[^>]*border-radius/.test(html);
+  })(),
+);
+
+check(
+  'widthPct 与 aspect 同时存在时外层再包一层居中限宽 section',
+  renderImgStyleDoc({ aspect: '1:1', widthPct: 50 }).includes('<section style="width:50%;margin:0 auto;"><section style="overflow:hidden;'),
 );
 
 console.log('\n===================================');

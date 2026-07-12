@@ -41,6 +41,88 @@ export function makeUid() {
   return `b-${Date.now().toString(36)}${rand}${uidCounter.toString(36)}`;
 }
 
+// 属性值转义（href/style 等）：与 escapeHtml 同构但独立维护，语义是"进 HTML 属性值"而不是"进标签间文本"，
+// 两处转义目的不同故不合并成一个函数，避免调用方混淆使用场景
+function escapeAttr(str) {
+  return String(str == null ? '' : str)
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+// ---------------------------------------------------------------------------
+// img 标签级属性/style 操作：raw 块图片编辑（replaceRawImgSrc/applyRawImgStyle）与 docToHtmlRaw 的
+// imageCard imgStyle 后处理共用同一套合并原语，不各自重复实现
+// ---------------------------------------------------------------------------
+
+// img 是空标签、无内容体，标签级正则天然安全，不需要完整 DOM 解析
+const IMG_TAG_RE = /<img\b[^>]*>/gi;
+const IMG_SRC_ATTR_RE = /\ssrc\s*=\s*("[^"]*"|'[^']*'|[^\s"'>]+)/i;
+const IMG_STYLE_ATTR_RE = /\sstyle\s*=\s*("([^"]*)"|'([^']*)')/i;
+const IMG_WIDTH_ATTR_RE = /\swidth\s*=\s*("[^"]*"|'[^']*'|[^\s"'>]+)/i;
+const IMG_HEIGHT_ATTR_RE = /\sheight\s*=\s*("[^"]*"|'[^']*'|[^\s"'>]+)/i;
+
+function removeTagAttr(tag, attrRe) {
+  return tag.replace(attrRe, '');
+}
+
+function getImgTagStyle(tag) {
+  const m = IMG_STYLE_ATTR_RE.exec(tag);
+  if (!m) return '';
+  return m[2] !== undefined ? m[2] : m[3];
+}
+
+// 合并结果为空串时整个 style 属性一起摘掉，不留 style="" 空壳（与 sanitizeParaHtml 里空 href 退化成
+// 裸 <a> 而不是 href="" 的处理哲学一致）
+function setImgTagStyle(tag, styleStr) {
+  if (!styleStr) {
+    return IMG_STYLE_ATTR_RE.test(tag) ? tag.replace(IMG_STYLE_ATTR_RE, '') : tag;
+  }
+  const attr = ` style="${escapeAttr(styleStr)}"`;
+  if (IMG_STYLE_ATTR_RE.test(tag)) {
+    return tag.replace(IMG_STYLE_ATTR_RE, attr);
+  }
+  return tag.replace(/^<img\b/i, `<img${attr}`);
+}
+
+// style 声明解析/拼接：prop 统一小写去空白、value 保留原样去首尾空白；缺 prop 或缺 value 的碎片丢弃
+function parseStyleDecls(styleStr) {
+  const decls = [];
+  String(styleStr || '').split(';').forEach((part) => {
+    const idx = part.indexOf(':');
+    if (idx === -1) return;
+    const prop = part.slice(0, idx).trim().toLowerCase();
+    const value = part.slice(idx + 1).trim();
+    if (prop && value) decls.push([prop, value]);
+  });
+  return decls;
+}
+
+function stringifyStyleDecls(decls) {
+  return decls.length ? `${decls.map(([prop, value]) => `${prop}:${value}`).join(';')};` : '';
+}
+
+// updates: { prop: value } 覆盖/新增该声明，{ prop: null } 移除该声明；已有同名声明先整体摘除，
+// 新声明按 updates 的 key 顺序追加在末尾，不影响其余未涉及声明的相对顺序
+function mergeStyleDecls(styleStr, updates) {
+  const keys = Object.keys(updates);
+  if (!keys.length) return String(styleStr || '');
+  const kept = parseStyleDecls(styleStr).filter(([prop]) => !keys.includes(prop));
+  keys.forEach((prop) => {
+    const value = updates[prop];
+    if (value != null) kept.push([prop, value]);
+  });
+  return stringifyStyleDecls(kept);
+}
+
+// 给单个 <img ...> 标签字符串合并 style 声明：只做属性值级别的字符串手术，不重建整个标签，
+// 天然保留标签其余部分（属性顺序、自闭合斜杠等）
+function mergeImgTagStyle(tag, updates) {
+  if (!updates || !Object.keys(updates).length) return tag;
+  return setImgTagStyle(tag, mergeStyleDecls(getImgTagStyle(tag), updates));
+}
+
 // ---------------------------------------------------------------------------
 // markdownToDoc：矩阵来稿 / 旧草稿 markdown → DocBlock[]
 // ---------------------------------------------------------------------------
@@ -246,6 +328,60 @@ function styleParaInlineHtml(html, bodyStyles) {
     .replace(/<a\s+href="([^"]*)"\s*>/g, (_m, href) => `<a href="${href}" style="${bodyStyles.a}">`);
 }
 
+// aspect 裁切用的 padding-bottom 百分比：P = 比例的高/宽*100，只收窄到这 4 个字面量枚举值，
+// 不做通用比例解析，避免浮点误差（4:3 精确算出来是 133.33...3 的循环小数，这里锁定 133.33 两位小数）
+const ASPECT_PADDING_PCT = { '1:1': 100, '4:3': 75, '16:9': 56.25, '3:4': 133.33 };
+
+// imageCard 的 imgStyle 后处理：只处理 applyBlock 产出 HTML 里的第一个 <img>（imageCard 模板恒单图），
+// style 合并复用 mergeImgTagStyle（与 applyRawImgStyle 同一份合并原语，不重复造）。无 imgStyle 或
+// widthPct/radius/aspect 全是默认值时提前返回原样，保证不破坏既有 golden 输出
+function applyImageCardImgStyle(blockHtml, imgStyle) {
+  const style = imgStyle || {};
+  const widthPct = Number(style.widthPct);
+  const hasWidth = Number.isFinite(widthPct) && widthPct !== 100 && widthPct >= 25 && widthPct <= 100;
+  const radius = Number(style.radius);
+  const hasRadius = Number.isFinite(radius) && radius > 0;
+  const aspectPct = style.aspect ? ASPECT_PADDING_PCT[style.aspect] : null;
+
+  if (!hasWidth && !hasRadius && !aspectPct) return blockHtml;
+
+  const imgMatches = blockHtml.match(IMG_TAG_RE);
+  if (!imgMatches || !imgMatches.length) return blockHtml;
+  const originalImgTag = imgMatches[0];
+
+  let replacement;
+  if (aspectPct != null) {
+    // 裁切容器方案：overflow:hidden + height:0 + padding-bottom 撑比例（公众号存活规则内的写法）；
+    // img 本身只补 width:100%;display:block 填满容器；radius 显式设置时才把 img 自带的 border-radius
+    // 摘掉挪到容器上（否则模板自带的圆角会留在被方框裁切的 img 上，跟容器边界对不齐）
+    const imgUpdates = { width: '100%', display: 'block' };
+    if (hasRadius) imgUpdates['border-radius'] = null;
+    const imgTag = mergeImgTagStyle(originalImgTag, imgUpdates);
+    const containerDecls = [['overflow', 'hidden'], ['height', '0'], ['padding-bottom', `${aspectPct}%`]];
+    if (hasRadius) containerDecls.push(['border-radius', `${radius}px`]);
+    let wrapped = `<section style="${stringifyStyleDecls(containerDecls)}">${imgTag}</section>`;
+    if (hasWidth) {
+      // widthPct 与 aspect 同时存在：再包一层居中限宽容器控制整体宽度，裁切容器本身恒 100% 撑满它
+      wrapped = `<section style="width:${widthPct}%;margin:0 auto;">${wrapped}</section>`;
+    }
+    replacement = wrapped;
+  } else {
+    const imgUpdates = {};
+    if (hasWidth) {
+      imgUpdates.width = `${widthPct}%`;
+      // widthPct<100 时才需要居中（=100 时已被 hasWidth 的 !==100 判定排除，两者在合法值域内等价）
+      imgUpdates.display = 'block';
+      imgUpdates['margin-left'] = 'auto';
+      imgUpdates['margin-right'] = 'auto';
+    }
+    if (hasRadius) imgUpdates['border-radius'] = `${radius}px`;
+    replacement = mergeImgTagStyle(originalImgTag, imgUpdates);
+  }
+
+  // originalImgTag 里可能含 $ 字符（URL 常见），用函数式 replacer 避免被当成特殊替换模式解析
+  return blockHtml.replace(originalImgTag, () => replacement);
+}
+
 // styled 块引用的 blockId 在 blocksById 里找不到（提取块被删/草稿引用失效 id）时，回退同类型 minimal
 // 内置块，绝不让整篇导出因单个块失效而报错——与 themes.js lookupBlock 的兜底哲学一致，独立实现一份
 function lookupStyleBlock(blocksById, type, blockId) {
@@ -295,11 +431,12 @@ export function docToHtmlRaw(doc, options) {
     const accent = normalizeAccent(block.accent) || globalAccent;
     if (type === 'imageCard') {
       imageCount += 1;
-      return applyBlock(styleBlock, {
+      const rendered = applyBlock(styleBlock, {
         src: escapeHtml(block.src || ''),
         caption: escapeHtml(block.caption || ''),
         accent,
       });
+      return applyImageCardImgStyle(rendered, block.imgStyle);
     }
     if (type === 'divider') {
       return applyBlock(styleBlock, { accent });
@@ -470,26 +607,132 @@ export function sanitizeRawHtml(html) {
 }
 
 // ---------------------------------------------------------------------------
+// splitRawHtml / replaceRawImgSrc / applyRawImgStyle：raw 块（整文导入）拆分与图片编辑
+// ---------------------------------------------------------------------------
+
+// 与后端 wechat_article_import 同规则：只有恰好 1 个有效子节点且是 SECTION/DIV 容器时才下钻取其子节点，
+// 最多下钻 6 层，避免层层嵌套的空壳容器导致过度递归
+const RAW_SPLIT_MAX_DRILL = 6;
+
+function isBlankTextNode(node) {
+  return node.nodeType === 3 && node.textContent.trim() === '';
+}
+
+// "有效子节点" = 元素节点，或非纯空白的文本节点（纯空白文本节点只是排版留白，不构成拆分单元）
+function effectiveChildNodes(node) {
+  return Array.from(node.childNodes).filter((n) => !isBlankTextNode(n));
+}
+
+/**
+ * raw 块（整文导入的富 HTML 容器）拆分为顶层子元素序列，供画布把整文导入拆成多个可独立编辑的块。
+ * 只在浏览器环境（DOMParser 可用）生效；Node 自测环境没有 DOMParser，直接整段原样回退返回，
+ * 真正的拆分路径交给浏览器里的集成测试覆盖。元素子节点取 outerHTML，散落的非空白文本节点包一层
+ * <p>（转义）避免丢内容；拆出结果 ≥2 个才算拆分成功，否则视为"本来就是单一顶层结构"，返回 [html] 原样。
+ * @param {string} html
+ * @returns {string[]}
+ */
+export function splitRawHtml(html) {
+  const input = String(html == null ? '' : html);
+  if (typeof DOMParser === 'undefined') {
+    return [input];
+  }
+  const parsed = new DOMParser().parseFromString(input, 'text/html');
+  let container = parsed.body;
+  let children = effectiveChildNodes(container);
+  let drill = 0;
+  while (
+    drill < RAW_SPLIT_MAX_DRILL &&
+    children.length === 1 &&
+    children[0].nodeType === 1 &&
+    (children[0].tagName === 'SECTION' || children[0].tagName === 'DIV')
+  ) {
+    container = children[0];
+    children = effectiveChildNodes(container);
+    drill += 1;
+  }
+  const result = children.map((node) => (
+    node.nodeType === 1 ? node.outerHTML : `<p>${escapeHtml(node.textContent)}</p>`
+  ));
+  return result.length >= 2 ? result : [input];
+}
+
+/**
+ * 把 html 里第 imgIndex 个（0 基）<img> 标签的 src 替换为 newSrc；该标签本没有 src 属性时插入一个。
+ * newSrc 转义复用 escapeAttr（引号/尖括号转义防属性逃逸，顺带正确转义 & 保证属性值本身合法）。
+ * imgIndex 越界（含负数/非整数）原样返回 html。
+ * @param {string} html
+ * @param {number} imgIndex
+ * @param {string} newSrc
+ * @returns {string}
+ */
+export function replaceRawImgSrc(html, imgIndex, newSrc) {
+  const input = String(html == null ? '' : html);
+  if (!Number.isInteger(imgIndex) || imgIndex < 0) return input;
+  const safeSrc = escapeAttr(newSrc);
+  let count = -1;
+  let matched = false;
+  const out = input.replace(IMG_TAG_RE, (tag) => {
+    count += 1;
+    if (count !== imgIndex) return tag;
+    matched = true;
+    if (IMG_SRC_ATTR_RE.test(tag)) {
+      return tag.replace(IMG_SRC_ATTR_RE, ` src="${safeSrc}"`);
+    }
+    return tag.replace(/^<img\b/i, `<img src="${safeSrc}"`);
+  });
+  return matched ? out : input;
+}
+
+/**
+ * 给 html 里第 imgIndex 个（0 基）<img> 标签合并 style 声明：widthPct 写 width:XX%，并顺带移除该标签
+ * 既有的 width style 声明与 HTML width/height 属性防冲突；radius 写 border-radius:XXpx，radius=0
+ * 表示移除该声明。除此之外的既有 style 声明原样保留。imgIndex 越界原样返回 html。
+ * @param {string} html
+ * @param {number} imgIndex
+ * @param {{widthPct?: number, radius?: number}} styleObj
+ * @returns {string}
+ */
+export function applyRawImgStyle(html, imgIndex, styleObj) {
+  const input = String(html == null ? '' : html);
+  if (!Number.isInteger(imgIndex) || imgIndex < 0) return input;
+  const style = styleObj || {};
+  const updates = {};
+  if (style.widthPct != null) updates.width = `${style.widthPct}%`;
+  if (style.radius != null) updates['border-radius'] = style.radius > 0 ? `${style.radius}px` : null;
+
+  let count = -1;
+  let matched = false;
+  const out = input.replace(IMG_TAG_RE, (tag) => {
+    count += 1;
+    if (count !== imgIndex) return tag;
+    matched = true;
+    let nextTag = tag;
+    if (style.widthPct != null) {
+      nextTag = removeTagAttr(nextTag, IMG_WIDTH_ATTR_RE);
+      nextTag = removeTagAttr(nextTag, IMG_HEIGHT_ATTR_RE);
+    }
+    return mergeImgTagStyle(nextTag, updates);
+  });
+  return matched ? out : input;
+}
+
+// ---------------------------------------------------------------------------
 // sanitizeParaHtml：para 内容白名单清洗（contenteditable 粘贴脏 HTML 的防线）
 // ---------------------------------------------------------------------------
 
-// 白名单标签：strong/em/br/a，其余标签（含 script/style/div/img/iframe 等）整体剥掉但保留标签间的文本节点；
-// 允许标签一律重新拼出干净版本（不透传原始属性字符串），天然滤掉 onclick/onmouseover 等事件属性
-const SANITIZE_ALLOWED_TAGS = new Set(['strong', 'em', 'br', 'a']);
+// 白名单标签：strong/em/br/a/u/span，其余标签（含 script/style/div/img/iframe 等）整体剥掉但保留标签间的
+// 文本节点；允许标签一律重新拼出干净版本（不透传原始属性字符串），天然滤掉 onclick/onmouseover 等事件属性
+const SANITIZE_ALLOWED_TAGS = new Set(['strong', 'em', 'br', 'a', 'u', 'span']);
+// 文字样式编辑产物里的 b/i 归一成语义等价的 strong/em（开闭标签都归一），不额外维持一套并行白名单
+const SANITIZE_TAG_ALIASES = { b: 'strong', i: 'em' };
 // 标签级正则扫描：不做完整 DOM 解析（Node 自测环境没有 DOMParser），只处理"属性值内不含尖括号"的
 // 常规写法，属性值里塞 '>' 试图逃逸标签边界这种极端构造不在本函数的处理范围内，最终导出前还会再过
 // 一次 docToHtml 的 DOMPurify.sanitize 兜底
 const SANITIZE_TAG_RE = /<(\/?)([a-zA-Z][a-zA-Z0-9]*)((?:\s+[^<>]*)?)\/?>/g;
 // href 只放行常见安全协议/相对路径/锚点，拦截 javascript:/data:/vbscript: 等可执行协议
 const SAFE_HREF_RE = /^(https?:|mailto:|#|\/|\?)/i;
-
-function escapeAttr(str) {
-  return String(str == null ? '' : str)
-    .replace(/&/g, '&amp;')
-    .replace(/"/g, '&quot;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-}
+// span 只保留 style 属性，且 style 内只放行这 5 种文字样式声明，其余声明（含未知属性）整条剥除
+const SANITIZE_SPAN_STYLE_PROPS = new Set(['color', 'font-size', 'font-weight', 'font-style', 'text-decoration']);
 
 function extractSafeHref(attrs) {
   const m = /href\s*=\s*("([^"]*)"|'([^']*)'|([^\s"'>]+))/i.exec(attrs || '');
@@ -500,10 +743,23 @@ function extractSafeHref(attrs) {
   return escapeAttr(trimmed);
 }
 
+// span style 声明白名单过滤：值里出现任何括号（覆盖 url()/expression() 等已知注入手法，一并连坐禁止
+// calc()/rgba() 等本白名单用不到的合法函数，宁可少放行也不留后门）的整条声明剥除；放行的声明按白名单
+// prop 重新拼接输出，不透传原始 style 字符串
+function extractSafeSpanStyle(attrs) {
+  const m = /style\s*=\s*("([^"]*)"|'([^']*)')/i.exec(attrs || '');
+  if (!m) return '';
+  const raw = m[2] !== undefined ? m[2] : m[3];
+  const decls = parseStyleDecls(raw)
+    .filter(([prop, value]) => SANITIZE_SPAN_STYLE_PROPS.has(prop) && !/[()]/.test(value));
+  return decls.length ? escapeAttr(stringifyStyleDecls(decls)) : '';
+}
+
 /**
- * para 内容白名单清洗：只保留 strong/em/br/a[href] 四种标签（a 只保留 href 一个属性，且校验协议安全），
- * 其余任何标签（含 script/style 及其内部代码文本、事件属性 onX）整体剥离。contenteditable 粘贴脏 HTML
- * 时作为第一道防线使用；docModel 内部落库前也建议过一遍本函数。
+ * para 内容白名单清洗：只保留 strong/em/br/a[href]/u/span[style] 标签（a 只保留 href 一个属性且校验协议
+ * 安全；span 只保留 style 属性且 style 只放行 color/font-size/font-weight/font-style/text-decoration
+ * 五种声明；b/i 归一为 strong/em），其余任何标签（含 script/style 及其内部代码文本、事件属性 onX）整体
+ * 剥离。contenteditable 粘贴脏 HTML 时作为第一道防线使用；docModel 内部落库前也建议过一遍本函数。
  * @param {string} html
  * @returns {string}
  */
@@ -516,13 +772,19 @@ export function sanitizeParaHtml(html) {
   out = out.replace(/<!--[\s\S]*?-->/g, '');
 
   out = out.replace(SANITIZE_TAG_RE, (match, slash, rawName, attrs) => {
-    const name = rawName.toLowerCase();
+    const lower = rawName.toLowerCase();
+    const name = SANITIZE_TAG_ALIASES[lower] || lower;
     if (!SANITIZE_ALLOWED_TAGS.has(name)) return '';
     if (name === 'br') return '<br>';
     if (name === 'a') {
       if (slash) return '</a>';
       const href = extractSafeHref(attrs);
       return href ? `<a href="${href}">` : '<a>';
+    }
+    if (name === 'span') {
+      if (slash) return '</span>';
+      const style = extractSafeSpanStyle(attrs);
+      return style ? `<span style="${style}">` : '<span>';
     }
     return slash ? `</${name}>` : `<${name}>`;
   });

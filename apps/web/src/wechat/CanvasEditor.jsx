@@ -4,10 +4,24 @@
 // 不做撤销/重做（历史栈是调用方 createHistory 的职责，这里只在 opts.transient 上如实标注"是否为打字中间态"）；
 // 不改动 WechatComposer.jsx / themes.js / builtinBlocks*.js / wechatExport.js，样式渲染只经 applyBlock。
 import React from 'react';
+import DOMPurify from 'dompurify';
 import { applyBlock, BUILTIN_BLOCKS_BY_ID, WECHAT_THEMES } from './themes.js';
-import { makeUid, sanitizeParaHtml, sanitizeRawHtml } from './docModel.js';
+import {
+  makeUid, sanitizeParaHtml, sanitizeRawHtml,
+  splitRawHtml, replaceRawImgSrc, applyRawImgStyle,
+} from './docModel.js';
 import { beginDrag, registerDropZone } from './pointerDrag.js';
 import './canvas.css';
+
+// 画布主渲染路径的客户端兜底清洗：样式块的 htmlTemplate 可能来自"我的库"或收藏快照，
+// 后端手写正则清洗存在 <svg/onload=> 一类分隔符绕过，这里对 applyBlock 产出统一过一遍 DOMPurify，
+// 与 renderBlockPreview/ImportPreviewModal/docToHtml 的口径一致（style/referrerpolicy 放行，禁可执行标签）。
+function purifyBlockHtml(html) {
+  return DOMPurify.sanitize(String(html || ''), {
+    FORBID_TAGS: ['script', 'style', 'iframe', 'object', 'embed', 'form', 'input'],
+    ADD_ATTR: ['style', 'referrerpolicy'],
+  });
+}
 
 // 占位 token 用于"先占位渲染整块模板，再把 content/caption 槽位换成可编辑 span"的两段式渲染——
 // applyBlock 是纯字符串替换，不认识 contentEditable，槽位包装必须由本文件在渲染后手工处理。
@@ -89,6 +103,57 @@ function cloneBlockWithNewUid(block) {
   return cloned;
 }
 
+// ---------------------------------------------------------------------------
+// 文字样式命令（秀米式）：全部作用于当前 selection，前提是选区落在指定宿主（本块的
+// contenteditable）内——落在别处一律不执行，防止误改其它块/页面输入框。
+// execCommand 虽已 deprecated，但公众号排版场景（秀米/135 同款实现）全浏览器仍可用，
+// 且是唯一无需自研 Range 引擎的选区级富文本方案。
+// ---------------------------------------------------------------------------
+
+function selectionInsideHost(hostEl) {
+  const sel = window.getSelection && window.getSelection();
+  if (!sel || sel.rangeCount === 0) return false;
+  const node = sel.anchorNode;
+  return !!(node && hostEl && hostEl.contains(node));
+}
+
+const TEXT_FONT_SIZES = [
+  { key: 'S', px: 14 },
+  { key: 'M', px: 15 },
+  { key: 'L', px: 17 },
+  { key: 'XL', px: 20 },
+];
+
+// execCommand('fontSize') 只接受 1-7 档：先打成第 7 档，再把产物（styleWithCSS 下是
+// span font-size:xxx-large，Safari 可能仍输出 font[size=7]）统一替换为目标 px 的 span。
+function applySelectionFontSize(hostEl, px) {
+  document.execCommand('styleWithCSS', false, true);
+  document.execCommand('fontSize', false, '7');
+  hostEl.querySelectorAll('span').forEach((s) => {
+    if (s.style && s.style.fontSize === 'xxx-large') s.style.fontSize = `${px}px`;
+  });
+  hostEl.querySelectorAll('font[size="7"]').forEach((f) => {
+    const span = document.createElement('span');
+    span.style.fontSize = `${px}px`;
+    while (f.firstChild) span.appendChild(f.firstChild);
+    f.replaceWith(span);
+  });
+}
+
+function execTextCommand(hostEl, cmd, value) {
+  if (!hostEl || !selectionInsideHost(hostEl)) return false;
+  document.execCommand('styleWithCSS', false, true);
+  if (cmd === 'fontSize') {
+    applySelectionFontSize(hostEl, value);
+  } else if (cmd === 'foreColor') {
+    document.execCommand('foreColor', false, value);
+  } else {
+    // bold / italic / underline / removeFormat / justifyLeft / justifyCenter / justifyRight
+    document.execCommand(cmd, false, null);
+  }
+  return true;
+}
+
 // 正文段落内联样式：数值口径与 themes.js computeBodyStyles 的 p 规格一致（15px/1.75/两端对齐/
 // 首行缩进开关），是刻意重复而非复用——两处输出目标不同（一个是 React style 对象，一个是内联 style 字符串）。
 function computeParaStyle(bodyConfig, accent) {
@@ -118,7 +183,7 @@ function resolveStyleBlock(blocksById, block) {
 // 分隔线：无内容、无编辑，只走 applyBlock 渲染 + accent
 // ---------------------------------------------------------------------------
 function DividerView({ styleBlock, accent }) {
-  const html = React.useMemo(() => applyBlock(styleBlock, { accent }), [styleBlock, accent]);
+  const html = React.useMemo(() => purifyBlockHtml(applyBlock(styleBlock, { accent })), [styleBlock, accent]);
   // eslint-disable-next-line react/no-danger
   return <div className="cve-divider-host" dangerouslySetInnerHTML={{ __html: html }} />;
 }
@@ -151,7 +216,9 @@ function StyledSlotView({ block, styleBlock, accent, onCommitContent }) {
     }
     const placeholder = escapeHtml(SLOT_PLACEHOLDER_BY_TYPE[block.type] || '点击输入文字');
     const slotHtml = `<span data-cve-slot="content" data-cve-placeholder="${placeholder}">${escapeHtml(block.content || '')}</span>`;
-    host.innerHTML = templateHtml.split(SLOT_TOKEN).join(slotHtml);
+    // 先在原始模板上 split/join 塞入可编辑 span（token 含  ，purify 会剥掉故必须在清洗前替换），
+    // 再对拼装结果整体过 DOMPurify——恶意模板标签被剥，data-cve-slot span 与 img 存活
+    host.innerHTML = purifyBlockHtml(templateHtml.split(SLOT_TOKEN).join(slotHtml));
     const slot = host.querySelector('[data-cve-slot="content"]');
     if (slot) slot.contentEditable = 'true';
   }, [templateHtml, block.content, block.type]);
@@ -193,13 +260,26 @@ function ImageCardView({ block, styleBlock, accent, onImageClick, onCommitCaptio
     }
     const placeholder = escapeHtml(CAPTION_PLACEHOLDER);
     const slotHtml = `<span data-cve-slot="caption" data-cve-placeholder="${placeholder}">${escapeHtml(block.caption || '')}</span>`;
-    host.innerHTML = templateHtml.split(SLOT_TOKEN).join(slotHtml);
+    host.innerHTML = purifyBlockHtml(templateHtml.split(SLOT_TOKEN).join(slotHtml));
     const slot = host.querySelector('[data-cve-slot="caption"]');
     if (slot) slot.contentEditable = 'true';
     const img = host.querySelector('img');
     // 内置模板规定图片一律不带 class（存活规则禁止 class=），这里赋值不存在覆盖冲突的风险
-    if (img) img.className = 'cve-image-click-target';
-  }, [templateHtml, block.caption]);
+    if (img) {
+      img.className = 'cve-image-click-target';
+      // 画布内的 imgStyle 预览：宽度/圆角直接内联，裁切用 aspect-ratio+object-fit（现代浏览器）；
+      // 导出走 docToHtmlRaw 的 padding-bottom 容器方案，两者视觉一致
+      const st = block.imgStyle || {};
+      const narrowed = st.widthPct && st.widthPct < 100;
+      img.style.width = narrowed ? `${st.widthPct}%` : '';
+      img.style.display = narrowed ? 'block' : '';
+      img.style.marginLeft = narrowed ? 'auto' : '';
+      img.style.marginRight = narrowed ? 'auto' : '';
+      img.style.borderRadius = st.radius ? `${st.radius}px` : '';
+      img.style.aspectRatio = st.aspect ? st.aspect.replace(':', ' / ') : '';
+      img.style.objectFit = st.aspect ? 'cover' : '';
+    }
+  }, [templateHtml, block.caption, block.imgStyle]);
 
   const handleClick = (e) => {
     if (e.target && e.target.tagName === 'IMG') onImageClick();
@@ -261,7 +341,7 @@ function ParaView({ block, bodyStyle, onTransient, onCommit }) {
 // 整文导入的原样内容块：保留原文全部内联样式的富 HTML，整块 contentEditable 改字，
 // 结构（换样式/换色/槽位）操作不适用；失焦提交时过 sanitizeRawHtml 白名单清洗
 // ---------------------------------------------------------------------------
-function RawView({ block, onTransient, onCommit }) {
+function RawView({ block, activeImgIndex, onTransient, onCommit, onSelectImg }) {
   const ref = React.useRef(null);
 
   React.useLayoutEffect(() => {
@@ -272,8 +352,27 @@ function RawView({ block, onTransient, onCommit }) {
     el.innerHTML = block.html || '';
   }, [block.html]);
 
+  // 选中图片的高亮标记直接打在 DOM 属性上（innerHTML 非 React 管理，无法走 className）
+  React.useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.querySelectorAll('img').forEach((img, i) => {
+      if (i === activeImgIndex) img.setAttribute('data-cve-img-active', '1');
+      else img.removeAttribute('data-cve-img-active');
+    });
+  }, [activeImgIndex, block.html]);
+
   const handleInput = (e) => onTransient(e.currentTarget.innerHTML);
   const handleBlur = (e) => onCommit(e.currentTarget.innerHTML);
+  // 点图片=选中该图（工具条切图片样式区），不进入文字编辑语义
+  const handleClick = (e) => {
+    if (e.target && e.target.tagName === 'IMG') {
+      const imgs = Array.from(ref.current.querySelectorAll('img'));
+      onSelectImg(imgs.indexOf(e.target));
+      return;
+    }
+    onSelectImg(null);
+  };
 
   return (
     <div
@@ -283,61 +382,165 @@ function RawView({ block, onTransient, onCommit }) {
       suppressContentEditableWarning
       onInput={handleInput}
       onBlur={handleBlur}
+      onClick={handleClick}
     />
   );
 }
 
 // ---------------------------------------------------------------------------
-// 浮动块工具条：上移/下移/复制/删除/换样式/换色圆点(仅 accentEditable)/后插段落
+// 浮动块工具条（两行）：第一行结构操作（上移/下移/复制/删除/换样式/换色/拆分/后插段落），
+// 第二行按块类型上下文出现——para/raw=文字样式（B/I/U/字号/字色/对齐/清除，作用于选区），
+// imageCard 或 raw 内选中图片=图片样式（宽度/圆角/裁切/换图）。
+// 第二行按钮一律在 pointerdown 阶段 preventDefault+stopPropagation：不夺走 contenteditable
+// 焦点（否则选区塌掉 execCommand 落空），也不触发块级选中/拖拽。
 // ---------------------------------------------------------------------------
+
+const IMG_WIDTH_CHOICES = [50, 75, 100];
+const IMG_RADIUS_CHOICES = [{ label: '直角', v: 0 }, { label: '圆角', v: 8 }, { label: '大圆', v: 16 }];
+const IMG_ASPECT_CHOICES = [{ label: '原图', v: null }, { label: '1:1', v: '1:1' }, { label: '4:3', v: '4:3' }, { label: '16:9', v: '16:9' }];
+const TEXT_COLOR_CHOICES = ['#111111', '#666666', '#c0392b', '#1f4e8c', '#2f9e44', '#e8590c', '#7048e8', '#0c8599'];
+
+function toolbarRowGuard(e) {
+  e.preventDefault();
+  e.stopPropagation();
+}
+
 function BlockToolbar({
-  block, index, total, styleBlock, flip,
+  block, index, total, styleBlock, flip, getHostEl, activeRawImgIndex,
   onMoveUp, onMoveDown, onDuplicate, onDelete, onChangeStyle, onChangeAccent, onInsertParaAfter,
+  onSplitRaw, onImgStyle, onRawImgStyle, onImgReplace,
 }) {
   const [swatchOpen, setSwatchOpen] = React.useState(false);
+  const [textSwatchOpen, setTextSwatchOpen] = React.useState(false);
   const canChangeStyle = block.kind === 'styled';
   const canChangeAccent = block.kind === 'styled' && styleBlock && styleBlock.accentEditable === true;
+  const isTextBlock = block.kind === 'para' || block.kind === 'raw';
+  const isImageCard = block.kind === 'styled' && block.type === 'imageCard';
+  const showRawImg = block.kind === 'raw' && activeRawImgIndex != null;
+  const imgStyle = block.imgStyle || {};
+
+  const runText = (cmd, value) => {
+    execTextCommand(getHostEl(), cmd, value);
+  };
 
   return (
     <div
       className={`cve-toolbar ${flip ? 'cve-toolbar--below' : 'cve-toolbar--above'}`}
       onClick={(e) => e.stopPropagation()}
     >
-      <button type="button" className="cve-toolbar-btn" disabled={index === 0} onClick={onMoveUp} title="上移" aria-label="上移">↑</button>
-      <button type="button" className="cve-toolbar-btn" disabled={index === total - 1} onClick={onMoveDown} title="下移" aria-label="下移">↓</button>
-      <button type="button" className="cve-toolbar-btn" onClick={onDuplicate} title="复制" aria-label="复制">复制</button>
-      <button type="button" className="cve-toolbar-btn" onClick={onDelete} title="删除" aria-label="删除">删除</button>
-      {canChangeStyle && (
-        <button type="button" className="cve-toolbar-btn" onClick={onChangeStyle} title="换样式" aria-label="换样式">样式</button>
-      )}
-      {canChangeAccent && (
-        <div className="cve-toolbar-swatch-wrap">
-          <button
-            type="button"
-            className="cve-toolbar-btn cve-toolbar-dot-btn"
-            onClick={() => setSwatchOpen((v) => !v)}
-            title="换色"
-            aria-label="换色"
-          >
-            <span className="cve-dot-preview" style={{ backgroundColor: block.accent || '#1a1a1a' }} />
-          </button>
-          {swatchOpen && (
-            <div className="cve-swatch-panel">
-              {ACCENT_SWATCHES.map((hex) => (
-                <button
-                  key={hex}
-                  type="button"
-                  className="cve-swatch"
-                  style={{ backgroundColor: hex }}
-                  aria-label={hex}
-                  onClick={() => { onChangeAccent(hex); setSwatchOpen(false); }}
-                />
-              ))}
-            </div>
-          )}
+      <div className="cve-toolbar-row">
+        <button type="button" className="cve-toolbar-btn" disabled={index === 0} onClick={onMoveUp} title="上移" aria-label="上移">↑</button>
+        <button type="button" className="cve-toolbar-btn" disabled={index === total - 1} onClick={onMoveDown} title="下移" aria-label="下移">↓</button>
+        <button type="button" className="cve-toolbar-btn" onClick={onDuplicate} title="复制" aria-label="复制">复制</button>
+        <button type="button" className="cve-toolbar-btn" onClick={onDelete} title="删除" aria-label="删除">删除</button>
+        {canChangeStyle && (
+          <button type="button" className="cve-toolbar-btn" onClick={onChangeStyle} title="换样式" aria-label="换样式">样式</button>
+        )}
+        {block.kind === 'raw' && (
+          <button type="button" className="cve-toolbar-btn" onClick={onSplitRaw} title="把容器拆成独立元素" aria-label="拆分容器">拆分</button>
+        )}
+        {canChangeAccent && (
+          <div className="cve-toolbar-swatch-wrap">
+            <button
+              type="button"
+              className="cve-toolbar-btn cve-toolbar-dot-btn"
+              onClick={() => setSwatchOpen((v) => !v)}
+              title="换色"
+              aria-label="换色"
+            >
+              <span className="cve-dot-preview" style={{ backgroundColor: block.accent || '#1a1a1a' }} />
+            </button>
+            {swatchOpen && (
+              <div className="cve-swatch-panel">
+                {ACCENT_SWATCHES.map((hex) => (
+                  <button
+                    key={hex}
+                    type="button"
+                    className="cve-swatch"
+                    style={{ backgroundColor: hex }}
+                    aria-label={hex}
+                    onClick={() => { onChangeAccent(hex); setSwatchOpen(false); }}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        <button type="button" className="cve-toolbar-btn" onClick={onInsertParaAfter} title="后插段落" aria-label="后插段落">+段</button>
+      </div>
+
+      {isTextBlock && !showRawImg && (
+        <div className="cve-toolbar-row cve-toolbar-row--ctx" onPointerDown={toolbarRowGuard}>
+          <button type="button" className="cve-toolbar-btn" onClick={() => runText('bold')} title="加粗"><b>B</b></button>
+          <button type="button" className="cve-toolbar-btn" onClick={() => runText('italic')} title="斜体"><i>I</i></button>
+          <button type="button" className="cve-toolbar-btn" onClick={() => runText('underline')} title="下划线"><u>U</u></button>
+          <span className="cve-toolbar-sep" />
+          {TEXT_FONT_SIZES.map((s) => (
+            <button key={s.key} type="button" className="cve-toolbar-btn cve-toolbar-btn--sz" onClick={() => runText('fontSize', s.px)} title={`${s.px}px`}>{s.key}</button>
+          ))}
+          <span className="cve-toolbar-sep" />
+          <div className="cve-toolbar-swatch-wrap">
+            <button type="button" className="cve-toolbar-btn cve-toolbar-dot-btn" onClick={() => setTextSwatchOpen((v) => !v)} title="文字颜色" aria-label="文字颜色">
+              <span className="cve-dot-preview cve-dot-preview--text">A</span>
+            </button>
+            {textSwatchOpen && (
+              <div className="cve-swatch-panel">
+                {TEXT_COLOR_CHOICES.map((hex) => (
+                  <button
+                    key={hex}
+                    type="button"
+                    className="cve-swatch"
+                    style={{ backgroundColor: hex }}
+                    aria-label={hex}
+                    onPointerDown={toolbarRowGuard}
+                    onClick={() => { runText('foreColor', hex); setTextSwatchOpen(false); }}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+          <span className="cve-toolbar-sep" />
+          <button type="button" className="cve-toolbar-btn" onClick={() => runText('justifyLeft')} title="左对齐">左</button>
+          <button type="button" className="cve-toolbar-btn" onClick={() => runText('justifyCenter')} title="居中">中</button>
+          <button type="button" className="cve-toolbar-btn" onClick={() => runText('justifyRight')} title="右对齐">右</button>
+          <span className="cve-toolbar-sep" />
+          <button type="button" className="cve-toolbar-btn" onClick={() => runText('removeFormat')} title="清除格式">清除</button>
         </div>
       )}
-      <button type="button" className="cve-toolbar-btn" onClick={onInsertParaAfter} title="后插段落" aria-label="后插段落">+段</button>
+
+      {isImageCard && (
+        <div className="cve-toolbar-row cve-toolbar-row--ctx" onPointerDown={toolbarRowGuard}>
+          <span className="cve-toolbar-label">宽</span>
+          {IMG_WIDTH_CHOICES.map((w) => (
+            <button key={w} type="button" className={`cve-toolbar-btn${(imgStyle.widthPct || 100) === w ? ' is-on' : ''}`} onClick={() => onImgStyle({ ...imgStyle, widthPct: w })}>{w}%</button>
+          ))}
+          <span className="cve-toolbar-sep" />
+          {IMG_RADIUS_CHOICES.map((r) => (
+            <button key={r.v} type="button" className={`cve-toolbar-btn${(imgStyle.radius || 0) === r.v ? ' is-on' : ''}`} onClick={() => onImgStyle({ ...imgStyle, radius: r.v })}>{r.label}</button>
+          ))}
+          <span className="cve-toolbar-sep" />
+          {IMG_ASPECT_CHOICES.map((a) => (
+            <button key={String(a.v)} type="button" className={`cve-toolbar-btn${(imgStyle.aspect || null) === a.v ? ' is-on' : ''}`} onClick={() => onImgStyle({ ...imgStyle, aspect: a.v })}>{a.label}</button>
+          ))}
+          <span className="cve-toolbar-sep" />
+          <button type="button" className="cve-toolbar-btn" onClick={() => onImgReplace(null)} title="从中转站/相册换图">换图</button>
+        </div>
+      )}
+
+      {showRawImg && (
+        <div className="cve-toolbar-row cve-toolbar-row--ctx" onPointerDown={toolbarRowGuard}>
+          <span className="cve-toolbar-label">图片</span>
+          {IMG_WIDTH_CHOICES.map((w) => (
+            <button key={w} type="button" className="cve-toolbar-btn" onClick={() => onRawImgStyle({ widthPct: w })}>{w}%</button>
+          ))}
+          <span className="cve-toolbar-sep" />
+          {IMG_RADIUS_CHOICES.map((r) => (
+            <button key={r.v} type="button" className="cve-toolbar-btn" onClick={() => onRawImgStyle({ radius: r.v })}>{r.label}</button>
+          ))}
+          <span className="cve-toolbar-sep" />
+          <button type="button" className="cve-toolbar-btn" onClick={() => onImgReplace(activeRawImgIndex)} title="替换这张图">换图</button>
+        </div>
+      )}
     </div>
   );
 }
@@ -346,13 +549,15 @@ function BlockToolbar({
 // 单个块的外层包裹：选中态/hover 态边框、浮动工具条定位、按 kind/type 派发到具体渲染
 // ---------------------------------------------------------------------------
 function BlockWrapper({
-  block, index, total, selected, styleBlock, accent, bodyStyle,
+  block, index, total, selected, styleBlock, accent, bodyStyle, activeRawImgIndex,
   onSelect, onMoveUp, onMoveDown, onDuplicate, onDelete,
   onChangeStyle, onChangeAccent, onInsertParaAfter, onImageClick,
   onCommitContent, onCommitCaption, onParaTransient, onParaCommit,
-  onRawTransient, onRawCommit,
+  onRawTransient, onRawCommit, onSelectRawImg,
+  onSplitRaw, onImgStyle, onRawImgStyle, onImgReplace,
 }) {
   const flip = index === 0; // 首块工具条会被画布上沿裁掉，翻到块下方展示
+  const bodyRef = React.useRef(null); // 文字样式命令的选区作用域校验用（execCommand 宿主）
 
   // 把手按下即交给指针拖拽引擎；preventDefault 挡住"按下把手被当成点进相邻可编辑区"的文字光标，
   // 把手本身没有点击语义，吞掉 click 无副作用。
@@ -366,7 +571,15 @@ function BlockWrapper({
       return <ParaView block={block} bodyStyle={bodyStyle} onTransient={onParaTransient} onCommit={onParaCommit} />;
     }
     if (block.kind === 'raw') {
-      return <RawView block={block} onTransient={onRawTransient} onCommit={onRawCommit} />;
+      return (
+        <RawView
+          block={block}
+          activeImgIndex={activeRawImgIndex}
+          onTransient={onRawTransient}
+          onCommit={onRawCommit}
+          onSelectImg={onSelectRawImg}
+        />
+      );
     }
     if (!styleBlock) {
       return <div className="cve-block-error">样式块缺失（id：{block.blockId || '未设置'}）</div>;
@@ -410,6 +623,8 @@ function BlockWrapper({
           total={total}
           styleBlock={styleBlock}
           flip={flip}
+          getHostEl={() => bodyRef.current}
+          activeRawImgIndex={activeRawImgIndex}
           onMoveUp={onMoveUp}
           onMoveDown={onMoveDown}
           onDuplicate={onDuplicate}
@@ -417,9 +632,13 @@ function BlockWrapper({
           onChangeStyle={onChangeStyle}
           onChangeAccent={onChangeAccent}
           onInsertParaAfter={onInsertParaAfter}
+          onSplitRaw={onSplitRaw}
+          onImgStyle={onImgStyle}
+          onRawImgStyle={onRawImgStyle}
+          onImgReplace={onImgReplace}
         />
       )}
-      <div className="cve-block-body">{renderBody()}</div>
+      <div className="cve-block-body" ref={bodyRef}>{renderBody()}</div>
     </div>
   );
 }
@@ -436,11 +655,20 @@ export default function CanvasEditor({
   globalAccent = null,
   bodyConfig,
   onRequestStylePicker = () => {},
-  onRequestImagePick = () => {},
+  onRequestImagePick = () => {}, // (uid, imgIndex?)：imgIndex 非空=raw 块内第 N 张图换图
   onExternalDrop = () => {},
+  onNotify = () => {}, // (type, message)：画布内需要轻提示时回调（如拆分失败），父组件接 Toast
 }) {
   const canvasRef = React.useRef(null);
   const list = Array.isArray(doc) ? doc : [];
+
+  // raw 块内当前选中的图片：{ uid, imgIndex } | null。选中块变化/点击非图片处清除
+  const [activeRawImg, setActiveRawImg] = React.useState(null);
+  React.useEffect(() => {
+    if (!activeRawImg) return;
+    if (activeRawImg.uid !== selectedUid) setActiveRawImg(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedUid]);
 
   // 拖拽插入指示线状态：{ index, top } | null。index 是"插到 list 的哪个下标"，
   // top 是指示线相对画布外边框的像素偏移（渲染用）。两者一起算，一起清。
@@ -497,6 +725,37 @@ export default function CanvasEditor({
   const changeAccent = React.useCallback((uid, hex) => {
     updateBlock(uid, { accent: hex });
   }, [updateBlock]);
+
+  // raw 容器拆分：顶层子元素各自成块（单容器自动下钻），替换原块并选中第一个新块。
+  // 拆不开（单叶子元素）不改 doc，只轻提示——用户诉求是"把误合成一个容器的多个元素提出来"。
+  const splitRaw = React.useCallback((uid) => {
+    const idx = list.findIndex((b) => b.uid === uid);
+    if (idx < 0) return;
+    const parts = splitRawHtml(list[idx].html || '');
+    if (!Array.isArray(parts) || parts.length < 2) {
+      onNotify('info', '这个容器已是最小单元，拆不出更多元素');
+      return;
+    }
+    const newBlocks = parts.map((html) => ({ uid: makeUid(), kind: 'raw', html }));
+    const next = list.slice();
+    next.splice(idx, 1, ...newBlocks);
+    onChange(next);
+    onSelect(newBlocks[0].uid);
+    setActiveRawImg(null);
+    onNotify('success', `已拆分为 ${newBlocks.length} 个元素`);
+  }, [list, onChange, onSelect, onNotify]);
+
+  // imageCard 的图片样式（宽度/圆角/裁切）：存块级 imgStyle 字段，画布与导出各自渲染
+  const setImgStyle = React.useCallback((uid, imgStyle) => {
+    updateBlock(uid, { imgStyle });
+  }, [updateBlock]);
+
+  // raw 块内选中图片的样式：直接改写 html 里该 img 的内联 style
+  const setRawImgStyle = React.useCallback((uid, imgIndex, styleObj) => {
+    const block = list.find((b) => b.uid === uid);
+    if (!block) return;
+    updateBlock(uid, { html: applyRawImgStyle(block.html || '', imgIndex, styleObj) });
+  }, [list, updateBlock]);
 
   // 空画布默认给一个 para，仅在挂载时兜底一次；用户之后主动删空画布不再强行补回，
   // 那是"当前没有内容"的合法状态，不是需要被纠正的异常。
@@ -587,8 +846,10 @@ export default function CanvasEditor({
           if (target) insertIndex = target.index;
         }
 
-        if (payload.kind === 'style-block') {
-          if (payload.data) latest.onExternalDrop(payload.data, insertIndex);
+        if (payload.kind === 'style-block' || payload.kind === 'photo-item') {
+          // 外部拖入统一转发 {kind, data}：样式块 data={type,blockId}，照片 data=photo 对象，
+          // 具体如何转成 DocBlock 由父组件按 kind 分支决定
+          if (payload.data) latest.onExternalDrop({ kind: payload.kind, data: payload.data }, insertIndex);
           return;
         }
         if (payload.kind !== 'canvas-block' || !payload.data || !payload.data.uid) return;
@@ -633,6 +894,7 @@ export default function CanvasEditor({
             styleBlock={styleBlock}
             accent={accent}
             bodyStyle={computeParaStyle(bodyConfig, globalAccent)}
+            activeRawImgIndex={activeRawImg && activeRawImg.uid === block.uid ? activeRawImg.imgIndex : null}
             onSelect={() => onSelect(block.uid)}
             onMoveUp={() => moveBlock(block.uid, -1)}
             onMoveDown={() => moveBlock(block.uid, 1)}
@@ -648,6 +910,11 @@ export default function CanvasEditor({
             onParaCommit={(html) => updateBlock(block.uid, { html: sanitizeParaHtml(html) })}
             onRawTransient={(html) => updateBlock(block.uid, { html }, { transient: true })}
             onRawCommit={(html) => updateBlock(block.uid, { html: sanitizeRawHtml(html) })}
+            onSelectRawImg={(imgIndex) => setActiveRawImg(imgIndex == null ? null : { uid: block.uid, imgIndex })}
+            onSplitRaw={() => splitRaw(block.uid)}
+            onImgStyle={(imgStyle) => setImgStyle(block.uid, imgStyle)}
+            onRawImgStyle={(styleObj) => setRawImgStyle(block.uid, activeRawImg ? activeRawImg.imgIndex : 0, styleObj)}
+            onImgReplace={(imgIndex) => onRequestImagePick(block.uid, imgIndex == null ? undefined : imgIndex)}
           />
         );
       })}
@@ -673,9 +940,10 @@ export const CANVAS_EDITOR_USAGE = `
   onRequestStylePicker={(type, uid) => openLibrary({ filterType: type, replaceTarget: uid })}
   onRequestImagePick={(uid) => openPhotoPicker(uid)}
   onExternalDrop={(payload, insertIndex) => {
-    // payload 是拖拽源调 beginDrag(e, { kind: 'style-block', data: payload }) 时传入的 data 原对象，
-    // 本组件原样转发，不解释其字段；父组件按自己的样式库块结构转成 DocBlock 插入 insertIndex。
-    const block = styleLibraryPayloadToDocBlock(payload); // 父组件自行实现，不属于本组件契约
+    // payload = { kind: 'style-block'|'photo-item', data }，data 是拖拽源 beginDrag 传入的原对象
+    // （样式块 {type,blockId}，照片 {id,url,thumbUrl,description,...}）；本组件原样转发不解释字段，
+    // 父组件按 kind 转成 DocBlock 插入 insertIndex。
+    const block = externalPayloadToDocBlock(payload); // 父组件自行实现，不属于本组件契约
     const next = doc.slice();
     next.splice(insertIndex, 0, block);
     onChange(next);

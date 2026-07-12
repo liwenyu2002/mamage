@@ -1,0 +1,162 @@
+/* FavoritesPanel 专属样式，独立文件（契约里写的是共用 sidePanels.css，本组件按主会话口径改为独立文件）。
+   类名统一 .wxc-fav- 前缀，自包含，不依赖 composer.css 的 .wxc-lib-* 选择器（仅视觉上参考其比例）。
+   约束：批量出现的小元素（本文件里的删除角标）禁 backdrop-filter，用 §0 定版的不透明胶囊配方。 */
+
+.wxc-fav-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  /* 与 .wxc-style-pane/.wxc-alb-panel 同款：作为 .wxc-side-lib 的 flex 子项须能收缩并内部滚动，
+     否则收藏数量撑高后超出固定面板（桌面 position:fixed）的部分不可达 */
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.wxc-fav-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wxc-fav-section-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: rgba(0, 0, 0, 0.62);
+}
+
+.wxc-fav-empty {
+  padding: 18px 10px;
+  border: 1px dashed rgba(0, 0, 0, 0.16);
+  border-radius: 10px;
+  text-align: center;
+  font-size: 12.5px;
+  color: rgba(0, 0, 0, 0.4);
+}
+
+/* ── 样式收藏：网格卡片，比例参考 composer.css 的 .wxc-lib-block（stage 缩放预览 + meta 名称行） ── */
+
+.wxc-fav-block-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.wxc-fav-block {
+  position: relative;
+  border: 2px solid rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 120ms ease;
+}
+
+.wxc-fav-block:hover {
+  border-color: rgba(0, 0, 0, 0.24);
+}
+
+.wxc-fav-block-stage {
+  height: 76px;
+  overflow: hidden;
+  padding: 8px 10px;
+  background: #fff;
+  pointer-events: none;
+}
+
+.wxc-fav-block-scale {
+  transform: scale(0.62);
+  transform-origin: left top;
+  width: 161%;
+}
+
+.wxc-fav-block-scale img {
+  -webkit-user-drag: none;
+}
+
+.wxc-fav-block-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.wxc-fav-block-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.7);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── 照片收藏：2 列缩略图网格 ── */
+
+.wxc-fav-photo-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.wxc-fav-photo-card {
+  position: relative;
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.04);
+  aspect-ratio: 1 / 1;
+  cursor: pointer;
+  user-select: none;
+}
+
+.wxc-fav-photo-card img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
+/* ── 删除角标：卡片右上角圆钮，两种卡片共用同一份不透明胶囊配方，禁 backdrop-filter ── */
+
+.wxc-fav-block-del,
+.wxc-fav-photo-del {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 2;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.8);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+  color: rgba(0, 0, 0, 0.62);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.wxc-fav-block-del:hover,
+.wxc-fav-photo-del:hover {
+  background: #c0392b;
+  border-color: #c0392b;
+  color: #fff;
+}
+
+@media (max-width: 768px) {
+  .wxc-fav-block-grid,
+  .wxc-fav-photo-grid {
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  }
+}

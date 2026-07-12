@@ -1,0 +1,263 @@
+/* 推文导入预览层样式。类名统一 .wxc-ipv- 前缀，自包含。
+   约束：站内 chrome 纯黑白，禁止彩色点缀；批量出现的小元素（这里是底部按钮组）禁 backdrop-filter。 */
+
+.wxc-ipv-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 3500;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  box-sizing: border-box;
+}
+
+.wxc-ipv-panel {
+  width: min(760px, 100%);
+  height: 86vh;
+  max-height: 860px;
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ---- 头部：标题/作者/统计 + 关闭 ---- */
+
+.wxc-ipv-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.wxc-ipv-header-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.wxc-ipv-title {
+  font-size: 16px;
+  font-weight: 800;
+  color: #111;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wxc-ipv-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12.5px;
+  color: rgba(0, 0, 0, 0.5);
+}
+
+.wxc-ipv-author {
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.wxc-ipv-stats {
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.06);
+  white-space: nowrap;
+}
+
+.wxc-ipv-close {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.06);
+  color: rgba(0, 0, 0, 0.7);
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.wxc-ipv-close:hover {
+  background: rgba(0, 0, 0, 0.12);
+}
+
+/* ---- 中部滚动预览区：块渲染 + 单击/框选/编辑 ---- */
+
+.wxc-ipv-scroll {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  background: #ececec;
+  padding: 24px 20px;
+  box-sizing: border-box;
+}
+
+.wxc-ipv-scroll.is-dragging {
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: crosshair;
+}
+
+.wxc-ipv-content {
+  width: 677px;
+  max-width: 100%;
+  margin: 0 auto;
+  background: #fff;
+  padding: 24px 28px;
+  border-radius: 6px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  min-height: 200px;
+}
+
+.wxc-ipv-block {
+  position: relative;
+  margin-bottom: 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  opacity: 1;
+  transition: opacity 0.12s ease, outline-color 0.12s ease;
+}
+
+.wxc-ipv-block-body {
+  outline: none;
+}
+
+.wxc-ipv-block:not(.is-selected):not(.is-editing) {
+  opacity: 0.45;
+}
+
+.wxc-ipv-block:not(.is-selected):not(.is-editing):hover {
+  opacity: 0.7;
+  outline: 1px dashed rgba(17, 17, 17, 0.5);
+}
+
+.wxc-ipv-block.is-selected {
+  outline: 2px solid #111;
+}
+
+.wxc-ipv-block.is-preselect {
+  outline: 2px dashed #111;
+  background: rgba(17, 17, 17, 0.06);
+}
+
+.wxc-ipv-block.is-editing {
+  opacity: 1;
+  outline: 2px solid #111;
+  background: rgba(17, 17, 17, 0.03);
+  cursor: text;
+}
+
+.wxc-ipv-check {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #111;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+}
+
+.wxc-ipv-rubber {
+  position: absolute;
+  z-index: 5;
+  background: rgba(17, 17, 17, 0.08);
+  border: 1px solid #111;
+  pointer-events: none;
+}
+
+/* ---- 底部操作条 ---- */
+
+.wxc-ipv-footer {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px 20px;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.wxc-ipv-footer-left,
+.wxc-ipv-footer-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.wxc-ipv-count {
+  font-size: 12.5px;
+  color: rgba(0, 0, 0, 0.55);
+  margin-right: 4px;
+  white-space: nowrap;
+}
+
+/* .wxc-ipv-btn 只负责形状/排版，配色一律交给三个变体类（ghost/secondary/primary），
+   三选一必带，避免出现"只挂基类"的无配色按钮 */
+.wxc-ipv-btn {
+  appearance: none;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 7px 16px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.wxc-ipv-btn-ghost {
+  border-color: rgba(0, 0, 0, 0.14);
+  background: rgba(0, 0, 0, 0.04);
+  color: rgba(0, 0, 0, 0.7);
+}
+
+.wxc-ipv-btn-ghost:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.wxc-ipv-btn-secondary {
+  background: #fff;
+  border-color: #111;
+  color: #111;
+}
+
+.wxc-ipv-btn-secondary:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.wxc-ipv-btn-primary {
+  background: linear-gradient(135deg, #2f2f2f, #101010);
+  border-color: #111;
+  color: #fff;
+}
+
+.wxc-ipv-btn-primary:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.wxc-ipv-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}

@@ -3,10 +3,14 @@ import DOMPurify from 'dompurify';
 import { Layout, Card, Button, Input, Modal, Toast, Typography } from './ui';
 import { getAll as getTransferAll, subscribe as subscribeTransfer } from './services/transferStore';
 import { request, resolveAssetUrl } from './services/request';
-import { WECHAT_THEMES, THEME_PRESETS, BUILTIN_BLOCKS_BY_ID, applyBlock } from './wechat/themes';
+import { THEME_PRESETS, BUILTIN_BLOCKS_BY_ID, applyBlock } from './wechat/themes';
 import { copyWechatRichText, downloadImagePack } from './wechat/wechatExport';
 import CanvasEditor from './wechat/CanvasEditor';
-import { makeUid, markdownToDoc, docToHtml, docToPlainText, createHistory, sanitizeRawHtml } from './wechat/docModel';
+import AlbumPanel from './wechat/AlbumPanel';
+import FavoritesPanel from './wechat/FavoritesPanel';
+import ImportPreviewModal from './wechat/ImportPreviewModal';
+import { listFavorites, addFavorite, removeFavorite } from './services/favoritesService';
+import { makeUid, markdownToDoc, docToHtml, docToPlainText, createHistory, sanitizeRawHtml, replaceRawImgSrc } from './wechat/docModel';
 import { beginDrag } from './wechat/pointerDrag';
 import './wechat/composer.css';
 import './wechat/canvas.css';
@@ -117,7 +121,8 @@ function WechatComposer() {
   const [initial] = React.useState(buildInitialState);
   const [title, setTitle] = React.useState(initial.title);
   const [digest, setDigest] = React.useState(initial.digest);
-  const [themeKey, setThemeKey] = React.useState(initial.themeKey);
+  // 主题模板 UI 已移除：themeKey 仅作为 blockConfig 未自定义时的预设兜底键保留（草稿兼容）
+  const [themeKey] = React.useState(initial.themeKey);
   const [pickerOpen, setPickerOpen] = React.useState(false);
   const [stationItemsRaw, setStationItemsRaw] = React.useState(() => getTransferAll());
   const [isMobile, setIsMobile] = React.useState(() => (typeof window !== 'undefined' ? window.innerWidth <= 768 : false));
@@ -130,7 +135,8 @@ function WechatComposer() {
   const [historyTick, setHistoryTick] = React.useState(0); // 撤销/重做按钮禁用态的重渲信号
   void historyTick;
   const [replaceTarget, setReplaceTarget] = React.useState(null); // 换样式模式：目标块 uid
-  const [pickerTarget, setPickerTarget] = React.useState(null);   // 中转站选图：null=插新图块，uid=给该块换图
+  // 中转站选图目标：null=插新图块；uid 字符串=给 imageCard 块换图；{uid, imgIndex}=替换 raw 块内第 N 张图
+  const [pickerTarget, setPickerTarget] = React.useState(null);
 
   const applyDocChange = React.useCallback((nextDoc, opts) => {
     setDoc(nextDoc);
@@ -168,6 +174,39 @@ function WechatComposer() {
   const [blockConfig, setBlockConfig] = React.useState(initial.blockConfig);
   const [libraryOpen, setLibraryOpen] = React.useState(false);
   const [libType, setLibType] = React.useState('h2');
+  const [sideTab, setSideTab] = React.useState('style'); // 左侧面板顶层 Tab：style|album|fav
+  // 已访问过的 Tab 保持挂载（用 display 切换而非卸载），避免切走再切回丢失搜索词/滚动位置；
+  // 但首次仍是懒加载——没点过的 Tab 不挂载、不发请求
+  const [visitedTabs, setVisitedTabs] = React.useState(() => ({ style: true }));
+  const switchSideTab = React.useCallback((key) => {
+    setSideTab(key);
+    setVisitedTabs((prev) => (prev[key] ? prev : { ...prev, [key]: true }));
+  }, []);
+
+  // ── 用户收藏（一用户一收藏，样式块+照片两类）────────────────
+  const [styleFavs, setStyleFavs] = React.useState([]);
+  const [photoFavs, setPhotoFavs] = React.useState([]);
+  // 加载失败必须显式标记，否则空态与"加载失败"无法区分——用户会误以为收藏丢了
+  const [favError, setFavError] = React.useState(false);
+
+  const loadFavorites = React.useCallback(async () => {
+    try {
+      const resp = await listFavorites();
+      const rows = Array.isArray(resp && resp.favorites) ? resp.favorites : [];
+      setStyleFavs(rows.filter((r) => r.kind === 'styleBlock'));
+      setPhotoFavs(rows.filter((r) => r.kind === 'photo'));
+      setFavError(false);
+    } catch (e) {
+      console.error('[WechatComposer] load favorites failed', e);
+      setFavError(true);
+    }
+  }, []);
+
+  // 进页即拉：草稿可能引用"仅存在于收藏快照"的样式块（原 db 块已删），blocksById 需要快照兜底
+  React.useEffect(() => { loadFavorites(); }, [loadFavorites]);
+
+  const favoriteBlockKeys = React.useMemo(() => new Set(styleFavs.map((f) => f.refKey)), [styleFavs]);
+  const favoritePhotoKeys = React.useMemo(() => new Set(photoFavs.map((f) => String(f.refKey))), [photoFavs]);
   const [myBlocks, setMyBlocks] = React.useState([]); // 从链接提取并保存的"我的样式库"
   const [myBlocksLoaded, setMyBlocksLoaded] = React.useState(false);
   const [extractUrl, setExtractUrl] = React.useState('');
@@ -185,9 +224,15 @@ function WechatComposer() {
   );
   const blocksById = React.useMemo(() => {
     const map = { ...BUILTIN_BLOCKS_BY_ID };
+    // 收藏快照先铺底（原 db 块被删后收藏/草稿仍可渲染），在库的真实块随后覆盖（数据更新鲜）
+    styleFavs.forEach((f) => {
+      if (f && f.refKey && f.payload && f.payload.htmlTemplate && !map[f.refKey]) {
+        map[f.refKey] = { id: f.refKey, ...f.payload };
+      }
+    });
     myBlocks.forEach((b) => { map[b.id] = b; });
     return map;
-  }, [myBlocks]);
+  }, [myBlocks, styleFavs]);
 
   const loadMyBlocks = React.useCallback(async () => {
     try {
@@ -244,12 +289,18 @@ function WechatComposer() {
     return withUid.uid;
   }, [doc, selectedUid, applyDocChange]);
 
-  // 中转站选图确认：pickerTarget 有值=给该图块换图，否则插入新图片卡块
+  // 中转站选图确认：pickerTarget 按形态分发——对象={uid,imgIndex} 替换 raw 内第 N 图，
+  // 字符串=imageCard 换图，null=插入新图片卡块
   const insertPhoto = React.useCallback((item) => {
     const url = item.fullUrl || item.thumbUrl;
     if (!url) { Toast.warning('该照片缺少可用地址'); return; }
     const caption = String(item.description || '').slice(0, 40);
-    if (pickerTarget) {
+    if (pickerTarget && typeof pickerTarget === 'object') {
+      const { uid, imgIndex } = pickerTarget;
+      const next = doc.map((b) => (b.uid === uid ? { ...b, html: replaceRawImgSrc(b.html || '', imgIndex, url) } : b));
+      applyDocChange(next);
+      Toast.success('已替换图片');
+    } else if (pickerTarget) {
       const next = doc.map((b) => (b.uid === pickerTarget ? { ...b, src: url } : b));
       applyDocChange(next);
       Toast.success('已替换图片');
@@ -355,7 +406,9 @@ function WechatComposer() {
     setSelectedUid(null);
     if (result.title && !String(title || '').trim()) setTitle(String(result.title).slice(0, TITLE_LIMIT));
     setImportResult(null);
-    Toast.success(`已复现整篇推文：${rawBlocks.length} 个内容块${result.imageCount ? `、${result.imageCount} 张图` : ''}`);
+    // 图数按实际导入的块统计（用户可能只勾选了部分块，原文 imageCount 会虚高）
+    const imgN = rawBlocks.reduce((n, b) => n + ((b.html.match(/<img\b/gi) || []).length), 0);
+    Toast.success(`已导入 ${rawBlocks.length} 个内容块${imgN ? `、${imgN} 张图` : ''}`);
   }, [doc, applyDocChange, title]);
 
   const handleImportArticle = React.useCallback(async () => {
@@ -371,18 +424,14 @@ function WechatComposer() {
       const resp = await request('/api/wechat-style/import-article', { method: 'POST', data: { url } });
       const blocks = Array.isArray(resp && resp.blocks) ? resp.blocks : [];
       if (!blocks.length) { Toast.info('这篇推文没有解析到正文内容'); return; }
-      if (docHasContent) {
-        setImportResult(resp); // 画布已有内容：弹层让用户选替换还是追加
-      } else {
-        applyImportedArticle(resp, 'replace');
-      }
+      setImportResult(resp); // 一律进完整预览层：块级勾选/框选后再导入
     } catch (e) {
       console.error('[WechatComposer] import article failed', e);
       Toast.error(e && e.message ? `复现失败：${String(e.message).slice(0, 100)}` : '复现失败，请稍后重试');
     } finally {
       setImporting(false);
     }
-  }, [extractUrl, docHasContent, applyImportedArticle]);
+  }, [extractUrl]);
 
   const handleSaveExtracted = React.useCallback(async () => {
     const chosen = (extractedBlocks || []).filter((_, i) => extractPicked[i]);
@@ -421,23 +470,111 @@ function WechatComposer() {
     }
   }, [themeKey]);
 
-  // 样式块从左侧面板拖入画布：payload={type, blockId}，插入到指示线位置
+  // ── 收藏交互：样式块/照片星标切换（乐观更新，失败回拉全量对账）────
+  const toggleStyleFav = React.useCallback(async (block) => {
+    const existing = styleFavs.find((f) => f.refKey === block.id);
+    try {
+      if (existing) {
+        setStyleFavs((prev) => prev.filter((f) => f.id !== existing.id));
+        await removeFavorite(existing.id);
+      } else {
+        const payload = {
+          type: block.type, name: block.name, htmlTemplate: block.htmlTemplate,
+          accentEditable: !!block.accentEditable, source: block.source || 'builtin',
+        };
+        const resp = await addFavorite({ kind: 'styleBlock', refKey: block.id, payload });
+        if (resp && resp.favorite) setStyleFavs((prev) => [resp.favorite, ...prev.filter((f) => f.refKey !== block.id)]);
+        Toast.success('已收藏样式');
+      }
+    } catch (e) {
+      console.error('[WechatComposer] toggle style fav failed', e);
+      Toast.error('收藏操作失败');
+      loadFavorites();
+    }
+  }, [styleFavs, loadFavorites]);
+
+  const togglePhotoFav = React.useCallback(async (photo, next) => {
+    const key = String(photo.id);
+    const existing = photoFavs.find((f) => String(f.refKey) === key);
+    try {
+      if (!next && existing) {
+        setPhotoFavs((prev) => prev.filter((f) => f.id !== existing.id));
+        await removeFavorite(existing.id);
+      } else if (next && !existing) {
+        const resp = await addFavorite({ kind: 'photo', refKey: key, payload: photo });
+        if (resp && resp.favorite) setPhotoFavs((prev) => [resp.favorite, ...prev.filter((f) => String(f.refKey) !== key)]);
+        Toast.success('已收藏照片');
+      }
+    } catch (e) {
+      console.error('[WechatComposer] toggle photo fav failed', e);
+      Toast.error('收藏操作失败');
+      loadFavorites();
+    }
+  }, [photoFavs, loadFavorites]);
+
+  const handleRemoveFav = React.useCallback(async (favId) => {
+    setStyleFavs((prev) => prev.filter((f) => f.id !== favId));
+    setPhotoFavs((prev) => prev.filter((f) => f.id !== favId));
+    try {
+      await removeFavorite(favId);
+    } catch (e) {
+      console.error('[WechatComposer] remove fav failed', e);
+      loadFavorites();
+    }
+  }, [loadFavorites]);
+
+  // 相册/收藏面板照片 → 画布 imageCard 块（不经中转站）
+  const insertPanelPhoto = React.useCallback((photo) => {
+    const url = (photo && (photo.url || photo.thumbUrl)) || '';
+    if (!url) { Toast.warning('该照片缺少可用地址'); return; }
+    const imageBlockId = effectiveConfig.imageCard;
+    insertDocBlock({
+      kind: 'styled', type: 'imageCard', blockId: imageBlockId,
+      src: url, caption: String(photo.description || '').slice(0, 40), accent: null,
+    });
+    Toast.success('已插入图片卡');
+  }, [effectiveConfig, insertDocBlock]);
+
+  // 收藏样式点插：走 applyBlockPick（换样式模式/imageCard 先选图等语义天然复用）
+  const handleFavInsertBlock = React.useCallback((blockLike) => {
+    if (!blockLike || !blockLike.type) return;
+    applyBlockPick(blockLike.type, blockLike.id);
+  }, [applyBlockPick]);
+
+  // 外部拖入画布：样式块 {kind:'style-block', data:{type,blockId}} / 照片 {kind:'photo-item', data:photo}
   const handleExternalDrop = React.useCallback((payload, insertIndex) => {
-    if (!payload || !payload.type || !payload.blockId) return;
-    const base = {
-      kind: 'styled', type: payload.type, blockId: payload.blockId, accent: null, uid: makeUid(),
-    };
-    const block = payload.type === 'imageCard'
-      ? { ...base, src: PREVIEW_IMG, caption: '点击图片从中转站选图' }
-      : payload.type === 'divider'
-        ? base
-        : { ...base, content: DEFAULT_CONTENT[payload.type] || '' };
+    if (!payload || !payload.kind || !payload.data) return;
     const next = [...doc];
     const idx = Math.max(0, Math.min(Number(insertIndex) || 0, next.length));
+
+    if (payload.kind === 'photo-item') {
+      const photo = payload.data;
+      const url = photo.url || photo.thumbUrl || '';
+      if (!url) return;
+      const block = {
+        kind: 'styled', type: 'imageCard', blockId: effectiveConfig.imageCard,
+        src: url, caption: String(photo.description || '').slice(0, 40), accent: null, uid: makeUid(),
+      };
+      next.splice(idx, 0, block);
+      applyDocChange(next);
+      setSelectedUid(block.uid);
+      return;
+    }
+
+    const data = payload.data;
+    if (!data.type || !data.blockId) return;
+    const base = {
+      kind: 'styled', type: data.type, blockId: data.blockId, accent: null, uid: makeUid(),
+    };
+    const block = data.type === 'imageCard'
+      ? { ...base, src: PREVIEW_IMG, caption: '点击图片从中转站选图' }
+      : data.type === 'divider'
+        ? base
+        : { ...base, content: DEFAULT_CONTENT[data.type] || '' };
     next.splice(idx, 0, block);
     applyDocChange(next);
     setSelectedUid(block.uid);
-  }, [doc, applyDocChange, DEFAULT_CONTENT]);
+  }, [doc, applyDocChange, DEFAULT_CONTENT, effectiveConfig]);
 
   const handleCopyRich = React.useCallback(async () => {
     if (!docHasContent) { Toast.warning('画布还是空的，先从样式库插入内容'); return; }
@@ -483,7 +620,7 @@ function WechatComposer() {
         <h2 style={{ margin: 0 }}>公众号排版器</h2>
         <div style={{ marginTop: 6, marginBottom: 14 }}>
           <Text type="secondary">
-            用 markdown 写正文、选一套主题，右侧手机预览所见即所得；完稿后一键复制粘贴到公众号后台。
+            左侧样式/相册/收藏三栏取材，画布所见即所得；贴推文链接可提取样式或整文复现；完稿后一键复制粘贴到公众号后台。
           </Text>
         </div>
 
@@ -513,8 +650,52 @@ function WechatComposer() {
 
       <Content>
         <div className="wxc-workspace">
-          {/* 左侧样式库面板：桌面常驻，窄屏由"样式库"按钮抽屉化 */}
+          {/* 左侧面板：桌面常驻，窄屏由"样式库"按钮抽屉化；顶层三 Tab＝样式/相册/收藏 */}
           <aside className={`wxc-side-lib${libraryOpen ? ' is-open' : ''}`}>
+            <div className="wxc-side-toptabs" role="tablist" aria-label="面板切换">
+              {[['style', '样式'], ['album', '相册'], ['fav', '收藏']].map(([key, name]) => (
+                <button
+                  key={key}
+                  type="button"
+                  role="tab"
+                  aria-selected={sideTab === key}
+                  className={`wxc-side-toptab${sideTab === key ? ' is-active' : ''}`}
+                  onClick={() => switchSideTab(key)}
+                >
+                  {name}
+                </button>
+              ))}
+            </div>
+            {visitedTabs.album && (
+              <div className="wxc-tabpane" style={sideTab === 'album' ? undefined : { display: 'none' }}>
+                <AlbumPanel
+                  onInsertPhoto={insertPanelPhoto}
+                  onToggleFavorite={togglePhotoFav}
+                  favoritePhotoKeys={favoritePhotoKeys}
+                />
+              </div>
+            )}
+            {visitedTabs.fav && (
+              <div className="wxc-tabpane" style={sideTab === 'fav' ? undefined : { display: 'none' }}>
+                {favError ? (
+                  <div className="wxc-fav-loaderr">
+                    <p>收藏加载失败，可能是网络问题。</p>
+                    <Button size="small" onClick={loadFavorites}>重试</Button>
+                  </div>
+                ) : (
+                  <FavoritesPanel
+                    styleFavs={styleFavs}
+                    photoFavs={photoFavs}
+                    renderBlockHtml={renderBlockPreview}
+                    onInsertBlock={handleFavInsertBlock}
+                    onInsertPhoto={insertPanelPhoto}
+                    onRemoveFav={handleRemoveFav}
+                  />
+                )}
+              </div>
+            )}
+            {/* 样式 tab 用 display 显隐而非卸载：保住提取输入内容与块列表滚动位置 */}
+            <div className="wxc-style-pane" style={sideTab === 'style' ? undefined : { display: 'none' }}>
             <div className="wxc-lib-extract">
               <input
                 className="wxc-lib-extract-input"
@@ -587,6 +768,16 @@ function WechatComposer() {
                   </div>
                   <div className="wxc-lib-block-meta">
                     <span className="wxc-lib-block-name">{b.name}</span>
+                    <button
+                      type="button"
+                      className={`wxc-lib-block-star${favoriteBlockKeys.has(b.id) ? ' is-on' : ''}`}
+                      title={favoriteBlockKeys.has(b.id) ? '取消收藏' : '收藏样式'}
+                      aria-label={favoriteBlockKeys.has(b.id) ? '取消收藏' : '收藏样式'}
+                      onClick={(e) => { e.stopPropagation(); toggleStyleFav(b); }}
+                      onPointerDown={(e) => e.stopPropagation()}
+                    >
+                      {favoriteBlockKeys.has(b.id) ? '★' : '☆'}
+                    </button>
                     {b.source === 'extracted' ? (
                       <>
                         <span className="wxc-lib-badge">我的库</span>
@@ -595,6 +786,7 @@ function WechatComposer() {
                           className="wxc-lib-block-del"
                           title="从我的样式库删除"
                           onClick={(e) => { e.stopPropagation(); handleDeleteMyBlock(b); }}
+                          onPointerDown={(e) => e.stopPropagation()}
                         >
                           ×
                         </button>
@@ -614,46 +806,16 @@ function WechatComposer() {
                 </div>
               ) : null}
             </div>
+            </div>
           </aside>
 
           <div className="wxc-workarea">
-            <div className="wxc-theme-row" role="radiogroup" aria-label="选择排版主题">
-              {(WECHAT_THEMES || []).map((t) => (
-                <button
-                  key={t.key}
-                  type="button"
-                  role="radio"
-                  aria-checked={!blockConfig && themeKey === t.key}
-                  className={`wxc-theme-card${!blockConfig && themeKey === t.key ? ' is-selected' : ''}`}
-                  onClick={() => { setThemeKey(t.key); setBlockConfig(null); }}
-                  title={t.desc || t.name}
-                >
-                  <span className="wxc-theme-mini" aria-hidden="true">
-                    <span className="wxc-theme-mini-title" style={{ background: t.accent }} />
-                    <span className="wxc-theme-mini-line" />
-                    <span className="wxc-theme-mini-line" style={{ width: '70%' }} />
-                  </span>
-                  <span className="wxc-theme-label">
-                    <span className="wxc-theme-swatch" style={{ background: t.accent }} aria-hidden="true" />
-                    <span className="wxc-theme-name">{t.name}</span>
-                  </span>
-                </button>
-              ))}
-              <button
-                type="button"
-                className="wxc-theme-card wxc-theme-card--custom wxc-lib-toggle-mobile"
-                onClick={() => setLibraryOpen((v) => !v)}
-                title="打开样式库"
-              >
-                <span className="wxc-theme-label">
-                  <span className="wxc-theme-name">{blockConfig ? '自定义 ✓' : '样式库'}</span>
-                </span>
-              </button>
-            </div>
-
             <div className="wxc-canvas-region">
               <div className="wxc-canvas-toolbar">
                 <div className="wxc-canvas-toolbar-left">
+                  {/* 主题模板行已按用户要求移除：主色由左侧面板色点控制，样式全靠样式块自选；
+                      窄屏打开左侧面板的入口挪到这里 */}
+                  <Button size="small" className="wxc-lib-toggle-mobile" onClick={() => setLibraryOpen((v) => !v)}>面板</Button>
                   <Button size="small" onClick={() => { setPickerTarget(null); setPickerOpen(true); }}>从中转站插图</Button>
                   <Text type="secondary" className="wxc-canvas-tip">
                     左侧样式点击或拖到画布插入，点块直接编辑
@@ -672,9 +834,13 @@ function WechatComposer() {
                 blocksById={blocksById}
                 globalAccent={effectiveConfig.accent}
                 bodyConfig={effectiveConfig.body}
-                onRequestStylePicker={(type, uid) => { setLibType(type); setReplaceTarget(uid); setLibraryOpen(true); }}
-                onRequestImagePick={(uid) => { setPickerTarget(uid); setPickerOpen(true); }}
+                onRequestStylePicker={(type, uid) => { setSideTab('style'); setLibType(type); setReplaceTarget(uid); setLibraryOpen(true); }}
+                onRequestImagePick={(uid, imgIndex) => {
+                  setPickerTarget(imgIndex !== undefined ? { uid, imgIndex } : uid);
+                  setPickerOpen(true);
+                }}
                 onExternalDrop={handleExternalDrop}
+                onNotify={(type, msg) => { (Toast[type] || Toast.info)(msg); }}
               />
             </div>
 
@@ -767,29 +933,14 @@ function WechatComposer() {
         ) : null}
       </Modal>
 
-      {/* 整文复现确认：画布已有内容时让用户决定替换还是追加，避免辛苦编辑被一键冲掉 */}
-      <Modal
-        title="画布已有内容，如何导入？"
+      {/* 整文复现：完整推文预览层，单击选块/双击改字/框选多选，选完再决定替换或追加 */}
+      <ImportPreviewModal
         visible={!!importResult}
+        result={importResult}
+        canvasHasContent={docHasContent}
         onCancel={() => setImportResult(null)}
-        footer={null}
-        width={isMobile ? 'calc(100vw - 16px)' : 440}
-      >
-        {importResult ? (
-          <div className="wxc-import-confirm">
-            <p className="wxc-import-summary">
-              {importResult.title ? `《${importResult.title}》` : '这篇推文'}解析到
-              {' '}{(importResult.blocks || []).length} 个内容块
-              {importResult.imageCount ? `、${importResult.imageCount} 张图` : ''}，文字与排版将原样进入画布。
-            </p>
-            <div className="wxc-extract-actions">
-              <Button type="tertiary" onClick={() => setImportResult(null)}>取消</Button>
-              <Button onClick={() => applyImportedArticle(importResult, 'append')}>追加到末尾</Button>
-              <Button type="primary" onClick={() => applyImportedArticle(importResult, 'replace')}>替换当前画布</Button>
-            </div>
-          </div>
-        ) : null}
-      </Modal>
+        onImport={(selectedBlocks, mode) => applyImportedArticle({ ...importResult, blocks: selectedBlocks }, mode)}
+      />
     </Layout>
   );
 }
