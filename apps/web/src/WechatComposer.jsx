@@ -1100,7 +1100,7 @@ function WechatComposer() {
       >
         {previewInfo ? (
           <div className="wxc-qr-body">
-            <p className="wxc-qr-hint">用手机扫码，或复制链接在手机浏览器打开，即可看到排版效果（链接 7 天内有效）。</p>
+            <p className="wxc-qr-hint">用手机扫码，或复制链接在手机浏览器打开，即可看到排版效果（链接 20 分钟内有效）。</p>
             <div
               className="wxc-qr-code"
               // eslint-disable-next-line react/no-danger -- qrSvg 由 qrcode-generator 生成的纯 SVG，无外部输入
