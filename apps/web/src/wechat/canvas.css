@@ -412,6 +412,31 @@ body.cve-box-selecting * {
   outline: none;
   cursor: text;
   overflow-wrap: break-word;
+  /* 微信文章页 #js_content 实测基线(2026-07-12)：17px/1.6/0.544px/两端对齐。
+     原文裸 <p> 和不带内联行距的段落依赖微信页面这套 CSS，画布不补齐就会
+     吃浏览器默认(p margin 1em、line-height normal)，出现"行距和原文不一样"。
+     均可被块内联样式覆盖，只兜底未声明的属性。 */
+  font-size: 17px;
+  line-height: 1.6;
+  letter-spacing: 0.544px;
+  text-align: justify;
+}
+
+/* 微信页面对文章内元素做了全零边距重置（实测 p margin 0），浏览器默认 p/h/ul 的
+   1em 级外边距会让段间距明显大于原文——这是行距差异的最大来源 */
+.cve-raw-host p,
+.cve-raw-host h1, .cve-raw-host h2, .cve-raw-host h3,
+.cve-raw-host h4, .cve-raw-host h5, .cve-raw-host h6,
+.cve-raw-host blockquote, .cve-raw-host figure,
+.cve-raw-host ul, .cve-raw-host ol {
+  margin: 0;
+  padding: 0;
+}
+
+/* 与微信一致：p 清浮动 + 撑起空段（<p><br></p> 占一行行高，空行间距才能对齐原文） */
+.cve-raw-host p {
+  clear: both;
+  min-height: 1em;
 }
 
 /* 原文 img 内联样式若给了超画布的固定宽度，max-width 兜底防横向溢出（内联 width 仍受此约束） */

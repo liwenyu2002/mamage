@@ -132,6 +132,26 @@
 
 .wxc-ipv-block-body {
   outline: none;
+  /* 微信文章页基线（与 canvas.css 的 .cve-raw-host 同源同步）：17px/1.6/0.544px/两端对齐 +
+     p 全零边距重置。导入预览渲染的就是原文块,不补基线会吃浏览器默认 p margin 出现行距偏差 */
+  font-size: 17px;
+  line-height: 1.6;
+  letter-spacing: 0.544px;
+  text-align: justify;
+}
+
+.wxc-ipv-block-body p,
+.wxc-ipv-block-body h1, .wxc-ipv-block-body h2, .wxc-ipv-block-body h3,
+.wxc-ipv-block-body h4, .wxc-ipv-block-body h5, .wxc-ipv-block-body h6,
+.wxc-ipv-block-body blockquote, .wxc-ipv-block-body figure,
+.wxc-ipv-block-body ul, .wxc-ipv-block-body ol {
+  margin: 0;
+  padding: 0;
+}
+
+.wxc-ipv-block-body p {
+  clear: both;
+  min-height: 1em;
 }
 
 .wxc-ipv-block:not(.is-selected):not(.is-editing) {
