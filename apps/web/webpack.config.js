@@ -3,6 +3,23 @@ const path = require('path');
 const fs = require('fs');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 
+// 轻量 .env 加载（无 dotenv 依赖）：让构建 templateParameters(MAMAGE_*) 可靠地从项目根 .env 读取，
+// 否则标准 `npm run build`（不在 shell 里手动 export）会让这些变量全部落到默认空值——
+// 例如 MAMAGE_DISABLE_DIRECT_UPLOAD 丢失后直传开关失效，上传又会打向私网 S3 端点常态 409。
+// 已在 shell 环境显式设置的变量优先，不被 .env 覆盖。
+try {
+  const envPath = path.resolve(__dirname, '.env');
+  if (fs.existsSync(envPath)) {
+    fs.readFileSync(envPath, 'utf8').split(/\r?\n/).forEach((line) => {
+      const m = line.match(/^\s*([A-Za-z0-9_]+)\s*=\s*(.*?)\s*$/);
+      if (!m || process.env[m[1]] !== undefined) return;
+      let v = m[2];
+      if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
+      process.env[m[1]] = v;
+    });
+  }
+} catch (e) { /* .env 可选，缺失或不可读不影响构建 */ }
+
 const devProxyTarget = process.env.MAMAGE_BACKEND_URL || 'http://localhost:8001';
 const devProxyContexts = ['/api', '/uploads', '/static'];
 
