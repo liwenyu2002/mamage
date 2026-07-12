@@ -103,10 +103,23 @@ function formatArchiveTime(iso) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+// 新建/首次保存未命名推文时的默认文件名（带创建时刻，便于在文件管理器里区分）
+function defaultFileName() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  return `未命名推文 ${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 // 首帧同步读取草稿 + 导入数据（比 useEffect 异步回填快，避免"先空后填"的闪烁）；
 // 导入键读到即删，保证只消费一次。真正的 side-effect（Toast）留给挂载后的 effect 处理。
 function buildInitialState() {
-  const draft = safeParse((typeof localStorage !== 'undefined') ? localStorage.getItem(DRAFT_KEY) : null) || {};
+  let draftRaw = null;
+  try {
+    draftRaw = (typeof localStorage !== 'undefined') ? localStorage.getItem(DRAFT_KEY) : null;
+  } catch (e) {
+    // 部分隐私模式下 getItem 也会抛，静默兜底（与下方 IMPORT_KEY 读取一致）
+  }
+  const draft = safeParse(draftRaw) || {};
   let imported = null;
   try {
     const rawImport = (typeof localStorage !== 'undefined') ? localStorage.getItem(IMPORT_KEY) : null;
@@ -131,13 +144,31 @@ function buildInitialState() {
   } else if (draft.markdown) {
     doc = markdownToDoc(draft.markdown, { blockConfig: effective });
   }
+  const title = (hasImport && imported.title) || draft.title || '';
+  const digest = draft.digest || '';
+  const finalDoc = doc || [];
+  // 草稿归属的存档文件 id（v4 起随草稿一起写回）；null=尚未保存为服务端文件的新推文
+  const draftOpenId = (draft.openId != null && draft.openId !== '') ? draft.openId : null;
+  const draftHasContent = (finalDoc.length > 0) || !!title.trim() || !!digest.trim();
+  // 进页默认落在「推文文件管理器」；仅两种情况直接进编辑器：
+  //   1) 从 AI 矩阵「去排版器精修」带内容进来（必须立即进编辑接住导入内容）
+  //   2) 上次正在编辑一篇【尚未保存为文件】的新推文（reload 后能接着编，否则草稿虽在本地但无入口找回）
+  //   已保存文件的草稿(draftOpenId 有值) → 仍回文件管理器，从列表打开会拉服务端干净版本
+  const view = (hasImport || (draftHasContent && draftOpenId == null)) ? 'editor' : 'manager';
   return {
-    title: (hasImport && imported.title) || draft.title || '',
-    digest: draft.digest || '',
-    doc: doc || [],
+    title,
+    digest,
+    doc: finalDoc,
     themeKey,
     blockConfig,
     imported: hasImport,
+    view,
+    // 初始 openId 恒为 null：能进编辑器的两种情形（导入 / 续编未保存新推文）本就没有归属文件；
+    // 归属已存文件的草稿(draftOpenId 有值)一律落管理器，openId 保持 null，避免"管理器里删掉该文件
+    // 时误把它当成当前编辑文件、把残留草稿重存为新文件"的脏状态。需要那份内容从列表重新打开即可。
+    openId: null,
+    // 进编辑器即视为"有未保存改动"（导入内容/续编的新推文都还没落库），进管理器则无所谓
+    dirty: view === 'editor',
   };
 }
 
@@ -182,10 +213,17 @@ function WechatComposer() {
     if (next) { setDoc(next); setSelectedUid(null); setHistoryTick((t) => t + 1); }
   }, []);
 
-  // ⌘Z / ⌘⇧Z（画布不拦截，父级统一处理；输入场景交还浏览器原生撤销）
+  // ⌘S 保存当前文件（含输入框内触发，拦掉浏览器保存网页对话框）；⌘Z / ⌘⇧Z 撤销/重做
+  // （画布不拦截，父级统一处理；输入场景交还浏览器原生撤销）。saveOpen/view 用 ref 读最新值避免闭包过期。
   React.useEffect(() => {
     const onKey = (e) => {
-      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'z') return;
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        if (viewRef.current === 'editor' && saveOpenRef.current) saveOpenRef.current();
+        return;
+      }
+      if (!mod || e.key.toLowerCase() !== 'z') return;
       const t = e.target;
       const typing = t && (t.isContentEditable || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA');
       if (typing) return;
@@ -252,13 +290,32 @@ function WechatComposer() {
   // ── 存档（服务端多份快照）──────────────────────────────────────
   const [archiveSaveOpen, setArchiveSaveOpen] = React.useState(false); // "存档"弹窗：输入名称后 POST
   const [archiveSaveName, setArchiveSaveName] = React.useState('');
-  const [archiveListOpen, setArchiveListOpen] = React.useState(false); // "存档记录"弹窗：列表+载入/覆盖/删除
   const [archiveList, setArchiveList] = React.useState([]);
   const [archiveListLoading, setArchiveListLoading] = React.useState(false);
   const [archiveListError, setArchiveListError] = React.useState(false);
-  // 当前正在处理的行内操作，形如 "<id>:load" | "<id>:overwrite" | "<id>:delete"；
-  // 用来单独给该行按钮加 loading，同时把该行其余按钮禁用，防止同一条存档并发操作
+  // 当前正在处理的行内操作，形如 "<id>:open" | "<id>:dup" | "<id>:delete"；
+  // 用来单独给该行按钮加 loading，同时把该行其余按钮禁用，防止同一条文件并发操作
   const [archiveBusyKey, setArchiveBusyKey] = React.useState(null);
+
+  // ── 推文文件管理器 ────────────────────────────────────────────
+  // view=manager：文件列表（新建/打开/重命名/复制/删除）；view=editor：画布编辑当前文件。
+  // openId=当前编辑的服务端文件 id（null=尚未保存的新推文）；dirty=自上次保存/载入后有改动。
+  // 文件列表复用上面的 archiveList* 状态（就是 /api/wechat-compositions 的列表）。
+  const [view, setView] = React.useState(initial.view);
+  const [openId, setOpenId] = React.useState(initial.openId);
+  const [openName, setOpenName] = React.useState('');
+  const [dirty, setDirty] = React.useState(initial.dirty);
+  const [saving, setSaving] = React.useState(false);
+  const [leavePrompt, setLeavePrompt] = React.useState(null); // {proceed} | null：有未保存改动时的三选一离开确认
+  const [saveMode, setSaveMode] = React.useState('new'); // 命名弹窗用途：'new'=首次保存新推文 | 'rename'=重命名文件
+  const [renameTargetId, setRenameTargetId] = React.useState(null);
+  // loadingRef：程序化整批替换编辑器状态（载入/新建/复位）时置 true，让 dirty 副作用跳过这一批变更；
+  // 首帧也当作一次程序化装载跳过，避免挂载即被标脏。
+  const loadingRef = React.useRef(true);
+  const saveOpenRef = React.useRef(null); // 供全局 ⌘S 读取最新 saveOpen，避免闭包过期
+  const viewRef = React.useRef(initial.view);
+  const pendingAfterSaveRef = React.useRef(null); // "保存并离开"新推文时：命名保存成功后要执行的后续动作
+  React.useEffect(() => { viewRef.current = view; }, [view]);
 
   // 生效的块配置：自定义优先，否则用当前主题预设
   const effectiveConfig = React.useMemo(
@@ -312,10 +369,19 @@ function WechatComposer() {
   React.useEffect(() => subscribeTransfer((items) => setStationItemsRaw(items)), []);
   const stationItems = React.useMemo(() => normalizeStationItems(stationItemsRaw), [stationItemsRaw]);
 
-  // 草稿持久化（v3：存块文档）；写入失败（隐私模式/配额满）静默忽略，不打断编辑
+  // 编辑器改动即标脏（供"保存/离开确认"判断）。整批程序化装载（载入文件/新建/复位）由 loadingRef 跳过；
+  // 首帧也跳过（loadingRef 初值 true），避免挂载即被标脏。一次载入会同步 setTitle/setDoc 等多个 state，
+  // React 批处理合并成一次副作用触发，消费一次 loadingRef 即可。
+  React.useEffect(() => {
+    if (loadingRef.current) { loadingRef.current = false; return; }
+    setDirty(true);
+  }, [title, digest, doc, themeKey, blockConfig]);
+
+  // 草稿持久化（v4：随块文档一起存 openId，标明这份草稿属于哪个服务端文件；null=未保存的新推文）；
+  // 写入失败（隐私模式/配额满）静默忽略，不打断编辑
   React.useEffect(() => {
     try {
-      localStorage.setItem(DRAFT_KEY, JSON.stringify({ v: 3, title, digest, doc, themeKey, blockConfig }));
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({ v: 4, openId, title, digest, doc, themeKey, blockConfig }));
     } catch (e) {
       // ignore
     }
@@ -780,32 +846,7 @@ function WechatComposer() {
     }
   }, [docHasContent, doc]);
 
-  // ── 存档：保存 ────────────────────────────────────────────────
-  const openArchiveSaveModal = React.useCallback(() => {
-    setArchiveSaveName(String(title || '').trim() || '未命名存档');
-    setArchiveSaveOpen(true);
-  }, [title]);
-
-  const handleArchiveSaveConfirm = React.useCallback(async () => {
-    const name = archiveSaveName.trim().slice(0, ARCHIVE_NAME_LIMIT) || '未命名存档';
-    try {
-      await saveComposition({ name, title, digest, doc, blockConfig: effectiveConfig, themeKey });
-      Toast.success('已存档');
-      setArchiveSaveOpen(false);
-    } catch (e) {
-      console.error('[WechatComposer] save composition failed', e);
-      if (isArchiveLimitError(e)) {
-        const limit = getArchiveLimitFromError(e);
-        Toast.error(`存档数已达上限${limit ? `（${limit} 条）` : ''}，请到「存档记录」删除一些旧存档再试`);
-      } else if (e && e.status === 400) {
-        Toast.error('存档内容不合法或过大，请精简画布内容后重试');
-      } else {
-        Toast.error(e && e.message ? `存档失败：${String(e.message).slice(0, 80)}` : '存档失败，请稍后重试');
-      }
-    }
-  }, [archiveSaveName, title, digest, doc, effectiveConfig, themeKey]);
-
-  // ── 存档：列表 ────────────────────────────────────────────────
+  // ── 推文文件管理器：列表 ──────────────────────────────────────
   const loadArchiveList = React.useCallback(async () => {
     setArchiveListLoading(true);
     setArchiveListError(false);
@@ -820,22 +861,20 @@ function WechatComposer() {
     }
   }, []);
 
-  const openArchiveListModal = React.useCallback(() => {
-    setArchiveListOpen(true);
-    loadArchiveList();
-  }, [loadArchiveList]);
+  // 进入文件管理器（含挂载时 initial.view==='manager'）即拉最新文件列表
+  React.useEffect(() => { if (view === 'manager') loadArchiveList(); }, [view, loadArchiveList]);
 
-  // 把一份存档详情恢复进画布：doc/title/digest/blockConfig/themeKey 各自走既有受控 state 的 setter，
-  // 与草稿的初始化路径（buildInitialState）取的是同一批 state。
-  // 撤销栈单独处理：不走 applyDocChange（那样会把"载入前的旧文档"当成可撤销的一步押进历史栈，
-  // ⌘Z 会残影回到载入前的画布），而是直接把 historyRef 换成以载入内容为起点的新历史栈，
-  // 让载入后的画布成为全新的编辑起点——载入瞬间撤销/重做按钮都应是禁用态。
-  const restoreComposition = React.useCallback((full) => {
-    const nextDoc = Array.isArray(full && full.doc) ? full.doc : [];
-    const nextBlockConfig = (full && full.blockConfig && typeof full.blockConfig === 'object') ? full.blockConfig : null;
-    const nextThemeKey = (full && full.themeKey) || DEFAULT_THEME_KEY;
-    setTitle((full && full.title) || '');
-    setDigest((full && full.digest) || '');
+  // 把一份文件详情/空白恢复进编辑器：doc/title/digest/blockConfig/themeKey 各走既有受控 state 的 setter。
+  // loadingRef 置 true 让 dirty 副作用跳过这一整批程序化变更（否则载入立刻被标脏）。
+  // 撤销栈单独处理：直接把 historyRef 换成以载入内容为起点的新历史栈（不走 applyDocChange，
+  // 否则会把"载入前的旧文档"押进历史栈，⌘Z 残影回载入前），载入瞬间撤销/重做即禁用态。
+  const applyEditorState = React.useCallback((next) => {
+    loadingRef.current = true;
+    const nextDoc = Array.isArray(next && next.doc) ? next.doc : [];
+    const nextBlockConfig = (next && next.blockConfig && typeof next.blockConfig === 'object') ? next.blockConfig : null;
+    const nextThemeKey = (next && next.themeKey) || DEFAULT_THEME_KEY;
+    setTitle((next && next.title) || '');
+    setDigest((next && next.digest) || '');
     setThemeKey(nextThemeKey);
     setBlockConfig(nextBlockConfig);
     historyRef.current = createHistory(nextDoc);
@@ -846,58 +885,192 @@ function WechatComposer() {
     setPickerTarget(null);
   }, []);
 
-  const handleLoadArchiveItem = React.useCallback((item) => {
-    Modal.confirm({
-      title: '载入存档',
-      content: `载入「${item.name}」会替换当前画布内容，画布中未存档的修改将丢失，确定载入吗？`,
-      okText: '载入',
-      cancelText: '取消',
-      onOk: async () => {
-        const key = `${item.id}:load`;
-        setArchiveBusyKey(key);
-        try {
-          const full = await getComposition(item.id);
-          restoreComposition(full);
-          Toast.success(`已载入「${(full && full.name) || item.name}」`);
-          setArchiveListOpen(false);
-        } catch (e) {
-          console.error('[WechatComposer] load composition failed', e);
-          Toast.error(e && e.status === 404 ? '该存档不存在或已被删除' : '载入失败，请稍后重试');
-        } finally {
-          setArchiveBusyKey(null);
-        }
-      },
-    });
-  }, [restoreComposition]);
+  // 有未保存改动时拦截"离开当前文件"的动作（返回管理器/打开别的文件/新建），弹三选一确认。
+  const guardLeave = React.useCallback((proceed) => {
+    if (!dirty) { proceed(); return; }
+    setLeavePrompt({ proceed });
+  }, [dirty]);
 
-  const handleOverwriteArchiveItem = React.useCallback((item) => {
-    Modal.confirm({
-      title: '覆盖存档',
-      content: `会用当前画布内容覆盖「${item.name}」，原有内容将无法恢复，确定覆盖吗？`,
-      okText: '覆盖',
-      cancelText: '取消',
-      onOk: async () => {
-        const key = `${item.id}:overwrite`;
-        setArchiveBusyKey(key);
-        try {
-          await updateComposition(item.id, { title, digest, doc, blockConfig: effectiveConfig, themeKey });
-          Toast.success('已覆盖存档');
-          await loadArchiveList();
-        } catch (e) {
-          console.error('[WechatComposer] overwrite composition failed', e);
-          if (e && e.status === 404) { Toast.error('该存档不存在或已被删除'); loadArchiveList(); }
-          else if (e && e.status === 400) Toast.error('画布内容不合法或过大，覆盖失败');
-          else Toast.error('覆盖失败，请稍后重试');
-        } finally {
-          setArchiveBusyKey(null);
-        }
-      },
+  // 返回文件管理器 = 关闭当前文件：清空编辑器并复位 openId，草稿随之清空 → reload 仍落管理器；
+  // 需要那份内容时从列表重新打开（拉服务端干净版本）。
+  const reallyGoManager = React.useCallback(() => {
+    applyEditorState(null);
+    setOpenId(null);
+    setOpenName('');
+    setDirty(false);
+    setView('manager');
+  }, [applyEditorState]);
+
+  const goToManager = React.useCallback(() => { guardLeave(reallyGoManager); }, [guardLeave, reallyGoManager]);
+
+  const newFile = React.useCallback(() => {
+    guardLeave(() => {
+      applyEditorState(null);
+      setOpenId(null);
+      setOpenName('');
+      setDirty(false);
+      setView('editor');
     });
-  }, [title, digest, doc, effectiveConfig, themeKey, loadArchiveList]);
+  }, [guardLeave, applyEditorState]);
+
+  const openFileById = React.useCallback((item) => {
+    guardLeave(async () => {
+      setArchiveBusyKey(`${item.id}:open`);
+      try {
+        const full = await getComposition(item.id);
+        applyEditorState(full);
+        setOpenId(item.id);
+        setOpenName((full && full.name) || item.name);
+        setDirty(false);
+        setView('editor');
+      } catch (e) {
+        console.error('[WechatComposer] open composition failed', e);
+        Toast.error(e && e.status === 404 ? '该文件不存在或已被删除' : '打开失败，请稍后重试');
+        loadArchiveList();
+      } finally {
+        setArchiveBusyKey(null);
+      }
+    });
+  }, [guardLeave, applyEditorState, loadArchiveList]);
+
+  // 保存当前文件：已是服务端文件→PUT 覆盖；尚未命名的新推文→弹命名弹窗后 POST 建档
+  const saveOpen = React.useCallback(async () => {
+    if (saving) return;
+    if (openId == null) {
+      pendingAfterSaveRef.current = null; // 普通保存不携带"保存后跳转"，清掉可能残留的离开动作
+      setSaveMode('new');
+      setRenameTargetId(null);
+      setArchiveSaveName(String(title || '').trim() || defaultFileName());
+      setArchiveSaveOpen(true);
+      return;
+    }
+    setSaving(true);
+    try {
+      await updateComposition(openId, { name: openName, title, digest, doc, blockConfig: effectiveConfig, themeKey });
+      setDirty(false);
+      Toast.success('已保存');
+    } catch (e) {
+      console.error('[WechatComposer] save composition failed', e);
+      if (e && e.status === 404) { Toast.error('文件已不存在，请重新命名保存'); setOpenId(null); }
+      else if (e && e.status === 400) Toast.error('内容不合法或过大，保存失败');
+      else Toast.error('保存失败，请稍后重试');
+    } finally {
+      setSaving(false);
+    }
+  }, [saving, openId, openName, title, digest, doc, effectiveConfig, themeKey]);
+  React.useEffect(() => { saveOpenRef.current = saveOpen; }, [saveOpen]);
+
+  // 命名弹窗确认：saveMode='new' 首次建档；'rename' 重命名已有文件
+  const handleSaveNameConfirm = React.useCallback(async () => {
+    const name = archiveSaveName.trim().slice(0, ARCHIVE_NAME_LIMIT) || defaultFileName();
+    if (saveMode === 'rename' && renameTargetId != null) {
+      try {
+        await updateComposition(renameTargetId, { name });
+        if (renameTargetId === openId) setOpenName(name);
+        setArchiveSaveOpen(false);
+        Toast.success('已重命名');
+        loadArchiveList();
+      } catch (e) {
+        console.error('[WechatComposer] rename composition failed', e);
+        Toast.error(e && e.status === 404 ? '该文件不存在或已被删除' : '重命名失败，请稍后重试');
+      }
+      return;
+    }
+    setSaving(true);
+    try {
+      const created = await saveComposition({ name, title, digest, doc, blockConfig: effectiveConfig, themeKey });
+      setOpenId((created && created.id != null) ? created.id : null);
+      setOpenName(name);
+      setDirty(false);
+      setArchiveSaveOpen(false);
+      Toast.success('已保存');
+      const after = pendingAfterSaveRef.current;
+      pendingAfterSaveRef.current = null;
+      if (after) after();
+    } catch (e) {
+      console.error('[WechatComposer] save composition failed', e);
+      pendingAfterSaveRef.current = null;
+      if (isArchiveLimitError(e)) {
+        const limit = getArchiveLimitFromError(e);
+        Toast.error(`推文文件已达上限${limit ? `（${limit} 篇）` : ''}，请删除一些旧文件再存`);
+      } else if (e && e.status === 400) {
+        Toast.error('内容不合法或过大，请精简后重试');
+      } else {
+        Toast.error('保存失败，请稍后重试');
+      }
+    } finally {
+      setSaving(false);
+    }
+  }, [archiveSaveName, saveMode, renameTargetId, openId, title, digest, doc, effectiveConfig, themeKey, loadArchiveList]);
+
+  // 离开确认三选一
+  const handleLeaveSaveAndGo = React.useCallback(async () => {
+    const proceed = leavePrompt && leavePrompt.proceed;
+    setLeavePrompt(null);
+    if (openId == null) {
+      // 新推文：命名保存成功后再继续离开
+      pendingAfterSaveRef.current = () => { if (proceed) proceed(); };
+      setSaveMode('new');
+      setRenameTargetId(null);
+      setArchiveSaveName(String(title || '').trim() || defaultFileName());
+      setArchiveSaveOpen(true);
+      return;
+    }
+    setSaving(true);
+    try {
+      await updateComposition(openId, { name: openName, title, digest, doc, blockConfig: effectiveConfig, themeKey });
+      setDirty(false);
+      if (proceed) proceed();
+    } catch (e) {
+      console.error('[WechatComposer] save-before-leave failed', e);
+      Toast.error('保存失败，未离开');
+    } finally {
+      setSaving(false);
+    }
+  }, [leavePrompt, openId, openName, title, digest, doc, effectiveConfig, themeKey]);
+
+  const handleLeaveDiscardAndGo = React.useCallback(() => {
+    const proceed = leavePrompt && leavePrompt.proceed;
+    setLeavePrompt(null);
+    setDirty(false);
+    if (proceed) proceed();
+  }, [leavePrompt]);
+
+  // 文件行：重命名 / 复制 / 删除
+  const handleRenameFile = React.useCallback((item) => {
+    setSaveMode('rename');
+    setRenameTargetId(item.id);
+    setArchiveSaveName(item.name || '');
+    setArchiveSaveOpen(true);
+  }, []);
+
+  const handleDuplicateFile = React.useCallback(async (item) => {
+    setArchiveBusyKey(`${item.id}:dup`);
+    try {
+      const full = await getComposition(item.id);
+      const dupName = `${(full && full.name) || item.name} 副本`.slice(0, ARCHIVE_NAME_LIMIT);
+      await saveComposition({
+        name: dupName,
+        title: (full && full.title) || '',
+        digest: (full && full.digest) || '',
+        doc: (full && full.doc) || [],
+        blockConfig: (full && full.blockConfig) || null,
+        themeKey: (full && full.themeKey) || DEFAULT_THEME_KEY,
+      });
+      Toast.success('已复制');
+      loadArchiveList();
+    } catch (e) {
+      console.error('[WechatComposer] duplicate composition failed', e);
+      if (isArchiveLimitError(e)) Toast.error('推文文件已达上限，请删除一些再复制');
+      else Toast.error('复制失败，请稍后重试');
+    } finally {
+      setArchiveBusyKey(null);
+    }
+  }, [loadArchiveList]);
 
   const handleDeleteArchiveItem = React.useCallback((item) => {
     Modal.confirm({
-      title: '删除存档',
+      title: '删除推文文件',
       content: `确定删除「${item.name}」？删除后不可恢复。`,
       okText: '删除',
       cancelText: '取消',
@@ -907,7 +1080,8 @@ function WechatComposer() {
         try {
           await deleteComposition(item.id);
           setArchiveList((prev) => prev.filter((row) => row.id !== item.id));
-          Toast.success('已删除存档');
+          if (openId === item.id) { setOpenId(null); setDirty(true); } // 删的是正在编辑的文件：转为未保存新推文态
+          Toast.success('已删除');
         } catch (e) {
           console.error('[WechatComposer] delete composition failed', e);
           Toast.error('删除失败，请稍后重试');
@@ -916,16 +1090,74 @@ function WechatComposer() {
         }
       },
     });
-  }, []);
+  }, [openId]);
 
   return (
     <Layout style={{ padding: isMobile ? 10 : 16, overflowX: 'hidden' }}>
+      {view === 'manager' ? (
+        <Content>
+          <div className="wxc-manager">
+            <div className="wxc-manager-head">
+              <h2 style={{ margin: 0 }}>公众号推文</h2>
+              <Text type="secondary">选择一篇继续编辑，或新建一篇。推文存在服务端、跨设备可见。</Text>
+            </div>
+            <div className="wxc-manager-grid">
+              <button type="button" className="wxc-manager-new" onClick={newFile}>
+                <span className="wxc-manager-new-plus" aria-hidden="true">＋</span>
+                <span>新建推文</span>
+              </button>
+              {archiveListLoading ? (
+                <div className="wxc-manager-state"><Text type="secondary">加载中…</Text></div>
+              ) : archiveListError ? (
+                <div className="wxc-manager-state">
+                  <p>加载推文列表失败，可能是网络问题。</p>
+                  <Button size="small" onClick={loadArchiveList}>重试</Button>
+                </div>
+              ) : archiveList.length === 0 ? (
+                <div className="wxc-manager-state"><Empty description="还没有推文，点「新建推文」开始排版" /></div>
+              ) : (
+                archiveList.map((item) => {
+                  const busyAction = (archiveBusyKey && archiveBusyKey.startsWith(`${item.id}:`))
+                    ? archiveBusyKey.slice(String(item.id).length + 1)
+                    : null;
+                  const rowBusy = !!busyAction;
+                  return (
+                    <div key={item.id} className="wxc-manager-card">
+                      <button
+                        type="button"
+                        className="wxc-manager-card-open"
+                        onClick={() => openFileById(item)}
+                        disabled={rowBusy}
+                        title={`打开「${item.name}」`}
+                      >
+                        <div className="wxc-manager-card-name">{item.name}</div>
+                        <div className="wxc-manager-card-meta">{item.blockCount ?? 0} 块 · {item.imageCount ?? 0} 图</div>
+                        <div className="wxc-manager-card-time">{formatArchiveTime(item.updatedAt)}</div>
+                        {busyAction === 'open' ? <div className="wxc-manager-card-loading">打开中…</div> : null}
+                      </button>
+                      <div className="wxc-manager-card-actions">
+                        <Button size="small" disabled={rowBusy} onClick={() => handleRenameFile(item)}>重命名</Button>
+                        <Button size="small" loading={busyAction === 'dup'} disabled={rowBusy} onClick={() => handleDuplicateFile(item)}>复制</Button>
+                        <Button size="small" type="danger" loading={busyAction === 'delete'} disabled={rowBusy} onClick={() => handleDeleteArchiveItem(item)}>删除</Button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </Content>
+      ) : (
+      <>
       <Header className="wxc-page-header" style={{ background: 'transparent', padding: 0, marginBottom: 12 }}>
-        <h2 style={{ margin: 0 }}>公众号排版器</h2>
-        <div style={{ marginTop: 6, marginBottom: 14 }}>
-          <Text type="secondary">
-            左侧样式/相册/收藏三栏取材，画布所见即所得；贴推文链接可提取样式或整文复现；完稿后一键复制粘贴到公众号后台。
-          </Text>
+        <div className="wxc-editor-bar">
+          <Button size="small" onClick={goToManager}>← 文件管理</Button>
+          <span className="wxc-editor-filename" title={openName || '未保存的新推文'}>
+            {openName || '未保存的新推文'}
+            {dirty ? <em className="wxc-dirty-dot" title="有未保存的更改">●</em> : null}
+          </span>
+          <span className="wxc-editor-bar-spacer" />
+          <Button size="small" type="primary" loading={saving} onClick={saveOpen}>{openId == null ? '保存到文件' : '保存'}</Button>
         </div>
 
         <div className="wxc-meta-row">
@@ -1161,8 +1393,6 @@ function WechatComposer() {
                 <Button onClick={handleMobilePreview} loading={previewGen} disabled={previewGen}>📱 手机预览</Button>
                 <Button onClick={handleDownloadPack}>下载图片包</Button>
                 <Button type="tertiary" onClick={handleCopyMarkdown}>复制 Markdown</Button>
-                <Button onClick={openArchiveSaveModal} title="把当前排版存一份服务端快照，跨设备可见">💾 存档</Button>
-                <Button onClick={openArchiveListModal} title="浏览/载入/覆盖/删除已保存的存档">🗂 存档记录</Button>
                 <div className="wxc-export-draft">
                   <Button disabled title="需企业公众号资质配置，即将开放">发送到公众号草稿箱</Button>
                   <span className="wxc-export-hint">需企业公众号资质配置，即将开放</span>
@@ -1172,6 +1402,8 @@ function WechatComposer() {
           </div>
         </div>
       </Content>
+      </>
+      )}
 
       <Modal
         visible={pickerOpen}
@@ -1289,70 +1521,45 @@ function WechatComposer() {
         ) : null}
       </Modal>
 
-      {/* 存档：把当前画布存为服务端快照（与本地草稿是两套机制，见文件顶部注释） */}
+      {/* 命名弹窗：首次把新推文保存为服务端文件（saveMode=new），或给已有文件重命名（saveMode=rename） */}
       <Modal
-        title="存档"
+        title={saveMode === 'rename' ? '重命名推文' : '保存推文文件'}
         visible={archiveSaveOpen}
-        onCancel={() => setArchiveSaveOpen(false)}
-        onOk={handleArchiveSaveConfirm}
-        okText="保存存档"
+        onCancel={() => { setArchiveSaveOpen(false); pendingAfterSaveRef.current = null; }}
+        onOk={handleSaveNameConfirm}
+        okText={saveMode === 'rename' ? '重命名' : '保存'}
         cancelText="取消"
+        okButtonProps={{ loading: saving }}
       >
         <div className="wxc-archive-save-body">
-          <label className="wxc-field-label" htmlFor="wxc-archive-name-input">存档名称</label>
+          <label className="wxc-field-label" htmlFor="wxc-archive-name-input">推文名称</label>
           <Input
             id="wxc-archive-name-input"
             value={archiveSaveName}
             onChange={(v) => setArchiveSaveName(v)}
-            placeholder="未命名存档"
+            placeholder="未命名推文"
             maxLength={ARCHIVE_NAME_LIMIT}
-            onEnterPress={handleArchiveSaveConfirm}
+            onEnterPress={handleSaveNameConfirm}
           />
         </div>
       </Modal>
 
-      {/* 存档记录：浏览已保存的存档，逐条载入 / 覆盖 / 删除 */}
+      {/* 离开当前文件前的未保存提醒：保存并离开 / 不保存离开 / 取消 */}
       <Modal
-        title="存档记录"
-        visible={archiveListOpen}
-        onCancel={() => setArchiveListOpen(false)}
+        title="有未保存的更改"
+        visible={!!leavePrompt}
+        onCancel={() => setLeavePrompt(null)}
         footer={null}
-        width={isMobile ? 'calc(100vw - 16px)' : 560}
+        width={isMobile ? 'calc(100vw - 16px)' : 420}
       >
-        {archiveListLoading ? (
-          <div className="wxc-fav-loaderr"><Text type="secondary">加载中…</Text></div>
-        ) : archiveListError ? (
-          <div className="wxc-fav-loaderr">
-            <p>加载存档失败，可能是网络问题。</p>
-            <Button size="small" onClick={loadArchiveList}>重试</Button>
+        <div className="wxc-leave-prompt">
+          <p>当前推文有未保存的更改，离开后未保存的修改将丢失。</p>
+          <div className="wxc-leave-actions">
+            <Button type="primary" loading={saving} onClick={handleLeaveSaveAndGo}>保存并离开</Button>
+            <Button type="danger" onClick={handleLeaveDiscardAndGo}>不保存离开</Button>
+            <Button type="tertiary" onClick={() => setLeavePrompt(null)}>取消</Button>
           </div>
-        ) : archiveList.length === 0 ? (
-          <Empty description="还没有存档，先点「存档」保存当前排版" />
-        ) : (
-          <div className="wxc-archive-list">
-            {archiveList.map((item) => {
-              const busyAction = (archiveBusyKey && archiveBusyKey.startsWith(`${item.id}:`))
-                ? archiveBusyKey.slice(String(item.id).length + 1)
-                : null;
-              const rowBusy = !!busyAction;
-              return (
-                <div key={item.id} className="wxc-archive-row">
-                  <div className="wxc-archive-row-info">
-                    <div className="wxc-archive-row-name" title={item.name}>{item.name}</div>
-                    <div className="wxc-archive-row-meta">
-                      {item.blockCount ?? 0} 块 · {item.imageCount ?? 0} 图 · {formatArchiveTime(item.updatedAt)}
-                    </div>
-                  </div>
-                  <div className="wxc-archive-row-actions">
-                    <Button size="small" loading={busyAction === 'load'} disabled={rowBusy} onClick={() => handleLoadArchiveItem(item)}>载入</Button>
-                    <Button size="small" loading={busyAction === 'overwrite'} disabled={rowBusy} onClick={() => handleOverwriteArchiveItem(item)}>覆盖</Button>
-                    <Button size="small" type="danger" loading={busyAction === 'delete'} disabled={rowBusy} onClick={() => handleDeleteArchiveItem(item)}>删除</Button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+        </div>
       </Modal>
     </Layout>
   );

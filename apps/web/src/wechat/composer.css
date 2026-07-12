@@ -883,3 +883,160 @@ body.wxc-dragging {
   display: flex;
   gap: 6px;
 }
+
+/* ── 推文文件管理器（排版器落地页）───────────────────────────── */
+.wxc-manager {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 4px 0 40px;
+}
+.wxc-manager-head {
+  margin-bottom: 18px;
+}
+.wxc-manager-head h2 {
+  font-size: 22px;
+}
+.wxc-manager-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+}
+/* 新建卡片：虚线大加号，与文件卡等高 */
+.wxc-manager-new {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 128px;
+  border: 1.5px dashed #c4c9d2;
+  border-radius: 14px;
+  background: #fbfcfd;
+  color: #5a6270;
+  font-size: 14px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+.wxc-manager-new:hover {
+  border-color: #1a1a1a;
+  color: #1a1a1a;
+  background: #fff;
+}
+.wxc-manager-new-plus {
+  font-size: 30px;
+  line-height: 1;
+}
+/* 文件卡：主体是可点开的按钮 + 底部一行操作 */
+.wxc-manager-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 128px;
+  border: 1px solid #e6e9ee;
+  border-radius: 14px;
+  background: #fff;
+  overflow: hidden;
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+}
+.wxc-manager-card:hover {
+  border-color: #d2d7df;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.07);
+}
+.wxc-manager-card-open {
+  position: relative;
+  flex: 1;
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 14px 14px 10px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+.wxc-manager-card-open:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.wxc-manager-card-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1a1a1a;
+  line-height: 1.4;
+  margin-bottom: 8px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.wxc-manager-card-meta {
+  font-size: 12px;
+  color: #8a92a0;
+}
+.wxc-manager-card-time {
+  font-size: 12px;
+  color: #b0b6c0;
+  margin-top: 2px;
+}
+.wxc-manager-card-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.7);
+  font-size: 13px;
+  color: #5a6270;
+}
+.wxc-manager-card-actions {
+  display: flex;
+  gap: 6px;
+  padding: 8px 12px;
+  border-top: 1px solid #f0f2f5;
+  background: #fafbfc;
+}
+/* 加载/错误/空态占满整行 */
+.wxc-manager-state {
+  grid-column: 1 / -1;
+  padding: 40px 12px;
+  text-align: center;
+  color: #8a92a0;
+}
+
+/* ── 编辑器顶部条：返回文件管理 / 文件名 / 保存 ───────────────── */
+.wxc-editor-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.wxc-editor-bar-spacer {
+  flex: 1;
+}
+.wxc-editor-filename {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1a1a1a;
+  max-width: 46vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wxc-dirty-dot {
+  margin-left: 6px;
+  color: #e8590c;
+  font-style: normal;
+  font-size: 12px;
+  vertical-align: middle;
+}
+
+/* ── 离开未保存提醒 ──────────────────────────────────────────── */
+.wxc-leave-prompt p {
+  margin: 0 0 16px;
+  color: #4a5160;
+  line-height: 1.6;
+}
+.wxc-leave-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
