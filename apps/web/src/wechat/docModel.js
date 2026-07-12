@@ -666,10 +666,29 @@ export function splitRawHtml(html) {
     children = effectiveChildNodes(container);
     drill += 1;
   }
-  const result = children.map((node) => (
-    node.nodeType === 1 ? node.outerHTML : `<p>${escapeHtml(node.textContent)}</p>`
-  ));
-  return result.length >= 2 ? result : [input];
+  // 负边距层叠组归并（与后端 wechat_article_import.groupOverlappingNodes 同规则）：
+  // 秀米/135 的"大字底纹压标题"靠负外边距实现（margin-bottom:-28px 让下一节上移覆盖本节），
+  // 层叠双方拆进不同块会断掉覆盖关系（画布逐块渲染），手动拆分也必须保持整组不拆。
+  // 浏览器有 CSSOM，el.style.marginTop/Bottom 自动展开 margin 简写。
+  const pxVal = (v) => {
+    const m = String(v || '').trim().match(/^(-?\d+(?:\.\d+)?)px$/);
+    return m ? parseFloat(m[1]) : 0;
+  };
+  const groups = [];
+  let prevHadNegBottom = false;
+  children.forEach((node) => {
+    const isEl = node.nodeType === 1;
+    const top = isEl ? pxVal(node.style && node.style.marginTop) : 0;
+    const bottom = isEl ? pxVal(node.style && node.style.marginBottom) : 0;
+    const html_ = isEl ? node.outerHTML : `<p>${escapeHtml(node.textContent)}</p>`;
+    if (groups.length && (top < 0 || prevHadNegBottom)) {
+      groups[groups.length - 1] += html_;
+    } else {
+      groups.push(html_);
+    }
+    prevHadNegBottom = bottom < 0;
+  });
+  return groups.length >= 2 ? groups : [input];
 }
 
 /**
