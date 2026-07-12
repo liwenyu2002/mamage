@@ -2320,6 +2320,10 @@ function ProjectDetail({
     if (oversized) Toast.warning(`已跳过 ${oversized} 个超限文件`);
     if (!accepted.length) return;
     const key = uploadTimelineEnabled && uploadTimelineSections.length ? String(sectionId || '') : '';
+    // 直接拖拽（未打开上传弹窗）也自动弹开上传界面，展示完整加载/进度面板；
+    // 成功后 performUploadGroups→cancelUpload 会自动关闭，失败则保留弹窗展示失败明细。
+    if (uploadTimelineEnabled && uploadTimelineSections.length) setSelectedUploadSectionId(key);
+    setUploadMode(true);
     performUploadGroups(new Map([[key, accepted]]), accepted);
   }, [canUploadPhotos, uploading, uploadTimelineEnabled, uploadTimelineSections, performUploadGroups]);
 
@@ -5544,34 +5548,8 @@ function ProjectDetail({
           </div>
         </Modal>
 
-        {/* 涓婁紶棰勮弹窗 */}
-        {uploading && uploadProgress && !uploadMode ? (
-          <div className="detail-float-upload" role="status" aria-live="polite">
-            <div className="detail-float-upload-row">
-              <span className="detail-float-upload-title">
-                {getUploadProgressTitle(uploadProgress)}
-                <span className="detail-float-upload-count">
-                  {uploadProgress.completedFiles + uploadProgress.failedFiles}/{uploadProgress.totalFiles}
-                </span>
-              </span>
-              <b className="detail-float-upload-pct">{uploadProgress.percent || 0}%</b>
-            </div>
-            <div className={`detail-float-upload-track${(uploadProgress.percent || 0) >= 100 ? ' is-waiting' : ''}`}>
-              <span style={{ width: `${uploadProgress.percent || 0}%` }} />
-            </div>
-            <div className="detail-float-upload-foot">
-              <span className="detail-float-upload-active">
-                {uploadProgress.activeFileName
-                  ? `${getUploadPhaseLabel(uploadProgress.activePhase)}：${uploadProgress.activeFileName}`
-                  : ((uploadProgress.percent || 0) >= 100 ? '处理中…' : '上传中…')}
-              </span>
-              <button type="button" className="detail-float-upload-expand" onClick={() => setUploadMode(true)}>展开</button>
-            </div>
-          </div>
-        ) : null}
-
         <Modal
-          title={`准备上传 (${stagingFiles.length})`}
+          title={uploading ? getUploadProgressTitle(uploadProgress) : `准备上传 (${stagingFiles.length})`}
           visible={uploadMode}
           onOk={confirmUpload}
           onCancel={uploading ? () => Toast.warning('正在上传，请等待完成') : cancelUpload}
