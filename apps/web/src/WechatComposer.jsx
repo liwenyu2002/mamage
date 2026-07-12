@@ -12,6 +12,7 @@ import ImportPreviewModal from './wechat/ImportPreviewModal';
 import { listFavorites, addFavorite, removeFavorite } from './services/favoritesService';
 import { makeUid, markdownToDoc, docToHtml, docToPlainText, createHistory, sanitizeRawHtml, replaceRawImgSrc } from './wechat/docModel';
 import { beginDrag } from './wechat/pointerDrag';
+import { makeQrSvg } from './wechat/qr';
 import './wechat/composer.css';
 import './wechat/canvas.css';
 
@@ -217,6 +218,8 @@ function WechatComposer() {
   const [savingExtract, setSavingExtract] = React.useState(false);
   const [importing, setImporting] = React.useState(false);
   const [importResult, setImportResult] = React.useState(null); // 画布非空时的"替换/追加"确认弹层数据
+  const [previewGen, setPreviewGen] = React.useState(false);     // 手机预览：生成中
+  const [previewInfo, setPreviewInfo] = React.useState(null);    // { url, qrSvg } | null，非空显示二维码弹层
 
   // 生效的块配置：自定义优先，否则用当前主题预设
   const effectiveConfig = React.useMemo(
@@ -609,6 +612,39 @@ function WechatComposer() {
     }
   }, [docHasContent, doc, blocksById, effectiveConfig, title, digest]);
 
+  // 手机预览：把当前排版渲染成 HTML 存到后端，拿到公开 token，拼成绝对 URL + 二维码，手机扫码即看
+  const handleMobilePreview = React.useCallback(async () => {
+    if (!docHasContent) { Toast.warning('画布还是空的，先从样式库插入内容'); return; }
+    setPreviewGen(true);
+    try {
+      const { html } = docToHtml(doc, { blocksById, globalAccent: effectiveConfig.accent, body: effectiveConfig.body });
+      const resp = await request('/api/wechat-preview', { method: 'POST', data: { title, digest, html } });
+      const path = resp && resp.path;
+      if (!path) throw new Error('生成预览失败');
+      // 绝对 URL 用当前站点 origin 拼（生产 = mamage.wenyuli.site，手机可直达；本地 dev 手机不可达但流程可测）
+      const url = `${window.location.origin}${path}`;
+      setPreviewInfo({ url, qrSvg: makeQrSvg(url, { cellSize: 6, margin: 12 }) });
+    } catch (e) {
+      console.error('[WechatComposer] mobile preview failed', e);
+      Toast.error(e && e.message ? `生成预览失败：${String(e.message).slice(0, 80)}` : '生成预览失败');
+    } finally {
+      setPreviewGen(false);
+    }
+  }, [docHasContent, doc, blocksById, effectiveConfig, title, digest]);
+
+  const handleCopyPreviewUrl = React.useCallback(async () => {
+    if (!previewInfo) return;
+    try {
+      if (!window.navigator || !window.navigator.clipboard || !window.navigator.clipboard.writeText) {
+        throw new Error('当前浏览器不支持剪贴板写入');
+      }
+      await window.navigator.clipboard.writeText(previewInfo.url);
+      Toast.success('已复制预览链接');
+    } catch (e) {
+      Toast.error(e && e.message ? e.message : '复制失败');
+    }
+  }, [previewInfo]);
+
   const handleDownloadPack = React.useCallback(async () => {
     const photos = doc.filter((b) => b.type === 'imageCard' && b.src).map((b, i) => ({ id: i + 1, url: b.src }));
     if (!photos.length) { Toast.warning('画布里没有图片，无需下载图片包'); return; }
@@ -870,6 +906,7 @@ function WechatComposer() {
             <Card bordered className="wxc-export-card">
               <div className="wxc-export-row">
                 <Button type="primary" onClick={handleCopyRich}>复制公众号格式</Button>
+                <Button onClick={handleMobilePreview} loading={previewGen} disabled={previewGen}>📱 手机预览</Button>
                 <Button onClick={handleDownloadPack}>下载图片包</Button>
                 <Button type="tertiary" onClick={handleCopyMarkdown}>复制 Markdown</Button>
                 <div className="wxc-export-draft">
@@ -964,6 +1001,31 @@ function WechatComposer() {
         onCancel={() => setImportResult(null)}
         onImport={(selectedBlocks, mode) => applyImportedArticle({ ...importResult, blocks: selectedBlocks }, mode)}
       />
+
+      {/* 手机预览：扫码或复制链接，手机上直接打开看排版效果 */}
+      <Modal
+        title="手机预览"
+        visible={!!previewInfo}
+        onCancel={() => setPreviewInfo(null)}
+        footer={null}
+        width={isMobile ? 'calc(100vw - 16px)' : 380}
+      >
+        {previewInfo ? (
+          <div className="wxc-qr-body">
+            <p className="wxc-qr-hint">用手机扫码，或复制链接在手机浏览器打开，即可看到排版效果（链接 7 天内有效）。</p>
+            <div
+              className="wxc-qr-code"
+              // eslint-disable-next-line react/no-danger -- qrSvg 由 qrcode-generator 生成的纯 SVG，无外部输入
+              dangerouslySetInnerHTML={{ __html: previewInfo.qrSvg }}
+            />
+            <div className="wxc-qr-url" title={previewInfo.url}>{previewInfo.url}</div>
+            <div className="wxc-qr-actions">
+              <Button type="primary" onClick={handleCopyPreviewUrl}>复制链接</Button>
+              <Button type="tertiary" onClick={() => window.open(previewInfo.url, '_blank', 'noopener')}>本机打开</Button>
+            </div>
+          </div>
+        ) : null}
+      </Modal>
     </Layout>
   );
 }
