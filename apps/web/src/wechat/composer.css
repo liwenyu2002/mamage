@@ -323,3 +323,200 @@
     width: 108px;
   }
 }
+
+/* ── 样式库面板 ─────────────────────────────────── */
+.wxc-lib {
+  margin: 10px 0 14px;
+  padding: 14px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.wxc-lib-extract {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.wxc-lib-extract-input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 14px;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.8);
+  font-size: 13px;
+  outline: none;
+}
+
+.wxc-lib-extract-input:focus {
+  border-color: rgba(0, 0, 0, 0.4);
+}
+
+.wxc-lib-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.wxc-lib-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.wxc-lib-tab {
+  padding: 4px 12px;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.6);
+  font-size: 12.5px;
+  font-weight: 700;
+  color: rgba(0, 0, 0, 0.65);
+  cursor: pointer;
+}
+
+.wxc-lib-tab.is-active {
+  background: #111;
+  border-color: #111;
+  color: #fff;
+}
+
+.wxc-lib-accents {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.wxc-lib-accent-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+  padding: 0;
+}
+
+.wxc-lib-accent-dot.is-active {
+  box-shadow: 0 0 0 2px #111;
+}
+
+.wxc-lib-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 10px;
+}
+
+.wxc-lib-block {
+  border: 2px solid rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 120ms ease;
+}
+
+.wxc-lib-block.is-active {
+  border-color: #111;
+}
+
+.wxc-lib-block-stage {
+  height: 76px;
+  overflow: hidden;
+  padding: 8px 10px;
+  background: #fff;
+  pointer-events: none;
+}
+
+.wxc-lib-block-scale {
+  transform: scale(0.62);
+  transform-origin: left top;
+  width: 161%;
+}
+
+.wxc-lib-block-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.wxc-lib-block-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.7);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wxc-lib-badge {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.08);
+  font-size: 10.5px;
+  font-weight: 700;
+  color: rgba(0, 0, 0, 0.55);
+  flex: 0 0 auto;
+}
+
+.wxc-lib-block-del {
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.1);
+  color: rgba(0, 0, 0, 0.6);
+  font-size: 12px;
+  line-height: 18px;
+  padding: 0;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.wxc-lib-block-del:hover {
+  background: rgba(192, 57, 43, 0.85);
+  color: #fff;
+}
+
+.wxc-lib-block--none .wxc-lib-block-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.wxc-lib-none-text {
+  font-size: 13px;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.wxc-theme-card--custom .wxc-theme-mini-title {
+  background: repeating-linear-gradient(45deg, #111 0 6px, #999 6px 12px) !important;
+}
+
+.wxc-extract-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.wxc-extract-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+@media (max-width: 768px) {
+  .wxc-lib-grid {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  }
+}
