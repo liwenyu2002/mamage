@@ -5,26 +5,14 @@
 // 不改动 WechatComposer.jsx / themes.js / builtinBlocks*.js / wechatExport.js，样式渲染只经 applyBlock。
 import React from 'react';
 import { applyBlock, BUILTIN_BLOCKS_BY_ID, WECHAT_THEMES } from './themes.js';
-import { makeUid, sanitizeParaHtml } from './docModel.js';
-import { setDragPayload, getDragPayload, hasDragPayload, clearDragPayload } from './dragContext.js';
+import { makeUid, sanitizeParaHtml, sanitizeRawHtml } from './docModel.js';
+import { beginDrag, registerDropZone } from './pointerDrag.js';
 import './canvas.css';
 
 // 占位 token 用于"先占位渲染整块模板，再把 content/caption 槽位换成可编辑 span"的两段式渲染——
 // applyBlock 是纯字符串替换，不认识 contentEditable，槽位包装必须由本文件在渲染后手工处理。
 // 用 \u0000 是因为它绝不会出现在正常文案里，且在 split/join 阶段就已被替换掉，不会真正进入 innerHTML。
 const SLOT_TOKEN = '\u0000CVE_SLOT\u0000';
-
-// 拖拽 mime type：外部样式块拖入 vs 画布内部块排序，两条 drop 路径共用同一条插入指示线逻辑，
-// dragover 阶段只能读 dataTransfer.types（读不到 getData 的实际内容），靠 type 名区分走哪条分支。
-const EXTERNAL_DND_TYPE = 'application/x-wxc-style-block';
-const INTERNAL_DND_TYPE = 'application/x-cve-block';
-
-function hasDndType(dataTransfer, type) {
-  if (dataTransfer && dataTransfer.types && Array.from(dataTransfer.types).includes(type)) return true;
-  // Safari 等浏览器在 dragover 阶段可能丢自定义 mime：退回共享拖拽上下文判断
-  const kind = type === INTERNAL_DND_TYPE ? 'canvas-block' : 'style-block';
-  return !!getDragPayload(kind);
-}
 
 // 根据鼠标 Y 坐标与已渲染块的外包矩形，找最近的插入间隙：鼠标落在某块垂直中线之上则插入该块前，
 // 否则继续比较下一块；全部块都在鼠标上方（含空画布）则插入末尾/顶部。
@@ -270,6 +258,36 @@ function ParaView({ block, bodyStyle, onTransient, onCommit }) {
 }
 
 // ---------------------------------------------------------------------------
+// 整文导入的原样内容块：保留原文全部内联样式的富 HTML，整块 contentEditable 改字，
+// 结构（换样式/换色/槽位）操作不适用；失焦提交时过 sanitizeRawHtml 白名单清洗
+// ---------------------------------------------------------------------------
+function RawView({ block, onTransient, onCommit }) {
+  const ref = React.useRef(null);
+
+  React.useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    // 编辑中（焦点落在本块任意后代）不回写 innerHTML，防光标跳动；提交发生在失焦后，重绘无损
+    if (document.activeElement && (document.activeElement === el || el.contains(document.activeElement))) return;
+    el.innerHTML = block.html || '';
+  }, [block.html]);
+
+  const handleInput = (e) => onTransient(e.currentTarget.innerHTML);
+  const handleBlur = (e) => onCommit(e.currentTarget.innerHTML);
+
+  return (
+    <div
+      ref={ref}
+      className="cve-raw-host"
+      contentEditable
+      suppressContentEditableWarning
+      onInput={handleInput}
+      onBlur={handleBlur}
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
 // 浮动块工具条：上移/下移/复制/删除/换样式/换色圆点(仅 accentEditable)/后插段落
 // ---------------------------------------------------------------------------
 function BlockToolbar({
@@ -332,32 +350,23 @@ function BlockWrapper({
   onSelect, onMoveUp, onMoveDown, onDuplicate, onDelete,
   onChangeStyle, onChangeAccent, onInsertParaAfter, onImageClick,
   onCommitContent, onCommitCaption, onParaTransient, onParaCommit,
-  onDragHandleEnd,
+  onRawTransient, onRawCommit,
 }) {
   const flip = index === 0; // 首块工具条会被画布上沿裁掉，翻到块下方展示
 
-  // 把手 mousedown 必须 preventDefault：块正文多是 contenteditable/输入框，若不挡住，
-  // 按下把手会被浏览器当成"点进最近的可编辑区域"处理，出现文字光标而不是纯拖拽手势。
-  const handleHandleMouseDown = (e) => {
+  // 把手按下即交给指针拖拽引擎；preventDefault 挡住"按下把手被当成点进相邻可编辑区"的文字光标，
+  // 把手本身没有点击语义，吞掉 click 无副作用。
+  const handleHandlePointerDown = (e) => {
     e.preventDefault();
-  };
-
-  const handleHandleDragStart = (e) => {
-    e.dataTransfer.effectAllowed = 'move';
-    setDragPayload('canvas-block', { uid: block.uid });
-    try {
-      e.dataTransfer.setData(INTERNAL_DND_TYPE, JSON.stringify({ uid: block.uid }));
-      e.dataTransfer.setData('text/plain', 'cve-block');
-    } catch (err) { /* 共享上下文已兜底 */ }
-    const wrapperEl = e.currentTarget.parentElement; // 把手是 .cve-block 的第一个子节点，取父即整块
-    if (wrapperEl && e.dataTransfer.setDragImage) {
-      e.dataTransfer.setDragImage(wrapperEl, 20, 20);
-    }
+    beginDrag(e, { kind: 'canvas-block', data: { uid: block.uid }, ghostLabel: '移动到目标位置…' });
   };
 
   function renderBody() {
     if (block.kind === 'para') {
       return <ParaView block={block} bodyStyle={bodyStyle} onTransient={onParaTransient} onCommit={onParaCommit} />;
+    }
+    if (block.kind === 'raw') {
+      return <RawView block={block} onTransient={onRawTransient} onCommit={onRawCommit} />;
     }
     if (!styleBlock) {
       return <div className="cve-block-error">样式块缺失（id：{block.blockId || '未设置'}）</div>;
@@ -387,11 +396,7 @@ function BlockWrapper({
     >
       <div
         className="cve-drag-handle"
-        draggable
-        onMouseDown={handleHandleMouseDown}
-        onDragStart={handleHandleDragStart}
-        onDragEnd={() => clearDragPayload()}
-        onDragEnd={onDragHandleEnd}
+        onPointerDown={handleHandlePointerDown}
         title="拖拽排序"
         aria-label="拖拽排序"
       >
@@ -440,13 +445,12 @@ export default function CanvasEditor({
   // 拖拽插入指示线状态：{ index, top } | null。index 是"插到 list 的哪个下标"，
   // top 是指示线相对画布外边框的像素偏移（渲染用）。两者一起算，一起清。
   const [dropIndicator, setDropIndicator] = React.useState(null);
-  // dragover 节流：一帧内只重算一次 rect（rAF），但要用最新鼠标 Y——每次 dragover 先把 Y 存进 ref，
+  // 指针移动节流：一帧内只重算一次 rect（rAF），但要用最新鼠标 Y——每次 onMove 先把 Y 存进 ref，
   // 真正挂起的 rAF 回调执行时读 ref 最新值，不会因为节流丢新坐标。
   const dragRafRef = React.useRef(null);
   const pendingClientYRef = React.useRef(0);
-  // dragenter/dragleave 会在"父→子"切换时先 leave 再 enter（子元素挡住父元素触发的假离开），
-  // 用计数器而非单次 leave 判断是否真正离开画布，比较 relatedTarget 在部分浏览器下不可靠。
-  const dragDepthRef = React.useRef(0);
+  // drop zone 只在挂载时注册一次，回调经由该 ref 读取每次渲染的最新 props/doc，避免闭包吃到旧值
+  const latestRef = React.useRef(null);
 
   const updateBlock = React.useCallback((uid, patch, opts) => {
     const next = list.map((b) => (b.uid === uid ? { ...b, ...patch } : b));
@@ -536,117 +540,81 @@ export default function CanvasEditor({
     if (e.target === canvasRef.current) onSelect(null);
   };
 
-  // 拖拽经过画布：外部样式块 or 内部块排序才 preventDefault（放行浏览器默认行为，非法拖拽不响应）；
-  // rect 计算做 rAF 节流，避免 dragover 高频触发时每次都遍历全部块。
-  const handleCanvasDragOver = (e) => {
-    if (!hasDndType(e.dataTransfer, EXTERNAL_DND_TYPE) && !hasDndType(e.dataTransfer, INTERNAL_DND_TYPE)) return;
-    e.preventDefault();
-    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-    pendingClientYRef.current = e.clientY;
-    if (dragRafRef.current != null) return;
-    dragRafRef.current = requestAnimationFrame(() => {
-      dragRafRef.current = null;
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const canvasRect = canvas.getBoundingClientRect();
-      const blockEls = Array.from(canvas.querySelectorAll(':scope > .cve-block'));
-      setDropIndicator(computeDropTarget(pendingClientYRef.current, blockEls, canvasRect.top));
-    });
-  };
+  // 每次渲染刷新 ref，drop zone 回调永远读到最新的 doc 与回调 props
+  latestRef.current = { list, onChange, onSelect, onExternalDrop };
 
-  const handleCanvasDragEnter = (e) => {
-    if (!hasDndType(e.dataTransfer, EXTERNAL_DND_TYPE) && !hasDndType(e.dataTransfer, INTERNAL_DND_TYPE)) return;
-    e.preventDefault();
-    dragDepthRef.current += 1;
-  };
-
-  const handleCanvasDragLeave = (e) => {
-    if (!hasDndType(e.dataTransfer, EXTERNAL_DND_TYPE) && !hasDndType(e.dataTransfer, INTERNAL_DND_TYPE)) return;
-    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
-    if (dragDepthRef.current === 0) setDropIndicator(null);
-  };
-
-  const handleCanvasDrop = (e) => {
-    const external = hasDndType(e.dataTransfer, EXTERNAL_DND_TYPE);
-    const internal = hasDndType(e.dataTransfer, INTERNAL_DND_TYPE);
-    if (!external && !internal) return;
-    e.preventDefault();
-    dragDepthRef.current = 0;
-    if (dragRafRef.current != null) {
-      cancelAnimationFrame(dragRafRef.current);
-      dragRafRef.current = null;
-    }
-    // 插入位置以 drop 事件自身坐标为准重算，不依赖 dragover 缓存的指示线 state——
-    // rAF 节流下最后一帧可能未落地，缓存缺失时不能错落到末尾
-    let insertIndex = list.length;
-    const canvasEl = canvasRef.current;
-    if (canvasEl) {
-      const blockEls = [...canvasEl.querySelectorAll('.cve-block')];
-      const target = computeDropTarget(e.clientY, blockEls, canvasEl.getBoundingClientRect().top);
-      if (target) insertIndex = target.index;
-    } else if (dropIndicator) {
-      insertIndex = dropIndicator.index;
-    }
-    setDropIndicator(null);
-
-    if (external) {
-      const raw = e.dataTransfer.getData(EXTERNAL_DND_TYPE);
-      let payload = null;
-      try {
-        payload = raw ? JSON.parse(raw) : null;
-      } catch (err) {
-        payload = null; // 外部拖入的 payload 解析失败一律丢弃，不让画布因脏数据崩溃
-      }
-      if (!payload) payload = getDragPayload('style-block'); // dataTransfer 读不到时回退共享上下文
-      clearDragPayload();
-      if (payload) onExternalDrop(payload, insertIndex);
-      return;
-    }
-
-    // 画布内部排序：先按原下标移除，若原下标在插入点之前则插入点要减一（数组少了一格），
-    // 落回原位（toIdx === fromIdx）视为无操作，不产生新的 doc 引用。
-    const raw = e.dataTransfer.getData(INTERNAL_DND_TYPE);
-    let data = null;
-    try {
-      data = raw ? JSON.parse(raw) : null;
-    } catch (err) {
-      data = null;
-    }
-    if (!data) data = getDragPayload('canvas-block');
-    clearDragPayload();
-    if (!data || !data.uid) return;
-    const fromIdx = list.findIndex((b) => b.uid === data.uid);
-    if (fromIdx < 0) return;
-    const toIdx = fromIdx < insertIndex ? insertIndex - 1 : insertIndex;
-    if (toIdx === fromIdx) return;
-    const next = list.slice();
-    const [moved] = next.splice(fromIdx, 1);
-    next.splice(toIdx, 0, moved);
-    onChange(next);
-    onSelect(data.uid); // 拖拽重排后保持该块选中
-  };
-
-  const clearDropIndicator = React.useCallback(() => {
-    dragDepthRef.current = 0;
-    setDropIndicator(null);
-  }, []);
-
-  // 安全网：如果拖拽在画布外结束（用户松手位置不是合法 drop 目标），drop 事件不会触发，
-  // 靠 window 级 dragend（会从拖拽源冒泡上来）兜底清除指示线，避免指示线卡死不消失。
+  // 把画布注册为指针拖拽引擎的 drop zone：onMove 算指示线（rAF 节流），onDrop 按松手坐标重算
+  // 插入位置（不依赖节流缓存的指示线 state，最后一帧可能未落地）。只注册一次，卸载时注销。
   React.useEffect(() => {
-    window.addEventListener('dragend', clearDropIndicator);
-    return () => window.removeEventListener('dragend', clearDropIndicator);
-  }, [clearDropIndicator]);
+    const el = canvasRef.current;
+    if (!el) return undefined;
+
+    const cancelPendingFrame = () => {
+      if (dragRafRef.current != null) {
+        cancelAnimationFrame(dragRafRef.current);
+        dragRafRef.current = null;
+      }
+    };
+
+    const unregister = registerDropZone(el, {
+      onMove: (pt) => {
+        pendingClientYRef.current = pt.y;
+        if (dragRafRef.current != null) return;
+        dragRafRef.current = requestAnimationFrame(() => {
+          dragRafRef.current = null;
+          const canvas = canvasRef.current;
+          if (!canvas) return;
+          const canvasRect = canvas.getBoundingClientRect();
+          const blockEls = Array.from(canvas.querySelectorAll(':scope > .cve-block'));
+          setDropIndicator(computeDropTarget(pendingClientYRef.current, blockEls, canvasRect.top));
+        });
+      },
+      onLeave: () => {
+        cancelPendingFrame();
+        setDropIndicator(null);
+      },
+      onDrop: (pt, payload) => {
+        cancelPendingFrame();
+        setDropIndicator(null);
+        const latest = latestRef.current;
+        if (!latest || !payload) return;
+        const curList = latest.list;
+        const canvas = canvasRef.current;
+        let insertIndex = curList.length;
+        if (canvas) {
+          const blockEls = Array.from(canvas.querySelectorAll(':scope > .cve-block'));
+          const target = computeDropTarget(pt.y, blockEls, canvas.getBoundingClientRect().top);
+          if (target) insertIndex = target.index;
+        }
+
+        if (payload.kind === 'style-block') {
+          if (payload.data) latest.onExternalDrop(payload.data, insertIndex);
+          return;
+        }
+        if (payload.kind !== 'canvas-block' || !payload.data || !payload.data.uid) return;
+        // 画布内部排序：先按原下标移除，若原下标在插入点之前则插入点要减一（数组少了一格），
+        // 落回原位（toIdx === fromIdx）视为无操作，不产生新的 doc 引用。
+        const fromIdx = curList.findIndex((b) => b.uid === payload.data.uid);
+        if (fromIdx < 0) return;
+        const toIdx = fromIdx < insertIndex ? insertIndex - 1 : insertIndex;
+        if (toIdx === fromIdx) return;
+        const next = curList.slice();
+        const [moved] = next.splice(fromIdx, 1);
+        next.splice(toIdx, 0, moved);
+        latest.onChange(next);
+        latest.onSelect(payload.data.uid); // 拖拽重排后保持该块选中
+      },
+    });
+    return unregister;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div
       className="cve-canvas"
       ref={canvasRef}
       onClick={handleCanvasClick}
-      onDragEnter={handleCanvasDragEnter}
-      onDragOver={handleCanvasDragOver}
-      onDragLeave={handleCanvasDragLeave}
-      onDrop={handleCanvasDrop}
+      onDragStart={(e) => e.preventDefault()}
     >
       {list.length === 0 && <div className="cve-empty-hint">从左侧样式库点击插入第一个块</div>}
       {dropIndicator && (
@@ -678,7 +646,8 @@ export default function CanvasEditor({
             onCommitCaption={(text) => updateBlock(block.uid, { caption: text })}
             onParaTransient={(html) => updateBlock(block.uid, { html }, { transient: true })}
             onParaCommit={(html) => updateBlock(block.uid, { html: sanitizeParaHtml(html) })}
-            onDragHandleEnd={clearDropIndicator}
+            onRawTransient={(html) => updateBlock(block.uid, { html }, { transient: true })}
+            onRawCommit={(html) => updateBlock(block.uid, { html: sanitizeRawHtml(html) })}
           />
         );
       })}
@@ -704,8 +673,8 @@ export const CANVAS_EDITOR_USAGE = `
   onRequestStylePicker={(type, uid) => openLibrary({ filterType: type, replaceTarget: uid })}
   onRequestImagePick={(uid) => openPhotoPicker(uid)}
   onExternalDrop={(payload, insertIndex) => {
-    // payload 是拖拽源用 JSON.stringify 塞进 dataTransfer('application/x-wxc-style-block') 的原始对象，
-    // 本组件只负责 JSON.parse 后原样转发，不解释其字段；父组件按自己的样式库块结构解析并转成 DocBlock 插入 insertIndex。
+    // payload 是拖拽源调 beginDrag(e, { kind: 'style-block', data: payload }) 时传入的 data 原对象，
+    // 本组件原样转发，不解释其字段；父组件按自己的样式库块结构转成 DocBlock 插入 insertIndex。
     const block = styleLibraryPayloadToDocBlock(payload); // 父组件自行实现，不属于本组件契约
     const next = doc.slice();
     next.splice(insertIndex, 0, block);
@@ -719,9 +688,12 @@ export const CANVAS_EDITOR_USAGE = `
 - 段落打字过程：onChange(next, { transient: true })，父级只更新 doc、不 push 历史；失焦时补一次非 transient 提交。
 - 样式块文字（h2/h3/quote/signoff/imageCard 图注）不产生 transient 调用，只在失焦时提交一次。
 - 换样式/换图不由本组件完成，仅转发 onRequestStylePicker/onRequestImagePick，实际替换由父组件回填 doc。
-- 外部样式块拖入画布：本组件只做"识别 mime type + 算插入位置 + 转发"，不生成 DocBlock；onExternalDrop(payload, insertIndex)
-  的 payload 就是拖拽源 setData('application/x-wxc-style-block', JSON.stringify(...)) 时塞的内容，父组件需自行转成 DocBlock
-  （含 makeUid()）后插入 doc 的 insertIndex 位置并 onSelect 新块。
-- 画布内部块拖拽重排（拖拽把手 .cve-drag-handle）完全由本组件闭环完成，父组件只会收到一次结构性 onChange，不涉及 onExternalDrop。
+- 拖拽统一走 pointerDrag.js 自研引擎（非 HTML5 DnD）：拖拽源在 onPointerDown 里调 beginDrag(e, { kind, data, ghostLabel })，
+  画布已把自身注册为 drop zone。外部样式块用 kind='style-block'，落点转发 onExternalDrop(data, insertIndex)，
+  父组件需自行转成 DocBlock（含 makeUid()）后插入并 onSelect 新块。
+- 画布内部块拖拽重排（拖拽把手 .cve-drag-handle，kind='canvas-block'）完全由本组件闭环完成，
+  父组件只会收到一次结构性 onChange，不涉及 onExternalDrop。
+- kind='raw' 块（整文导入产物）：整块 contentEditable 富文本改字，失焦提交时经 sanitizeRawHtml 清洗；
+  不支持换样式/换色，其余工具条操作（移动/复制/删除/后插段落）与普通块一致。
 - 画布不持有历史栈，⌘Z/⌘⇧Z 不被拦截，父组件需自行在 document 级别监听撤销/重做快捷键。
 `;

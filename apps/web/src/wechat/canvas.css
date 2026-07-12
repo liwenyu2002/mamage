@@ -269,6 +269,20 @@
   opacity: 0.86;
 }
 
+/* ---- raw 块（整文导入）：整块富文本编辑，样式全靠原文内联，宿主只做防溢出约束 ---- */
+
+.cve-raw-host {
+  outline: none;
+  cursor: text;
+  overflow-wrap: break-word;
+}
+
+/* 原文 img 内联样式若给了超画布的固定宽度，max-width 兜底防横向溢出（内联 width 仍受此约束） */
+.cve-raw-host img {
+  max-width: 100%;
+  height: auto;
+}
+
 /* ---- 普通段落：整段 contentEditable ---- */
 
 .cve-para {

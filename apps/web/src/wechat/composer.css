@@ -652,3 +652,67 @@
     margin-left: 288px;
   }
 }
+
+/* ---- 提取/复现双按钮：面板 264px 放不下"输入框+两个按钮"一行，改上下两行 ---- */
+
+.wxc-lib-extract {
+  flex-direction: column;
+}
+
+.wxc-lib-extract-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.wxc-lib-extract-actions > * {
+  flex: 1;
+}
+
+/* ---- 自研指针拖拽：幽灵标签 + 拖拽全局态 ---- */
+
+.wxc-drag-ghost {
+  position: fixed;
+  z-index: 4000;
+  pointer-events: none; /* 幽灵绝不能挡 zone 命中测试与松手事件 */
+  max-width: 220px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: rgba(17, 17, 17, 0.92);
+  color: #fff;
+  font-size: 12.5px;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
+}
+
+body.wxc-dragging,
+body.wxc-dragging * {
+  cursor: grabbing !important;
+}
+
+body.wxc-dragging {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
+/* 库块内部的 img/文字禁止触发浏览器原生拖拽与选区，否则原生拖拽会话一启动，
+   pointermove 停发、自研拖拽被中途掐断（JSX 侧还有 onDragStart preventDefault 双保险） */
+.wxc-lib-block {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.wxc-lib-block img {
+  -webkit-user-drag: none;
+}
+
+/* ---- 整文复现确认弹层 ---- */
+
+.wxc-import-summary {
+  margin: 0 0 16px;
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: rgba(0, 0, 0, 0.75);
+}

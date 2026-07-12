@@ -6,8 +6,8 @@ import { request, resolveAssetUrl } from './services/request';
 import { WECHAT_THEMES, THEME_PRESETS, BUILTIN_BLOCKS_BY_ID, applyBlock } from './wechat/themes';
 import { copyWechatRichText, downloadImagePack } from './wechat/wechatExport';
 import CanvasEditor from './wechat/CanvasEditor';
-import { makeUid, markdownToDoc, docToHtml, docToPlainText, createHistory } from './wechat/docModel';
-import { setDragPayload, clearDragPayload } from './wechat/dragContext';
+import { makeUid, markdownToDoc, docToHtml, docToPlainText, createHistory, sanitizeRawHtml } from './wechat/docModel';
+import { beginDrag } from './wechat/pointerDrag';
 import './wechat/composer.css';
 import './wechat/canvas.css';
 
@@ -175,6 +175,8 @@ function WechatComposer() {
   const [extractedBlocks, setExtractedBlocks] = React.useState(null); // 非 null 时显示提取结果弹层
   const [extractPicked, setExtractPicked] = React.useState({});
   const [savingExtract, setSavingExtract] = React.useState(false);
+  const [importing, setImporting] = React.useState(false);
+  const [importResult, setImportResult] = React.useState(null); // 画布非空时的"替换/追加"确认弹层数据
 
   // 生效的块配置：自定义优先，否则用当前主题预设
   const effectiveConfig = React.useMemo(
@@ -335,6 +337,53 @@ function WechatComposer() {
     }
   }, [extractUrl]);
 
+  // ── 整文复现：把别人的推文完整解析成 raw 块导入画布（文字/图片/排版全保留）──────
+
+  // raw 块（整文导入）以 html 论有无内容，与 para 同轨；styled 块看 content/src
+  const docHasContent = React.useMemo(
+    () => doc.some((b) => ((b.kind === 'para' || b.kind === 'raw') ? String(b.html || '').trim() : (b.content || b.src))),
+    [doc]
+  );
+
+  const applyImportedArticle = React.useCallback((result, mode) => {
+    const rawBlocks = (result && Array.isArray(result.blocks) ? result.blocks : [])
+      .map((html) => ({ uid: makeUid(), kind: 'raw', html: sanitizeRawHtml(html) }))
+      .filter((b) => b.html && b.html.trim());
+    if (!rawBlocks.length) { Toast.warning('没有可导入的内容'); setImportResult(null); return; }
+    const next = mode === 'append' ? [...doc, ...rawBlocks] : rawBlocks;
+    applyDocChange(next);
+    setSelectedUid(null);
+    if (result.title && !String(title || '').trim()) setTitle(String(result.title).slice(0, TITLE_LIMIT));
+    setImportResult(null);
+    Toast.success(`已复现整篇推文：${rawBlocks.length} 个内容块${result.imageCount ? `、${result.imageCount} 张图` : ''}`);
+  }, [doc, applyDocChange, title]);
+
+  const handleImportArticle = React.useCallback(async () => {
+    const url = extractUrl.trim();
+    if (!url) { Toast.warning('先粘贴一篇公众号推文链接'); return; }
+    // 前置链接检测：非推文链接不发请求，直接给出格式提示（后端还有同规则的二次校验）
+    if (!/^https?:\/\/mp\.weixin\.qq\.com\/s([/?#]|$)/.test(url)) {
+      Toast.warning('这不是公众号推文链接（应形如 mp.weixin.qq.com/s/…）');
+      return;
+    }
+    setImporting(true);
+    try {
+      const resp = await request('/api/wechat-style/import-article', { method: 'POST', data: { url } });
+      const blocks = Array.isArray(resp && resp.blocks) ? resp.blocks : [];
+      if (!blocks.length) { Toast.info('这篇推文没有解析到正文内容'); return; }
+      if (docHasContent) {
+        setImportResult(resp); // 画布已有内容：弹层让用户选替换还是追加
+      } else {
+        applyImportedArticle(resp, 'replace');
+      }
+    } catch (e) {
+      console.error('[WechatComposer] import article failed', e);
+      Toast.error(e && e.message ? `复现失败：${String(e.message).slice(0, 100)}` : '复现失败，请稍后重试');
+    } finally {
+      setImporting(false);
+    }
+  }, [extractUrl, docHasContent, applyImportedArticle]);
+
   const handleSaveExtracted = React.useCallback(async () => {
     const chosen = (extractedBlocks || []).filter((_, i) => extractPicked[i]);
     if (!chosen.length) { Toast.warning('先勾选要保存的样式块'); return; }
@@ -389,11 +438,6 @@ function WechatComposer() {
     applyDocChange(next);
     setSelectedUid(block.uid);
   }, [doc, applyDocChange, DEFAULT_CONTENT]);
-
-  const docHasContent = React.useMemo(
-    () => doc.some((b) => (b.kind === 'para' ? String(b.html || '').trim() : (b.content || b.src))),
-    [doc]
-  );
 
   const handleCopyRich = React.useCallback(async () => {
     if (!docHasContent) { Toast.warning('画布还是空的，先从样式库插入内容'); return; }
@@ -476,12 +520,17 @@ function WechatComposer() {
                 className="wxc-lib-extract-input"
                 value={extractUrl}
                 onChange={(e) => setExtractUrl(e.target.value)}
-                placeholder="贴公众号文章链接，提取样式"
+                placeholder="贴公众号推文链接…"
                 onKeyDown={(e) => { if (e.key === 'Enter') handleExtract(); }}
               />
-              <Button size="small" type="primary" loading={extracting} disabled={extracting} onClick={handleExtract}>
-                {extracting ? '…' : '提取'}
-              </Button>
+              <div className="wxc-lib-extract-actions">
+                <Button size="small" type="primary" loading={extracting} disabled={extracting || importing} onClick={handleExtract} title="只提取排版样式为可复用样式块，不带文字">
+                  {extracting ? '…' : '提取样式'}
+                </Button>
+                <Button size="small" loading={importing} disabled={extracting || importing} onClick={handleImportArticle} title="整篇复现到画布：文字、图片、排版全保留">
+                  {importing ? '…' : '整文复现'}
+                </Button>
+              </div>
             </div>
             <div className="wxc-lib-tabs">
               {BLOCK_TYPES.map((t) => (
@@ -519,19 +568,11 @@ function WechatComposer() {
                   key={b.id}
                   role="button"
                   tabIndex={0}
-                  draggable
-                  onDragStart={(e) => {
-                    e.dataTransfer.effectAllowed = 'copy';
-                    const payload = { type: b.type, blockId: b.id };
-                    // 同页拖拽走共享上下文（dataTransfer 自定义 mime 跨浏览器不可靠）；
-                    // text/plain 兜底是 Firefox 启动拖拽会话的必要条件
-                    setDragPayload('style-block', payload);
-                    try {
-                      e.dataTransfer.setData('application/x-wxc-style-block', JSON.stringify(payload));
-                      e.dataTransfer.setData('text/plain', 'wxc-style-block');
-                    } catch (err) { /* 某些浏览器限制 setData，全局上下文已兜底 */ }
-                  }}
-                  onDragEnd={clearDragPayload}
+                  // 拖拽走 pointerDrag 自研引擎；未过移动阈值的按压不影响 onClick 点击插入。
+                  // onDragStart preventDefault 是为了掐灭块内 img/文字的浏览器原生拖拽——
+                  // 原生拖拽会话一旦启动，pointermove 就停发，自研拖拽会被中途掐断。
+                  onPointerDown={(e) => beginDrag(e, { kind: 'style-block', data: { type: b.type, blockId: b.id }, ghostLabel: b.name })}
+                  onDragStart={(e) => e.preventDefault()}
                   className={`wxc-lib-block${effectiveConfig[libType] === b.id ? ' is-active' : ''}`}
                   onClick={() => applyBlockPick(libType, b.id)}
                   onKeyDown={(e) => { if (e.key === 'Enter') applyBlockPick(libType, b.id); }}
@@ -721,6 +762,30 @@ function WechatComposer() {
               <Button type="primary" loading={savingExtract} disabled={savingExtract} onClick={handleSaveExtracted}>
                 存入我的样式库（{Object.values(extractPicked).filter(Boolean).length}）
               </Button>
+            </div>
+          </div>
+        ) : null}
+      </Modal>
+
+      {/* 整文复现确认：画布已有内容时让用户决定替换还是追加，避免辛苦编辑被一键冲掉 */}
+      <Modal
+        title="画布已有内容，如何导入？"
+        visible={!!importResult}
+        onCancel={() => setImportResult(null)}
+        footer={null}
+        width={isMobile ? 'calc(100vw - 16px)' : 440}
+      >
+        {importResult ? (
+          <div className="wxc-import-confirm">
+            <p className="wxc-import-summary">
+              {importResult.title ? `《${importResult.title}》` : '这篇推文'}解析到
+              {' '}{(importResult.blocks || []).length} 个内容块
+              {importResult.imageCount ? `、${importResult.imageCount} 张图` : ''}，文字与排版将原样进入画布。
+            </p>
+            <div className="wxc-extract-actions">
+              <Button type="tertiary" onClick={() => setImportResult(null)}>取消</Button>
+              <Button onClick={() => applyImportedArticle(importResult, 'append')}>追加到末尾</Button>
+              <Button type="primary" onClick={() => applyImportedArticle(importResult, 'replace')}>替换当前画布</Button>
             </div>
           </div>
         ) : null}

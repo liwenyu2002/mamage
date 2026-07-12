@@ -13,6 +13,7 @@ import {
   docToPlainText,
   createHistory,
   sanitizeParaHtml,
+  sanitizeRawHtml,
 } from './docModel.js';
 
 let failCount = 0;
@@ -391,6 +392,36 @@ check(
 );
 
 check('空输入返回空串', sanitizeParaHtml('') === '' && sanitizeParaHtml(null) === '' && sanitizeParaHtml(undefined) === '');
+
+// ===========================================================================
+// raw 块（整文导入）：docToHtmlRaw 原样拼接、纯文本剥标签、Node 环境 sanitizeRawHtml 正则兜底
+// ===========================================================================
+console.log('\n== raw 块 ==\n');
+
+{
+  const rawDoc = [
+    { uid: makeUid(), kind: 'raw', html: '<section style="color:#c00"><img src="https://x/1.jpg" referrerpolicy="no-referrer"><p style="font-size:15px">正文一段</p></section>' },
+    { uid: makeUid(), kind: 'raw', html: '<section><img src="https://x/2.jpg"><img src="https://x/3.jpg"></section>' },
+  ];
+  const out = docToHtmlRaw(rawDoc, {});
+  check('raw 块 html 原样进入导出（内联样式保留）', out.html.includes('color:#c00') && out.html.includes('font-size:15px'));
+  check('raw 块 referrerpolicy 属性保留', out.html.includes('referrerpolicy="no-referrer"'));
+  check('raw 块 img 计入 imageCount', out.imageCount === 3);
+
+  const text = docToPlainText(rawDoc);
+  check('raw 块纯文本剥标签取文字', text.includes('正文一段') && !text.includes('<'));
+}
+
+check(
+  'sanitizeRawHtml Node 兜底：script/style 连体剥除、on* 属性剥除、结构与 style 属性保留',
+  sanitizeRawHtml('<section style="color:red" onclick="evil()"><script>x()</script><p>文字</p></section>')
+    === '<section style="color:red"><p>文字</p></section>',
+);
+
+check(
+  'sanitizeRawHtml 空输入返回空串',
+  sanitizeRawHtml('') === '' && sanitizeRawHtml(null) === '',
+);
 
 console.log('\n===================================');
 console.log(`docModel 自测：通过 ${passCount}，失败 ${failCount}`);

@@ -284,6 +284,12 @@ export function docToHtmlRaw(doc, options) {
     if (block.kind === 'para') {
       return `<p style="${bodyStyles.p}">${styleParaInlineHtml(block.html, bodyStyles)}</p>`;
     }
+    if (block.kind === 'raw') {
+      // 整文导入块：html 在导入与每次失焦提交时都已过 sanitizeRawHtml，这里原样拼接保排版，
+      // 不套 para 正文样式（原文自带全套内联样式）；最终导出还会过 docToHtml 的 DOMPurify 兜底
+      imageCount += (String(block.html || '').match(/<img\b/gi) || []).length;
+      return String(block.html || '');
+    }
     const type = block.type;
     const styleBlock = lookupStyleBlock(blocksById, type, block.blockId);
     const accent = normalizeAccent(block.accent) || globalAccent;
@@ -317,7 +323,8 @@ export function docToHtml(doc, options) {
   const { html, imageCount } = docToHtmlRaw(doc, options);
   const safe = DOMPurify.sanitize(html, {
     FORBID_TAGS: ['style', 'script', 'iframe', 'object', 'embed', 'input', 'form'],
-    ADD_ATTR: ['style'],
+    // referrerpolicy 是整文导入的 mmbiz 图片防盗链通行证（no-referrer），导出时必须保留
+    ADD_ATTR: ['style', 'referrerpolicy'],
   });
   return { html: safe, imageCount };
 }
@@ -337,9 +344,27 @@ function htmlToPlainText(html) {
     .replace(/&#39;/g, "'");
 }
 
+// raw 块（整文导入）的富 HTML → 纯文本：块级闭合标签折行、其余标签剥除、常见实体还原
+function rawHtmlToPlainText(html) {
+  return String(html || '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|section|div|h[1-6]|li|blockquote|tr)>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 /**
  * DocBlock[] → 纯文本（复制 text/plain 兜底用）。para 剥标签转义还原；styled 文本块取 content 并把
- * 字面量 <br> 还原成换行；imageCard 用图注占位，无图注用 "[图片]"；divider 用一行短横线占位。
+ * 字面量 <br> 还原成换行；imageCard 用图注占位，无图注用 "[图片]"；divider 用一行短横线占位；
+ * raw 块剥全部标签取文字。
  * @param {Array} doc
  * @returns {string}
  */
@@ -348,6 +373,7 @@ export function docToPlainText(doc) {
     .map((block) => {
       if (!block) return '';
       if (block.kind === 'para') return htmlToPlainText(block.html);
+      if (block.kind === 'raw') return rawHtmlToPlainText(block.html);
       if (block.type === 'divider') return '----';
       if (block.type === 'imageCard') return block.caption ? `[图片：${block.caption}]` : '[图片]';
       return String(block.content || '').split('<br>').join('\n');
@@ -408,6 +434,39 @@ export function createHistory(initialDoc) {
   }
 
   return { push, undo, redo, canUndo, canRedo };
+}
+
+// ---------------------------------------------------------------------------
+// sanitizeRawHtml：raw 块（整文导入）富 HTML 清洗
+// ---------------------------------------------------------------------------
+
+// raw 块要保留原文全部内联样式与结构标签，不能走 sanitizeParaHtml 的四标签白名单（会剥掉排版），
+// 只禁"可执行/可外联"类标签；on* 事件属性由 DOMPurify 默认剥除
+const RAW_FORBID_TAGS = ['script', 'style', 'iframe', 'link', 'meta', 'base', 'form', 'input', 'button', 'object', 'embed', 'video', 'audio'];
+
+/**
+ * raw 块内容清洗：服务端导入接口已洗过一遍，这里是画布 contenteditable 编辑提交与草稿回读的
+ * 客户端防线。浏览器环境走 DOMPurify；Node 自测环境（无 window，DOMPurify 不可用）退回正则
+ * 剥 script/style/iframe 与 on* 属性——与 docToHtmlRaw/docToHtml 的双轨约定一致，
+ * 正式对外路径永远在浏览器里执行。
+ * @param {string} html
+ * @returns {string}
+ */
+export function sanitizeRawHtml(html) {
+  const input = String(html == null ? '' : html);
+  if (typeof window !== 'undefined' && DOMPurify && DOMPurify.isSupported) {
+    return DOMPurify.sanitize(input, {
+      FORBID_TAGS: RAW_FORBID_TAGS,
+      ADD_ATTR: ['style', 'referrerpolicy'],
+    });
+  }
+  let out = input;
+  out = out.replace(/<(script|style|iframe)\b[\s\S]*?<\/\1\s*>/gi, '');
+  out = out.replace(/<!--[\s\S]*?-->/g, '');
+  out = out.replace(/\son[a-z]+\s*=\s*"[^"]*"/gi, '');
+  out = out.replace(/\son[a-z]+\s*=\s*'[^']*'/gi, '');
+  out = out.replace(/\son[a-z]+\s*=\s*[^\s>]+/gi, '');
+  return out;
 }
 
 // ---------------------------------------------------------------------------

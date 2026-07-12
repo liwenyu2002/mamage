@@ -1,6 +1,7 @@
 {
   "version": "0.0.1",
   "configurations": [
-    { "name": "mamage-web-dev", "runtimeExecutable": "npm", "runtimeArgs": ["run", "dev"], "port": 5173 }
+    { "name": "mamage-web-dev", "runtimeExecutable": "npm", "runtimeArgs": ["run", "dev"], "port": 5173 },
+    { "name": "mamage-server-dev", "runtimeExecutable": "bash", "runtimeArgs": ["-c", "cd /Users/liwenyu/mamage-server && node app.js"], "port": 8001 }
   ]
 }
