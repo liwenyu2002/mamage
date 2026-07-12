@@ -7,6 +7,7 @@ import { WECHAT_THEMES, THEME_PRESETS, BUILTIN_BLOCKS_BY_ID, applyBlock } from '
 import { copyWechatRichText, downloadImagePack } from './wechat/wechatExport';
 import CanvasEditor from './wechat/CanvasEditor';
 import { makeUid, markdownToDoc, docToHtml, docToPlainText, createHistory } from './wechat/docModel';
+import { setDragPayload, clearDragPayload } from './wechat/dragContext';
 import './wechat/composer.css';
 import './wechat/canvas.css';
 
@@ -434,7 +435,7 @@ function WechatComposer() {
 
   return (
     <Layout style={{ padding: isMobile ? 10 : 16, overflowX: 'hidden' }}>
-      <Header style={{ background: 'transparent', padding: 0, marginBottom: 12 }}>
+      <Header className="wxc-page-header" style={{ background: 'transparent', padding: 0, marginBottom: 12 }}>
         <h2 style={{ margin: 0 }}>公众号排版器</h2>
         <div style={{ marginTop: 6, marginBottom: 14 }}>
           <Text type="secondary">
@@ -521,8 +522,16 @@ function WechatComposer() {
                   draggable
                   onDragStart={(e) => {
                     e.dataTransfer.effectAllowed = 'copy';
-                    e.dataTransfer.setData('application/x-wxc-style-block', JSON.stringify({ type: b.type, blockId: b.id }));
+                    const payload = { type: b.type, blockId: b.id };
+                    // 同页拖拽走共享上下文（dataTransfer 自定义 mime 跨浏览器不可靠）；
+                    // text/plain 兜底是 Firefox 启动拖拽会话的必要条件
+                    setDragPayload('style-block', payload);
+                    try {
+                      e.dataTransfer.setData('application/x-wxc-style-block', JSON.stringify(payload));
+                      e.dataTransfer.setData('text/plain', 'wxc-style-block');
+                    } catch (err) { /* 某些浏览器限制 setData，全局上下文已兜底 */ }
                   }}
+                  onDragEnd={clearDragPayload}
                   className={`wxc-lib-block${effectiveConfig[libType] === b.id ? ' is-active' : ''}`}
                   onClick={() => applyBlockPick(libType, b.id)}
                   onKeyDown={(e) => { if (e.key === 'Enter') applyBlockPick(libType, b.id); }}

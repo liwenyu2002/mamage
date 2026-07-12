@@ -628,3 +628,27 @@
 .wxc-lib-list .wxc-lib-block {
   flex: 0 0 auto;
 }
+
+/* 面板固定：祖先链上有 overflow-x hidden，sticky 永远不生效——桌面端直接 fixed 贴屏幕左缘，
+   滚动页面时面板纹丝不动（秀米同款）；主区让出面板宽度 */
+@media (min-width: 969px) {
+  .wxc-side-lib {
+    position: fixed;
+    left: 14px;
+    top: 78px;
+    bottom: 14px;
+    width: 264px;
+    max-height: none;
+  }
+
+  .wxc-workarea {
+    margin-left: 288px;
+  }
+}
+
+/* 固定面板占据屏幕左缘：页头（标题/摘要输入）也要让位，否则被面板遮挡 */
+@media (min-width: 969px) {
+  .wxc-page-header {
+    margin-left: 288px;
+  }
+}

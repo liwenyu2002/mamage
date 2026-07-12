@@ -6,6 +6,7 @@
 import React from 'react';
 import { applyBlock, BUILTIN_BLOCKS_BY_ID, WECHAT_THEMES } from './themes.js';
 import { makeUid, sanitizeParaHtml } from './docModel.js';
+import { setDragPayload, getDragPayload, hasDragPayload, clearDragPayload } from './dragContext.js';
 import './canvas.css';
 
 // 占位 token 用于"先占位渲染整块模板，再把 content/caption 槽位换成可编辑 span"的两段式渲染——
@@ -19,7 +20,10 @@ const EXTERNAL_DND_TYPE = 'application/x-wxc-style-block';
 const INTERNAL_DND_TYPE = 'application/x-cve-block';
 
 function hasDndType(dataTransfer, type) {
-  return !!(dataTransfer && dataTransfer.types && Array.from(dataTransfer.types).includes(type));
+  if (dataTransfer && dataTransfer.types && Array.from(dataTransfer.types).includes(type)) return true;
+  // Safari 等浏览器在 dragover 阶段可能丢自定义 mime：退回共享拖拽上下文判断
+  const kind = type === INTERNAL_DND_TYPE ? 'canvas-block' : 'style-block';
+  return !!getDragPayload(kind);
 }
 
 // 根据鼠标 Y 坐标与已渲染块的外包矩形，找最近的插入间隙：鼠标落在某块垂直中线之上则插入该块前，
@@ -340,7 +344,11 @@ function BlockWrapper({
 
   const handleHandleDragStart = (e) => {
     e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData(INTERNAL_DND_TYPE, JSON.stringify({ uid: block.uid }));
+    setDragPayload('canvas-block', { uid: block.uid });
+    try {
+      e.dataTransfer.setData(INTERNAL_DND_TYPE, JSON.stringify({ uid: block.uid }));
+      e.dataTransfer.setData('text/plain', 'cve-block');
+    } catch (err) { /* 共享上下文已兜底 */ }
     const wrapperEl = e.currentTarget.parentElement; // 把手是 .cve-block 的第一个子节点，取父即整块
     if (wrapperEl && e.dataTransfer.setDragImage) {
       e.dataTransfer.setDragImage(wrapperEl, 20, 20);
@@ -382,6 +390,7 @@ function BlockWrapper({
         draggable
         onMouseDown={handleHandleMouseDown}
         onDragStart={handleHandleDragStart}
+        onDragEnd={() => clearDragPayload()}
         onDragEnd={onDragHandleEnd}
         title="拖拽排序"
         aria-label="拖拽排序"
@@ -588,6 +597,8 @@ export default function CanvasEditor({
       } catch (err) {
         payload = null; // 外部拖入的 payload 解析失败一律丢弃，不让画布因脏数据崩溃
       }
+      if (!payload) payload = getDragPayload('style-block'); // dataTransfer 读不到时回退共享上下文
+      clearDragPayload();
       if (payload) onExternalDrop(payload, insertIndex);
       return;
     }
@@ -601,6 +612,8 @@ export default function CanvasEditor({
     } catch (err) {
       data = null;
     }
+    if (!data) data = getDragPayload('canvas-block');
+    clearDragPayload();
     if (!data || !data.uid) return;
     const fromIdx = list.findIndex((b) => b.uid === data.uid);
     if (fromIdx < 0) return;
