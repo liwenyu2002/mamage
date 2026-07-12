@@ -216,7 +216,7 @@ function StyledSlotView({ block, styleBlock, accent, onCommitContent }) {
     }
     const placeholder = escapeHtml(SLOT_PLACEHOLDER_BY_TYPE[block.type] || '点击输入文字');
     const slotHtml = `<span data-cve-slot="content" data-cve-placeholder="${placeholder}">${escapeHtml(block.content || '')}</span>`;
-    // 先在原始模板上 split/join 塞入可编辑 span（token 含  ，purify 会剥掉故必须在清洗前替换），
+    // 先在原始模板上 split/join 塞入可编辑 span（token 含 ，purify 会剥掉故必须在清洗前替换），
     // 再对拼装结果整体过 DOMPurify——恶意模板标签被剥，data-cve-slot span 与 img 存活
     host.innerHTML = purifyBlockHtml(templateHtml.split(SLOT_TOKEN).join(slotHtml));
     const slot = host.querySelector('[data-cve-slot="content"]');
@@ -406,7 +406,7 @@ function toolbarRowGuard(e) {
 }
 
 function BlockToolbar({
-  block, index, total, styleBlock, flip, getHostEl, activeRawImgIndex,
+  block, index, total, styleBlock, flip, anchorTop, getHostEl, activeRawImgIndex,
   onMoveUp, onMoveDown, onDuplicate, onDelete, onChangeStyle, onChangeAccent, onInsertParaAfter,
   onSplitRaw, onImgStyle, onRawImgStyle, onImgReplace,
 }) {
@@ -418,6 +418,9 @@ function BlockToolbar({
   const isImageCard = block.kind === 'styled' && block.type === 'imageCard';
   const showRawImg = block.kind === 'raw' && activeRawImgIndex != null;
   const imgStyle = block.imgStyle || {};
+  // anchorTop 非 null=跟随光标/选区/图片的浮动模式（top 由内联样式给,transform 决定锚点上/下方）；
+  // null=默认钉块顶
+  const anchored = anchorTop != null;
 
   const runText = (cmd, value) => {
     execTextCommand(getHostEl(), cmd, value);
@@ -425,7 +428,8 @@ function BlockToolbar({
 
   return (
     <div
-      className={`cve-toolbar ${flip ? 'cve-toolbar--below' : 'cve-toolbar--above'}`}
+      className={`cve-toolbar${anchored ? ' cve-toolbar--anchored' : ''} ${flip ? 'cve-toolbar--below' : 'cve-toolbar--above'}`}
+      style={anchored ? { top: `${anchorTop}px` } : undefined}
       onClick={(e) => e.stopPropagation()}
     >
       <div className="cve-toolbar-row">
@@ -554,9 +558,11 @@ function BlockWrapper({
   onChangeStyle, onChangeAccent, onInsertParaAfter, onImageClick,
   onCommitContent, onCommitCaption, onParaTransient, onParaCommit,
   onRawTransient, onRawCommit, onSelectRawImg,
-  onSplitRaw, onImgStyle, onRawImgStyle, onImgReplace,
+  onSplitRaw, onImgStyle, onRawImgStyle, onImgReplace, toolbarAnchor,
 }) {
-  const flip = index === 0; // 首块工具条会被画布上沿裁掉，翻到块下方展示
+  // 浮动锚点存在时垂直跟随光标（flip 由锚点视口位置定）；否则回退默认：首块钉块下方防裁,其余块上方
+  const anchored = toolbarAnchor != null;
+  const flip = anchored ? toolbarAnchor.flip : index === 0;
   const bodyRef = React.useRef(null); // 文字样式命令的选区作用域校验用（execCommand 宿主）
 
   // 把手按下即交给指针拖拽引擎；preventDefault 挡住"按下把手被当成点进相邻可编辑区"的文字光标，
@@ -623,6 +629,7 @@ function BlockWrapper({
           total={total}
           styleBlock={styleBlock}
           flip={flip}
+          anchorTop={anchored ? toolbarAnchor.top : null}
           getHostEl={() => bodyRef.current}
           activeRawImgIndex={activeRawImgIndex}
           onMoveUp={onMoveUp}
@@ -669,6 +676,65 @@ export default function CanvasEditor({
     if (activeRawImg.uid !== selectedUid) setActiveRawImg(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedUid]);
+
+  // 浮动工具条锚点：{ top, flip } | null。top=工具条相对选中块顶部的 px 偏移，flip=放锚点下方。
+  // 长容器里工具条不再钉块顶（改块下方内容时够不到），而是跟随光标/选区/选中图片的垂直位置。
+  // null=尚未编辑（回退默认块顶定位，第一行结构按钮可见）。
+  const [toolbarAnchor, setToolbarAnchor] = React.useState(null);
+  const toolbarRafRef = React.useRef(null);
+
+  const recomputeToolbarAnchor = React.useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!selectedUid || !canvas) { setToolbarAnchor(null); return; }
+    const blockEl = canvas.querySelector(`[data-cve-uid="${selectedUid}"]`);
+    if (!blockEl) { setToolbarAnchor(null); return; }
+    const blockRect = blockEl.getBoundingClientRect();
+
+    let anchorViewTop = null;
+    // 1) raw 图片选中优先：锚到该图片
+    if (activeRawImg && activeRawImg.uid === selectedUid) {
+      const img = blockEl.querySelectorAll('.cve-raw-host img')[activeRawImg.imgIndex];
+      if (img) anchorViewTop = img.getBoundingClientRect().top;
+    }
+    // 2) 选区（含折叠光标）在本块内：锚到选区顶部
+    if (anchorViewTop == null) {
+      const sel = window.getSelection && window.getSelection();
+      if (sel && sel.rangeCount > 0) {
+        const range = sel.getRangeAt(0);
+        if (blockEl.contains(range.commonAncestorContainer)) {
+          let rect = range.getBoundingClientRect();
+          if (!rect || (!rect.top && !rect.height)) {
+            // 折叠光标在部分浏览器 rect 全 0，退回起点元素的 rect
+            const node = range.startContainer;
+            const el = node && (node.nodeType === 1 ? node : node.parentElement);
+            if (el) rect = el.getBoundingClientRect();
+          }
+          if (rect && (rect.top || rect.height)) anchorViewTop = rect.top;
+        }
+      }
+    }
+    if (anchorViewTop == null) { setToolbarAnchor(null); return; }
+    // 锚点离视口顶部不足（页头 ~70 + 两行工具条 ~90）则翻到锚点下方，避免被裁
+    const flip = anchorViewTop < 170;
+    setToolbarAnchor({ top: anchorViewTop - blockRect.top, flip });
+  }, [selectedUid, activeRawImg]);
+
+  // 选区变化时重算（rAF 合并高频 selectionchange，避免打字每字符都 setState 抖动）
+  React.useEffect(() => {
+    const schedule = () => {
+      if (toolbarRafRef.current != null) return;
+      toolbarRafRef.current = requestAnimationFrame(() => {
+        toolbarRafRef.current = null;
+        recomputeToolbarAnchor();
+      });
+    };
+    recomputeToolbarAnchor();
+    document.addEventListener('selectionchange', schedule);
+    return () => {
+      document.removeEventListener('selectionchange', schedule);
+      if (toolbarRafRef.current != null) { cancelAnimationFrame(toolbarRafRef.current); toolbarRafRef.current = null; }
+    };
+  }, [recomputeToolbarAnchor]);
 
   // 拖拽插入指示线状态：{ index, top } | null。index 是"插到 list 的哪个下标"，
   // top 是指示线相对画布外边框的像素偏移（渲染用）。两者一起算，一起清。
@@ -895,6 +961,7 @@ export default function CanvasEditor({
             accent={accent}
             bodyStyle={computeParaStyle(bodyConfig, globalAccent)}
             activeRawImgIndex={activeRawImg && activeRawImg.uid === block.uid ? activeRawImg.imgIndex : null}
+            toolbarAnchor={block.uid === selectedUid ? toolbarAnchor : null}
             onSelect={() => onSelect(block.uid)}
             onMoveUp={() => moveBlock(block.uid, -1)}
             onMoveDown={() => moveBlock(block.uid, 1)}

@@ -225,6 +225,21 @@
   margin-top: 10px;
 }
 
+/* 浮动模式：top 由内联样式给出(相对块顶部,跟随光标/选区/图片),bottom/margin 让位,
+   transform 决定工具条落在锚点上方(默认)还是下方(锚点离视口顶太近时) */
+.cve-toolbar--anchored {
+  bottom: auto;
+  margin: 0;
+}
+
+.cve-toolbar--anchored.cve-toolbar--above {
+  transform: translate(-50%, calc(-100% - 10px));
+}
+
+.cve-toolbar--anchored.cve-toolbar--below {
+  transform: translate(-50%, 10px);
+}
+
 .cve-toolbar-btn {
   appearance: none;
   border: none;
