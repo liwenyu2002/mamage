@@ -1,0 +1,214 @@
+/* 画布编辑器样式。类名统一 .cve- 前缀，自包含。
+   约束：站内 UI（画布卡片外壳/hover-选中边框/浮动工具条/色点面板）保持纯黑白语言，
+   唯一允许出现彩色的地方是画布内容区本身（applyBlock 产出的样式块）与换色面板的 8 个色点——
+   那是文章配色的一部分，不是站内 chrome。 */
+
+.cve-canvas {
+  position: relative;
+  width: 677px;
+  max-width: 100%;
+  margin: 0 auto;
+  box-sizing: border-box;
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 40px 32px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 12px 32px rgba(0, 0, 0, 0.08);
+}
+
+@media (max-width: 760px) {
+  .cve-canvas {
+    width: 100%;
+    padding: 24px 16px;
+    border-radius: 10px;
+  }
+}
+
+.cve-empty-hint {
+  padding: 64px 20px;
+  text-align: center;
+  color: rgba(0, 0, 0, 0.35);
+  font-size: 14px;
+}
+
+/* ---- 块 wrapper：hover 淡边、选中实线黑边，用 outline 而非 border 避免影响内部模板的盒模型 ---- */
+
+.cve-block {
+  position: relative;
+  z-index: 0;
+  cursor: pointer;
+}
+
+.cve-block:hover:not(.cve-block--selected) {
+  outline: 1px dashed rgba(0, 0, 0, 0.28);
+  outline-offset: 6px;
+}
+
+.cve-block--selected {
+  z-index: 5;
+  outline: 2px solid #111111;
+  outline-offset: 6px;
+}
+
+.cve-block-body {
+  cursor: default;
+}
+
+.cve-block-error {
+  margin: 20px 0;
+  padding: 14px 16px;
+  border: 1px dashed rgba(0, 0, 0, 0.3);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.04);
+  color: rgba(0, 0, 0, 0.55);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+/* ---- 浮动块工具条：黑底白字小圆角胶囊组，首块翻到块下方 ---- */
+
+.cve-toolbar {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  border-radius: 999px;
+  background: rgba(17, 17, 17, 0.94);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
+  z-index: 20;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.cve-toolbar--above {
+  bottom: 100%;
+  margin-bottom: 10px;
+}
+
+.cve-toolbar--below {
+  top: 100%;
+  margin-top: 10px;
+}
+
+.cve-toolbar-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: #ffffff;
+  font-size: 12.5px;
+  line-height: 1;
+  padding: 7px 9px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.cve-toolbar-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.cve-toolbar-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.cve-toolbar-swatch-wrap {
+  position: relative;
+}
+
+.cve-toolbar-dot-btn {
+  padding: 7px 8px;
+}
+
+.cve-dot-preview {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.55) inset, 0 0 0 1px rgba(0, 0, 0, 0.25);
+  vertical-align: middle;
+}
+
+.cve-swatch-panel {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: repeat(4, 20px);
+  gap: 7px;
+  padding: 9px;
+  border-radius: 12px;
+  background: rgba(17, 17, 17, 0.96);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.32);
+  z-index: 30;
+}
+
+.cve-swatch {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  transition: transform 100ms ease;
+}
+
+.cve-swatch:hover {
+  transform: scale(1.15);
+}
+
+/* ---- styled 文本块 / 图片卡：可编辑槽位 + 占位符 ---- */
+
+.cve-styled-host,
+.cve-imagecard-host,
+.cve-divider-host {
+  display: block;
+}
+
+[data-cve-slot] {
+  outline: none;
+  cursor: text;
+}
+
+[data-cve-slot]:empty::before,
+.cve-para:empty::before {
+  content: attr(data-cve-placeholder);
+  color: rgba(0, 0, 0, 0.32);
+  pointer-events: none;
+}
+
+.cve-image-click-target {
+  cursor: pointer;
+  transition: opacity 120ms ease;
+}
+
+.cve-image-click-target:hover {
+  opacity: 0.86;
+}
+
+/* ---- 普通段落：整段 contentEditable ---- */
+
+.cve-para {
+  outline: none;
+  min-height: 1.4em;
+  cursor: text;
+}
+
+.cve-para strong {
+  font-weight: 700;
+  color: var(--cve-accent, #1a1a1a);
+}
+
+.cve-para em {
+  font-style: italic;
+  color: #666666;
+}
+
+.cve-para a {
+  color: var(--cve-accent, #1a1a1a);
+  text-decoration: underline;
+}

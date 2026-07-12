@@ -3,9 +3,12 @@ import DOMPurify from 'dompurify';
 import { Layout, Card, Button, Input, Modal, Toast, Typography } from './ui';
 import { getAll as getTransferAll, subscribe as subscribeTransfer } from './services/transferStore';
 import { request, resolveAssetUrl } from './services/request';
-import { WECHAT_THEMES, THEME_PRESETS, BUILTIN_BLOCKS_BY_ID, applyBlock, renderWechatHtml } from './wechat/themes';
+import { WECHAT_THEMES, THEME_PRESETS, BUILTIN_BLOCKS_BY_ID, applyBlock } from './wechat/themes';
 import { copyWechatRichText, downloadImagePack } from './wechat/wechatExport';
+import CanvasEditor from './wechat/CanvasEditor';
+import { makeUid, markdownToDoc, docToHtml, docToPlainText, createHistory } from './wechat/docModel';
 import './wechat/composer.css';
+import './wechat/canvas.css';
 
 const { Header, Content } = Layout;
 const { Text } = Typography;
@@ -86,43 +89,79 @@ function buildInitialState() {
     // 隐私模式/存储被禁用时静默忽略
   }
   const hasImport = !!(imported && (imported.title || imported.markdown));
+  const themeKey = draft.themeKey || DEFAULT_THEME_KEY;
+  const blockConfig = (draft.blockConfig && typeof draft.blockConfig === 'object') ? draft.blockConfig : null;
+  const effective = blockConfig || THEME_PRESETS[themeKey] || THEME_PRESETS[DEFAULT_THEME_KEY];
+
+  // 文档来源优先级：矩阵导入 markdown > v3 草稿 doc > 旧草稿 markdown（一次性转块）> 空文档
+  let doc = null;
+  if (hasImport && imported.markdown) {
+    doc = markdownToDoc(imported.markdown, { blockConfig: effective });
+  } else if (Array.isArray(draft.doc) && draft.doc.length) {
+    doc = draft.doc;
+  } else if (draft.markdown) {
+    doc = markdownToDoc(draft.markdown, { blockConfig: effective });
+  }
   return {
     title: (hasImport && imported.title) || draft.title || '',
     digest: draft.digest || '',
-    markdown: (hasImport && imported.markdown) || draft.markdown || '',
-    themeKey: draft.themeKey || DEFAULT_THEME_KEY,
-    blockConfig: (draft.blockConfig && typeof draft.blockConfig === 'object') ? draft.blockConfig : null,
+    doc: doc || [],
+    themeKey,
+    blockConfig,
     imported: hasImport,
   };
-}
-
-// 从 markdown 里提取全部图片地址（PHOTO:id 占位符与直接 http(s) 链接都要认），供"下载图片包"使用
-function extractImagesFromMarkdown(markdown, photosMap) {
-  const list = [];
-  const re = /!\[[^\]]*\]\(([^)\s]+)\)/g;
-  let m;
-  let idx = 0;
-  while ((m = re.exec(String(markdown || ''))) !== null) {
-    idx += 1;
-    const raw = m[1];
-    const photoIdMatch = raw.match(/^PHOTO:(.+)$/);
-    const url = photoIdMatch ? ((photosMap || {})[photoIdMatch[1]] || '') : raw;
-    if (!url) continue;
-    list.push({ id: idx, url });
-  }
-  return list;
 }
 
 function WechatComposer() {
   const [initial] = React.useState(buildInitialState);
   const [title, setTitle] = React.useState(initial.title);
   const [digest, setDigest] = React.useState(initial.digest);
-  const [markdown, setMarkdown] = React.useState(initial.markdown);
   const [themeKey, setThemeKey] = React.useState(initial.themeKey);
   const [pickerOpen, setPickerOpen] = React.useState(false);
-  const [previewHtml, setPreviewHtml] = React.useState('');
   const [stationItemsRaw, setStationItemsRaw] = React.useState(() => getTransferAll());
   const [isMobile, setIsMobile] = React.useState(() => (typeof window !== 'undefined' ? window.innerWidth <= 768 : false));
+
+  // ── 画布文档（v3 编辑主源）────────────────────────────────
+  const [doc, setDoc] = React.useState(initial.doc);
+  const [selectedUid, setSelectedUid] = React.useState(null);
+  const historyRef = React.useRef(null);
+  if (!historyRef.current) historyRef.current = createHistory(initial.doc);
+  const [historyTick, setHistoryTick] = React.useState(0); // 撤销/重做按钮禁用态的重渲信号
+  void historyTick;
+  const [replaceTarget, setReplaceTarget] = React.useState(null); // 换样式模式：目标块 uid
+  const [pickerTarget, setPickerTarget] = React.useState(null);   // 中转站选图：null=插新图块，uid=给该块换图
+
+  const applyDocChange = React.useCallback((nextDoc, opts) => {
+    setDoc(nextDoc);
+    if (!opts || !opts.transient) {
+      historyRef.current.push(nextDoc);
+      setHistoryTick((t) => t + 1);
+    }
+  }, []);
+
+  const handleUndo = React.useCallback(() => {
+    const prev = historyRef.current.undo();
+    if (prev) { setDoc(prev); setSelectedUid(null); setHistoryTick((t) => t + 1); }
+  }, []);
+
+  const handleRedo = React.useCallback(() => {
+    const next = historyRef.current.redo();
+    if (next) { setDoc(next); setSelectedUid(null); setHistoryTick((t) => t + 1); }
+  }, []);
+
+  // ⌘Z / ⌘⇧Z（画布不拦截，父级统一处理；输入场景交还浏览器原生撤销）
+  React.useEffect(() => {
+    const onKey = (e) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'z') return;
+      const t = e.target;
+      const typing = t && (t.isContentEditable || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA');
+      if (typing) return;
+      e.preventDefault();
+      if (e.shiftKey) handleRedo(); else handleUndo();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [handleUndo, handleRedo]);
 
   // 样式块自选：blockConfig=null 表示跟随主题预设；一旦在样式库里挑过块即转为自定义配置
   const [blockConfig, setBlockConfig] = React.useState(initial.blockConfig);
@@ -165,8 +204,6 @@ function WechatComposer() {
     if (libraryOpen || usesDbBlock) loadMyBlocks();
   }, [libraryOpen, blockConfig, myBlocksLoaded, loadMyBlocks]);
 
-  const textareaRef = React.useRef(null);
-  const debounceRef = React.useRef(null);
 
   React.useEffect(() => {
     if (initial.imported) Toast.success('已导入公众号草稿');
@@ -184,60 +221,43 @@ function WechatComposer() {
   React.useEffect(() => subscribeTransfer((items) => setStationItemsRaw(items)), []);
   const stationItems = React.useMemo(() => normalizeStationItems(stationItemsRaw), [stationItemsRaw]);
 
-  // photosMap 供 renderWechatHtml 解析正文里的 PHOTO:id 占位符（例如从矩阵页导入的稿子）
-  const photosMap = React.useMemo(() => {
-    const map = {};
-    stationItems.forEach((it) => { map[it.id] = it.fullUrl || it.thumbUrl; });
-    return map;
-  }, [stationItems]);
-
-  // 草稿持久化：任意字段变化即写回 localStorage；写入失败（隐私模式/配额满）静默忽略，不打断编辑
+  // 草稿持久化（v3：存块文档）；写入失败（隐私模式/配额满）静默忽略，不打断编辑
   React.useEffect(() => {
     try {
-      localStorage.setItem(DRAFT_KEY, JSON.stringify({ title, digest, markdown, themeKey, blockConfig }));
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({ v: 3, title, digest, doc, themeKey, blockConfig }));
     } catch (e) {
       // ignore
     }
-  }, [title, digest, markdown, themeKey, blockConfig]);
+  }, [title, digest, doc, themeKey, blockConfig]);
 
-  // 预览防抖 300ms：renderWechatHtml 每次都要跑一遍 marked+内联样式，逐字触发会卡顿
-  React.useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      try {
-        const { html } = renderWechatHtml(markdown, { blockConfig: effectiveConfig, blocksById, photosMap, title, digest });
-        setPreviewHtml(html || '');
-      } catch (e) {
-        console.error('[WechatComposer] renderWechatHtml failed', e);
-        setPreviewHtml('<p style="color:#c0392b;font-size:14px;">预览渲染失败，请检查 markdown 内容</p>');
-      }
-    }, 300);
-    return () => clearTimeout(debounceRef.current);
-  }, [markdown, effectiveConfig, blocksById, photosMap, title, digest]);
+  // 在画布中插入一个新块：有选中块插其后，否则追加末尾；返回新块 uid
+  const insertDocBlock = React.useCallback((block) => {
+    const withUid = { ...block, uid: makeUid() };
+    const next = [...doc];
+    const idx = selectedUid ? next.findIndex((b) => b.uid === selectedUid) : -1;
+    if (idx >= 0) next.splice(idx + 1, 0, withUid); else next.push(withUid);
+    applyDocChange(next);
+    setSelectedUid(withUid.uid);
+    return withUid.uid;
+  }, [doc, selectedUid, applyDocChange]);
 
-  // 在光标处插入 markdown 片段；textarea 失焦后 selectionStart/End 仍保留上次的值，是标准的"插入到光标"技巧。
-  // 依赖 markdown 是为了在闭包里拿到最新正文（工具栏按钮点击会先让 textarea 失焦，此时读它的 selection 仍然有效）。
-  const insertAtCursor = React.useCallback((snippet) => {
-    const ta = textareaRef.current;
-    const start = ta ? (ta.selectionStart ?? markdown.length) : markdown.length;
-    const end = ta ? (ta.selectionEnd ?? markdown.length) : markdown.length;
-    const next = markdown.slice(0, start) + snippet + markdown.slice(end);
-    const pos = start + snippet.length;
-    setMarkdown(next);
-    requestAnimationFrame(() => {
-      if (!ta) return;
-      ta.focus();
-      ta.setSelectionRange(pos, pos);
-    });
-  }, [markdown]);
-
+  // 中转站选图确认：pickerTarget 有值=给该图块换图，否则插入新图片卡块
   const insertPhoto = React.useCallback((item) => {
     const url = item.fullUrl || item.thumbUrl;
     if (!url) { Toast.warning('该照片缺少可用地址'); return; }
-    const alt = String(item.description || `照片${item.id}`).replace(/[[\]]/g, '');
-    insertAtCursor(`\n![${alt}](${url})\n\n`);
-    Toast.success('已插入到光标处');
-  }, [insertAtCursor]);
+    const caption = String(item.description || '').slice(0, 40);
+    if (pickerTarget) {
+      const next = doc.map((b) => (b.uid === pickerTarget ? { ...b, src: url } : b));
+      applyDocChange(next);
+      Toast.success('已替换图片');
+    } else {
+      const imageBlockId = (blockConfig || THEME_PRESETS[themeKey] || THEME_PRESETS[DEFAULT_THEME_KEY]).imageCard;
+      insertDocBlock({ kind: 'styled', type: 'imageCard', blockId: imageBlockId, src: url, caption, accent: null });
+      Toast.success('已插入图片卡');
+    }
+    setPickerTarget(null);
+    setPickerOpen(false);
+  }, [pickerTarget, doc, applyDocChange, blockConfig, themeKey, insertDocBlock]);
 
   const titleLen = React.useMemo(() => Array.from(String(title || '')).length, [title]);
   const digestLen = React.useMemo(() => Array.from(String(digest || '')).length, [digest]);
@@ -246,10 +266,32 @@ function WechatComposer() {
 
   // ── 样式库交互 ────────────────────────────────────────────────
 
-  // 选块：任何一次挑选都把当前生效配置固化为自定义（后续换主题卡才会重置）
+  // 每种类型插入新块时的默认内容
+  const DEFAULT_CONTENT = React.useMemo(() => ({
+    h2: '在这里输入标题', h3: '在这里输入小标题', quote: '在这里输入引用内容', signoff: '— 完 —',
+  }), []);
+
+  // 点样式块：换样式模式=替换目标块的样式保内容；普通模式=向画布插入新块（同时更新默认配置）
   const applyBlockPick = React.useCallback((type, id) => {
+    if (replaceTarget) {
+      const next = doc.map((b) => (b.uid === replaceTarget && b.type === type ? { ...b, blockId: id } : b));
+      applyDocChange(next);
+      setReplaceTarget(null);
+      Toast.success('已替换样式');
+      return;
+    }
     setBlockConfig({ ...effectiveConfig, [type]: id });
-  }, [effectiveConfig]);
+    if (type === 'imageCard') {
+      // 图片卡需要先选图：打开中转站选择器，选定后按当前配置插入
+      setPickerTarget(null);
+      setPickerOpen(true);
+      return;
+    }
+    insertDocBlock({
+      kind: 'styled', type, blockId: id,
+      content: DEFAULT_CONTENT[type] || '', accent: null,
+    });
+  }, [replaceTarget, doc, applyDocChange, effectiveConfig, insertDocBlock, DEFAULT_CONTENT]);
 
   const applyAccent = React.useCallback((hex) => {
     setBlockConfig({ ...effectiveConfig, accent: hex });
@@ -329,43 +371,48 @@ function WechatComposer() {
     }
   }, [themeKey]);
 
+  const docHasContent = React.useMemo(
+    () => doc.some((b) => (b.kind === 'para' ? String(b.html || '').trim() : (b.content || b.src))),
+    [doc]
+  );
+
   const handleCopyRich = React.useCallback(async () => {
-    if (!markdown.trim()) { Toast.warning('正文还是空的，先写点内容'); return; }
+    if (!docHasContent) { Toast.warning('画布还是空的，先从样式库插入内容'); return; }
     try {
-      const { html } = renderWechatHtml(markdown, { blockConfig: effectiveConfig, blocksById, photosMap, title, digest });
-      // 预览与复制共用同一份主题化渲染结果；text/plain 用 markdown 原文（降级粘贴场景可读）
-      await copyWechatRichText({ html, plainText: [title, digest, markdown].filter(Boolean).join('\n\n') });
-      Toast.success('已复制，去公众号后台粘贴即可，外链图片会被自动转存；个别未显示的用图片包补传');
+      // 画布与复制共用 docToHtml 同源渲染（所见即所得）；标题填在公众号后台标题栏，不进正文
+      const { html } = docToHtml(doc, { blocksById, globalAccent: effectiveConfig.accent, body: effectiveConfig.body });
+      await copyWechatRichText({ html, plainText: [title, digest, docToPlainText(doc)].filter(Boolean).join('\n\n') });
+      Toast.success('已复制正文，去公众号后台粘贴即可（标题单独填），外链图片会被自动转存');
     } catch (e) {
       console.error('[WechatComposer] copy rich text failed', e);
       Toast.error(e && e.message ? e.message : '复制失败');
     }
-  }, [markdown, effectiveConfig, blocksById, photosMap, title, digest]);
+  }, [docHasContent, doc, blocksById, effectiveConfig, title, digest]);
 
   const handleDownloadPack = React.useCallback(async () => {
-    const photos = extractImagesFromMarkdown(markdown, photosMap);
-    if (!photos.length) { Toast.warning('正文里没有图片，无需下载图片包'); return; }
+    const photos = doc.filter((b) => b.type === 'imageCard' && b.src).map((b, i) => ({ id: i + 1, url: b.src }));
+    if (!photos.length) { Toast.warning('画布里没有图片，无需下载图片包'); return; }
     try {
       const n = await downloadImagePack({ photos, baseName: title || 'wechat' });
-      Toast.success(`已下载 ${n} 张图片，按序号对应正文里的〔图N〕标注`);
+      Toast.success(`已下载 ${n} 张图片`);
     } catch (e) {
       console.error('[WechatComposer] downloadImagePack failed', e);
       Toast.error(e && e.message ? e.message : '下载失败');
     }
-  }, [markdown, photosMap, title]);
+  }, [doc, title]);
 
   const handleCopyMarkdown = React.useCallback(async () => {
-    if (!markdown.trim()) { Toast.warning('正文还是空的，先写点内容'); return; }
+    if (!docHasContent) { Toast.warning('画布还是空的，先从样式库插入内容'); return; }
     try {
       if (!window.navigator || !window.navigator.clipboard || !window.navigator.clipboard.writeText) {
         throw new Error('当前浏览器不支持剪贴板写入');
       }
-      await window.navigator.clipboard.writeText(markdown);
-      Toast.success('已复制 Markdown 源文本');
+      await window.navigator.clipboard.writeText(docToPlainText(doc));
+      Toast.success('已复制纯文本');
     } catch (e) {
       Toast.error(e && e.message ? e.message : '复制失败');
     }
-  }, [markdown]);
+  }, [docHasContent, doc]);
 
   return (
     <Layout style={{ padding: isMobile ? 10 : 16, overflowX: 'hidden' }}>
@@ -533,40 +580,30 @@ function WechatComposer() {
           </div>
         ) : null}
 
-        <div className="wxc-main">
-          <div className="wxc-col wxc-col-left">
-            <div className="wxc-toolbar">
-              <Button size="small" onClick={() => setPickerOpen(true)}>从中转站插图</Button>
-              <Button size="small" type="tertiary" onClick={() => insertAtCursor('\n\n---\n\n')}>分隔线</Button>
-              <Button size="small" type="tertiary" onClick={() => insertAtCursor('\n\n> ')}>引用</Button>
-              <Button size="small" type="tertiary" onClick={() => insertAtCursor('\n\n## ')}>二级标题</Button>
+        <div className="wxc-canvas-region">
+          <div className="wxc-canvas-toolbar">
+            <div className="wxc-canvas-toolbar-left">
+              <Button size="small" onClick={() => { setPickerTarget(null); setPickerOpen(true); }}>从中转站插图</Button>
+              <Text type="secondary" className="wxc-canvas-tip">
+                点上方样式库插入内容块，点画布内的块直接编辑
+              </Text>
             </div>
-            <textarea
-              ref={textareaRef}
-              className="wxc-editor-textarea"
-              value={markdown}
-              onChange={(e) => setMarkdown(e.target.value)}
-              placeholder="用 markdown 写正文；图片用上面「从中转站插图」插入，也可以直接粘贴图片链接：![图注](https://...)"
-              spellCheck={false}
-            />
-          </div>
-
-          <div className="wxc-col wxc-col-right">
-            <div className="wxc-phone-shell">
-              <div className="wxc-phone-notch" aria-hidden="true" />
-              <div className="wxc-phone-screen">
-                {markdown.trim() ? (
-                  <div
-                    className="wxc-phone-body"
-                    // eslint-disable-next-line react/no-danger
-                    dangerouslySetInnerHTML={{ __html: previewHtml }}
-                  />
-                ) : (
-                  <div className="wxc-phone-empty">正文还是空的，左侧写点什么，这里会实时预览发布效果</div>
-                )}
-              </div>
+            <div className="wxc-canvas-toolbar-right">
+              <Button size="small" type="tertiary" disabled={!historyRef.current.canUndo()} onClick={handleUndo} title="撤销 ⌘Z">↩ 撤销</Button>
+              <Button size="small" type="tertiary" disabled={!historyRef.current.canRedo()} onClick={handleRedo} title="重做 ⌘⇧Z">↪ 重做</Button>
             </div>
           </div>
+          <CanvasEditor
+            doc={doc}
+            onChange={applyDocChange}
+            selectedUid={selectedUid}
+            onSelect={setSelectedUid}
+            blocksById={blocksById}
+            globalAccent={effectiveConfig.accent}
+            bodyConfig={effectiveConfig.body}
+            onRequestStylePicker={(type, uid) => { setLibType(type); setReplaceTarget(uid); setLibraryOpen(true); }}
+            onRequestImagePick={(uid) => { setPickerTarget(uid); setPickerOpen(true); }}
+          />
         </div>
 
         <Card bordered className="wxc-export-card">
