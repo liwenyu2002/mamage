@@ -13,6 +13,8 @@
   border-radius: 16px;
   padding: 40px 32px;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 12px 32px rgba(0, 0, 0, 0.08);
+  /* 拖拽指示线用这个变量对齐左右内边距，两处 padding 数值只在这一处维护 */
+  --cve-pad-x: 32px;
 }
 
 @media (max-width: 760px) {
@@ -20,6 +22,7 @@
     width: 100%;
     padding: 24px 16px;
     border-radius: 10px;
+    --cve-pad-x: 16px;
   }
 }
 
@@ -62,6 +65,82 @@
   color: rgba(0, 0, 0, 0.55);
   font-size: 13px;
   line-height: 1.6;
+}
+
+/* ---- 拖拽插入指示线：黑色 3px 圆角条，横跨内容宽度，两端小圆点装饰 ---- */
+
+.cve-drop-indicator {
+  position: absolute;
+  left: var(--cve-pad-x);
+  right: var(--cve-pad-x);
+  height: 3px;
+  border-radius: 999px;
+  background: #111111;
+  z-index: 15;
+  pointer-events: none; /* 不能挡 dragover/drop 命中，事件要穿透到下层块/画布 */
+}
+
+.cve-drop-indicator::before,
+.cve-drop-indicator::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #111111;
+  transform: translateY(-50%);
+}
+
+.cve-drop-indicator::before {
+  left: -3px;
+}
+
+.cve-drop-indicator::after {
+  right: -3px;
+}
+
+/* ---- 拖拽把手：块左侧外挂竖条，hover/选中时才出现，纯黑白 chrome ---- */
+
+.cve-drag-handle {
+  position: absolute;
+  left: -30px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 34px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.06);
+  color: rgba(0, 0, 0, 0.45);
+  font-size: 14px;
+  line-height: 1;
+  cursor: grab;
+  user-select: none;
+  z-index: 4;
+}
+
+.cve-block:hover .cve-drag-handle,
+.cve-block--selected .cve-drag-handle {
+  display: flex;
+}
+
+.cve-drag-handle:hover {
+  background: rgba(0, 0, 0, 0.1);
+  color: rgba(0, 0, 0, 0.65);
+}
+
+.cve-drag-handle:active {
+  cursor: grabbing;
+}
+
+@media (max-width: 760px) {
+  .cve-drag-handle {
+    left: -20px;
+    width: 18px;
+  }
 }
 
 /* ---- 浮动块工具条：黑底白字小圆角胶囊组，首块翻到块下方 ---- */

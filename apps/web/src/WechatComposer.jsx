@@ -371,6 +371,24 @@ function WechatComposer() {
     }
   }, [themeKey]);
 
+  // 样式块从左侧面板拖入画布：payload={type, blockId}，插入到指示线位置
+  const handleExternalDrop = React.useCallback((payload, insertIndex) => {
+    if (!payload || !payload.type || !payload.blockId) return;
+    const base = {
+      kind: 'styled', type: payload.type, blockId: payload.blockId, accent: null, uid: makeUid(),
+    };
+    const block = payload.type === 'imageCard'
+      ? { ...base, src: PREVIEW_IMG, caption: '点击图片从中转站选图' }
+      : payload.type === 'divider'
+        ? base
+        : { ...base, content: DEFAULT_CONTENT[payload.type] || '' };
+    const next = [...doc];
+    const idx = Math.max(0, Math.min(Number(insertIndex) || 0, next.length));
+    next.splice(idx, 0, block);
+    applyDocChange(next);
+    setSelectedUid(block.uid);
+  }, [doc, applyDocChange, DEFAULT_CONTENT]);
+
   const docHasContent = React.useMemo(
     () => doc.some((b) => (b.kind === 'para' ? String(b.html || '').trim() : (b.content || b.src))),
     [doc]
@@ -449,97 +467,66 @@ function WechatComposer() {
       </Header>
 
       <Content>
-        <div className="wxc-theme-row" role="radiogroup" aria-label="选择排版主题">
-          {(WECHAT_THEMES || []).map((t) => (
-            <button
-              key={t.key}
-              type="button"
-              role="radio"
-              aria-checked={!blockConfig && themeKey === t.key}
-              className={`wxc-theme-card${!blockConfig && themeKey === t.key ? ' is-selected' : ''}`}
-              onClick={() => { setThemeKey(t.key); setBlockConfig(null); }}
-              title={t.desc || t.name}
-            >
-              <span className="wxc-theme-mini" aria-hidden="true">
-                <span className="wxc-theme-mini-title" style={{ background: t.accent }} />
-                <span className="wxc-theme-mini-line" />
-                <span className="wxc-theme-mini-line" style={{ width: '70%' }} />
-              </span>
-              <span className="wxc-theme-label">
-                <span className="wxc-theme-swatch" style={{ background: t.accent }} aria-hidden="true" />
-                <span className="wxc-theme-name">{t.name}</span>
-              </span>
-            </button>
-          ))}
-          <button
-            type="button"
-            role="radio"
-            aria-checked={!!blockConfig}
-            className={`wxc-theme-card wxc-theme-card--custom${blockConfig ? ' is-selected' : ''}`}
-            onClick={() => setLibraryOpen((v) => !v)}
-            title="逐块自选标题/引用/分隔线等样式，打开样式库"
-          >
-            <span className="wxc-theme-mini" aria-hidden="true">
-              <span className="wxc-theme-mini-title" style={{ background: effectiveConfig.accent || '#111' }} />
-              <span className="wxc-theme-mini-line" style={{ width: '55%' }} />
-              <span className="wxc-theme-mini-line" style={{ width: '80%' }} />
-            </span>
-            <span className="wxc-theme-label">
-              <span className="wxc-theme-name">{blockConfig ? '自定义 ✓' : '样式库…'}</span>
-            </span>
-          </button>
-        </div>
-
-        {libraryOpen ? (
-          <div className="wxc-lib">
+        <div className="wxc-workspace">
+          {/* 左侧样式库面板：桌面常驻，窄屏由"样式库"按钮抽屉化 */}
+          <aside className={`wxc-side-lib${libraryOpen ? ' is-open' : ''}`}>
             <div className="wxc-lib-extract">
               <input
                 className="wxc-lib-extract-input"
                 value={extractUrl}
                 onChange={(e) => setExtractUrl(e.target.value)}
-                placeholder="粘贴一篇公众号文章链接（mp.weixin.qq.com/s/…），一键提取它的排版样式"
+                placeholder="贴公众号文章链接，提取样式"
                 onKeyDown={(e) => { if (e.key === 'Enter') handleExtract(); }}
               />
               <Button size="small" type="primary" loading={extracting} disabled={extracting} onClick={handleExtract}>
-                {extracting ? '提取中…' : '提取样式'}
+                {extracting ? '…' : '提取'}
               </Button>
             </div>
-            <div className="wxc-lib-head">
-              <div className="wxc-lib-tabs">
-                {BLOCK_TYPES.map((t) => (
-                  <button
-                    key={t.key}
-                    type="button"
-                    className={`wxc-lib-tab${libType === t.key ? ' is-active' : ''}`}
-                    onClick={() => setLibType(t.key)}
-                  >
-                    {t.name}
-                  </button>
-                ))}
-              </div>
-              <div className="wxc-lib-accents" title="主色（作用于可换色的样式块）">
-                {ACCENT_CHOICES.map((hex) => (
-                  <button
-                    key={hex}
-                    type="button"
-                    className={`wxc-lib-accent-dot${(effectiveConfig.accent || '').toLowerCase() === hex ? ' is-active' : ''}`}
-                    style={{ background: hex }}
-                    onClick={() => applyAccent(hex)}
-                    aria-label={`主色 ${hex}`}
-                  />
-                ))}
-              </div>
+            <div className="wxc-lib-tabs">
+              {BLOCK_TYPES.map((t) => (
+                <button
+                  key={t.key}
+                  type="button"
+                  className={`wxc-lib-tab${libType === t.key ? ' is-active' : ''}`}
+                  onClick={() => setLibType(t.key)}
+                >
+                  {t.name}
+                </button>
+              ))}
             </div>
-            <div className="wxc-lib-grid">
+            <div className="wxc-lib-accents" title="主色（作用于可换色的样式块）">
+              {ACCENT_CHOICES.map((hex) => (
+                <button
+                  key={hex}
+                  type="button"
+                  className={`wxc-lib-accent-dot${(effectiveConfig.accent || '').toLowerCase() === hex ? ' is-active' : ''}`}
+                  style={{ background: hex }}
+                  onClick={() => applyAccent(hex)}
+                  aria-label={`主色 ${hex}`}
+                />
+              ))}
+            </div>
+            {replaceTarget ? (
+              <div className="wxc-lib-replace-bar">
+                正在为选中块换样式
+                <button type="button" onClick={() => setReplaceTarget(null)}>取消</button>
+              </div>
+            ) : null}
+            <div className="wxc-lib-list">
               {[...Object.values(blocksById)].filter((b) => b.type === libType).map((b) => (
                 <div
                   key={b.id}
                   role="button"
                   tabIndex={0}
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.effectAllowed = 'copy';
+                    e.dataTransfer.setData('application/x-wxc-style-block', JSON.stringify({ type: b.type, blockId: b.id }));
+                  }}
                   className={`wxc-lib-block${effectiveConfig[libType] === b.id ? ' is-active' : ''}`}
                   onClick={() => applyBlockPick(libType, b.id)}
                   onKeyDown={(e) => { if (e.key === 'Enter') applyBlockPick(libType, b.id); }}
-                  title={b.name}
+                  title={`${b.name}（点击插入 / 拖到画布定位插入）`}
                 >
                   <div className="wxc-lib-block-stage">
                     <div
@@ -577,46 +564,83 @@ function WechatComposer() {
                 </div>
               ) : null}
             </div>
-          </div>
-        ) : null}
+          </aside>
 
-        <div className="wxc-canvas-region">
-          <div className="wxc-canvas-toolbar">
-            <div className="wxc-canvas-toolbar-left">
-              <Button size="small" onClick={() => { setPickerTarget(null); setPickerOpen(true); }}>从中转站插图</Button>
-              <Text type="secondary" className="wxc-canvas-tip">
-                点上方样式库插入内容块，点画布内的块直接编辑
-              </Text>
+          <div className="wxc-workarea">
+            <div className="wxc-theme-row" role="radiogroup" aria-label="选择排版主题">
+              {(WECHAT_THEMES || []).map((t) => (
+                <button
+                  key={t.key}
+                  type="button"
+                  role="radio"
+                  aria-checked={!blockConfig && themeKey === t.key}
+                  className={`wxc-theme-card${!blockConfig && themeKey === t.key ? ' is-selected' : ''}`}
+                  onClick={() => { setThemeKey(t.key); setBlockConfig(null); }}
+                  title={t.desc || t.name}
+                >
+                  <span className="wxc-theme-mini" aria-hidden="true">
+                    <span className="wxc-theme-mini-title" style={{ background: t.accent }} />
+                    <span className="wxc-theme-mini-line" />
+                    <span className="wxc-theme-mini-line" style={{ width: '70%' }} />
+                  </span>
+                  <span className="wxc-theme-label">
+                    <span className="wxc-theme-swatch" style={{ background: t.accent }} aria-hidden="true" />
+                    <span className="wxc-theme-name">{t.name}</span>
+                  </span>
+                </button>
+              ))}
+              <button
+                type="button"
+                className="wxc-theme-card wxc-theme-card--custom wxc-lib-toggle-mobile"
+                onClick={() => setLibraryOpen((v) => !v)}
+                title="打开样式库"
+              >
+                <span className="wxc-theme-label">
+                  <span className="wxc-theme-name">{blockConfig ? '自定义 ✓' : '样式库'}</span>
+                </span>
+              </button>
             </div>
-            <div className="wxc-canvas-toolbar-right">
-              <Button size="small" type="tertiary" disabled={!historyRef.current.canUndo()} onClick={handleUndo} title="撤销 ⌘Z">↩ 撤销</Button>
-              <Button size="small" type="tertiary" disabled={!historyRef.current.canRedo()} onClick={handleRedo} title="重做 ⌘⇧Z">↪ 重做</Button>
+
+            <div className="wxc-canvas-region">
+              <div className="wxc-canvas-toolbar">
+                <div className="wxc-canvas-toolbar-left">
+                  <Button size="small" onClick={() => { setPickerTarget(null); setPickerOpen(true); }}>从中转站插图</Button>
+                  <Text type="secondary" className="wxc-canvas-tip">
+                    左侧样式点击或拖到画布插入，点块直接编辑
+                  </Text>
+                </div>
+                <div className="wxc-canvas-toolbar-right">
+                  <Button size="small" type="tertiary" disabled={!historyRef.current.canUndo()} onClick={handleUndo} title="撤销 ⌘Z">↩ 撤销</Button>
+                  <Button size="small" type="tertiary" disabled={!historyRef.current.canRedo()} onClick={handleRedo} title="重做 ⌘⇧Z">↪ 重做</Button>
+                </div>
+              </div>
+              <CanvasEditor
+                doc={doc}
+                onChange={applyDocChange}
+                selectedUid={selectedUid}
+                onSelect={setSelectedUid}
+                blocksById={blocksById}
+                globalAccent={effectiveConfig.accent}
+                bodyConfig={effectiveConfig.body}
+                onRequestStylePicker={(type, uid) => { setLibType(type); setReplaceTarget(uid); setLibraryOpen(true); }}
+                onRequestImagePick={(uid) => { setPickerTarget(uid); setPickerOpen(true); }}
+                onExternalDrop={handleExternalDrop}
+              />
             </div>
+
+            <Card bordered className="wxc-export-card">
+              <div className="wxc-export-row">
+                <Button type="primary" onClick={handleCopyRich}>复制公众号格式</Button>
+                <Button onClick={handleDownloadPack}>下载图片包</Button>
+                <Button type="tertiary" onClick={handleCopyMarkdown}>复制 Markdown</Button>
+                <div className="wxc-export-draft">
+                  <Button disabled title="需企业公众号资质配置，即将开放">发送到公众号草稿箱</Button>
+                  <span className="wxc-export-hint">需企业公众号资质配置，即将开放</span>
+                </div>
+              </div>
+            </Card>
           </div>
-          <CanvasEditor
-            doc={doc}
-            onChange={applyDocChange}
-            selectedUid={selectedUid}
-            onSelect={setSelectedUid}
-            blocksById={blocksById}
-            globalAccent={effectiveConfig.accent}
-            bodyConfig={effectiveConfig.body}
-            onRequestStylePicker={(type, uid) => { setLibType(type); setReplaceTarget(uid); setLibraryOpen(true); }}
-            onRequestImagePick={(uid) => { setPickerTarget(uid); setPickerOpen(true); }}
-          />
         </div>
-
-        <Card bordered className="wxc-export-card">
-          <div className="wxc-export-row">
-            <Button type="primary" onClick={handleCopyRich}>复制公众号格式</Button>
-            <Button onClick={handleDownloadPack}>下载图片包</Button>
-            <Button type="tertiary" onClick={handleCopyMarkdown}>复制 Markdown</Button>
-            <div className="wxc-export-draft">
-              <Button disabled title="需企业公众号资质配置，即将开放">发送到公众号草稿箱</Button>
-              <span className="wxc-export-hint">需企业公众号资质配置，即将开放</span>
-            </div>
-          </div>
-        </Card>
       </Content>
 
       <Modal
