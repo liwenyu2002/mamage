@@ -16,6 +16,7 @@ import ImportPreviewModal from './wechat/ImportPreviewModal';
 import ImageEditorModal from './wechat/ImageEditorModal';
 import { listFavorites, addFavorite, removeFavorite } from './services/favoritesService';
 import { makeUid, markdownToDoc, docToHtml, docToPlainText, createHistory, sanitizeRawHtml, sanitizeParaHtml, replaceRawImgSrc } from './wechat/docModel';
+import { autoTagThemeColors, detectThemePrimary } from './wechat/themeColor';
 import { beginDrag } from './wechat/pointerDrag';
 import { makeQrSvg } from './wechat/qr';
 import './wechat/composer.css';
@@ -529,15 +530,32 @@ function WechatComposer() {
       .map((html) => ({ uid: makeUid(), kind: 'raw', html: sanitizeRawHtml(html) }))
       .filter((b) => b.html && b.html.trim());
     if (!rawBlocks.length) { Toast.warning('没有可导入的内容'); setImportResult(null); return; }
+    // 秀米式主题色标注：探测这篇推文的主色，给所有块的彩色元素打 data-mm-theme 角色标注，
+    // 让整篇导入的推文变得可一键换主题色（正文黑字/纯白底等中性色不标，保持固定）。
+    let themedCount = 0;
+    let detectedPrimary = null;
+    try {
+      detectedPrimary = detectThemePrimary(rawBlocks.map((b) => b.html).join(''));
+      if (detectedPrimary) {
+        rawBlocks.forEach((b) => {
+          const r = autoTagThemeColors(b.html, { primary: detectedPrimary });
+          b.html = r.html; themedCount += r.count;
+        });
+      }
+    } catch (e) { /* 标注失败不阻断导入，退化为不可换色 */ }
     const next = mode === 'append' ? [...doc, ...rawBlocks] : rawBlocks;
     applyDocChange(next);
     setSelectedUid(null);
     if (result.title && !String(title || '').trim()) setTitle(String(result.title).slice(0, TITLE_LIMIT));
+    // 采纳原文主色为主题色（替换导入或空画布时）：既让外观保持原样、也让"换主题色"以此为基线。
+    // 追加到已有内容时不动用户既有主题色，避免顺带改了原有块的配色。
+    if (detectedPrimary && (mode !== 'append' || !docHasContent)) {
+      setBlockConfig({ ...effectiveConfig, accent: detectedPrimary });
+    }
     setImportResult(null);
-    // 图数按实际导入的块统计（用户可能只勾选了部分块，原文 imageCount 会虚高）
     const imgN = rawBlocks.reduce((n, b) => n + ((b.html.match(/<img\b/gi) || []).length), 0);
-    Toast.success(`已导入 ${rawBlocks.length} 个内容块${imgN ? `、${imgN} 张图` : ''}`);
-  }, [doc, applyDocChange, title]);
+    Toast.success(`已导入 ${rawBlocks.length} 个内容块${imgN ? `、${imgN} 张图` : ''}${themedCount ? '，已识别主题色，可一键换色' : ''}`);
+  }, [doc, applyDocChange, title, docHasContent, effectiveConfig]);
 
   const handleImportArticle = React.useCallback(async () => {
     const url = extractUrl.trim();
@@ -1263,7 +1281,8 @@ function WechatComposer() {
                 </button>
               ))}
             </div>
-            <div className="wxc-lib-accents" title="主色（作用于可换色的样式块）">
+            <div className="wxc-lib-accents" title="主题色：作用于可换色的样式块，以及整文复现导入后识别出的推文配色（一键换色）">
+              <span className="wxc-lib-accents-label">主题色</span>
               {ACCENT_CHOICES.map((hex) => (
                 <button
                   key={hex}
@@ -1271,9 +1290,18 @@ function WechatComposer() {
                   className={`wxc-lib-accent-dot${(effectiveConfig.accent || '').toLowerCase() === hex ? ' is-active' : ''}`}
                   style={{ background: hex }}
                   onClick={() => applyAccent(hex)}
-                  aria-label={`主色 ${hex}`}
+                  aria-label={`主题色 ${hex}`}
                 />
               ))}
+              {/* 任意取色：native color input，超出 8 个预设时用；派生浅底/深字/辅助色联动整篇 */}
+              <label className="wxc-lib-accent-custom" title="自定义主题色">
+                <input
+                  type="color"
+                  value={/^#[0-9a-fA-F]{6}$/.test(effectiveConfig.accent || '') ? effectiveConfig.accent : '#1a1a1a'}
+                  onChange={(e) => applyAccent(e.target.value)}
+                  aria-label="自定义主题色"
+                />
+              </label>
             </div>
             {replaceTarget ? (
               <div className="wxc-lib-replace-bar">

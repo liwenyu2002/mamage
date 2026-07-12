@@ -11,6 +11,7 @@ import {
   splitRawHtml, replaceRawImgSrc, applyRawImgStyle,
 } from './docModel.js';
 import { beginDrag, registerDropZone } from './pointerDrag.js';
+import { applyThemeMasksToEl, derivePalette } from './themeColor.js';
 import './canvas.css';
 
 // 画布主渲染路径的客户端兜底清洗：样式块的 htmlTemplate 可能来自"我的库"或收藏快照，
@@ -341,7 +342,7 @@ function ParaView({ block, bodyStyle, onTransient, onCommit }) {
 // 整文导入的原样内容块：保留原文全部内联样式的富 HTML，整块 contentEditable 改字，
 // 结构（换样式/换色/槽位）操作不适用；失焦提交时过 sanitizeRawHtml 白名单清洗
 // ---------------------------------------------------------------------------
-function RawView({ block, activeImgIndex, onTransient, onCommit, onSelectImg }) {
+function RawView({ block, activeImgIndex, themePalette, onTransient, onCommit, onSelectImg }) {
   const ref = React.useRef(null);
 
   React.useLayoutEffect(() => {
@@ -350,7 +351,10 @@ function RawView({ block, activeImgIndex, onTransient, onCommit, onSelectImg }) 
     // 编辑中（焦点落在本块任意后代）不回写 innerHTML，防光标跳动；提交发生在失焦后，重绘无损
     if (document.activeElement && (document.activeElement === el || el.contains(document.activeElement))) return;
     el.innerHTML = block.html || '';
-  }, [block.html]);
+    // 秀米式主题色联动：把本块内带 data-mm-theme 标注的元素按当前调色板刷色（原文内联色被覆盖）。
+    // 无标注则是无操作，原样保留。themePalette 变化时本 effect 重跑，从原始 html 重铺再刷色。
+    applyThemeMasksToEl(el, themePalette);
+  }, [block.html, themePalette]);
 
   // 选中图片的高亮标记直接打在 DOM 属性上（innerHTML 非 React 管理，无法走 className）
   React.useLayoutEffect(() => {
@@ -555,7 +559,7 @@ function BlockToolbar({
 // 单个块的外层包裹：选中态/hover 态边框、浮动工具条定位、按 kind/type 派发到具体渲染
 // ---------------------------------------------------------------------------
 function BlockWrapper({
-  block, index, total, selected, multi, styleBlock, accent, bodyStyle, activeRawImgIndex,
+  block, index, total, selected, multi, styleBlock, accent, bodyStyle, activeRawImgIndex, themePalette,
   onSelect, onMoveUp, onMoveDown, onDuplicate, onDelete,
   onChangeStyle, onChangeAccent, onInsertParaAfter, onImageClick,
   onCommitContent, onCommitCaption, onParaTransient, onParaCommit,
@@ -583,6 +587,7 @@ function BlockWrapper({
         <RawView
           block={block}
           activeImgIndex={activeRawImgIndex}
+          themePalette={themePalette}
           onTransient={onRawTransient}
           onCommit={onRawCommit}
           onSelectImg={onSelectRawImg}
@@ -673,6 +678,8 @@ function CanvasEditor({
 }, ref) {
   const canvasRef = React.useRef(null);
   const list = Array.isArray(doc) ? doc : [];
+  // 主题色调色板：以 globalAccent 为主色派生，刷到 raw 块内 data-mm-theme 标注元素（秀米式联动）
+  const themePalette = React.useMemo(() => derivePalette(globalAccent || '#1a1a1a'), [globalAccent]);
 
   // 最近一次 raw 块内的光标位置：{ uid, range }。用于"容器内点击插入样式元素"——
   // 点击左侧样式库会夺走 raw 编辑区的焦点使选区塌缩，故提前在此缓存 Range，插入时用缓存值。
@@ -1157,6 +1164,7 @@ function CanvasEditor({
             accent={accent}
             bodyStyle={computeParaStyle(bodyConfig, globalAccent)}
             activeRawImgIndex={activeRawImg && activeRawImg.uid === block.uid ? activeRawImg.imgIndex : null}
+            themePalette={themePalette}
             toolbarAnchor={block.uid === selectedUid ? toolbarAnchor : null}
             onSelect={() => onSelect(block.uid)}
             onMoveUp={() => moveBlock(block.uid, -1)}

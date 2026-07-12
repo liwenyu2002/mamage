@@ -3,6 +3,7 @@
 // 约束：只 import themes.js 的公开导出（applyBlock/BUILTIN_BLOCKS_BY_ID），不碰其私有函数；
 // para 正文样式在本文件内按 body 配置独立构造，刻意与 themes.js computeBodyStyles 的 p/strong/em/a 输出格式保持一致。
 import { applyBlock, BUILTIN_BLOCKS_BY_ID } from './themes.js';
+import { derivePalette, applyThemeMasksToHtml } from './themeColor.js';
 import DOMPurify from 'dompurify';
 
 // 全局纵深防御：整文复现允许保留 style 里的 background-image url()（否则背景丢失），
@@ -429,6 +430,7 @@ export function docToHtmlRaw(doc, options) {
   const blocksById = { ...BUILTIN_BLOCKS_BY_ID, ...(opts.blocksById || {}) };
   const globalAccent = normalizeAccent(opts.globalAccent) || '#1a1a1a';
   const bodyStyles = computeParaBodyStyles(opts.body, globalAccent);
+  const themePalette = derivePalette(globalAccent); // 主题色联动：raw 块内 data-mm-theme 标注元素按此刷色
   let imageCount = 0;
 
   const parts = (Array.isArray(doc) ? doc : []).map((block) => {
@@ -438,9 +440,10 @@ export function docToHtmlRaw(doc, options) {
     }
     if (block.kind === 'raw') {
       // 整文导入块：html 在导入与每次失焦提交时都已过 sanitizeRawHtml，这里原样拼接保排版，
-      // 不套 para 正文样式（原文自带全套内联样式）；最终导出还会过 docToHtml 的 DOMPurify 兜底
+      // 不套 para 正文样式（原文自带全套内联样式）；最终导出还会过 docToHtml 的 DOMPurify 兜底。
+      // 主题色联动：把带 data-mm-theme 标注的元素按当前调色板刷色，让导出/复制/预览与画布一致。
       imageCount += (String(block.html || '').match(/<img\b/gi) || []).length;
-      return String(block.html || '');
+      return applyThemeMasksToHtml(block.html, themePalette);
     }
     const type = block.type;
     const styleBlock = lookupStyleBlock(blocksById, type, block.blockId);

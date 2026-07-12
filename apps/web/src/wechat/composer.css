@@ -1040,3 +1040,33 @@ body.wxc-dragging {
   gap: 8px;
   justify-content: flex-end;
 }
+
+/* 主题色选择器：标签 + 预设色点 + 自定义取色 */
+.wxc-lib-accents-label {
+  font-size: 12px;
+  color: #6b7280;
+  margin-right: 2px;
+  align-self: center;
+}
+.wxc-lib-accent-custom {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 1px solid #d0d5dd;
+  cursor: pointer;
+  position: relative;
+  background: conic-gradient(red, yellow, lime, aqua, blue, magenta, red);
+}
+.wxc-lib-accent-custom input[type="color"] {
+  position: absolute;
+  inset: -4px;
+  width: calc(100% + 8px);
+  height: calc(100% + 8px);
+  border: none;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  opacity: 0;
+}
