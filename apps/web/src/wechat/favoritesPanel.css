@@ -160,3 +160,38 @@
     grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
   }
 }
+
+/* ---- 片段收藏（画布框选保存的元素组）---- */
+
+.wxc-fav-snippet-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.wxc-fav-snippet {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 34px 9px 10px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.wxc-fav-snippet:hover {
+  border-color: rgba(0, 0, 0, 0.3);
+  background: rgba(255, 255, 255, 0.95);
+}
+
+.wxc-fav-snippet-icon { color: rgba(0, 0, 0, 0.4); font-size: 14px; }
+
+.wxc-fav-snippet-name {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: rgba(0, 0, 0, 0.8);
+}
+
+.wxc-fav-snippet-count { flex: 0 0 auto; font-size: 11.5px; color: rgba(0, 0, 0, 0.4); }

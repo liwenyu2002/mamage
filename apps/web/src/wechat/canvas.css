@@ -52,6 +52,65 @@
   outline-offset: 6px;
 }
 
+/* 框选命中的块：虚线蓝边区别于单选实线黑边 */
+.cve-block--multi:not(.cve-block--selected) {
+  outline: 2px dashed #2f6bd6;
+  outline-offset: 5px;
+  background: rgba(47, 107, 214, 0.05);
+}
+
+/* 框选橡皮筋矩形（画布相对定位） */
+.cve-rubber {
+  position: absolute;
+  z-index: 16;
+  border: 1px solid #2f6bd6;
+  background: rgba(47, 107, 214, 0.1);
+  pointer-events: none;
+}
+
+/* 多选浮动操作条：固定视口底部居中，批量收藏/删除 */
+.cve-multibar {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(17, 17, 17, 0.94);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.34);
+  z-index: 2500;
+  white-space: nowrap;
+}
+
+.cve-multibar-count {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 13px;
+  padding: 0 6px;
+}
+
+.cve-multibar-btn {
+  appearance: none;
+  border: none;
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  font-size: 13px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.cve-multibar-btn:hover {
+  background: rgba(255, 255, 255, 0.26);
+}
+
+.cve-multibar-btn--ghost {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.6);
+}
+
 .cve-block-body {
   cursor: default;
 }

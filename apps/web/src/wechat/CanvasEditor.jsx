@@ -408,7 +408,7 @@ function toolbarRowGuard(e) {
 function BlockToolbar({
   block, index, total, styleBlock, flip, anchorTop, getHostEl, activeRawImgIndex,
   onMoveUp, onMoveDown, onDuplicate, onDelete, onChangeStyle, onChangeAccent, onInsertParaAfter,
-  onSplitRaw, onImgStyle, onRawImgStyle, onImgReplace,
+  onSplitRaw, onImgStyle, onRawImgStyle, onImgReplace, onImgEdit,
 }) {
   const [swatchOpen, setSwatchOpen] = React.useState(false);
   const [textSwatchOpen, setTextSwatchOpen] = React.useState(false);
@@ -527,6 +527,7 @@ function BlockToolbar({
             <button key={String(a.v)} type="button" className={`cve-toolbar-btn${(imgStyle.aspect || null) === a.v ? ' is-on' : ''}`} onClick={() => onImgStyle({ ...imgStyle, aspect: a.v })}>{a.label}</button>
           ))}
           <span className="cve-toolbar-sep" />
+          <button type="button" className="cve-toolbar-btn" onClick={() => onImgEdit(null)} title="裁切/旋转/滤镜">编辑</button>
           <button type="button" className="cve-toolbar-btn" onClick={() => onImgReplace(null)} title="从中转站/相册换图">换图</button>
         </div>
       )}
@@ -542,6 +543,7 @@ function BlockToolbar({
             <button key={r.v} type="button" className="cve-toolbar-btn" onClick={() => onRawImgStyle({ radius: r.v })}>{r.label}</button>
           ))}
           <span className="cve-toolbar-sep" />
+          <button type="button" className="cve-toolbar-btn" onClick={() => onImgEdit(activeRawImgIndex)} title="裁切/旋转/滤镜">编辑</button>
           <button type="button" className="cve-toolbar-btn" onClick={() => onImgReplace(activeRawImgIndex)} title="替换这张图">换图</button>
         </div>
       )}
@@ -553,12 +555,12 @@ function BlockToolbar({
 // 单个块的外层包裹：选中态/hover 态边框、浮动工具条定位、按 kind/type 派发到具体渲染
 // ---------------------------------------------------------------------------
 function BlockWrapper({
-  block, index, total, selected, styleBlock, accent, bodyStyle, activeRawImgIndex,
+  block, index, total, selected, multi, styleBlock, accent, bodyStyle, activeRawImgIndex,
   onSelect, onMoveUp, onMoveDown, onDuplicate, onDelete,
   onChangeStyle, onChangeAccent, onInsertParaAfter, onImageClick,
   onCommitContent, onCommitCaption, onParaTransient, onParaCommit,
   onRawTransient, onRawCommit, onSelectRawImg,
-  onSplitRaw, onImgStyle, onRawImgStyle, onImgReplace, toolbarAnchor,
+  onSplitRaw, onImgStyle, onRawImgStyle, onImgReplace, onImgEdit, toolbarAnchor,
 }) {
   // 浮动锚点存在时垂直跟随光标（flip 由锚点视口位置定）；否则回退默认：首块钉块下方防裁,其余块上方
   const anchored = toolbarAnchor != null;
@@ -609,7 +611,7 @@ function BlockWrapper({
 
   return (
     <div
-      className={`cve-block${selected ? ' cve-block--selected' : ''}`}
+      className={`cve-block${selected ? ' cve-block--selected' : ''}${multi ? ' cve-block--multi' : ''}`}
       data-cve-uid={block.uid}
       onClick={(e) => { e.stopPropagation(); onSelect(); }}
     >
@@ -643,6 +645,7 @@ function BlockWrapper({
           onImgStyle={onImgStyle}
           onRawImgStyle={onRawImgStyle}
           onImgReplace={onImgReplace}
+          onImgEdit={onImgEdit}
         />
       )}
       <div className="cve-block-body" ref={bodyRef}>{renderBody()}</div>
@@ -663,8 +666,10 @@ function CanvasEditor({
   bodyConfig,
   onRequestStylePicker = () => {},
   onRequestImagePick = () => {}, // (uid, imgIndex?)：imgIndex 非空=raw 块内第 N 张图换图
+  onRequestImageEdit = () => {}, // (uid, imgIndex?)：打开图片编辑器（裁切/旋转/滤镜），imgIndex 非空=raw 内第 N 图
   onExternalDrop = () => {},
   onNotify = () => {}, // (type, message)：画布内需要轻提示时回调（如拆分失败），父组件接 Toast
+  onFavoriteSelection = () => {}, // (blocks)：框选后"收藏选中"，父组件存为 snippet 收藏
 }, ref) {
   const canvasRef = React.useRef(null);
   const list = Array.isArray(doc) ? doc : [];
@@ -881,7 +886,7 @@ function CanvasEditor({
   }, [selectedUid, deleteBlock]);
 
   const handleCanvasClick = (e) => {
-    if (e.target === canvasRef.current) onSelect(null);
+    if (e.target === canvasRef.current) { onSelect(null); clearMultiSel(); }
   };
 
   // 每次渲染刷新 ref，drop zone 回调永远读到最新的 doc 与回调 props
@@ -981,13 +986,98 @@ function CanvasEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ── 框选多选：在画布背景（空白/内边距）按住拖动框住若干块，选中后可批量收藏/删除 ──
+  const [multiSel, setMultiSel] = React.useState(() => new Set()); // 多选块 uid 集合
+  const [boxRect, setBoxRect] = React.useState(null);              // rubber-band 矩形（画布相对坐标）
+  const boxStateRef = React.useRef(null);
+  const boxCleanupRef = React.useRef(null); // 当前框选会话的清理函数（供卸载/中断兜底）
+
+  const clearMultiSel = React.useCallback(() => setMultiSel((s) => (s.size ? new Set() : s)), []);
+
+  // 选中块变化时清多选（单选与多选互斥，避免两套高亮并存）
+  React.useEffect(() => { if (selectedUid) clearMultiSel(); }, [selectedUid, clearMultiSel]);
+
+  // 卸载兜底：框选进行中组件被卸载时，移除挂在 document 上的监听器，防泄漏
+  React.useEffect(() => () => { if (boxCleanupRef.current) boxCleanupRef.current(); }, []);
+
+  const handleCanvasPointerDown = (e) => {
+    if (e.button !== 0 || e.target !== canvasRef.current) return; // 只在背景起手,块内留给文本选择/编辑
+    if (boxCleanupRef.current) boxCleanupRef.current(); // 起手前先清掉上一会话残留（防叠加两组监听器）
+    const start = { x: e.clientX, y: e.clientY, moved: false };
+    boxStateRef.current = start;
+
+    const compute = (cx, cy) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return { rect: null, hits: new Set() };
+      const cr = canvas.getBoundingClientRect();
+      const x1 = Math.min(start.x, cx); const y1 = Math.min(start.y, cy);
+      const x2 = Math.max(start.x, cx); const y2 = Math.max(start.y, cy);
+      const hits = new Set();
+      canvas.querySelectorAll(':scope > .cve-block').forEach((el) => {
+        const r = el.getBoundingClientRect();
+        if (!(r.right < x1 || r.left > x2 || r.bottom < y1 || r.top > y2)) hits.add(el.getAttribute('data-cve-uid'));
+      });
+      return { rect: { left: x1 - cr.left, top: y1 - cr.top, width: x2 - x1, height: y2 - y1 }, hits };
+    };
+
+    const cleanup = () => {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('pointercancel', onCancel);
+      boxCleanupRef.current = null;
+      setBoxRect(null);
+      boxStateRef.current = null;
+    };
+    const onMove = (ev) => {
+      if (!start.moved && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < 5) return;
+      start.moved = true;
+      // 触屏不 preventDefault：否则会吞掉页面滚动手势（与 ImportPreviewModal 一致）；鼠标/触控笔照常
+      if (ev.pointerType !== 'touch') ev.preventDefault();
+      const { rect, hits } = compute(ev.clientX, ev.clientY);
+      setBoxRect(rect);
+      setMultiSel(hits);
+    };
+    const onUp = () => {
+      const moved = boxStateRef.current && boxStateRef.current.moved;
+      cleanup();
+      if (moved) onSelect(null); // 进入多选,清单选
+    };
+    // 系统手势/切应用/拖出窗口松手：只会派发 pointercancel,丢弃本次框选、清监听器,不残留橡皮筋
+    const onCancel = () => { cleanup(); };
+
+    boxCleanupRef.current = cleanup;
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onCancel);
+  };
+
+  const favoriteSelection = React.useCallback(() => {
+    const blocks = list.filter((b) => multiSel.has(b.uid));
+    if (blocks.length) onFavoriteSelection(blocks);
+    clearMultiSel();
+  }, [list, multiSel, onFavoriteSelection, clearMultiSel]);
+
+  const deleteSelection = React.useCallback(() => {
+    const next = list.filter((b) => !multiSel.has(b.uid));
+    onChange(next);
+    clearMultiSel();
+  }, [list, multiSel, onChange, clearMultiSel]);
+
   return (
+    <>
     <div
       className="cve-canvas"
       ref={canvasRef}
       onClick={handleCanvasClick}
+      onPointerDown={handleCanvasPointerDown}
       onDragStart={(e) => e.preventDefault()}
     >
+      {boxRect && (
+        <div
+          className="cve-rubber"
+          style={{ left: boxRect.left, top: boxRect.top, width: boxRect.width, height: boxRect.height }}
+        />
+      )}
       {list.length === 0 && <div className="cve-empty-hint">从左侧样式库点击插入第一个块</div>}
       {dropIndicator && (
         <div className="cve-drop-indicator" style={{ top: dropIndicator.top }} />
@@ -1002,6 +1092,7 @@ function CanvasEditor({
             index={idx}
             total={list.length}
             selected={block.uid === selectedUid}
+            multi={multiSel.has(block.uid)}
             styleBlock={styleBlock}
             accent={accent}
             bodyStyle={computeParaStyle(bodyConfig, globalAccent)}
@@ -1027,10 +1118,20 @@ function CanvasEditor({
             onImgStyle={(imgStyle) => setImgStyle(block.uid, imgStyle)}
             onRawImgStyle={(styleObj) => setRawImgStyle(block.uid, activeRawImg ? activeRawImg.imgIndex : 0, styleObj)}
             onImgReplace={(imgIndex) => onRequestImagePick(block.uid, imgIndex == null ? undefined : imgIndex)}
+            onImgEdit={(imgIndex) => onRequestImageEdit(block.uid, imgIndex == null ? undefined : imgIndex)}
           />
         );
       })}
     </div>
+    {multiSel.size > 0 && (
+      <div className="cve-multibar" onPointerDown={(e) => e.stopPropagation()}>
+        <span className="cve-multibar-count">已选 {multiSel.size} 个元素</span>
+        <button type="button" className="cve-multibar-btn" onClick={favoriteSelection}>★ 收藏</button>
+        <button type="button" className="cve-multibar-btn" onClick={deleteSelection}>删除</button>
+        <button type="button" className="cve-multibar-btn cve-multibar-btn--ghost" onClick={clearMultiSel}>取消</button>
+      </div>
+    )}
+    </>
   );
 }
 

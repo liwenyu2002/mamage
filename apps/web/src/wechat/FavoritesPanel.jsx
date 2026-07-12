@@ -10,9 +10,11 @@ import './favoritesPanel.css';
 function FavoritesPanel({
   styleFavs = [],
   photoFavs = [],
+  snippetFavs = [],
   renderBlockHtml,
   onInsertBlock,
   onInsertPhoto,
+  onInsertSnippet,
   onRemoveFav,
 }) {
   return (
@@ -57,6 +59,43 @@ function FavoritesPanel({
                     type="button"
                     className="wxc-fav-block-del"
                     title="取消收藏"
+                    onClick={(e) => { e.stopPropagation(); onRemoveFav(fav.id); }}
+                  >
+                    ×
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      <section className="wxc-fav-section">
+        <div className="wxc-fav-section-title">片段收藏</div>
+        {snippetFavs.length === 0 ? (
+          <div className="wxc-fav-empty">在画布框选元素后点「★ 收藏」</div>
+        ) : (
+          <div className="wxc-fav-snippet-list">
+            {snippetFavs.map((fav) => {
+              const payload = fav.payload || {};
+              const count = Array.isArray(payload.blocks) ? payload.blocks.length : 0;
+              return (
+                <div
+                  key={fav.id}
+                  role="button"
+                  tabIndex={0}
+                  className="wxc-fav-snippet"
+                  onClick={() => onInsertSnippet && onInsertSnippet(fav)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && onInsertSnippet) onInsertSnippet(fav); }}
+                  title="点击插入该片段到画布末尾"
+                >
+                  <span className="wxc-fav-snippet-icon" aria-hidden="true">▤</span>
+                  <span className="wxc-fav-snippet-name">{payload.name || '片段'}</span>
+                  <span className="wxc-fav-snippet-count">{count} 块</span>
+                  <button
+                    type="button"
+                    className="wxc-fav-block-del"
+                    title="删除该片段收藏"
                     onClick={(e) => { e.stopPropagation(); onRemoveFav(fav.id); }}
                   >
                     ×

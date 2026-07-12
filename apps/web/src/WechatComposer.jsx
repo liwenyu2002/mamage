@@ -9,8 +9,9 @@ import CanvasEditor from './wechat/CanvasEditor';
 import AlbumPanel from './wechat/AlbumPanel';
 import FavoritesPanel from './wechat/FavoritesPanel';
 import ImportPreviewModal from './wechat/ImportPreviewModal';
+import ImageEditorModal from './wechat/ImageEditorModal';
 import { listFavorites, addFavorite, removeFavorite } from './services/favoritesService';
-import { makeUid, markdownToDoc, docToHtml, docToPlainText, createHistory, sanitizeRawHtml, replaceRawImgSrc } from './wechat/docModel';
+import { makeUid, markdownToDoc, docToHtml, docToPlainText, createHistory, sanitizeRawHtml, sanitizeParaHtml, replaceRawImgSrc } from './wechat/docModel';
 import { beginDrag } from './wechat/pointerDrag';
 import { makeQrSvg } from './wechat/qr';
 import './wechat/composer.css';
@@ -191,12 +192,15 @@ function WechatComposer() {
   // 加载失败必须显式标记，否则空态与"加载失败"无法区分——用户会误以为收藏丢了
   const [favError, setFavError] = React.useState(false);
 
+  const [snippetFavs, setSnippetFavs] = React.useState([]); // 框选收藏的元素片段
+
   const loadFavorites = React.useCallback(async () => {
     try {
       const resp = await listFavorites();
       const rows = Array.isArray(resp && resp.favorites) ? resp.favorites : [];
       setStyleFavs(rows.filter((r) => r.kind === 'styleBlock'));
       setPhotoFavs(rows.filter((r) => r.kind === 'photo'));
+      setSnippetFavs(rows.filter((r) => r.kind === 'snippet'));
       setFavError(false);
     } catch (e) {
       console.error('[WechatComposer] load favorites failed', e);
@@ -220,6 +224,7 @@ function WechatComposer() {
   const [importResult, setImportResult] = React.useState(null); // 画布非空时的"替换/追加"确认弹层数据
   const [previewGen, setPreviewGen] = React.useState(false);     // 手机预览：生成中
   const [previewInfo, setPreviewInfo] = React.useState(null);    // { url, qrSvg } | null，非空显示二维码弹层
+  const [imgEditTarget, setImgEditTarget] = React.useState(null); // { uid, imgIndex?, src } | null，图片编辑器
 
   // 生效的块配置：自定义优先，否则用当前主题预设
   const effectiveConfig = React.useMemo(
@@ -538,6 +543,7 @@ function WechatComposer() {
   const handleRemoveFav = React.useCallback(async (favId) => {
     setStyleFavs((prev) => prev.filter((f) => f.id !== favId));
     setPhotoFavs((prev) => prev.filter((f) => f.id !== favId));
+    setSnippetFavs((prev) => prev.filter((f) => f.id !== favId));
     try {
       await removeFavorite(favId);
     } catch (e) {
@@ -545,6 +551,76 @@ function WechatComposer() {
       loadFavorites();
     }
   }, [loadFavorites]);
+
+  // 框选后"收藏选中"：把选中的 DocBlock 数组存为 snippet 收藏（去掉 uid,插入时重新生成）
+  const favoriteSelection = React.useCallback(async (blocks) => {
+    if (!Array.isArray(blocks) || !blocks.length) return;
+    const cleanBlocks = blocks.map(({ uid, ...rest }) => rest); // 剥 uid,再插入时 makeUid
+    // 名称取第一个块的文字预览
+    const first = blocks[0];
+    const nameText = (first.content || first.html || first.caption || '')
+      .replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().slice(0, 16) || `片段 ${blocks.length} 块`;
+    const refKey = `snip-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    try {
+      const resp = await addFavorite({ kind: 'snippet', refKey, payload: { name: nameText, blocks: cleanBlocks } });
+      if (resp && resp.favorite) setSnippetFavs((prev) => [resp.favorite, ...prev]);
+      Toast.success(`已收藏 ${blocks.length} 个元素为片段`);
+    } catch (e) {
+      console.error('[WechatComposer] favorite snippet failed', e);
+      Toast.error(e && e.message && /413/.test(String(e.message)) ? '选中内容过大，无法收藏' : '收藏失败');
+    }
+  }, []);
+
+  // 片段收藏点插：把片段里的所有块（重新生成 uid）追加到画布。
+  // raw/para 块的 html 必须再过一遍客户端 sanitize——RawView/ParaView 无条件 innerHTML 写入,
+  // 全靠"进 doc 前已清洗"这个不变量兜底；服务端正则清洗不完备(不拦 base/meta/link),
+  // 唯有这里补上客户端 DOMPurify 才能与导入/编辑提交路径保持同一防线,防 base/meta refresh 注入。
+  const insertSnippet = React.useCallback((snippetFav) => {
+    const blocks = snippetFav && snippetFav.payload && Array.isArray(snippetFav.payload.blocks) ? snippetFav.payload.blocks : [];
+    if (!blocks.length) { Toast.warning('该片段为空'); return; }
+    const withUids = blocks.map((b) => {
+      const clean = { ...b, uid: makeUid() };
+      if (b && typeof b.html === 'string') {
+        clean.html = b.kind === 'para' ? sanitizeParaHtml(b.html) : sanitizeRawHtml(b.html);
+      }
+      return clean;
+    });
+    const next = [...doc, ...withUids];
+    applyDocChange(next);
+    setSelectedUid(withUids[0].uid);
+    Toast.success(`已插入片段（${withUids.length} 块）`);
+  }, [doc, applyDocChange]);
+
+  // 打开图片编辑器：解析目标图片当前 src（imageCard 取 block.src；raw 取第 N 个 img 的 src）
+  const handleRequestImageEdit = React.useCallback((uid, imgIndex) => {
+    const block = doc.find((b) => b.uid === uid);
+    if (!block) return;
+    let src = '';
+    if (imgIndex === undefined) {
+      src = block.src || '';
+    } else {
+      const m = String(block.html || '').match(/<img\b[^>]*>/gi) || [];
+      const tag = m[imgIndex] || '';
+      const sm = tag.match(/\ssrc\s*=\s*("([^"]*)"|'([^']*)'|([^\s"'>]+))/i);
+      src = sm ? (sm[2] || sm[3] || sm[4] || '') : '';
+    }
+    if (!src) { Toast.warning('未找到可编辑的图片'); return; }
+    setImgEditTarget({ uid, imgIndex, src });
+  }, [doc]);
+
+  // 图片编辑完成：把编辑后的 data URL 写回目标图片（imageCard 换 src / raw 换第 N img 的 src）
+  const applyImageEdit = React.useCallback((dataUrl) => {
+    if (!imgEditTarget || !dataUrl) { setImgEditTarget(null); return; }
+    const { uid, imgIndex } = imgEditTarget;
+    const next = doc.map((b) => {
+      if (b.uid !== uid) return b;
+      if (imgIndex === undefined) return { ...b, src: dataUrl };
+      return { ...b, html: replaceRawImgSrc(b.html || '', imgIndex, dataUrl) };
+    });
+    applyDocChange(next);
+    setImgEditTarget(null);
+    Toast.success('已应用图片编辑');
+  }, [imgEditTarget, doc, applyDocChange]);
 
   // 相册/收藏面板照片 → 画布 imageCard 块（不经中转站）
   const insertPanelPhoto = React.useCallback((photo) => {
@@ -742,9 +818,11 @@ function WechatComposer() {
                   <FavoritesPanel
                     styleFavs={styleFavs}
                     photoFavs={photoFavs}
+                    snippetFavs={snippetFavs}
                     renderBlockHtml={renderBlockPreview}
                     onInsertBlock={handleFavInsertBlock}
                     onInsertPhoto={insertPanelPhoto}
+                    onInsertSnippet={insertSnippet}
                     onRemoveFav={handleRemoveFav}
                   />
                 )}
@@ -898,8 +976,10 @@ function WechatComposer() {
                   setPickerTarget(imgIndex !== undefined ? { uid, imgIndex } : uid);
                   setPickerOpen(true);
                 }}
+                onRequestImageEdit={handleRequestImageEdit}
                 onExternalDrop={handleExternalDrop}
                 onNotify={(type, msg) => { (Toast[type] || Toast.info)(msg); }}
+                onFavoriteSelection={favoriteSelection}
               />
             </div>
 
@@ -1000,6 +1080,14 @@ function WechatComposer() {
         canvasHasContent={docHasContent}
         onCancel={() => setImportResult(null)}
         onImport={(selectedBlocks, mode) => applyImportedArticle({ ...importResult, blocks: selectedBlocks }, mode)}
+      />
+
+      {/* 图片编辑器：裁切/旋转/翻转/比例/滤镜，输出 data URL 写回图片 */}
+      <ImageEditorModal
+        visible={!!imgEditTarget}
+        src={imgEditTarget ? imgEditTarget.src : ''}
+        onCancel={() => setImgEditTarget(null)}
+        onApply={applyImageEdit}
       />
 
       {/* 手机预览：扫码或复制链接，手机上直接打开看排版效果 */}
