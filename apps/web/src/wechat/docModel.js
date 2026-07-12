@@ -5,6 +5,22 @@
 import { applyBlock, BUILTIN_BLOCKS_BY_ID } from './themes.js';
 import DOMPurify from 'dompurify';
 
+// 全局纵深防御：整文复现允许保留 style 里的 background-image url()（否则背景丢失），
+// 但 url() 里绝不该出现 javascript:/vbscript: 伪协议。DOMPurify 默认不深解析 CSS，这里挂一个
+// 钩子，把 style 属性里 url(javascript:…)/url(vbscript:…) 整条 url() 抹掉，只动这两种绝不合法的协议，
+// 对 http/https/data/相对路径背景图零影响。dompurify 经打包器去重为单例，此钩子对全站所有 sanitize 生效。
+if (DOMPurify && typeof DOMPurify.addHook === 'function' && !DOMPurify.__mamageStyleUrlHook) {
+  DOMPurify.__mamageStyleUrlHook = true;
+  DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+    if (node && node.getAttribute && node.hasAttribute && node.hasAttribute('style')) {
+      const style = node.getAttribute('style');
+      if (/url\(\s*['"]?\s*(javascript|vbscript)\s*:/i.test(style)) {
+        node.setAttribute('style', style.replace(/url\(\s*['"]?\s*(javascript|vbscript)\s*:[^)]*\)/gi, 'none'));
+      }
+    }
+  });
+}
+
 // ---------------------------------------------------------------------------
 // 基础工具
 // ---------------------------------------------------------------------------

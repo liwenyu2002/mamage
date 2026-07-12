@@ -653,7 +653,7 @@ function BlockWrapper({
 // ---------------------------------------------------------------------------
 // 画布主组件
 // ---------------------------------------------------------------------------
-export default function CanvasEditor({
+function CanvasEditor({
   doc,
   onChange = () => {},
   selectedUid = null,
@@ -665,9 +665,13 @@ export default function CanvasEditor({
   onRequestImagePick = () => {}, // (uid, imgIndex?)：imgIndex 非空=raw 块内第 N 张图换图
   onExternalDrop = () => {},
   onNotify = () => {}, // (type, message)：画布内需要轻提示时回调（如拆分失败），父组件接 Toast
-}) {
+}, ref) {
   const canvasRef = React.useRef(null);
   const list = Array.isArray(doc) ? doc : [];
+
+  // 最近一次 raw 块内的光标位置：{ uid, range }。用于"容器内点击插入样式元素"——
+  // 点击左侧样式库会夺走 raw 编辑区的焦点使选区塌缩，故提前在此缓存 Range，插入时用缓存值。
+  const lastRawCaretRef = React.useRef(null);
 
   // raw 块内当前选中的图片：{ uid, imgIndex } | null。选中块变化/点击非图片处清除
   const [activeRawImg, setActiveRawImg] = React.useState(null);
@@ -719,9 +723,24 @@ export default function CanvasEditor({
     setToolbarAnchor({ top: anchorViewTop - blockRect.top, flip });
   }, [selectedUid, activeRawImg]);
 
-  // 选区变化时重算（rAF 合并高频 selectionchange，避免打字每字符都 setState 抖动）
+  // 选区落在某个 raw 块内时,缓存其 uid+Range（点样式库前的最后一次光标位置）
+  const captureRawCaret = React.useCallback(() => {
+    const sel = window.getSelection && window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+    const range = sel.getRangeAt(0);
+    const node = range.commonAncestorContainer;
+    const el = node && (node.nodeType === 1 ? node : node.parentElement);
+    const rawHost = el && el.closest && el.closest('.cve-raw-host');
+    if (!rawHost) return;
+    const blockEl = rawHost.closest('[data-cve-uid]');
+    if (!blockEl) return;
+    lastRawCaretRef.current = { uid: blockEl.getAttribute('data-cve-uid'), range: range.cloneRange() };
+  }, []);
+
+  // 选区变化时重算工具条锚点 + 缓存 raw 光标（rAF 合并高频 selectionchange，避免打字每字符 setState 抖动）
   React.useEffect(() => {
     const schedule = () => {
+      captureRawCaret();
       if (toolbarRafRef.current != null) return;
       toolbarRafRef.current = requestAnimationFrame(() => {
         toolbarRafRef.current = null;
@@ -734,7 +753,7 @@ export default function CanvasEditor({
       document.removeEventListener('selectionchange', schedule);
       if (toolbarRafRef.current != null) { cancelAnimationFrame(toolbarRafRef.current); toolbarRafRef.current = null; }
     };
-  }, [recomputeToolbarAnchor]);
+  }, [recomputeToolbarAnchor, captureRawCaret]);
 
   // 拖拽插入指示线状态：{ index, top } | null。index 是"插到 list 的哪个下标"，
   // top 是指示线相对画布外边框的像素偏移（渲染用）。两者一起算，一起清。
@@ -866,7 +885,33 @@ export default function CanvasEditor({
   };
 
   // 每次渲染刷新 ref，drop zone 回调永远读到最新的 doc 与回调 props
-  latestRef.current = { list, onChange, onSelect, onExternalDrop };
+  latestRef.current = { list, onChange, onSelect, onExternalDrop, selectedUid };
+
+  // 向父组件暴露命令式能力：把一段样式元素 HTML 插入到"当前选中 raw 容器"的光标处（嵌套）。
+  // 成功返回 true（父组件据此不再新建顶层块），无有效 raw 光标返回 false（父组件回退新块）。
+  React.useImperativeHandle(ref, () => ({
+    insertIntoRawCaret(html) {
+      const cap = lastRawCaretRef.current;
+      const latest = latestRef.current;
+      if (!cap || !latest || !html) return false;
+      if (cap.uid !== latest.selectedUid) return false; // 光标块必须就是当前选中块，防跨块误插
+      const canvas = canvasRef.current;
+      const blockEl = canvas && canvas.querySelector(`[data-cve-uid="${cap.uid}"]`);
+      const rawHost = blockEl && blockEl.querySelector('.cve-raw-host');
+      if (!rawHost || !rawHost.contains(cap.range.commonAncestorContainer)) return false; // 光标节点已不在该容器内
+      const tmp = document.createElement('div');
+      tmp.innerHTML = String(html);
+      const frag = document.createDocumentFragment();
+      while (tmp.firstChild) frag.appendChild(tmp.firstChild);
+      const range = cap.range;
+      range.deleteContents();
+      range.insertNode(frag);
+      // 直接改了 rawHost 的 DOM，读回 innerHTML 走 sanitizeRawHtml 提交（与 RawView 失焦提交同源）
+      const next = latest.list.map((b) => (b.uid === cap.uid ? { ...b, html: sanitizeRawHtml(rawHost.innerHTML) } : b));
+      latest.onChange(next);
+      return true;
+    },
+  }), []);
 
   // 把画布注册为指针拖拽引擎的 drop zone：onMove 算指示线（rAF 节流），onDrop 按松手坐标重算
   // 插入位置（不依赖节流缓存的指示线 state，最后一帧可能未落地）。只注册一次，卸载时注销。
@@ -988,6 +1033,9 @@ export default function CanvasEditor({
     </div>
   );
 }
+
+// forwardRef：父组件通过 ref.current.insertIntoRawCaret(html) 实现"容器内点击插入样式元素"
+export default React.forwardRef(CanvasEditor);
 
 // ---------------------------------------------------------------------------
 // 接线方参考：CanvasEditor 的 props 用法（仅文档用途，不参与运行时逻辑）

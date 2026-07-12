@@ -130,6 +130,7 @@ function WechatComposer() {
   // ── 画布文档（v3 编辑主源）────────────────────────────────
   const [doc, setDoc] = React.useState(initial.doc);
   const [selectedUid, setSelectedUid] = React.useState(null);
+  const canvasApiRef = React.useRef(null); // CanvasEditor 命令式句柄（insertIntoRawCaret 容器内嵌套插入）
   const historyRef = React.useRef(null);
   if (!historyRef.current) historyRef.current = createHistory(initial.doc);
   const [historyTick, setHistoryTick] = React.useState(0); // 撤销/重做按钮禁用态的重渲信号
@@ -325,7 +326,20 @@ function WechatComposer() {
     h2: '在这里输入标题', h3: '在这里输入小标题', quote: '在这里输入引用内容', signoff: '— 完 —',
   }), []);
 
-  // 点样式块：换样式模式=替换目标块的样式保内容；普通模式=向画布插入新块（同时更新默认配置）
+  // 把一个样式块渲染成可嵌入容器的 HTML（文字块带默认文案,divider 无内容）。
+  // 用 sanitizeRawHtml 清洗（与 raw 块统一口径,RAW_FORBID_TAGS 最全）——插入后本就会再过一次
+  // sanitizeRawHtml,源头即用同一函数可消除清洗口径不一致的窗口。
+  const renderStyleBlockHtmlForNest = React.useCallback((type, id) => {
+    const block = blocksById[id];
+    if (!block) return '';
+    const raw = type === 'divider'
+      ? applyBlock(block, { accent: effectiveConfig.accent })
+      : applyBlock(block, { content: DEFAULT_CONTENT[type] || '', accent: effectiveConfig.accent });
+    return sanitizeRawHtml(raw);
+  }, [blocksById, effectiveConfig.accent, DEFAULT_CONTENT]);
+
+  // 点样式块：换样式模式=替换目标块的样式保内容；否则优先插入到选中 raw 容器的光标处（嵌套），
+  // 无有效容器光标时回退为向画布插入新的顶层块。
   const applyBlockPick = React.useCallback((type, id) => {
     if (replaceTarget) {
       const next = doc.map((b) => (b.uid === replaceTarget && b.type === type ? { ...b, blockId: id } : b));
@@ -341,11 +355,17 @@ function WechatComposer() {
       setPickerOpen(true);
       return;
     }
+    // 容器内嵌套：光标在某个 raw 容器内时，样式元素插到光标处而非新建顶层块
+    const nestHtml = renderStyleBlockHtmlForNest(type, id);
+    if (nestHtml && canvasApiRef.current && canvasApiRef.current.insertIntoRawCaret(nestHtml)) {
+      Toast.success('已插入到容器内');
+      return;
+    }
     insertDocBlock({
       kind: 'styled', type, blockId: id,
       content: DEFAULT_CONTENT[type] || '', accent: null,
     });
-  }, [replaceTarget, doc, applyDocChange, effectiveConfig, insertDocBlock, DEFAULT_CONTENT]);
+  }, [replaceTarget, doc, applyDocChange, effectiveConfig, insertDocBlock, DEFAULT_CONTENT, renderStyleBlockHtmlForNest]);
 
   const applyAccent = React.useCallback((hex) => {
     setBlockConfig({ ...effectiveConfig, accent: hex });
@@ -750,9 +770,11 @@ function WechatComposer() {
                   role="button"
                   tabIndex={0}
                   // 拖拽走 pointerDrag 自研引擎；未过移动阈值的按压不影响 onClick 点击插入。
-                  // onDragStart preventDefault 是为了掐灭块内 img/文字的浏览器原生拖拽——
-                  // 原生拖拽会话一旦启动，pointermove 就停发，自研拖拽会被中途掐断。
-                  onPointerDown={(e) => beginDrag(e, { kind: 'style-block', data: { type: b.type, blockId: b.id }, ghostLabel: b.name })}
+                  // preventDefault 保住 raw 容器的焦点/选区：否则点击本卡片会让浏览器把焦点从
+                  // raw contentEditable 夺走，触发其 blur→sanitizeRawHtml 重写 DOM，使缓存的
+                  // 光标 Range 指向脱离文档的旧节点，容器内嵌套插入会静默降级为顶层块。
+                  // onDragStart preventDefault 另掐灭块内 img/文字的浏览器原生拖拽（会掐断自研拖拽）。
+                  onPointerDown={(e) => { e.preventDefault(); beginDrag(e, { kind: 'style-block', data: { type: b.type, blockId: b.id }, ghostLabel: b.name }); }}
                   onDragStart={(e) => e.preventDefault()}
                   className={`wxc-lib-block${effectiveConfig[libType] === b.id ? ' is-active' : ''}`}
                   onClick={() => applyBlockPick(libType, b.id)}
@@ -827,6 +849,7 @@ function WechatComposer() {
                 </div>
               </div>
               <CanvasEditor
+                ref={canvasApiRef}
                 doc={doc}
                 onChange={applyDocChange}
                 selectedUid={selectedUid}

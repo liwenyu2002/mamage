@@ -5,6 +5,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- no-referrer：公众号整文复现的 CSS background-image 指向 mmbiz/qpic，有 Referer 防盗链会 403；
+       referrerpolicy 属性只对 <img> 生效，CSS 背景图只能靠文档级 referrer 策略去掉 Referer。
+       本站鉴权走 JWT、资源走签名 URL，均不依赖 Referer，全局 no-referrer 无副作用。 -->
+  <meta name="referrer" content="no-referrer" />
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="icon" href="/favicon.png" type="image/png" sizes="32x32" />
   <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
