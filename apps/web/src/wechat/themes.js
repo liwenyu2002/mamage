@@ -11,6 +11,7 @@
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { BUILTIN_BLOCKS } from './builtinBlocks.js';
+import { derivePalette } from './themeColor.js';
 
 // 找不到图片时的兜底占位图：内联 SVG，避免因单张图缺失导致整篇渲染报错或产生额外外链请求
 const FALLBACK_IMG = 'data:image/svg+xml;utf8,' + encodeURIComponent(
@@ -94,6 +95,19 @@ export function applyBlock(block, slots) {
   out = out.split('{{src}}').join(src);
   out = out.split('{{caption}}').join(caption);
   out = out.split('{{accent}}').join(accent);
+
+  // 主题色调色板令牌：{{primary}}=主色、{{tint}}/{{softTint}}=浅色底、{{shade}}=压暗深字、{{accent2}}=辅助色，
+  // 由 accent 派生（与 raw 块 data-mm-theme 同一套 derivePalette），让精品块能用"随主题联动"的
+  // 浅底/深字/辅助色而不止单一主色。只有含这些令牌的块才派生（省开销），老块不含、零影响。
+  if (out.indexOf('{{tint}}') >= 0 || out.indexOf('{{shade}}') >= 0 || out.indexOf('{{primary}}') >= 0
+    || out.indexOf('{{softTint}}') >= 0 || out.indexOf('{{accent2}}') >= 0) {
+    const pal = derivePalette(accent || '#1a1a1a');
+    out = out.split('{{primary}}').join(pal.primary);
+    out = out.split('{{tint}}').join(pal.tint);
+    out = out.split('{{softTint}}').join(pal.softTint);
+    out = out.split('{{shade}}').join(pal.shade);
+    out = out.split('{{accent2}}').join(pal.accent);
+  }
 
   return out;
 }

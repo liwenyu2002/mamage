@@ -6,5 +6,7 @@
 // 以两组实际落地的数组长度为准，若后续补齐 divider 差额，直接加进 builtinBlocksA.js 或 builtinBlocksB.js 即可，本文件无需改动。
 import { BUILTIN_BLOCKS_A } from './builtinBlocksA.js';
 import { BUILTIN_BLOCKS_B } from './builtinBlocksB.js';
+// C 组：手工精调的精品原创块（86 个），随主题色联动，见 builtinBlocksC.js
+import { BUILTIN_BLOCKS_C } from './builtinBlocksC.js';
 
-export const BUILTIN_BLOCKS = [...BUILTIN_BLOCKS_A, ...BUILTIN_BLOCKS_B];
+export const BUILTIN_BLOCKS = [...BUILTIN_BLOCKS_A, ...BUILTIN_BLOCKS_B, ...BUILTIN_BLOCKS_C];
