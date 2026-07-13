@@ -37,6 +37,10 @@ export const SVG_SMIL_ATTRS = [
   'attributename', 'attributetype', 'begin', 'end', 'dur', 'from', 'to', 'by', 'values',
   'keytimes', 'keysplines', 'calcmode', 'repeatcount', 'repeatdur', 'restart',
   'additive', 'accumulate', 'fill', 'min', 'max', 'href', 'xlink:href', 'pointer-events',
+  // <animateTransform type="translate|scale|rotate|…"> 的 type：区分变换种类，缺了横滑轮播等位移动画失效
+  'type',
+  // <animateMotion> 路径运动（另一种轮播/位移做法）的声明式属性
+  'path', 'keypoints', 'rotate', 'origin',
 ];
 if (DOMPurify && typeof DOMPurify.addHook === 'function' && !DOMPurify.__mamageSmilHook) {
   DOMPurify.__mamageSmilHook = true;
