@@ -8,7 +8,7 @@ import DOMPurify from 'dompurify';
 import { applyBlock, BUILTIN_BLOCKS_BY_ID, WECHAT_THEMES } from './themes.js';
 import {
   makeUid, sanitizeParaHtml, sanitizeRawHtml,
-  splitRawHtml, applyRawImgStyle, isRawPhotoEl, listRawPhotos,
+  splitRawHtml, applyRawImgStyle, isRawPhotoEl, listRawPhotos, splitPastedToParagraphs,
 } from './docModel.js';
 import { beginDrag, registerDropZone } from './pointerDrag.js';
 import { applyThemeMasksToEl, derivePalette } from './themeColor.js';
@@ -299,7 +299,7 @@ function ImageCardView({ block, styleBlock, accent, onImageClick, onCommitCaptio
 // ---------------------------------------------------------------------------
 // 普通段落：整段 contentEditable，非受控 DOM（同上，避免打字中间态触发 innerHTML 重写）
 // ---------------------------------------------------------------------------
-function ParaView({ block, bodyStyle, onTransient, onCommit }) {
+function ParaView({ block, bodyStyle, onTransient, onCommit, onPasteParagraphs }) {
   const ref = React.useRef(null);
 
   React.useLayoutEffect(() => {
@@ -311,12 +311,19 @@ function ParaView({ block, bodyStyle, onTransient, onCommit }) {
 
   const handleInput = (e) => onTransient(e.currentTarget.innerHTML);
   const handleBlur = (e) => onCommit(e.currentTarget.innerHTML);
-  // 粘贴一律降级为纯文本插入，脏 HTML（外部样式/多余标签）交给失焦提交时的 sanitizeParaHtml 兜底清洗，
-  // 这里提前挡一道是为了不让编辑区在粘贴瞬间出现与全文风格不一致的杂色/字号。
+  // 粘贴：从 Word/富文本编辑器复制的多段文字要还原成多段（一段一块），而不是塞进一个块合并成一段。
+  // 拿剪贴板 text/html（Word 带 <p> 分段）切段；≥2 段交给父组件拆成多个 para 块；单段仍降级为纯文本
+  // 插入光标处（沿用既有口径，不带入 Word 的杂色/字号）。
   const handlePaste = (e) => {
     e.preventDefault();
     const clipboard = e.clipboardData || window.clipboardData;
+    const html = clipboard ? clipboard.getData('text/html') : '';
     const text = clipboard ? clipboard.getData('text/plain') : '';
+    const paras = splitPastedToParagraphs(html, text);
+    if (paras.length > 1 && onPasteParagraphs) {
+      onPasteParagraphs(block.uid, paras);
+      return;
+    }
     if (document.execCommand) {
       document.execCommand('insertText', false, text);
     } else {
@@ -629,7 +636,7 @@ function BlockWrapper({
   block, index, total, selected, multi, styleBlock, accent, bodyStyle, activeRawImgIndex, activeRawImgKind, themePalette,
   onSelect, onMoveUp, onMoveDown, onDuplicate, onDelete,
   onChangeStyle, onChangeAccent, onInsertParaAfter, onImageClick,
-  onCommitContent, onCommitCaption, onParaTransient, onParaCommit,
+  onCommitContent, onCommitCaption, onParaTransient, onParaCommit, onPasteParagraphs,
   onRawTransient, onRawCommit, onSelectRawImg,
   onSplitRaw, onImgStyle, onRawImgStyle, onImgReplace, onImgEdit, onManageImages, toolbarAnchor,
 }) {
@@ -647,7 +654,7 @@ function BlockWrapper({
 
   function renderBody() {
     if (block.kind === 'para') {
-      return <ParaView block={block} bodyStyle={bodyStyle} onTransient={onParaTransient} onCommit={onParaCommit} />;
+      return <ParaView block={block} bodyStyle={bodyStyle} onTransient={onParaTransient} onCommit={onParaCommit} onPasteParagraphs={onPasteParagraphs} />;
     }
     if (block.kind === 'raw') {
       return (
@@ -912,6 +919,20 @@ function CanvasEditor({
     onSelect(newBlocks[0].uid);
     setActiveRawImg(null);
     onNotify('success', `已拆分为 ${newBlocks.length} 个元素`);
+  }, [list, onChange, onSelect, onNotify]);
+
+  // 从 Word/富文本粘贴的多段文字 → 多个 para 块（Notion 式一段一块）。空块被段落替换；非空块段落插其后。
+  const pasteAsParagraphs = React.useCallback((uid, paragraphs) => {
+    const idx = list.findIndex((b) => b.uid === uid);
+    if (idx < 0 || !Array.isArray(paragraphs) || paragraphs.length === 0) return;
+    const newBlocks = paragraphs.map((html) => ({ uid: makeUid(), kind: 'para', html }));
+    const curEmpty = !String(list[idx].html || '').replace(/<[^>]+>/g, '').trim();
+    const next = list.slice();
+    if (curEmpty) next.splice(idx, 1, ...newBlocks);
+    else next.splice(idx + 1, 0, ...newBlocks);
+    onChange(next);
+    onSelect(newBlocks[newBlocks.length - 1].uid);
+    onNotify('success', `已按段落拆成 ${newBlocks.length} 段`);
   }, [list, onChange, onSelect, onNotify]);
 
   // imageCard 的图片样式（宽度/圆角/裁切）：存块级 imgStyle 字段，画布与导出各自渲染
@@ -1252,6 +1273,7 @@ function CanvasEditor({
             onCommitCaption={(text) => updateBlock(block.uid, { caption: text })}
             onParaTransient={(html) => updateBlock(block.uid, { html }, { transient: true })}
             onParaCommit={(html) => updateBlock(block.uid, { html: sanitizeParaHtml(html) })}
+            onPasteParagraphs={pasteAsParagraphs}
             onRawTransient={(html) => updateBlock(block.uid, { html }, { transient: true })}
             onRawCommit={(html) => updateBlock(block.uid, { html: sanitizeRawHtml(html) })}
             onSelectRawImg={(imgIndex, kind) => setActiveRawImg(imgIndex == null ? null : { uid: block.uid, imgIndex, kind: kind === 'img' ? 'img' : (kind === 'image' ? 'image' : 'bg') })}

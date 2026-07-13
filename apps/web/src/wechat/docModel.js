@@ -917,6 +917,35 @@ export function replaceRawPhotoSrc(html, index, newUrl) {
   return doc.body.innerHTML;
 }
 
+// 把从 Word/富文本编辑器粘贴的剪贴板内容切成「段落」数组（每段=转义后的纯文本）。解决用户诉求：
+// Word 里分好段的文字，粘进块编辑器的一个 contenteditable 会被合并成一段。Word 复制的 text/html 带
+// <p>/<div> 分段，据此逐段切；拿不到 html 就按纯文本换行切。沿用编辑器"粘贴降级为纯文本"的既有口径
+// （不把 Word 的杂色/字号带进来），只恢复分段——每段会各自成为一个 para 块（Notion 式一段一块）。
+export function splitPastedToParagraphs(html, text) {
+  const BLOCK_SEL = 'p, div, li, h1, h2, h3, h4, h5, h6, blockquote, tr, pre, section';
+  if (typeof DOMParser !== 'undefined' && html && /<\w/.test(String(html))) {
+    const doc = new DOMParser().parseFromString(String(html), 'text/html');
+    // 叶子块（不再包含更内层块元素的）作为分段单位，避免嵌套块重复计数
+    const leaves = Array.from(doc.body.querySelectorAll(BLOCK_SEL)).filter((b) => !b.querySelector(BLOCK_SEL));
+    let lines;
+    if (leaves.length > 0) {
+      lines = leaves.map((b) => String(b.textContent || '').replace(/\u00a0/g, ' ').trim());
+    } else {
+      // 无块级元素：把 <br> 当换行，再取纯文本按行切
+      const holder = doc.createElement('div');
+      holder.innerHTML = String(html).replace(/<br\s*\/?>/gi, '\n');
+      lines = String(holder.textContent || '').split(/\n/).map((s) => s.replace(/\u00a0/g, ' ').trim());
+    }
+    const out = lines.filter((l) => l.length > 0).map((l) => escapeHtml(l));
+    if (out.length) return out;
+  }
+  return String(text || '')
+    .split(/\r\n|\r|\n/)
+    .map((l) => l.replace(/\u00a0/g, ' ').trim())
+    .filter((l) => l.length > 0)
+    .map((l) => escapeHtml(l));
+}
+
 // 某元素所属的「最外层 svg」（含自身）。用于把叠层照片按 svg 单位分组。
 function outermostSvgOf(el) {
   let top = null;
