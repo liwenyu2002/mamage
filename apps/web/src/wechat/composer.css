@@ -237,20 +237,55 @@
 .wxc-export-row {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
   gap: 10px;
 }
-
-.wxc-export-draft {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-left: auto;
+.wxc-export-primary {
+  font-weight: 600;
 }
 
-.wxc-export-hint {
-  font-size: 12px;
-  color: rgba(0, 0, 0, 0.4);
+/* 「更多」溢出菜单：相对定位容器 + 向上弹出的小卡片 */
+.wxc-export-more {
+  position: relative;
+  display: inline-flex;
+}
+.wxc-export-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  min-width: 168px;
+  padding: 5px;
+  background: #fff;
+  border: 1px solid #e6e9ee;
+  border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.14);
+  z-index: 60;
+  animation: wxc-export-menu-in 130ms ease;
+}
+@keyframes wxc-export-menu-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.wxc-export-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 9px 12px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  font-size: 14px;
+  color: #1a1a1a;
+  cursor: pointer;
+}
+.wxc-export-menu-item:hover {
+  background: #f2f4f7;
+}
+.wxc-export-menu-item.is-disabled {
+  color: #b0b6c0;
+  cursor: not-allowed;
+}
+.wxc-export-menu-item.is-disabled:hover {
+  background: transparent;
 }
 
 /* 插图选择器（Modal 内网格） */
@@ -309,9 +344,22 @@
   .wxc-phone-shell {
     max-height: 640px;
   }
-  .wxc-export-draft {
-    margin-left: 0;
-    width: 100%;
+}
+
+@media (max-width: 768px) {
+  /* 窄屏：隐藏画布提示文案（占位又易乱），导出区主操作占满一行、次操作并排 */
+  .wxc-canvas-tip {
+    display: none;
+  }
+  .wxc-export-row {
+    flex-wrap: wrap;
+  }
+  .wxc-export-primary {
+    flex: 1 1 100%;
+  }
+  .wxc-export-menu {
+    left: auto;
+    right: 0;
   }
 }
 

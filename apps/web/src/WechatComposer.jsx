@@ -286,6 +286,17 @@ function WechatComposer() {
   const [importResult, setImportResult] = React.useState(null); // 画布非空时的"替换/追加"确认弹层数据
   const [previewGen, setPreviewGen] = React.useState(false);     // 手机预览：生成中
   const [previewInfo, setPreviewInfo] = React.useState(null);    // { url, qrSvg } | null，非空显示二维码弹层
+  const [exportMenuOpen, setExportMenuOpen] = React.useState(false); // 导出「更多」溢出菜单开合
+  const exportMenuRef = React.useRef(null);
+  // 点菜单外/按 Esc 关闭「更多」溢出菜单
+  React.useEffect(() => {
+    if (!exportMenuOpen) return undefined;
+    const onDown = (e) => { if (exportMenuRef.current && !exportMenuRef.current.contains(e.target)) setExportMenuOpen(false); };
+    const onKey = (e) => { if (e.key === 'Escape') setExportMenuOpen(false); };
+    document.addEventListener('pointerdown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('pointerdown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [exportMenuOpen]);
   const [imgEditTarget, setImgEditTarget] = React.useState(null); // { uid, imgIndex?, src } | null，图片编辑器
 
   // ── 存档（服务端多份快照）──────────────────────────────────────
@@ -1381,17 +1392,14 @@ function WechatComposer() {
             <div className="wxc-canvas-region">
               <div className="wxc-canvas-toolbar">
                 <div className="wxc-canvas-toolbar-left">
-                  {/* 主题模板行已按用户要求移除：主色由左侧面板色点控制，样式全靠样式块自选；
-                      窄屏打开左侧面板的入口挪到这里 */}
-                  <Button size="small" className="wxc-lib-toggle-mobile" onClick={() => setLibraryOpen((v) => !v)}>面板</Button>
-                  <Button size="small" onClick={() => { setPickerTarget(null); setPickerOpen(true); }}>从中转站插图</Button>
-                  <Text type="secondary" className="wxc-canvas-tip">
-                    左侧样式点击或拖到画布插入，点块直接编辑
-                  </Text>
+                  {/* 窄屏打开左侧样式面板的入口；插图入口收敛为一个「＋插图」 */}
+                  <Button size="small" className="wxc-lib-toggle-mobile" onClick={() => setLibraryOpen((v) => !v)}>☰ 样式面板</Button>
+                  <Button size="small" type="tertiary" onClick={() => { setPickerTarget(null); setPickerOpen(true); }} title="从中转站插入照片">＋ 插图</Button>
+                  <Text type="secondary" className="wxc-canvas-tip">点左侧样式插入，点画布块直接编辑</Text>
                 </div>
                 <div className="wxc-canvas-toolbar-right">
-                  <Button size="small" type="tertiary" disabled={!historyRef.current.canUndo()} onClick={handleUndo} title="撤销 ⌘Z">↩ 撤销</Button>
-                  <Button size="small" type="tertiary" disabled={!historyRef.current.canRedo()} onClick={handleRedo} title="重做 ⌘⇧Z">↪ 重做</Button>
+                  <Button size="small" type="tertiary" disabled={!historyRef.current.canUndo()} onClick={handleUndo} title="撤销 ⌘Z" aria-label="撤销">↩</Button>
+                  <Button size="small" type="tertiary" disabled={!historyRef.current.canRedo()} onClick={handleRedo} title="重做 ⌘⇧Z" aria-label="重做">↪</Button>
                 </div>
               </div>
               <CanvasEditor
@@ -1416,14 +1424,28 @@ function WechatComposer() {
             </div>
 
             <Card bordered className="wxc-export-card">
+              {/* 导出区按交互优先级收敛：主操作「复制到公众号」+ 常用「手机预览」+「更多」溢出菜单，
+                  从 5 个平铺按钮降到 3 个，建立主次层级，窄屏也不再挤成一片 */}
               <div className="wxc-export-row">
-                <Button type="primary" onClick={handleCopyRich}>复制公众号格式</Button>
+                <Button type="primary" className="wxc-export-primary" onClick={handleCopyRich}>复制到公众号</Button>
                 <Button onClick={handleMobilePreview} loading={previewGen} disabled={previewGen}>📱 手机预览</Button>
-                <Button onClick={handleDownloadPack}>下载图片包</Button>
-                <Button type="tertiary" onClick={handleCopyMarkdown}>复制 Markdown</Button>
-                <div className="wxc-export-draft">
-                  <Button disabled title="需企业公众号资质配置，即将开放">发送到公众号草稿箱</Button>
-                  <span className="wxc-export-hint">需企业公众号资质配置，即将开放</span>
+                <div className="wxc-export-more" ref={exportMenuRef}>
+                  <Button
+                    type="tertiary"
+                    onClick={() => setExportMenuOpen((v) => !v)}
+                    aria-haspopup="menu"
+                    aria-expanded={exportMenuOpen}
+                    className={`wxc-export-more-btn${exportMenuOpen ? ' is-open' : ''}`}
+                  >
+                    更多 ⌄
+                  </Button>
+                  {exportMenuOpen ? (
+                    <div className="wxc-export-menu" role="menu">
+                      <button type="button" className="wxc-export-menu-item" role="menuitem" onClick={() => { setExportMenuOpen(false); handleDownloadPack(); }}>下载图片包</button>
+                      <button type="button" className="wxc-export-menu-item" role="menuitem" onClick={() => { setExportMenuOpen(false); handleCopyMarkdown(); }}>复制 Markdown</button>
+                      <button type="button" className="wxc-export-menu-item is-disabled" role="menuitem" disabled title="需企业公众号资质配置，即将开放">发送到草稿箱（即将开放）</button>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </Card>

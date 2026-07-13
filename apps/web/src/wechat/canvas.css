@@ -236,6 +236,22 @@ body.cve-box-selecting * {
   gap: 2px;
 }
 
+/* 窄屏：文字格式行按钮多，浮动工具条会超出屏幕挤成一片。
+   把工具条宽度约束在视口内、每行改为横向滚动（隐藏滚动条），点块时不再溢出/被裁。 */
+@media (max-width: 768px) {
+  .cve-toolbar {
+    max-width: calc(100vw - 14px);
+  }
+  .cve-toolbar-row {
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .cve-toolbar-row::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 /* 第二行上下文区与第一行之间一条细分隔 */
 .cve-toolbar-row--ctx {
   border-top: 1px solid rgba(255, 255, 255, 0.14);
