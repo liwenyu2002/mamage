@@ -291,10 +291,19 @@ body.cve-box-selecting * {
   text-decoration: underline;
 }
 
-/* raw 块内选中的图片：黑色描边高亮（属性由 RawView 手工管理，innerHTML 非 React 域） */
-.cve-raw-host img[data-cve-img-active] {
+/* raw 块内选中的照片：黑色描边高亮（属性由 RawView 手工管理，innerHTML 非 React 域）。
+   照片=<img>/svg <image>/带 background-image 的元素，三种都要高亮，故选择器不限 img。 */
+.cve-raw-host [data-cve-img-active] {
   outline: 2px solid #111111;
   outline-offset: 2px;
+}
+/* 悬停任意照片给一层浅提示，暗示"可点选换图/编辑" */
+.cve-raw-host img:hover,
+.cve-raw-host image:hover,
+.cve-raw-host [style*="background-image"]:hover {
+  outline: 1px dashed rgba(17, 17, 17, 0.4);
+  outline-offset: 1px;
+  cursor: pointer;
 }
 
 .cve-toolbar--above {

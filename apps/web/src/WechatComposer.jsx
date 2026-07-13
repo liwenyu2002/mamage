@@ -15,7 +15,7 @@ import FavoritesPanel from './wechat/FavoritesPanel';
 import ImportPreviewModal from './wechat/ImportPreviewModal';
 import ImageEditorModal from './wechat/ImageEditorModal';
 import { listFavorites, addFavorite, removeFavorite } from './services/favoritesService';
-import { makeUid, markdownToDoc, docToHtml, docToPlainText, createHistory, sanitizeRawHtml, sanitizeParaHtml, replaceRawImgSrc, unproxyWeChatImages, flattenWeChatBgToImg, dequoteWeChatCssUrls } from './wechat/docModel';
+import { makeUid, markdownToDoc, docToHtml, docToPlainText, createHistory, sanitizeRawHtml, sanitizeParaHtml, replaceRawPhotoSrc, listRawPhotos, unproxyWeChatImages, flattenWeChatBgToImg, dequoteWeChatCssUrls } from './wechat/docModel';
 import { autoTagThemeColors, detectThemePrimary } from './wechat/themeColor';
 import { beginDrag } from './wechat/pointerDrag';
 import { makeQrSvg } from './wechat/qr';
@@ -418,7 +418,7 @@ function WechatComposer() {
     const caption = String(item.description || '').slice(0, 40);
     if (pickerTarget && typeof pickerTarget === 'object') {
       const { uid, imgIndex } = pickerTarget;
-      const next = doc.map((b) => (b.uid === uid ? { ...b, html: replaceRawImgSrc(b.html || '', imgIndex, url) } : b));
+      const next = doc.map((b) => (b.uid === uid ? { ...b, html: replaceRawPhotoSrc(b.html || '', imgIndex, url) } : b));
       applyDocChange(next);
       Toast.success('已替换图片');
     } else if (pickerTarget) {
@@ -728,10 +728,9 @@ function WechatComposer() {
     if (imgIndex === undefined) {
       src = block.src || '';
     } else {
-      const m = String(block.html || '').match(/<img\b[^>]*>/gi) || [];
-      const tag = m[imgIndex] || '';
-      const sm = tag.match(/\ssrc\s*=\s*("([^"]*)"|'([^']*)'|([^\s"'>]+))/i);
-      src = sm ? (sm[2] || sm[3] || sm[4] || '') : '';
+      // raw 块内第 N 张照片（img/svg image/背景图统一编号）的图源
+      const photos = listRawPhotos(block.html || '');
+      src = (photos[imgIndex] && photos[imgIndex].url) || '';
     }
     if (!src) { Toast.warning('未找到可编辑的图片'); return; }
     setImgEditTarget({ uid, imgIndex, src });
@@ -744,7 +743,7 @@ function WechatComposer() {
     const next = doc.map((b) => {
       if (b.uid !== uid) return b;
       if (imgIndex === undefined) return { ...b, src: dataUrl };
-      return { ...b, html: replaceRawImgSrc(b.html || '', imgIndex, dataUrl) };
+      return { ...b, html: replaceRawPhotoSrc(b.html || '', imgIndex, dataUrl) };
     });
     applyDocChange(next);
     setImgEditTarget(null);

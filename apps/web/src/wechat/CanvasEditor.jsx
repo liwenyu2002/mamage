@@ -8,7 +8,7 @@ import DOMPurify from 'dompurify';
 import { applyBlock, BUILTIN_BLOCKS_BY_ID, WECHAT_THEMES } from './themes.js';
 import {
   makeUid, sanitizeParaHtml, sanitizeRawHtml,
-  splitRawHtml, replaceRawImgSrc, applyRawImgStyle,
+  splitRawHtml, applyRawImgStyle, isRawPhotoEl,
 } from './docModel.js';
 import { beginDrag, registerDropZone } from './pointerDrag.js';
 import { applyThemeMasksToEl, derivePalette } from './themeColor.js';
@@ -357,23 +357,29 @@ function RawView({ block, activeImgIndex, themePalette, onTransient, onCommit, o
     applyThemeMasksToEl(el, themePalette);
   }, [block.html, themePalette]);
 
-  // 选中图片的高亮标记直接打在 DOM 属性上（innerHTML 非 React 管理，无法走 className）
+  // 选中照片的高亮标记直接打在 DOM 属性上（innerHTML 非 React 管理，无法走 className）。
+  // 「照片」= <img>/svg <image>/带 background-image 的元素，文档序统一编号（与 docModel.listRawPhotos 同口径）。
   React.useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
-    el.querySelectorAll('img').forEach((img, i) => {
-      if (i === activeImgIndex) img.setAttribute('data-cve-img-active', '1');
-      else img.removeAttribute('data-cve-img-active');
+    const photos = Array.from(el.querySelectorAll('*')).filter(isRawPhotoEl);
+    photos.forEach((p, i) => {
+      if (i === activeImgIndex) p.setAttribute('data-cve-img-active', '1');
+      else p.removeAttribute('data-cve-img-active');
     });
   }, [activeImgIndex, block.html]);
 
   const handleInput = (e) => onTransient(e.currentTarget.innerHTML);
   const handleBlur = (e) => onCommit(e.currentTarget.innerHTML);
-  // 点图片=选中该图（工具条切图片样式区），不进入文字编辑语义
+  // 点照片=选中该图（工具条切图片样式区，支持换图/编辑），不进入文字编辑语义。
+  // 从点击目标向上找最近的照片元素（背景图容器多为祖先 section/svg，点其内部也应命中）。
   const handleClick = (e) => {
-    if (e.target && e.target.tagName === 'IMG') {
-      const imgs = Array.from(ref.current.querySelectorAll('img'));
-      onSelectImg(imgs.indexOf(e.target));
+    let node = e.target;
+    while (node && node !== ref.current && !isRawPhotoEl(node)) node = node.parentElement;
+    if (node && node !== ref.current && isRawPhotoEl(node)) {
+      const photos = Array.from(ref.current.querySelectorAll('*')).filter(isRawPhotoEl);
+      const idx = photos.indexOf(node);
+      onSelectImg(idx >= 0 ? idx : null, node.tagName ? node.tagName.toLowerCase() : '');
       return;
     }
     onSelectImg(null);
@@ -413,7 +419,7 @@ function toolbarRowGuard(e) {
 }
 
 function BlockToolbar({
-  block, index, total, styleBlock, flip, anchorTop, getHostEl, activeRawImgIndex,
+  block, index, total, styleBlock, flip, anchorTop, getHostEl, activeRawImgIndex, activeRawImgKind,
   onMoveUp, onMoveDown, onDuplicate, onDelete, onChangeStyle, onChangeAccent, onInsertParaAfter,
   onSplitRaw, onImgStyle, onRawImgStyle, onImgReplace, onImgEdit,
 }) {
@@ -562,17 +568,18 @@ function BlockToolbar({
 
       {showRawImg && (
         <div className="cve-toolbar-row cve-toolbar-row--ctx" onPointerDown={toolbarRowGuard}>
-          <span className="cve-toolbar-label">图片</span>
-          {IMG_WIDTH_CHOICES.map((w) => (
+          <span className="cve-toolbar-label">{activeRawImgKind === 'bg' ? '背景图' : (activeRawImgKind === 'image' ? '矢量图' : '图片')}</span>
+          {/* 宽度/圆角只对 <img> 生效（改标签内联 style）；svg <image>/背景图只给换图+编辑 */}
+          {activeRawImgKind === 'img' && IMG_WIDTH_CHOICES.map((w) => (
             <button key={w} type="button" className="cve-toolbar-btn" onClick={() => onRawImgStyle({ widthPct: w })}>{w}%</button>
           ))}
-          <span className="cve-toolbar-sep" />
-          {IMG_RADIUS_CHOICES.map((r) => (
+          {activeRawImgKind === 'img' && <span className="cve-toolbar-sep" />}
+          {activeRawImgKind === 'img' && IMG_RADIUS_CHOICES.map((r) => (
             <button key={r.v} type="button" className="cve-toolbar-btn" onClick={() => onRawImgStyle({ radius: r.v })}>{r.label}</button>
           ))}
-          <span className="cve-toolbar-sep" />
+          {activeRawImgKind === 'img' && <span className="cve-toolbar-sep" />}
           <button type="button" className="cve-toolbar-btn" onClick={() => onImgEdit(activeRawImgIndex)} title="裁切/旋转/滤镜">编辑</button>
-          <button type="button" className="cve-toolbar-btn" onClick={() => onImgReplace(activeRawImgIndex)} title="替换这张图">换图</button>
+          <button type="button" className="cve-toolbar-btn" onClick={() => onImgReplace(activeRawImgIndex)} title="替换这张图（从中转站/相册）">换图</button>
         </div>
       )}
     </div>
@@ -583,7 +590,7 @@ function BlockToolbar({
 // 单个块的外层包裹：选中态/hover 态边框、浮动工具条定位、按 kind/type 派发到具体渲染
 // ---------------------------------------------------------------------------
 function BlockWrapper({
-  block, index, total, selected, multi, styleBlock, accent, bodyStyle, activeRawImgIndex, themePalette,
+  block, index, total, selected, multi, styleBlock, accent, bodyStyle, activeRawImgIndex, activeRawImgKind, themePalette,
   onSelect, onMoveUp, onMoveDown, onDuplicate, onDelete,
   onChangeStyle, onChangeAccent, onInsertParaAfter, onImageClick,
   onCommitContent, onCommitCaption, onParaTransient, onParaCommit,
@@ -663,6 +670,7 @@ function BlockWrapper({
           anchorTop={anchored ? toolbarAnchor.top : null}
           getHostEl={() => bodyRef.current}
           activeRawImgIndex={activeRawImgIndex}
+          activeRawImgKind={activeRawImgKind}
           onMoveUp={onMoveUp}
           onMoveDown={onMoveDown}
           onDuplicate={onDuplicate}
@@ -731,10 +739,12 @@ function CanvasEditor({
     const blockRect = blockEl.getBoundingClientRect();
 
     let anchorViewTop = null;
-    // 1) raw 图片选中优先：锚到该图片
+    // 1) raw 照片选中优先：锚到该照片（img/svg image/背景图统一按文档序编号，与选中口径一致）
     if (activeRawImg && activeRawImg.uid === selectedUid) {
-      const img = blockEl.querySelectorAll('.cve-raw-host img')[activeRawImg.imgIndex];
-      if (img) anchorViewTop = img.getBoundingClientRect().top;
+      const host = blockEl.querySelector('.cve-raw-host');
+      const photos = host ? Array.from(host.querySelectorAll('*')).filter(isRawPhotoEl) : [];
+      const ph = photos[activeRawImg.imgIndex];
+      if (ph) anchorViewTop = ph.getBoundingClientRect().top;
     }
     // 2) 选区（含折叠光标）在本块内：锚到选区顶部
     if (anchorViewTop == null) {
@@ -1188,6 +1198,7 @@ function CanvasEditor({
             accent={accent}
             bodyStyle={computeParaStyle(bodyConfig, globalAccent)}
             activeRawImgIndex={activeRawImg && activeRawImg.uid === block.uid ? activeRawImg.imgIndex : null}
+            activeRawImgKind={activeRawImg && activeRawImg.uid === block.uid ? activeRawImg.kind : null}
             themePalette={themePalette}
             toolbarAnchor={block.uid === selectedUid ? toolbarAnchor : null}
             onSelect={() => onSelect(block.uid)}
@@ -1205,7 +1216,7 @@ function CanvasEditor({
             onParaCommit={(html) => updateBlock(block.uid, { html: sanitizeParaHtml(html) })}
             onRawTransient={(html) => updateBlock(block.uid, { html }, { transient: true })}
             onRawCommit={(html) => updateBlock(block.uid, { html: sanitizeRawHtml(html) })}
-            onSelectRawImg={(imgIndex) => setActiveRawImg(imgIndex == null ? null : { uid: block.uid, imgIndex })}
+            onSelectRawImg={(imgIndex, kind) => setActiveRawImg(imgIndex == null ? null : { uid: block.uid, imgIndex, kind: kind === 'img' ? 'img' : (kind === 'image' ? 'image' : 'bg') })}
             onSplitRaw={() => splitRaw(block.uid)}
             onImgStyle={(imgStyle) => setImgStyle(block.uid, imgStyle)}
             onRawImgStyle={(styleObj) => setRawImgStyle(block.uid, activeRawImg ? activeRawImg.imgIndex : 0, styleObj)}

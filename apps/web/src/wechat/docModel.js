@@ -862,6 +862,61 @@ export function replaceRawImgSrc(html, imgIndex, newSrc) {
   return matched ? out : input;
 }
 
+// ---------------------------------------------------------------------------
+// 通用「照片元素」——整文复现里照片有三种形态：<img>、svg <image>、带 background-image:url() 的元素
+// （SVG 特效的彩色层/轮播幻灯/背景大图全是后两种）。点选→换图/编辑不能只认 <img>，要三种通吃。
+// listRawPhotos/replaceRawPhotoSrc 与 CanvasEditor RawView 的实时 DOM 用「querySelectorAll('*') 过滤 +
+// 文档序」同一口径，保证点击命中的下标与字符串替换的下标一致。
+// ---------------------------------------------------------------------------
+const BG_URL_RE = /background-image\s*:\s*[^;}"']*url\(\s*['"]?([^)'"]+)/i;
+export function isRawPhotoEl(el) {
+  if (!el || el.nodeType !== 1) return false;
+  const tag = (el.tagName || '').toLowerCase();
+  if (tag === 'img' || tag === 'image') return true;
+  const st = (el.getAttribute && el.getAttribute('style')) || '';
+  return BG_URL_RE.test(st);
+}
+function rawPhotoKind(el) {
+  const tag = (el.tagName || '').toLowerCase();
+  return tag === 'img' ? 'img' : (tag === 'image' ? 'image' : 'bg');
+}
+function rawPhotoUrlOf(el) {
+  const tag = (el.tagName || '').toLowerCase();
+  if (tag === 'img') return el.getAttribute('src') || '';
+  if (tag === 'image') return el.getAttribute('href') || el.getAttribute('xlink:href') || '';
+  const m = ((el.getAttribute('style') || '').match(BG_URL_RE));
+  return m ? m[1] : '';
+}
+function setRawPhotoUrl(el, url) {
+  const tag = (el.tagName || '').toLowerCase();
+  if (tag === 'img') { el.setAttribute('src', url); return; }
+  if (tag === 'image') { el.setAttribute('href', url); el.removeAttribute('xlink:href'); return; }
+  const st = el.getAttribute('style') || '';
+  const next = /background-image\s*:/i.test(st)
+    ? st.replace(/background-image\s*:\s*[^;]*/i, `background-image: url(${url})`)
+    : `${st}${st && !/;\s*$/.test(st) ? '; ' : ''}background-image: url(${url})`;
+  el.setAttribute('style', next);
+}
+function collectRawPhotoEls(root) {
+  return Array.from(root.querySelectorAll('*')).filter(isRawPhotoEl);
+}
+/** 列出一段 raw html 里全部照片（文档序）：[{kind:'img'|'image'|'bg', url}]。仅浏览器环境（DOMParser）。 */
+export function listRawPhotos(html) {
+  if (typeof DOMParser === 'undefined') return [];
+  const doc = new DOMParser().parseFromString(String(html == null ? '' : html), 'text/html');
+  return collectRawPhotoEls(doc.body).map((el) => ({ kind: rawPhotoKind(el), url: rawPhotoUrlOf(el) }));
+}
+/** 把第 index 个（文档序，0 基）照片元素的图源换成 newUrl（img→src / image→href / bg→background-image url）。 */
+export function replaceRawPhotoSrc(html, index, newUrl) {
+  const input = String(html == null ? '' : html);
+  if (typeof DOMParser === 'undefined' || !Number.isInteger(index) || index < 0 || !newUrl) return input;
+  const doc = new DOMParser().parseFromString(input, 'text/html');
+  const photos = collectRawPhotoEls(doc.body);
+  if (!photos[index]) return input;
+  setRawPhotoUrl(photos[index], String(newUrl));
+  return doc.body.innerHTML;
+}
+
 /**
  * 给 html 里第 imgIndex 个（0 基）<img> 标签合并 style 声明：widthPct 写 width:XX%，并顺带移除该标签
  * 既有的 width style 声明与 HTML width/height 属性防冲突；radius 写 border-radius:XXpx，radius=0
