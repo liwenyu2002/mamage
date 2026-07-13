@@ -118,12 +118,8 @@ function selectionInsideHost(hostEl) {
   return !!(node && hostEl && hostEl.contains(node));
 }
 
-const TEXT_FONT_SIZES = [
-  { key: 'S', px: 14 },
-  { key: 'M', px: 15 },
-  { key: 'L', px: 17 },
-  { key: 'XL', px: 20 },
-];
+// 字号可量化选择的具体 px 档（参考秀米字号档，覆盖正文到大字标题）
+const TEXT_FONT_SIZES = [12, 13, 14, 15, 16, 17, 18, 20, 22, 24, 28, 32, 36, 48, 64];
 
 // execCommand('fontSize') 只接受 1-7 档：先打成第 7 档，再把产物（styleWithCSS 下是
 // span font-size:xxx-large，Safari 可能仍输出 font[size=7]）统一替换为目标 px 的 span。
@@ -148,8 +144,13 @@ function execTextCommand(hostEl, cmd, value) {
     applySelectionFontSize(hostEl, value);
   } else if (cmd === 'foreColor') {
     document.execCommand('foreColor', false, value);
+  } else if (cmd === 'hiliteColor') {
+    // 文字底色/高亮：Chrome/Safari 用 hiliteColor（styleWithCSS 下产 span background-color），
+    // 个别浏览器（Firefox）只认 backColor，兜底一次
+    if (!document.execCommand('hiliteColor', false, value)) document.execCommand('backColor', false, value);
   } else {
-    // bold / italic / underline / removeFormat / justifyLeft / justifyCenter / justifyRight
+    // bold / italic / underline / strikeThrough / superscript / subscript /
+    // removeFormat / justifyLeft / justifyCenter / justifyRight / justifyFull
     document.execCommand(cmd, false, null);
   }
   return true;
@@ -403,6 +404,8 @@ const IMG_WIDTH_CHOICES = [50, 75, 100];
 const IMG_RADIUS_CHOICES = [{ label: '直角', v: 0 }, { label: '圆角', v: 8 }, { label: '大圆', v: 16 }];
 const IMG_ASPECT_CHOICES = [{ label: '原图', v: null }, { label: '1:1', v: '1:1' }, { label: '4:3', v: '4:3' }, { label: '16:9', v: '16:9' }];
 const TEXT_COLOR_CHOICES = ['#111111', '#666666', '#c0392b', '#1f4e8c', '#2f9e44', '#e8590c', '#7048e8', '#0c8599'];
+// 文字底色/高亮档；transparent = 清除底色
+const TEXT_HL_CHOICES = ['#fff3b0', '#ffd6e0', '#d6f5d6', '#d6e4ff', '#ffe0c7', '#e8e8e8', 'transparent'];
 
 function toolbarRowGuard(e) {
   e.preventDefault();
@@ -416,6 +419,8 @@ function BlockToolbar({
 }) {
   const [swatchOpen, setSwatchOpen] = React.useState(false);
   const [textSwatchOpen, setTextSwatchOpen] = React.useState(false);
+  const [hlSwatchOpen, setHlSwatchOpen] = React.useState(false); // 文字底色面板
+  const [sizeMenuOpen, setSizeMenuOpen] = React.useState(false);  // 字号选择面板
   const canChangeStyle = block.kind === 'styled';
   const canChangeAccent = block.kind === 'styled' && styleBlock && styleBlock.accentEditable === true;
   const isTextBlock = block.kind === 'para' || block.kind === 'raw';
@@ -479,38 +484,57 @@ function BlockToolbar({
 
       {isTextBlock && !showRawImg && (
         <div className="cve-toolbar-row cve-toolbar-row--ctx" onPointerDown={toolbarRowGuard}>
-          <button type="button" className="cve-toolbar-btn" onClick={() => runText('bold')} title="加粗"><b>B</b></button>
-          <button type="button" className="cve-toolbar-btn" onClick={() => runText('italic')} title="斜体"><i>I</i></button>
-          <button type="button" className="cve-toolbar-btn" onClick={() => runText('underline')} title="下划线"><u>U</u></button>
-          <span className="cve-toolbar-sep" />
-          {TEXT_FONT_SIZES.map((s) => (
-            <button key={s.key} type="button" className="cve-toolbar-btn cve-toolbar-btn--sz" onClick={() => runText('fontSize', s.px)} title={`${s.px}px`}>{s.key}</button>
-          ))}
-          <span className="cve-toolbar-sep" />
-          <div className="cve-toolbar-swatch-wrap">
-            <button type="button" className="cve-toolbar-btn cve-toolbar-dot-btn" onClick={() => setTextSwatchOpen((v) => !v)} title="文字颜色" aria-label="文字颜色">
-              <span className="cve-dot-preview cve-dot-preview--text">A</span>
-            </button>
-            {textSwatchOpen && (
-              <div className="cve-swatch-panel">
-                {TEXT_COLOR_CHOICES.map((hex) => (
-                  <button
-                    key={hex}
-                    type="button"
-                    className="cve-swatch"
-                    style={{ backgroundColor: hex }}
-                    aria-label={hex}
-                    onPointerDown={toolbarRowGuard}
-                    onClick={() => { runText('foreColor', hex); setTextSwatchOpen(false); }}
-                  />
+          {/* 字号：量化选择具体 px（参考秀米字号栏） */}
+          <div className="cve-toolbar-menu-wrap">
+            <button type="button" className={`cve-toolbar-btn cve-toolbar-btn--menu${sizeMenuOpen ? ' is-on' : ''}`} onClick={() => { setSizeMenuOpen((v) => !v); setTextSwatchOpen(false); setHlSwatchOpen(false); }} title="字号">字号 ⌄</button>
+            {sizeMenuOpen && (
+              <div className="cve-size-menu">
+                {TEXT_FONT_SIZES.map((px) => (
+                  <button key={px} type="button" className="cve-size-item" onPointerDown={toolbarRowGuard} onClick={() => { runText('fontSize', px); setSizeMenuOpen(false); }}>{px}</button>
                 ))}
               </div>
             )}
           </div>
           <span className="cve-toolbar-sep" />
+          <button type="button" className="cve-toolbar-btn" onClick={() => runText('bold')} title="加粗"><b>B</b></button>
+          <button type="button" className="cve-toolbar-btn" onClick={() => runText('italic')} title="斜体"><i>I</i></button>
+          <button type="button" className="cve-toolbar-btn" onClick={() => runText('underline')} title="下划线"><u>U</u></button>
+          <button type="button" className="cve-toolbar-btn" onClick={() => runText('strikeThrough')} title="删除线"><s>S</s></button>
+          <span className="cve-toolbar-sep" />
+          {/* 文字颜色 */}
+          <div className="cve-toolbar-swatch-wrap">
+            <button type="button" className="cve-toolbar-btn cve-toolbar-dot-btn" onClick={() => { setTextSwatchOpen((v) => !v); setHlSwatchOpen(false); setSizeMenuOpen(false); }} title="文字颜色" aria-label="文字颜色">
+              <span className="cve-dot-preview cve-dot-preview--text">A</span>
+            </button>
+            {textSwatchOpen && (
+              <div className="cve-swatch-panel">
+                {TEXT_COLOR_CHOICES.map((hex) => (
+                  <button key={hex} type="button" className="cve-swatch" style={{ backgroundColor: hex }} aria-label={hex} onPointerDown={toolbarRowGuard} onClick={() => { runText('foreColor', hex); setTextSwatchOpen(false); }} />
+                ))}
+              </div>
+            )}
+          </div>
+          {/* 文字底色/高亮 */}
+          <div className="cve-toolbar-swatch-wrap">
+            <button type="button" className="cve-toolbar-btn cve-toolbar-dot-btn" onClick={() => { setHlSwatchOpen((v) => !v); setTextSwatchOpen(false); setSizeMenuOpen(false); }} title="文字底色" aria-label="文字底色">
+              <span className="cve-dot-preview cve-dot-preview--hl">▨</span>
+            </button>
+            {hlSwatchOpen && (
+              <div className="cve-swatch-panel">
+                {TEXT_HL_CHOICES.map((hex) => (
+                  <button key={hex} type="button" className={`cve-swatch${hex === 'transparent' ? ' cve-swatch--none' : ''}`} style={hex === 'transparent' ? undefined : { backgroundColor: hex }} aria-label={hex === 'transparent' ? '清除底色' : hex} title={hex === 'transparent' ? '清除底色' : hex} onPointerDown={toolbarRowGuard} onClick={() => { runText('hiliteColor', hex); setHlSwatchOpen(false); }} />
+                ))}
+              </div>
+            )}
+          </div>
+          <span className="cve-toolbar-sep" />
+          <button type="button" className="cve-toolbar-btn" onClick={() => runText('superscript')} title="上标">x²</button>
+          <button type="button" className="cve-toolbar-btn" onClick={() => runText('subscript')} title="下标">x₂</button>
+          <span className="cve-toolbar-sep" />
           <button type="button" className="cve-toolbar-btn" onClick={() => runText('justifyLeft')} title="左对齐">左</button>
           <button type="button" className="cve-toolbar-btn" onClick={() => runText('justifyCenter')} title="居中">中</button>
           <button type="button" className="cve-toolbar-btn" onClick={() => runText('justifyRight')} title="右对齐">右</button>
+          <button type="button" className="cve-toolbar-btn" onClick={() => runText('justifyFull')} title="两端对齐">两端</button>
           <span className="cve-toolbar-sep" />
           <button type="button" className="cve-toolbar-btn" onClick={() => runText('removeFormat')} title="清除格式">清除</button>
         </div>
