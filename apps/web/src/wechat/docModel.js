@@ -42,6 +42,20 @@ export const SVG_SMIL_ATTRS = [
   // <animateMotion> 路径运动（另一种轮播/位移做法）的声明式属性
   'path', 'keypoints', 'rotate', 'origin',
 ];
+// ★ 通用逆向：SVG 全量标准标签（动画/滤镜/渐变/文字/裁剪/foreignObject…有限固定集合），全部放行。
+// 配合下方 uponSanitizeAttribute 钩子（svg 命名空间元素保留一切属性、只挡 on*/伪协议），
+// 任何秀米/135/自研的 SVG 特效都整树保真，不再逐属性打补丁。foreignObject 内的 HTML 仍按 HTML 规则清洗。
+export const SVG_ALL_TAGS = [
+  'svg', 'g', 'defs', 'symbol', 'use', 'switch', 'a', 'view', 'desc', 'title', 'metadata',
+  'path', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon',
+  'text', 'tspan', 'textpath', 'tref', 'altglyph', 'altglyphdef', 'altglyphitem', 'glyph', 'glyphref',
+  'image', 'marker', 'mask', 'clippath', 'pattern', 'lineargradient', 'radialgradient', 'stop',
+  'filter', 'feblend', 'fecolormatrix', 'fecomponenttransfer', 'fecomposite', 'feconvolvematrix',
+  'fediffuselighting', 'fedisplacementmap', 'fedistantlight', 'fedropshadow', 'feflood',
+  'fefunca', 'fefuncb', 'fefuncg', 'fefuncr', 'fegaussianblur', 'feimage', 'femerge', 'femergenode',
+  'femorphology', 'feoffset', 'fepointlight', 'fespecularlighting', 'fespotlight', 'fetile', 'feturbulence',
+  'foreignobject', 'animate', 'animatetransform', 'animatemotion', 'animatecolor', 'set', 'mpath',
+];
 if (DOMPurify && typeof DOMPurify.addHook === 'function' && !DOMPurify.__mamageSmilHook) {
   DOMPurify.__mamageSmilHook = true;
   const SMIL = new Set(['animate', 'set', 'animatetransform', 'animatemotion', 'animatecolor']);
@@ -68,6 +82,20 @@ if (DOMPurify && typeof DOMPurify.addHook === 'function' && !DOMPurify.__mamageF
     Array.from(node.attributes).forEach((a) => {
       if (!/^(x|y|width|height)$/i.test(a.name)) node.removeAttribute(a.name);
     });
+  });
+}
+if (DOMPurify && typeof DOMPurify.addHook === 'function' && !DOMPurify.__mamageSvgAttrHook) {
+  DOMPurify.__mamageSvgAttrHook = true;
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  // ★ 通用逆向核心：对 SVG 命名空间的元素，强制保留 DOMPurify 默认会剥掉的任意属性（type/font-size/
+  // enable-background/自定义 data-*/滤镜参数…），只挡两类真正的注入面：on* 事件、以及 URL 类属性里的
+  // js/vbscript 伪协议。foreignObject 内的 HTML 元素不是 svg 命名空间 → 不放宽，仍走 DOMPurify 默认 HTML 清洗。
+  DOMPurify.addHook('uponSanitizeAttribute', (node, data) => {
+    if (!node || node.namespaceURI !== SVG_NS) return;
+    const name = String(data.attrName || '').toLowerCase();
+    if (/^on/.test(name)) return; // 事件处理器：不放行
+    if (/^(href|xlink:href|src)$/.test(name) && /(javascript|vbscript|data:text\/html)\s*:/i.test(data.attrValue || '')) return;
+    data.forceKeepAttr = true;
   });
 }
 
@@ -529,7 +557,7 @@ export function docToHtml(doc, options) {
   const safe = DOMPurify.sanitize(html, {
     FORBID_TAGS: ['style', 'script', 'iframe', 'object', 'embed', 'input', 'form'],
     // 放行 SVG SMIL 动画标签 + foreignObject，保住整文复现里可点击 SVG 的交互与彩色层（见各常量注释）
-    ADD_TAGS: [...SVG_SMIL_TAGS, ...SVG_FOREIGN_TAGS],
+    ADD_TAGS: SVG_ALL_TAGS,
     // referrerpolicy 是整文导入的 mmbiz 图片防盗链通行证（no-referrer），导出时必须保留
     ADD_ATTR: ['style', 'referrerpolicy', ...SVG_SMIL_ATTRS],
   });
@@ -725,7 +753,7 @@ export function sanitizeRawHtml(html) {
     return DOMPurify.sanitize(input, {
       FORBID_TAGS: RAW_FORBID_TAGS,
       // 放行 SVG SMIL 动画标签/属性 + foreignObject，保住整文复现里可点击 SVG 的交互与彩色层（见各常量注释）
-      ADD_TAGS: [...SVG_SMIL_TAGS, ...SVG_FOREIGN_TAGS],
+      ADD_TAGS: SVG_ALL_TAGS,
       ADD_ATTR: ['style', 'referrerpolicy', ...SVG_SMIL_ATTRS],
     });
   }
