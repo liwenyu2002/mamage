@@ -14,6 +14,7 @@ import AlbumPanel from './wechat/AlbumPanel';
 import FavoritesPanel from './wechat/FavoritesPanel';
 import ImportPreviewModal from './wechat/ImportPreviewModal';
 import ImageEditorModal from './wechat/ImageEditorModal';
+import ArticlePreviewModal from './wechat/ArticlePreviewModal';
 import { listFavorites, addFavorite, removeFavorite } from './services/favoritesService';
 import { makeUid, markdownToDoc, docToHtml, docToPlainText, createHistory, sanitizeRawHtml, sanitizeParaHtml, replaceRawPhotoSrc, listRawPhotos, unproxyWeChatImages, flattenWeChatBgToImg, dequoteWeChatCssUrls } from './wechat/docModel';
 import { autoTagThemeColors, detectThemePrimary } from './wechat/themeColor';
@@ -147,6 +148,7 @@ function buildInitialState() {
   }
   const title = (hasImport && imported.title) || draft.title || '';
   const digest = draft.digest || '';
+  const meta = (draft.meta && typeof draft.meta === 'object') ? draft.meta : {};
   const finalDoc = doc || [];
   // 草稿归属的存档文件 id（v4 起随草稿一起写回）；null=尚未保存为服务端文件的新推文
   const draftOpenId = (draft.openId != null && draft.openId !== '') ? draft.openId : null;
@@ -159,6 +161,13 @@ function buildInitialState() {
   return {
     title,
     digest,
+    meta: {
+      wxName: meta.wxName || '',
+      author: meta.author || '',
+      publishTime: meta.publishTime || '',
+      coverBig: meta.coverBig || '',
+      coverSmall: meta.coverSmall || '',
+    },
     doc: finalDoc,
     themeKey,
     blockConfig,
@@ -177,6 +186,10 @@ function WechatComposer() {
   const [initial] = React.useState(buildInitialState);
   const [title, setTitle] = React.useState(initial.title);
   const [digest, setDigest] = React.useState(initial.digest);
+  // 推文预览元信息：公众号名/作者/时间 + 大小图封面（仅用于「推文预览」的文章页与卡片，不进正文）
+  const [previewMeta, setPreviewMeta] = React.useState(initial.meta);
+  const [articlePreviewOpen, setArticlePreviewOpen] = React.useState(false);
+  const setMetaField = React.useCallback((field, val) => setPreviewMeta((m) => ({ ...m, [field]: val })), []);
   // 主题模板 UI 已移除：themeKey 仅作为 blockConfig 未自定义时的预设兜底键保留（草稿兼容）。
   // setThemeKey 平时不用（没有主题选择 UI），仅供"载入存档"时按存档记录的 themeKey 恢复兜底预设。
   const [themeKey, setThemeKey] = React.useState(initial.themeKey);
@@ -346,6 +359,16 @@ function WechatComposer() {
     return map;
   }, [myBlocks, styleFavs]);
 
+  // 推文预览的正文：与复制/手机预览同源的 docToHtml（保留代理背景图，composer 内正常加载）；仅弹层开着时算
+  const previewBodyHtml = React.useMemo(() => {
+    if (!articlePreviewOpen) return '';
+    try {
+      return docToHtml(doc, { blocksById, globalAccent: effectiveConfig.accent, body: effectiveConfig.body }).html;
+    } catch (e) {
+      return '';
+    }
+  }, [articlePreviewOpen, doc, blocksById, effectiveConfig]);
+
   const loadMyBlocks = React.useCallback(async () => {
     try {
       const resp = await request('/api/wechat-style/blocks', { method: 'GET' });
@@ -393,11 +416,11 @@ function WechatComposer() {
   // 写入失败（隐私模式/配额满）静默忽略，不打断编辑
   React.useEffect(() => {
     try {
-      localStorage.setItem(DRAFT_KEY, JSON.stringify({ v: 4, openId, title, digest, doc, themeKey, blockConfig }));
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({ v: 4, openId, title, digest, meta: previewMeta, doc, themeKey, blockConfig }));
     } catch (e) {
       // ignore
     }
-  }, [title, digest, doc, themeKey, blockConfig]);
+  }, [title, digest, previewMeta, doc, themeKey, blockConfig]);
 
   // 在画布中插入一个新块：有选中块插其后，否则追加末尾；返回新块 uid
   const insertDocBlock = React.useCallback((block) => {
@@ -416,7 +439,10 @@ function WechatComposer() {
     const url = item.fullUrl || item.thumbUrl;
     if (!url) { Toast.warning('该照片缺少可用地址'); return; }
     const caption = String(item.description || '').slice(0, 40);
-    if (pickerTarget && typeof pickerTarget === 'object') {
+    if (pickerTarget && typeof pickerTarget === 'object' && pickerTarget.cover) {
+      setMetaField(pickerTarget.cover === 'small' ? 'coverSmall' : 'coverBig', url);
+      Toast.success('已设置封面');
+    } else if (pickerTarget && typeof pickerTarget === 'object') {
       const { uid, imgIndex } = pickerTarget;
       const next = doc.map((b) => (b.uid === uid ? { ...b, html: replaceRawPhotoSrc(b.html || '', imgIndex, url) } : b));
       applyDocChange(next);
@@ -432,7 +458,7 @@ function WechatComposer() {
     }
     setPickerTarget(null);
     setPickerOpen(false);
-  }, [pickerTarget, doc, applyDocChange, blockConfig, themeKey, insertDocBlock]);
+  }, [pickerTarget, doc, applyDocChange, blockConfig, themeKey, insertDocBlock, setMetaField]);
 
   const titleLen = React.useMemo(() => Array.from(String(title || '')).length, [title]);
   const digestLen = React.useMemo(() => Array.from(String(digest || '')).length, [digest]);
@@ -736,10 +762,23 @@ function WechatComposer() {
     setImgEditTarget({ uid, imgIndex, src });
   }, [doc]);
 
-  // 图片编辑完成：把编辑后的 data URL 写回目标图片（imageCard 换 src / raw 换第 N img 的 src）
+  // 封面编辑：打开图片编辑器裁剪当前大/小封面
+  const handleRequestCoverEdit = React.useCallback((which) => {
+    const src = which === 'small' ? previewMeta.coverSmall : previewMeta.coverBig;
+    if (!src) { Toast.warning('先设置封面图再裁剪'); return; }
+    setImgEditTarget({ cover: which, src });
+  }, [previewMeta]);
+
+  // 图片编辑完成：把编辑后的 data URL 写回目标图片（封面 / imageCard 换 src / raw 换第 N img 的 src）
   const applyImageEdit = React.useCallback((dataUrl) => {
     if (!imgEditTarget || !dataUrl) { setImgEditTarget(null); return; }
-    const { uid, imgIndex } = imgEditTarget;
+    const { uid, imgIndex, cover } = imgEditTarget;
+    if (cover) {
+      setMetaField(cover === 'small' ? 'coverSmall' : 'coverBig', dataUrl);
+      setImgEditTarget(null);
+      Toast.success('已应用封面编辑');
+      return;
+    }
     const next = doc.map((b) => {
       if (b.uid !== uid) return b;
       if (imgIndex === undefined) return { ...b, src: dataUrl };
@@ -748,7 +787,7 @@ function WechatComposer() {
     applyDocChange(next);
     setImgEditTarget(null);
     Toast.success('已应用图片编辑');
-  }, [imgEditTarget, doc, applyDocChange]);
+  }, [imgEditTarget, doc, applyDocChange, setMetaField]);
 
   // 相册/收藏面板照片 → 画布 imageCard 块（不经中转站）
   const insertPanelPhoto = React.useCallback((photo) => {
@@ -1451,6 +1490,7 @@ function WechatComposer() {
                   从 5 个平铺按钮降到 3 个，建立主次层级，窄屏也不再挤成一片 */}
               <div className="wxc-export-row">
                 <Button type="primary" className="wxc-export-primary" onClick={handleCopyRich}>复制到公众号</Button>
+                <Button onClick={() => setArticlePreviewOpen(true)}>👁 推文预览</Button>
                 <Button onClick={handleMobilePreview} loading={previewGen} disabled={previewGen}>📱 手机预览</Button>
                 <div className="wxc-export-more" ref={exportMenuRef}>
                   <Button
@@ -1568,6 +1608,23 @@ function WechatComposer() {
         src={imgEditTarget ? imgEditTarget.src : ''}
         onCancel={() => setImgEditTarget(null)}
         onApply={applyImageEdit}
+      />
+
+      {/* 推文预览：公众号文章页样式(标题/公众号名·作者·时间/正文) + 大小图封面编辑 + 两张卡片预览 */}
+      <ArticlePreviewModal
+        visible={articlePreviewOpen}
+        onClose={() => setArticlePreviewOpen(false)}
+        isMobile={isMobile}
+        title={title}
+        wxName={previewMeta.wxName}
+        author={previewMeta.author}
+        publishTime={previewMeta.publishTime}
+        bodyHtml={previewBodyHtml}
+        coverBig={previewMeta.coverBig}
+        coverSmall={previewMeta.coverSmall}
+        onChangeMeta={setMetaField}
+        onPickCover={(which) => { setPickerTarget({ cover: which }); setPickerOpen(true); }}
+        onEditCover={handleRequestCoverEdit}
       />
 
       {/* 手机预览：扫码或复制链接，手机上直接打开看排版效果 */}
