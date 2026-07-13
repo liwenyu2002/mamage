@@ -22,6 +22,35 @@ if (DOMPurify && typeof DOMPurify.addHook === 'function' && !DOMPurify.__mamageS
   });
 }
 
+// SVG SMIL 动画标签/属性白名单。DOMPurify 默认 SVG 白名单**不含** <animate>/<set>——因为它们能经
+// attributeName="href" + to="javascript:…" 在运行时改写祖先 <a> 的 href 构成 XSS，故默认整标签剥除。
+// 但这正是"整文复现里可点击 SVG（如调色盘点色块局部上色）被排版器吃掉交互"的根因：begin="click" 的
+// <animate>/<set> 全被清洗掉，热区 rect 变成死矩形。这里显式放行这些标签+SMIL 属性，同时用下方
+// uponSanitizeElement 钩子专门堵住 animate/set 改写 href 这一条已知向量（其余属性名的动画无脚本执行面）。
+export const SVG_SMIL_TAGS = ['animate', 'animatetransform', 'animatemotion', 'animatecolor', 'set', 'mpath'];
+export const SVG_SMIL_ATTRS = [
+  'attributename', 'attributetype', 'begin', 'end', 'dur', 'from', 'to', 'by', 'values',
+  'keytimes', 'keysplines', 'calcmode', 'repeatcount', 'repeatdur', 'restart',
+  'additive', 'accumulate', 'fill', 'min', 'max', 'href', 'xlink:href', 'pointer-events',
+];
+if (DOMPurify && typeof DOMPurify.addHook === 'function' && !DOMPurify.__mamageSmilHook) {
+  DOMPurify.__mamageSmilHook = true;
+  const SMIL = new Set(['animate', 'set', 'animatetransform', 'animatemotion', 'animatecolor']);
+  // 堵住 <animate>/<set attributeName="href"> 运行时改写祖先 <a> 的 href 为 javascript: 的 XSS 向量。
+  // DOMPurify 3.x 禁止在钩子里手动 removeChild（会破坏其树遍历完整性并抛错），故这里不摘节点，
+  // 只抽掉 attributeName/to/from/by/values —— 没有 attributeName 的 SMIL 动画不指向任何属性、彻底失效，
+  // 既消除脚本执行面，又不影响 Color Walk 那类 attributeName="x"/"visibility" 的合法动画。
+  DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+    if (!node || !node.tagName || !node.getAttribute) return;
+    if (!SMIL.has(node.tagName.toLowerCase())) return;
+    const an = String(node.getAttribute('attributeName') || node.getAttribute('attributename') || '').trim().toLowerCase();
+    const vals = ['to', 'from', 'by', 'values'].map((a) => node.getAttribute(a) || '').join(' ');
+    if (an === 'href' || an === 'xlink:href' || /(javascript|vbscript|data:text\/html)\s*:/i.test(vals)) {
+      ['attributeName', 'attributename', 'to', 'from', 'by', 'values'].forEach((a) => node.removeAttribute(a));
+    }
+  });
+}
+
 // ---------------------------------------------------------------------------
 // 基础工具
 // ---------------------------------------------------------------------------
@@ -479,8 +508,10 @@ export function docToHtml(doc, options) {
   const { html, imageCount } = docToHtmlRaw(doc, options);
   const safe = DOMPurify.sanitize(html, {
     FORBID_TAGS: ['style', 'script', 'iframe', 'object', 'embed', 'input', 'form'],
+    // 放行 SVG SMIL 动画标签，保住整文复现里可点击 SVG 的交互（见 SVG_SMIL_TAGS 注释）
+    ADD_TAGS: SVG_SMIL_TAGS,
     // referrerpolicy 是整文导入的 mmbiz 图片防盗链通行证（no-referrer），导出时必须保留
-    ADD_ATTR: ['style', 'referrerpolicy'],
+    ADD_ATTR: ['style', 'referrerpolicy', ...SVG_SMIL_ATTRS],
   });
   return { html: safe, imageCount };
 }
@@ -673,7 +704,9 @@ export function sanitizeRawHtml(html) {
   if (typeof window !== 'undefined' && DOMPurify && DOMPurify.isSupported) {
     return DOMPurify.sanitize(input, {
       FORBID_TAGS: RAW_FORBID_TAGS,
-      ADD_ATTR: ['style', 'referrerpolicy'],
+      // 放行 SVG SMIL 动画标签/属性，保住整文复现里可点击 SVG 的交互（见 SVG_SMIL_TAGS 注释）
+      ADD_TAGS: SVG_SMIL_TAGS,
+      ADD_ATTR: ['style', 'referrerpolicy', ...SVG_SMIL_ATTRS],
     });
   }
   let out = input;
