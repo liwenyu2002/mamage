@@ -15,7 +15,7 @@ import FavoritesPanel from './wechat/FavoritesPanel';
 import ImportPreviewModal from './wechat/ImportPreviewModal';
 import ImageEditorModal from './wechat/ImageEditorModal';
 import { listFavorites, addFavorite, removeFavorite } from './services/favoritesService';
-import { makeUid, markdownToDoc, docToHtml, docToPlainText, createHistory, sanitizeRawHtml, sanitizeParaHtml, replaceRawImgSrc } from './wechat/docModel';
+import { makeUid, markdownToDoc, docToHtml, docToPlainText, createHistory, sanitizeRawHtml, sanitizeParaHtml, replaceRawImgSrc, unproxyWeChatImages } from './wechat/docModel';
 import { autoTagThemeColors, detectThemePrimary } from './wechat/themeColor';
 import { beginDrag } from './wechat/pointerDrag';
 import { makeQrSvg } from './wechat/qr';
@@ -809,8 +809,11 @@ function WechatComposer() {
     try {
       // 画布与复制共用 docToHtml 同源渲染（所见即所得）；标题填在公众号后台标题栏，不进正文
       const { html } = docToHtml(doc, { blocksById, globalAccent: effectiveConfig.accent, body: effectiveConfig.body });
-      await copyWechatRichText({ html, plainText: [title, digest, docToPlainText(doc)].filter(Boolean).join('\n\n') });
-      Toast.success('已复制正文，去公众号后台粘贴即可（标题单独填），外链图片会被自动转存');
+      // 复制到公众号时把背景图/图片的 /api/wx-img 代理链还原为原始 mmbiz 链接——代理链只在本站预览用，
+      // 微信里无效；mmbiz 原链在微信 referer 下能显示（等同复制原文）。手机预览不做此还原（仍需代理）。
+      const wechatHtml = unproxyWeChatImages(html);
+      await copyWechatRichText({ html: wechatHtml, plainText: [title, digest, docToPlainText(doc)].filter(Boolean).join('\n\n') });
+      Toast.success('已复制正文，去公众号后台粘贴即可（标题单独填）；<img> 图会被公众号自动转存，CSS 背景图沿用原文链接');
     } catch (e) {
       console.error('[WechatComposer] copy rich text failed', e);
       Toast.error(e && e.message ? e.message : '复制失败');

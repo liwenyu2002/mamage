@@ -485,6 +485,22 @@ export function docToHtml(doc, options) {
   return { html: safe, imageCount };
 }
 
+// 「复制到公众号」专用：把整文复现里 background-image / <img> 上的 /api/wx-img?url=<mmbiz> 外链代理
+// 还原为原始 mmbiz 链接。代理链只在本站(非微信)预览时用来绕 mmbiz 防盗链水印；粘进公众号编辑器时
+// 代理链是本站地址、微信里无效，必须还原成 mmbiz 原链(在微信 referer 下能正常显示，等同复制原文)。
+// 只用于剪贴板导出这一条路——手机预览仍走代理链(非微信浏览器要靠它避免水印)，故不放进 docToHtml。
+export function unproxyWeChatImages(html) {
+  return String(html || '').replace(/\/api\/wx-img\?url=([^&"')\s]+)/g, (match, enc) => {
+    try {
+      const orig = decodeURIComponent(enc);
+      if (!/^https?:\/\/[^/]*\b(qpic|qlogo)\.cn\//i.test(orig)) return match; // 仅还原微信图片 CDN
+      return orig.replace(/&/g, '&amp;'); // 放回 HTML 属性/style，& 需转义
+    } catch {
+      return match;
+    }
+  });
+}
+
 // ---------------------------------------------------------------------------
 // docToPlainText：纯文本导出（复制的 text/plain 分支）
 // ---------------------------------------------------------------------------
