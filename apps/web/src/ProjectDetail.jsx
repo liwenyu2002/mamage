@@ -4737,7 +4737,7 @@ function ProjectDetail({
           ref={fileInputRef}
           style={{ display: 'none' }}
           type="file"
-          accept="image/*,video/*"
+          accept="image/*,video/*,.heic,.heif"
           multiple
           onChange={(e) => {
             handleFilesSelected(e.target.files);

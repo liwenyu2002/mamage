@@ -503,7 +503,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
           <input
             ref={filePickerRef}
             type="file"
-            accept="image/*,video/*"
+            accept="image/*,video/*,.heic,.heif"
             multiple
             style={{ display: 'none' }}
             disabled={submitting}

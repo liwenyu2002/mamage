@@ -549,12 +549,37 @@ function getFileExt(name) {
   return m && m[1] ? `.${m[1].toLowerCase()}` : '';
 }
 
+// 前端支持的格式（与后端 ALLOWED_IMAGE_MIMES / ALLOWED_VIDEO_MIMES 对齐）。HEIC 由后端转码为 JPEG。
+const SUPPORTED_IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.heic', '.heif']);
+const SUPPORTED_VIDEO_EXTS = new Set(['.mp4', '.m4v', '.mov', '.webm', '.ogg', '.ogv']);
+const SUPPORTED_IMAGE_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif']);
+const SUPPORTED_VIDEO_MIMES = new Set(['video/mp4', 'video/quicktime', 'video/webm', 'video/ogg', 'video/x-m4v']);
+
+// 上传前校验：不支持的格式直接返回原因（就地拦掉，不跑进度条），支持则返回 null。
+function getUnsupportedReason(file) {
+  if (!file) return '空文件';
+  const ext = getFileExt(file.name);
+  const mime = String(file.type || '').toLowerCase().split(';')[0].trim();
+  const ok = SUPPORTED_IMAGE_EXTS.has(ext) || SUPPORTED_VIDEO_EXTS.has(ext)
+    || SUPPORTED_IMAGE_MIMES.has(mime) || SUPPORTED_VIDEO_MIMES.has(mime);
+  if (ok) return null;
+  const label = ext ? ext.slice(1).toUpperCase() : (mime || '未知类型');
+  return `暂不支持「${label}」格式，请用 JPG / PNG / HEIC / GIF / WebP 图片或 MP4 / MOV 视频`;
+}
+
+function isHeicFile(file) {
+  const ext = getFileExt(file && file.name);
+  const mime = String(file && file.type || '').toLowerCase();
+  return ext === '.heic' || ext === '.heif' || /image\/heic|image\/heif/.test(mime);
+}
+
 function canTryDirectUpload(file) {
   if (!file || typeof File === 'undefined' || !(file instanceof File)) return false;
   if (typeof window !== 'undefined' && window.__MAMAGE_DISABLE_DIRECT_UPLOAD__) return false;
+  if (isHeicFile(file)) return false; // HEIC 必须走服务端转码为 JPEG，不能直传对象存储（存了也不能显示）
   const mime = String(file.type || '').toLowerCase();
   const ext = getFileExt(file.name);
-  return mime.startsWith('image/') || ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.heic', '.heif'].includes(ext);
+  return mime.startsWith('image/') || ['.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(ext);
 }
 
 async function imageToElement(file) {
@@ -940,6 +965,14 @@ async function uploadPhotoFiles(files, { projectId, timelineSectionId, title, ty
       fileName: file && file.name,
       index,
     });
+    // 上传前格式校验：不支持的直接判失败，不上传、不跑进度条（避免"跑满再失败"）
+    const unsupportedReason = getUnsupportedReason(file);
+    if (unsupportedReason) {
+      report({ phase: 'failed', status: 'rejected', error: unsupportedReason, unsupported: true, loaded: 0, total: 0 });
+      const err = new Error(unsupportedReason);
+      err.unsupported = true;
+      throw err;
+    }
     report({
       phase: 'queued',
       loaded: 0,
