@@ -879,6 +879,25 @@ function WechatComposer() {
     }
   }, [docHasContent, doc]);
 
+  // 「复制·SVG 源码版」：保留 SVG 交互(不展平)、图片还原 mmbiz 原链，以纯文本源码复制。
+  // 公众号编辑器直接 Ctrl+V 会被粘贴净化剥掉 SVG；需用 135小助手/壹伴 的「编辑源代码」入口
+  // 或 F12「Edit as HTML」把这段源码注入 DOM（绕开粘贴净化，免认证）。后台白名单在保存时仍会
+  // 对 SVG 二次过滤(去 id/class、图片须素材库链接等)，故本模式主要面向已发布=已合规的整文复现内容。
+  const handleCopySvgSource = React.useCallback(async () => {
+    if (!docHasContent) { Toast.warning('画布还是空的，先从样式库插入内容'); return; }
+    try {
+      if (!window.navigator || !window.navigator.clipboard || !window.navigator.clipboard.writeText) {
+        throw new Error('当前浏览器不支持剪贴板写入');
+      }
+      const { html } = docToHtml(doc, { blocksById, globalAccent: effectiveConfig.accent, body: effectiveConfig.body });
+      const src = unproxyWeChatImages(html); // 保留 SVG，仅把 /api/wx-img 代理链还原成 mmbiz 原链
+      await window.navigator.clipboard.writeText(src);
+      Toast.success('已复制 SVG 源码。请用「135小助手/壹伴」的“编辑源代码”入口或 F12“Edit as HTML”粘贴注入（不要直接粘正文）');
+    } catch (e) {
+      Toast.error(e && e.message ? e.message : '复制失败');
+    }
+  }, [docHasContent, doc, blocksById, effectiveConfig]);
+
   // ── 推文文件管理器：列表 ──────────────────────────────────────
   const loadArchiveList = React.useCallback(async () => {
     setArchiveListLoading(true);
@@ -1447,6 +1466,7 @@ function WechatComposer() {
                     <div className="wxc-export-menu" role="menu">
                       <button type="button" className="wxc-export-menu-item" role="menuitem" onClick={() => { setExportMenuOpen(false); handleDownloadPack(); }}>下载图片包</button>
                       <button type="button" className="wxc-export-menu-item" role="menuitem" onClick={() => { setExportMenuOpen(false); handleCopyMarkdown(); }}>复制 Markdown</button>
+                      <button type="button" className="wxc-export-menu-item" role="menuitem" title="保留 SVG 交互的源码；用 135小助手/壹伴 的“编辑源代码”或 F12 注入，免认证" onClick={() => { setExportMenuOpen(false); handleCopySvgSource(); }}>复制·SVG源码版（保交互）</button>
                       <button type="button" className="wxc-export-menu-item is-disabled" role="menuitem" disabled title="需企业公众号资质配置，即将开放">发送到草稿箱（即将开放）</button>
                     </div>
                   ) : null}
