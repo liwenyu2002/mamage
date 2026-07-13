@@ -501,6 +501,18 @@ export function unproxyWeChatImages(html) {
   });
 }
 
+// 「复制·SVG源码版」白名单硬化：公众号后台白名单对 background:url() 地址【加引号会整段过滤】。
+// 把 url() 内的引号(普通引号或 &quot;/&#39; 实体)去掉。mmbiz 链接无空格/括号，去引号安全。
+export function dequoteWeChatCssUrls(html) {
+  return String(html || '').replace(/url\(([^)]*)\)/gi, (m, inner) => {
+    const cleaned = inner
+      .replace(/^\s*(?:&quot;|&#0*34;|&#0*39;|&apos;|['"])?\s*/, '')
+      .replace(/\s*(?:&quot;|&#0*34;|&#0*39;|&apos;|['"])?\s*$/, '')
+      .trim();
+    return `url(${cleaned})`;
+  });
+}
+
 // 「复制到公众号」专用：把无文字的"图片容器"上的 CSS background-image 就地展平成真 <img>。
 // 原因(adb 实测)：微信编辑器粘贴时会强剥 CSS 背景图 + <svg> 占位 + SVG 动画，只保留 <img>
 // 并自动转存到你自己的素材库。设计文(135/秀米)靠背景图铺版,直接粘过去图全没;转成 <img> 后

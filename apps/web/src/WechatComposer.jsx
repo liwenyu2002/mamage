@@ -15,7 +15,7 @@ import FavoritesPanel from './wechat/FavoritesPanel';
 import ImportPreviewModal from './wechat/ImportPreviewModal';
 import ImageEditorModal from './wechat/ImageEditorModal';
 import { listFavorites, addFavorite, removeFavorite } from './services/favoritesService';
-import { makeUid, markdownToDoc, docToHtml, docToPlainText, createHistory, sanitizeRawHtml, sanitizeParaHtml, replaceRawImgSrc, unproxyWeChatImages, flattenWeChatBgToImg } from './wechat/docModel';
+import { makeUid, markdownToDoc, docToHtml, docToPlainText, createHistory, sanitizeRawHtml, sanitizeParaHtml, replaceRawImgSrc, unproxyWeChatImages, flattenWeChatBgToImg, dequoteWeChatCssUrls } from './wechat/docModel';
 import { autoTagThemeColors, detectThemePrimary } from './wechat/themeColor';
 import { beginDrag } from './wechat/pointerDrag';
 import { makeQrSvg } from './wechat/qr';
@@ -890,7 +890,8 @@ function WechatComposer() {
         throw new Error('当前浏览器不支持剪贴板写入');
       }
       const { html } = docToHtml(doc, { blocksById, globalAccent: effectiveConfig.accent, body: effectiveConfig.body });
-      const src = unproxyWeChatImages(html); // 保留 SVG，仅把 /api/wx-img 代理链还原成 mmbiz 原链
+      // 保留 SVG；还原 mmbiz 原链；去掉 url() 引号(公众号白名单:带引号的背景图会被整段过滤)
+      const src = dequoteWeChatCssUrls(unproxyWeChatImages(html));
       await window.navigator.clipboard.writeText(src);
       Toast.success('已复制 SVG 源码。请用「135小助手/壹伴」的“编辑源代码”入口或 F12“Edit as HTML”粘贴注入（不要直接粘正文）');
     } catch (e) {
