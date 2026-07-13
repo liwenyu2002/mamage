@@ -917,6 +917,41 @@ export function replaceRawPhotoSrc(html, index, newUrl) {
   return doc.body.innerHTML;
 }
 
+// 某元素所属的「最外层 svg」（含自身）。用于把叠层照片按 svg 单位分组。
+function outermostSvgOf(el) {
+  let top = null;
+  let n = el;
+  while (n && n.nodeType === 1) {
+    const tag = ((n.tagName && (n.tagName.baseVal || n.tagName)) || '').toLowerCase();
+    if (tag === 'svg') top = n;
+    n = n.parentElement;
+  }
+  return top;
+}
+/**
+ * 把一段 raw html 里的照片按「所属最外层 svg」分组——供「按 svg 列出可替换的图」逐图替换列表，
+ * 解决 Color Walk 那类彩色层叠得太密、鼠标点不准的问题。返回 [{label, photos:[{index, kind, url}]}]，
+ * 其中 index 与 listRawPhotos/replaceRawPhotoSrc 完全同口径（文档序），可直接拿去替换/编辑。
+ */
+export function listRawPhotoGroups(html) {
+  if (typeof DOMParser === 'undefined') return [];
+  const doc = new DOMParser().parseFromString(String(html == null ? '' : html), 'text/html');
+  const photos = collectRawPhotoEls(doc.body);
+  const topSvgs = Array.from(doc.body.querySelectorAll('svg')).filter((s) => outermostSvgOf(s) === s);
+  const idxOf = new Map();
+  topSvgs.forEach((s, i) => idxOf.set(s, i));
+  const groups = new Map();
+  photos.forEach((el, index) => {
+    const top = outermostSvgOf(el);
+    const key = top || '__loose__';
+    if (!groups.has(key)) {
+      groups.set(key, { label: top ? `SVG ${(idxOf.has(top) ? idxOf.get(top) : 0) + 1}` : '独立图片', photos: [] });
+    }
+    groups.get(key).photos.push({ index, kind: rawPhotoKind(el), url: rawPhotoUrlOf(el) });
+  });
+  return Array.from(groups.values());
+}
+
 /**
  * 给 html 里第 imgIndex 个（0 基）<img> 标签合并 style 声明：widthPct 写 width:XX%，并顺带移除该标签
  * 既有的 width style 声明与 HTML width/height 属性防冲突；radius 写 border-radius:XXpx，radius=0

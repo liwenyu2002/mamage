@@ -38,6 +38,8 @@ const inputStyle = {
   width: '100%', boxSizing: 'border-box', padding: '6px 8px', fontSize: 13,
   border: '1px solid #e4e8ef', borderRadius: 6, color: '#1a2030', marginBottom: 8,
 };
+const segStyle = { padding: '4px 12px', border: 0, background: '#fff', color: '#5b6675', cursor: 'pointer' };
+const segOnStyle = { background: '#1a2030', color: '#fff' };
 
 export default function ArticlePreviewModal({
   visible, onClose, isMobile,
@@ -48,24 +50,35 @@ export default function ArticlePreviewModal({
   // 小图未单独设置时，卡片回退用大图（object-fit 取中段），与公众号"未设小图取大图"一致
   const smallForCard = coverSmall || coverBig;
   const titleText = title || '（未填标题）';
+  // 夜间背景：公众号有深色模式，作者需检查内容在黑/白两种底色下是否都可读。此开关只切背景（+ 我方标题/元信息
+  // 文字随之反色保证可读），正文原样呈现——好让作者看清自己的内容在深色下会不会"隐身"。
+  const [night, setNight] = React.useState(false);
+  const pageBg = night ? '#1c1c1e' : '#fff';
+  const titleColor = night ? '#e9e9ea' : '#1a1a1a';
+  const metaColor = night ? '#9a9aa0' : '#9a9a9a';
 
   return (
     <Modal title="推文预览" visible={visible} onCancel={onClose} footer={null} width={isMobile ? 'calc(100vw - 16px)' : 900}>
       <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'flex-start' }}>
         {/* 左：手机框内的公众号文章页 */}
         <div style={{ flex: '0 0 auto', width: 360, maxWidth: '100%' }}>
-          <div style={{ border: '1px solid #e4e8ef', borderRadius: 14, overflow: 'hidden', background: '#fff', boxShadow: '0 6px 20px rgba(20,30,50,.1)' }}>
-            <div style={{ maxHeight: '68vh', overflowY: 'auto' }}>
+          {/* 日/夜背景切换 */}
+          <div style={{ display: 'inline-flex', border: '1px solid #e4e8ef', borderRadius: 8, overflow: 'hidden', marginBottom: 8, fontSize: 12 }}>
+            <button type="button" onClick={() => setNight(false)} style={{ ...segStyle, ...(night ? {} : segOnStyle) }}>☀ 日间</button>
+            <button type="button" onClick={() => setNight(true)} style={{ ...segStyle, borderLeft: '1px solid #e4e8ef', ...(night ? segOnStyle : {}) }}>🌙 夜间</button>
+          </div>
+          <div style={{ border: '1px solid #e4e8ef', borderRadius: 14, overflow: 'hidden', background: pageBg, boxShadow: '0 6px 20px rgba(20,30,50,.1)' }}>
+            <div style={{ maxHeight: '64vh', overflowY: 'auto' }}>
               <div style={{ padding: '20px 16px 24px' }}>
-                <h1 style={{ margin: '0 0 14px', fontSize: 22, lineHeight: 1.4, fontWeight: 700, color: '#1a1a1a', wordBreak: 'break-word' }}>{titleText}</h1>
+                <h1 style={{ margin: '0 0 14px', fontSize: 22, lineHeight: 1.4, fontWeight: 700, color: titleColor, wordBreak: 'break-word' }}>{titleText}</h1>
                 <div style={{ fontSize: 15, color: WX_BLUE, marginBottom: 6 }}>{wxName || '公众号名称'}</div>
-                <div style={{ fontSize: 15, color: '#9a9a9a', marginBottom: 2 }}>
+                <div style={{ fontSize: 15, color: metaColor, marginBottom: 2 }}>
                   {(author || '作者')}<span style={{ margin: '0 8px' }}>·</span>{publishTime || '刚刚'}
                 </div>
                 <div style={{ height: 14 }} />
-                {/* 正文：与复制/手机预览同源的 docToHtml，原样内联样式 */}
+                {/* 正文：与复制/手机预览同源的 docToHtml，原样内联样式（不随夜间反色，正是要看它在深色下的表现） */}
                 <div
-                  style={{ fontSize: 17, color: '#333', lineHeight: 1.75, wordBreak: 'break-word' }}
+                  style={{ fontSize: 17, color: night ? '#c9c9cd' : '#333', lineHeight: 1.75, wordBreak: 'break-word' }}
                   // eslint-disable-next-line react/no-danger
                   dangerouslySetInnerHTML={{ __html: bodyHtml || '<p style="color:#bbb">正文为空，先在画布里加内容</p>' }}
                 />

@@ -15,8 +15,9 @@ import FavoritesPanel from './wechat/FavoritesPanel';
 import ImportPreviewModal from './wechat/ImportPreviewModal';
 import ImageEditorModal from './wechat/ImageEditorModal';
 import ArticlePreviewModal from './wechat/ArticlePreviewModal';
+import RawImagesModal from './wechat/RawImagesModal';
 import { listFavorites, addFavorite, removeFavorite } from './services/favoritesService';
-import { makeUid, markdownToDoc, docToHtml, docToPlainText, createHistory, sanitizeRawHtml, sanitizeParaHtml, replaceRawPhotoSrc, listRawPhotos, unproxyWeChatImages, flattenWeChatBgToImg, dequoteWeChatCssUrls } from './wechat/docModel';
+import { makeUid, markdownToDoc, docToHtml, docToPlainText, createHistory, sanitizeRawHtml, sanitizeParaHtml, replaceRawPhotoSrc, listRawPhotos, listRawPhotoGroups, unproxyWeChatImages, flattenWeChatBgToImg, dequoteWeChatCssUrls } from './wechat/docModel';
 import { autoTagThemeColors, detectThemePrimary } from './wechat/themeColor';
 import { beginDrag } from './wechat/pointerDrag';
 import { makeQrSvg } from './wechat/qr';
@@ -189,6 +190,7 @@ function WechatComposer() {
   // 推文预览元信息：公众号名/作者/时间 + 大小图封面（仅用于「推文预览」的文章页与卡片，不进正文）
   const [previewMeta, setPreviewMeta] = React.useState(initial.meta);
   const [articlePreviewOpen, setArticlePreviewOpen] = React.useState(false);
+  const [rawImagesUid, setRawImagesUid] = React.useState(null); // 「本块图片」列表弹层目标块 uid
   const setMetaField = React.useCallback((field, val) => setPreviewMeta((m) => ({ ...m, [field]: val })), []);
   // 主题模板 UI 已移除：themeKey 仅作为 blockConfig 未自定义时的预设兜底键保留（草稿兼容）。
   // setThemeKey 平时不用（没有主题选择 UI），仅供"载入存档"时按存档记录的 themeKey 恢复兜底预设。
@@ -368,6 +370,13 @@ function WechatComposer() {
       return '';
     }
   }, [articlePreviewOpen, doc, blocksById, effectiveConfig]);
+
+  // 「本块图片」列表：按 svg 分组，供叠层图逐张替换/编辑
+  const rawImagesGroups = React.useMemo(() => {
+    if (!rawImagesUid) return [];
+    const b = doc.find((x) => x.uid === rawImagesUid);
+    return b ? listRawPhotoGroups(b.html || '') : [];
+  }, [rawImagesUid, doc]);
 
   const loadMyBlocks = React.useCallback(async () => {
     try {
@@ -1496,6 +1505,7 @@ function WechatComposer() {
                   setPickerOpen(true);
                 }}
                 onRequestImageEdit={handleRequestImageEdit}
+                onManageImages={(uid) => setRawImagesUid(uid)}
                 onExternalDrop={handleExternalDrop}
                 onNotify={(type, msg) => { (Toast[type] || Toast.info)(msg); }}
                 onFavoriteSelection={favoriteSelection}
@@ -1642,6 +1652,16 @@ function WechatComposer() {
         onChangeMeta={setMetaField}
         onPickCover={(which) => { setPickerTarget({ cover: which }); setPickerOpen(true); }}
         onEditCover={handleRequestCoverEdit}
+      />
+
+      {/* 本块图片列表：按 svg 分组逐张替换/编辑（叠层图点不准时用） */}
+      <RawImagesModal
+        visible={!!rawImagesUid}
+        isMobile={isMobile}
+        groups={rawImagesGroups}
+        onReplace={(index) => { setPickerTarget({ uid: rawImagesUid, imgIndex: index }); setPickerOpen(true); }}
+        onEdit={(index) => handleRequestImageEdit(rawImagesUid, index)}
+        onClose={() => setRawImagesUid(null)}
       />
 
       {/* 手机预览：扫码或复制链接，手机上直接打开看排版效果 */}

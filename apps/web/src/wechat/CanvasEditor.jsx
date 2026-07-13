@@ -8,7 +8,7 @@ import DOMPurify from 'dompurify';
 import { applyBlock, BUILTIN_BLOCKS_BY_ID, WECHAT_THEMES } from './themes.js';
 import {
   makeUid, sanitizeParaHtml, sanitizeRawHtml,
-  splitRawHtml, applyRawImgStyle, isRawPhotoEl,
+  splitRawHtml, applyRawImgStyle, isRawPhotoEl, listRawPhotos,
 } from './docModel.js';
 import { beginDrag, registerDropZone } from './pointerDrag.js';
 import { applyThemeMasksToEl, derivePalette } from './themeColor.js';
@@ -453,7 +453,7 @@ function toolbarRowGuard(e) {
 function BlockToolbar({
   block, index, total, styleBlock, flip, anchorTop, getHostEl, activeRawImgIndex, activeRawImgKind,
   onMoveUp, onMoveDown, onDuplicate, onDelete, onChangeStyle, onChangeAccent, onInsertParaAfter,
-  onSplitRaw, onImgStyle, onRawImgStyle, onImgReplace, onImgEdit,
+  onSplitRaw, onImgStyle, onRawImgStyle, onImgReplace, onImgEdit, onManageImages,
 }) {
   const [swatchOpen, setSwatchOpen] = React.useState(false);
   const [textSwatchOpen, setTextSwatchOpen] = React.useState(false);
@@ -465,6 +465,7 @@ function BlockToolbar({
   const isImageCard = block.kind === 'styled' && block.type === 'imageCard';
   const showRawImg = block.kind === 'raw' && activeRawImgIndex != null;
   const imgStyle = block.imgStyle || {};
+  const rawPhotoCount = React.useMemo(() => (block.kind === 'raw' ? listRawPhotos(block.html || '').length : 0), [block.kind, block.html]);
   // anchorTop 非 null=跟随光标/选区/图片的浮动模式（top 由内联样式给,transform 决定锚点上/下方）；
   // null=默认钉块顶
   const anchored = anchorTop != null;
@@ -489,6 +490,9 @@ function BlockToolbar({
         )}
         {block.kind === 'raw' && (
           <button type="button" className="cve-toolbar-btn" onClick={onSplitRaw} title="把容器拆成独立元素" aria-label="拆分容器">拆分</button>
+        )}
+        {block.kind === 'raw' && rawPhotoCount > 0 && (
+          <button type="button" className="cve-toolbar-btn" onClick={onManageImages} title="按 SVG 列出块内所有图，逐张替换/编辑（叠层图点不准时用）" aria-label="图片列表">🖼 图片{rawPhotoCount}</button>
         )}
         {canChangeAccent && (
           <div className="cve-toolbar-swatch-wrap">
@@ -627,7 +631,7 @@ function BlockWrapper({
   onChangeStyle, onChangeAccent, onInsertParaAfter, onImageClick,
   onCommitContent, onCommitCaption, onParaTransient, onParaCommit,
   onRawTransient, onRawCommit, onSelectRawImg,
-  onSplitRaw, onImgStyle, onRawImgStyle, onImgReplace, onImgEdit, toolbarAnchor,
+  onSplitRaw, onImgStyle, onRawImgStyle, onImgReplace, onImgEdit, onManageImages, toolbarAnchor,
 }) {
   // 浮动锚点存在时垂直跟随光标（flip 由锚点视口位置定）；否则回退默认：首块钉块下方防裁,其余块上方
   const anchored = toolbarAnchor != null;
@@ -715,6 +719,7 @@ function BlockWrapper({
           onRawImgStyle={onRawImgStyle}
           onImgReplace={onImgReplace}
           onImgEdit={onImgEdit}
+          onManageImages={onManageImages}
         />
       )}
       <div className="cve-block-body" ref={bodyRef}>{renderBody()}</div>
@@ -736,6 +741,7 @@ function CanvasEditor({
   onRequestStylePicker = () => {},
   onRequestImagePick = () => {}, // (uid, imgIndex?)：imgIndex 非空=raw 块内第 N 张图换图
   onRequestImageEdit = () => {}, // (uid, imgIndex?)：打开图片编辑器（裁切/旋转/滤镜），imgIndex 非空=raw 内第 N 图
+  onManageImages = () => {}, // (uid)：打开「本块图片」列表（按 svg 分组逐张替换/编辑）
   onExternalDrop = () => {},
   onNotify = () => {}, // (type, message)：画布内需要轻提示时回调（如拆分失败），父组件接 Toast
   onFavoriteSelection = () => {}, // (blocks)：框选后"收藏选中"，父组件存为 snippet 收藏
@@ -1254,6 +1260,7 @@ function CanvasEditor({
             onRawImgStyle={(styleObj) => setRawImgStyle(block.uid, activeRawImg ? activeRawImg.imgIndex : 0, styleObj)}
             onImgReplace={(imgIndex) => onRequestImagePick(block.uid, imgIndex == null ? undefined : imgIndex)}
             onImgEdit={(imgIndex) => onRequestImageEdit(block.uid, imgIndex == null ? undefined : imgIndex)}
+            onManageImages={() => onManageImages(block.uid)}
           />
         );
       })}
