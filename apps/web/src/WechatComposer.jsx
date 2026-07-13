@@ -15,7 +15,7 @@ import FavoritesPanel from './wechat/FavoritesPanel';
 import ImportPreviewModal from './wechat/ImportPreviewModal';
 import ImageEditorModal from './wechat/ImageEditorModal';
 import { listFavorites, addFavorite, removeFavorite } from './services/favoritesService';
-import { makeUid, markdownToDoc, docToHtml, docToPlainText, createHistory, sanitizeRawHtml, sanitizeParaHtml, replaceRawImgSrc, unproxyWeChatImages } from './wechat/docModel';
+import { makeUid, markdownToDoc, docToHtml, docToPlainText, createHistory, sanitizeRawHtml, sanitizeParaHtml, replaceRawImgSrc, unproxyWeChatImages, flattenWeChatBgToImg } from './wechat/docModel';
 import { autoTagThemeColors, detectThemePrimary } from './wechat/themeColor';
 import { beginDrag } from './wechat/pointerDrag';
 import { makeQrSvg } from './wechat/qr';
@@ -809,11 +809,12 @@ function WechatComposer() {
     try {
       // 画布与复制共用 docToHtml 同源渲染（所见即所得）；标题填在公众号后台标题栏，不进正文
       const { html } = docToHtml(doc, { blocksById, globalAccent: effectiveConfig.accent, body: effectiveConfig.body });
-      // 复制到公众号时把背景图/图片的 /api/wx-img 代理链还原为原始 mmbiz 链接——代理链只在本站预览用，
-      // 微信里无效；mmbiz 原链在微信 referer 下能显示（等同复制原文）。手机预览不做此还原（仍需代理）。
-      const wechatHtml = unproxyWeChatImages(html);
+      // 复制到公众号:①把 /api/wx-img 代理链还原为原始 mmbiz(代理链仅本站预览用,微信里无效);
+      // ②把无文字图片容器的 CSS 背景图展平成 <img>——微信粘贴会强剥背景图/svg,只留 <img> 并自动转存,
+      // 展平后设计文的图才能进公众号(代价:丢叠层版式/交互)。手机预览不做这两步(仍走代理背景图保真)。
+      const wechatHtml = flattenWeChatBgToImg(unproxyWeChatImages(html));
       await copyWechatRichText({ html: wechatHtml, plainText: [title, digest, docToPlainText(doc)].filter(Boolean).join('\n\n') });
-      Toast.success('已复制正文，去公众号后台粘贴即可（标题单独填）；<img> 图会被公众号自动转存，CSS 背景图沿用原文链接');
+      Toast.success('已复制正文，去公众号后台粘贴（标题单独填）；背景图已转为图片以便公众号显示/转存');
     } catch (e) {
       console.error('[WechatComposer] copy rich text failed', e);
       Toast.error(e && e.message ? e.message : '复制失败');

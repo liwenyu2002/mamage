@@ -501,6 +501,38 @@ export function unproxyWeChatImages(html) {
   });
 }
 
+// 「复制到公众号」专用：把无文字的"图片容器"上的 CSS background-image 就地展平成真 <img>。
+// 原因(adb 实测)：微信编辑器粘贴时会强剥 CSS 背景图 + <svg> 占位 + SVG 动画，只保留 <img>
+// 并自动转存到你自己的素材库。设计文(135/秀米)靠背景图铺版,直接粘过去图全没;转成 <img> 后
+// 图至少能显示(代价:丢叠层版式和交互,退化成图片流)。只在导出这一路做,预览仍用背景图保真。
+// 仅对无实义文字的容器展平(避免给文字块塞图),且只处理最外层背景图元素(避嵌套重复出图)。
+export function flattenWeChatBgToImg(html) {
+  if (typeof DOMParser === 'undefined') return html; // 非浏览器环境(Node 自测)跳过
+  const doc = new DOMParser().parseFromString(`<div id="__mm_flat__">${String(html || '')}</div>`, 'text/html');
+  const root = doc.getElementById('__mm_flat__');
+  if (!root) return html;
+  const candidates = Array.from(root.querySelectorAll('*')).filter((el) => /background-image\s*:\s*url\(/i.test(el.getAttribute('style') || ''));
+  const seen = new Set(); // 同一张图只展平出一次(设计文常把同图铺在多层容器上,避免重复出图)
+  candidates.forEach((el) => {
+    const style = el.getAttribute('style') || '';
+    const m = style.match(/background-image\s*:\s*url\(\s*["']?([^)"']+?)["']?\s*\)/i);
+    if (!m) return;
+    let url = m[1].trim();
+    if (/\/api\/wx-img\?url=/.test(url)) { try { url = decodeURIComponent(url.split('url=')[1]); } catch { /* keep */ } }
+    if (!/^https?:\/\/[^/]*\b(qpic|qlogo)\.cn\//i.test(url)) return; // 只处理微信图片 CDN
+    if ((el.textContent || '').trim().length > 0) return;            // 有文字的块不塞图
+    if (seen.has(url)) return;                                        // 同图去重(取首次出现位置)
+    seen.add(url);
+    const img = doc.createElement('img');
+    img.setAttribute('src', url);
+    img.setAttribute('referrerpolicy', 'no-referrer');
+    img.setAttribute('style', 'display:block;width:100%;height:auto;');
+    el.setAttribute('style', style.replace(/background-image\s*:\s*url\([^)]*\)\s*;?/ig, '').replace(/background-(size|position|repeat)\s*:[^;]*;?/ig, ''));
+    el.insertBefore(img, el.firstChild);
+  });
+  return root.innerHTML;
+}
+
 // ---------------------------------------------------------------------------
 // docToPlainText：纯文本导出（复制的 text/plain 分支）
 // ---------------------------------------------------------------------------
