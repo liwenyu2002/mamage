@@ -389,16 +389,30 @@ function RawView({ block, activeImgIndex, themePalette, onTransient, onCommit, o
     }
   };
   // 点照片=选中该图（工具条切图片样式区，支持换图/编辑），不进入文字编辑语义。
-  // 从点击目标向上找最近的照片元素（背景图容器多为祖先 section/svg，点其内部也应命中）。
+  const selectPhoto = (node) => {
+    const photos = Array.from(ref.current.querySelectorAll('*')).filter(isRawPhotoEl);
+    const idx = photos.indexOf(node);
+    onSelectImg(idx >= 0 ? idx : null, node.tagName ? (node.tagName.baseVal || node.tagName).toLowerCase() : '');
+  };
   const handleClick = (e) => {
+    // 1) 直接命中：从点击目标向上找最近的照片元素
     let node = e.target;
     while (node && node !== ref.current && !isRawPhotoEl(node)) node = node.parentElement;
-    if (node && node !== ref.current && isRawPhotoEl(node)) {
-      const photos = Array.from(ref.current.querySelectorAll('*')).filter(isRawPhotoEl);
-      const idx = photos.indexOf(node);
-      onSelectImg(idx >= 0 ? idx : null, node.tagName ? node.tagName.toLowerCase() : '');
-      return;
-    }
+    if (node && node !== ref.current && isRawPhotoEl(node)) { selectPhoto(node); return; }
+    // 2) 几何兜底：轮播/彩色层等图层是 pointer-events:none，点击会穿透、接不到照片元素。
+    //    改在点击坐标上人工命中测试——取 rect 包含该点的照片里「可见 + 文档序最靠后(绘制最上层)」的那张。
+    const photos = Array.from(ref.current.querySelectorAll('*')).filter(isRawPhotoEl);
+    const x = e.clientX, y = e.clientY;
+    const hits = photos.filter((p) => {
+      const r = p.getBoundingClientRect();
+      return r.width >= 1 && r.height >= 1 && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+    });
+    const visible = hits.filter((p) => {
+      const s = window.getComputedStyle(p);
+      return parseFloat(s.opacity) > 0.01 && s.visibility !== 'hidden' && s.display !== 'none';
+    });
+    const pool = visible.length ? visible : hits;
+    if (pool.length) { selectPhoto(pool[pool.length - 1]); return; }
     onSelectImg(null);
   };
 
