@@ -28,6 +28,11 @@ if (DOMPurify && typeof DOMPurify.addHook === 'function' && !DOMPurify.__mamageS
 // <animate>/<set> 全被清洗掉，热区 rect 变成死矩形。这里显式放行这些标签+SMIL 属性，同时用下方
 // uponSanitizeElement 钩子专门堵住 animate/set 改写 href 这一条已知向量（其余属性名的动画无脚本执行面）。
 export const SVG_SMIL_TAGS = ['animate', 'animatetransform', 'animatemotion', 'animatecolor', 'set', 'mpath'];
+// <foreignObject> 在 SVG 里桥接 HTML，是 DOMPurify 默认封杀的 mutation-XSS 高危标签；但「整文复现」里
+// 点击上色（Color Walk 那类）的彩色层就嵌在 <g><foreignObject><svg 背景图> 内，不放行就永远上不了色。
+// 定向窄口子：只放行标签本身，其内容仍受全局 FORBID_TAGS（script/style/iframe/object/embed/…）与
+// ADD_ATTR 白名单递归约束；再用下方钩子把 foreignObject 自身的属性收窄到只剩几何属性，压小 mXSS 面。
+export const SVG_FOREIGN_TAGS = ['foreignobject'];
 export const SVG_SMIL_ATTRS = [
   'attributename', 'attributetype', 'begin', 'end', 'dur', 'from', 'to', 'by', 'values',
   'keytimes', 'keysplines', 'calcmode', 'repeatcount', 'repeatdur', 'restart',
@@ -48,6 +53,17 @@ if (DOMPurify && typeof DOMPurify.addHook === 'function' && !DOMPurify.__mamageS
     if (an === 'href' || an === 'xlink:href' || /(javascript|vbscript|data:text\/html)\s*:/i.test(vals)) {
       ['attributeName', 'attributename', 'to', 'from', 'by', 'values'].forEach((a) => node.removeAttribute(a));
     }
+  });
+}
+if (DOMPurify && typeof DOMPurify.addHook === 'function' && !DOMPurify.__mamageForeignHook) {
+  DOMPurify.__mamageForeignHook = true;
+  // foreignObject 只保留几何属性(x/y/width/height)，其余属性一律剥掉——收窄命名空间桥接可携带的向量；
+  // 其子树内容已由全局标签/属性白名单递归清洗(script/style/on*/iframe 等照旧禁)。
+  DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+    if (!node || !node.tagName || node.tagName.toLowerCase() !== 'foreignobject' || !node.attributes) return;
+    Array.from(node.attributes).forEach((a) => {
+      if (!/^(x|y|width|height)$/i.test(a.name)) node.removeAttribute(a.name);
+    });
   });
 }
 
@@ -508,8 +524,8 @@ export function docToHtml(doc, options) {
   const { html, imageCount } = docToHtmlRaw(doc, options);
   const safe = DOMPurify.sanitize(html, {
     FORBID_TAGS: ['style', 'script', 'iframe', 'object', 'embed', 'input', 'form'],
-    // 放行 SVG SMIL 动画标签，保住整文复现里可点击 SVG 的交互（见 SVG_SMIL_TAGS 注释）
-    ADD_TAGS: SVG_SMIL_TAGS,
+    // 放行 SVG SMIL 动画标签 + foreignObject，保住整文复现里可点击 SVG 的交互与彩色层（见各常量注释）
+    ADD_TAGS: [...SVG_SMIL_TAGS, ...SVG_FOREIGN_TAGS],
     // referrerpolicy 是整文导入的 mmbiz 图片防盗链通行证（no-referrer），导出时必须保留
     ADD_ATTR: ['style', 'referrerpolicy', ...SVG_SMIL_ATTRS],
   });
@@ -704,8 +720,8 @@ export function sanitizeRawHtml(html) {
   if (typeof window !== 'undefined' && DOMPurify && DOMPurify.isSupported) {
     return DOMPurify.sanitize(input, {
       FORBID_TAGS: RAW_FORBID_TAGS,
-      // 放行 SVG SMIL 动画标签/属性，保住整文复现里可点击 SVG 的交互（见 SVG_SMIL_TAGS 注释）
-      ADD_TAGS: SVG_SMIL_TAGS,
+      // 放行 SVG SMIL 动画标签/属性 + foreignObject，保住整文复现里可点击 SVG 的交互与彩色层（见各常量注释）
+      ADD_TAGS: [...SVG_SMIL_TAGS, ...SVG_FOREIGN_TAGS],
       ADD_ATTR: ['style', 'referrerpolicy', ...SVG_SMIL_ATTRS],
     });
   }
