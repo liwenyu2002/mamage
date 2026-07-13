@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "MaMage 公众号 SVG 注入器",
-  "version": "0.1.0",
-  "description": "把 MaMage 排版器的「复制·SVG源码版」一键注入公众号图文编辑器，走微信官方编辑器 API，保留 SVG 点击交互（免认证、免第三方插件）。",
+  "version": "0.2.0",
+  "description": "把 MaMage 排版器的「复制·SVG源码版」一键注入公众号图文编辑器，走微信官方编辑器 API，保留 SVG 点击交互；插入前自动把正文图片过户到你的素材库（免认证、免第三方插件）。",
   "content_scripts": [
     {
       "matches": ["https://mp.weixin.qq.com/cgi-bin/appmsg*"],
