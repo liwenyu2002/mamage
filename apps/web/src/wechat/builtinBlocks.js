@@ -10,5 +10,7 @@ import { BUILTIN_BLOCKS_B } from './builtinBlocksB.js';
 import { BUILTIN_BLOCKS_C } from './builtinBlocksC.js';
 // D 组：结构各异的"形态"块（缎带/箭头/气泡/底纹叠层/贴纸/圆徽/拍立得/胶片…），见 builtinBlocksD.js
 import { BUILTIN_BLOCKS_D } from './builtinBlocksD.js';
+// 正文组：给「正文」分类的段落卡片（type:'body'），见 builtinBlocksBody.js
+import { BUILTIN_BLOCKS_BODY } from './builtinBlocksBody.js';
 
-export const BUILTIN_BLOCKS = [...BUILTIN_BLOCKS_A, ...BUILTIN_BLOCKS_B, ...BUILTIN_BLOCKS_C, ...BUILTIN_BLOCKS_D];
+export const BUILTIN_BLOCKS = [...BUILTIN_BLOCKS_A, ...BUILTIN_BLOCKS_B, ...BUILTIN_BLOCKS_C, ...BUILTIN_BLOCKS_D, ...BUILTIN_BLOCKS_BODY];

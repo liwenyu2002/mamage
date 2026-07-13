@@ -66,6 +66,7 @@ const ACCENT_SWATCHES = WECHAT_THEMES.map((t) => t.accent).concat(EXTRA_ACCENTS)
 const SLOT_PLACEHOLDER_BY_TYPE = {
   h2: '点击输入标题',
   h3: '点击输入标题',
+  body: '点击输入正文',
   quote: '点击输入引用文字',
   signoff: '点击输入落款文字',
 };

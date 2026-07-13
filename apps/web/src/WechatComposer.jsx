@@ -46,6 +46,7 @@ const DIGEST_LIMIT = 120;
 const BLOCK_TYPES = [
   { key: 'h2', name: '标题', sample: '标题样式' },
   { key: 'h3', name: '小标题', sample: '小标题样式' },
+  { key: 'body', name: '正文', sample: '这是一段正文示例文字，用来预览正文卡片的排版、留白与配色效果。' },
   { key: 'quote', name: '引用', sample: '这是一段引用示例，感谢每一位参与者。' },
   { key: 'divider', name: '分隔线', sample: '' },
   { key: 'imageCard', name: '图片卡', sample: '图注示例' },
@@ -478,7 +479,7 @@ function WechatComposer() {
 
   // 每种类型插入新块时的默认内容
   const DEFAULT_CONTENT = React.useMemo(() => ({
-    h2: '在这里输入标题', h3: '在这里输入小标题', quote: '在这里输入引用内容', signoff: '— 完 —',
+    h2: '在这里输入标题', h3: '在这里输入小标题', body: '在这里输入正文段落', quote: '在这里输入引用内容', signoff: '— 完 —',
   }), []);
 
   // 把一个样式块渲染成可嵌入容器的 HTML（文字块带默认文案,divider 无内容）。
