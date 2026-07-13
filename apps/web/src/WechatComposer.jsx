@@ -1454,14 +1454,31 @@ function WechatComposer() {
             <div className="wxc-canvas-region">
               <div className="wxc-canvas-toolbar">
                 <div className="wxc-canvas-toolbar-left">
-                  {/* 窄屏打开左侧样式面板的入口；插图入口收敛为一个「＋插图」 */}
+                  {/* 窄屏打开左侧样式面板的入口 */}
                   <Button size="small" className="wxc-lib-toggle-mobile" onClick={() => setLibraryOpen((v) => !v)}>☰ 样式面板</Button>
-                  <Button size="small" type="tertiary" onClick={() => { setPickerTarget(null); setPickerOpen(true); }} title="从中转站插入照片">＋ 插图</Button>
                   <Text type="secondary" className="wxc-canvas-tip">点左侧样式插入，点画布块直接编辑</Text>
                 </div>
                 <div className="wxc-canvas-toolbar-right">
-                  <Button size="small" type="tertiary" disabled={!historyRef.current.canUndo()} onClick={handleUndo} title="撤销 ⌘Z" aria-label="撤销">↩</Button>
-                  <Button size="small" type="tertiary" disabled={!historyRef.current.canRedo()} onClick={handleRedo} title="重做 ⌘⇧Z" aria-label="重做">↪</Button>
+                  <div className="wxc-undo-group" role="group" aria-label="撤销重做">
+                    <button
+                      type="button" className="wxc-undo-btn"
+                      disabled={!historyRef.current.canUndo()} onClick={handleUndo} title="撤销 ⌘Z" aria-label="撤销"
+                    >
+                      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <path d="M9 13.5 4.5 9 9 4.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+                        <path d="M4.5 9h9a5.5 5.5 0 0 1 0 11H11" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </button>
+                    <button
+                      type="button" className="wxc-undo-btn"
+                      disabled={!historyRef.current.canRedo()} onClick={handleRedo} title="重做 ⌘⇧Z" aria-label="重做"
+                    >
+                      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <path d="M15 13.5 19.5 9 15 4.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+                        <path d="M19.5 9h-9a5.5 5.5 0 0 0 0 11H13" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </button>
+                  </div>
                 </div>
               </div>
               <CanvasEditor

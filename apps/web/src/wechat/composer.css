@@ -346,6 +346,48 @@
   }
 }
 
+/* 撤销/重做：精致的分段图标胶囊（替代两个平铺文字箭头按钮） */
+.wxc-undo-group {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #e6e9f0;
+  border-radius: 9px;
+  background: #fff;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(20, 30, 50, 0.05);
+}
+.wxc-undo-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #3a4658;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.wxc-undo-btn + .wxc-undo-btn {
+  border-left: 1px solid #eceff4;
+}
+.wxc-undo-btn:hover:not(:disabled) {
+  background: #f3f5fa;
+  color: #111;
+}
+.wxc-undo-btn:active:not(:disabled) {
+  background: #e9edf5;
+}
+.wxc-undo-btn:disabled {
+  color: #cbd0da;
+  cursor: default;
+}
+.wxc-undo-btn svg {
+  display: block;
+}
+
 @media (max-width: 768px) {
   /* 窄屏：隐藏画布提示文案（占位又易乱），导出区主操作占满一行、次操作并排 */
   .wxc-canvas-tip {
