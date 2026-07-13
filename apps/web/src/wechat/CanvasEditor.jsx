@@ -371,6 +371,23 @@ function RawView({ block, activeImgIndex, themePalette, onTransient, onCommit, o
 
   const handleInput = (e) => onTransient(e.currentTarget.innerHTML);
   const handleBlur = (e) => onCommit(e.currentTarget.innerHTML);
+  // svg <text>/<tspan> 的文字用 contentEditable 改不动（svg 文本非 HTML 可编辑文本），双击就地改：
+  // 取当前文字→轻量 prompt→写回 textContent→提交。普通 HTML 文字仍是整块 contentEditable 直接打字。
+  const handleDoubleClick = (e) => {
+    const t = e.target;
+    if (!t || !t.tagName) return;
+    const tag = (t.tagName.baseVal || t.tagName || '').toLowerCase();
+    const textEl = tag === 'tspan' || tag === 'text' ? t : (t.closest && t.closest('text'));
+    if (!textEl) return;
+    e.preventDefault();
+    const cur = textEl.textContent || '';
+    // eslint-disable-next-line no-alert
+    const next = window.prompt('修改文字', cur);
+    if (next != null && next !== cur) {
+      textEl.textContent = next;
+      onCommit(ref.current.innerHTML);
+    }
+  };
   // 点照片=选中该图（工具条切图片样式区，支持换图/编辑），不进入文字编辑语义。
   // 从点击目标向上找最近的照片元素（背景图容器多为祖先 section/svg，点其内部也应命中）。
   const handleClick = (e) => {
@@ -394,6 +411,7 @@ function RawView({ block, activeImgIndex, themePalette, onTransient, onCommit, o
       onInput={handleInput}
       onBlur={handleBlur}
       onClick={handleClick}
+      onDoubleClick={handleDoubleClick}
     />
   );
 }
