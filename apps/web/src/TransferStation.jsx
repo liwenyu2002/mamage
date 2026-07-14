@@ -15,21 +15,56 @@ function downloadBlob(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
-async function downloadResponse(resp, filename) {
-  if (typeof window !== 'undefined' && window.showSaveFilePicker && resp.body) {
-    const handle = await window.showSaveFilePicker({
-      suggestedName: filename || 'files.zip',
-      types: [{
-        description: 'ZIP archive',
-        accept: { 'application/zip': ['.zip'] },
-      }],
+function formatBytes(n) {
+  const v = Number(n) || 0;
+  if (v < 1024) return `${v} B`;
+  if (v < 1024 * 1024) return `${(v / 1024).toFixed(0)} KB`;
+  return `${(v / 1024 / 1024).toFixed(1)} MB`;
+}
+
+// 在用户手势内先弹保存框（必须早于 await fetch —— fetch 之后 transient activation 已过期，
+// showSaveFilePicker 会抛 SecurityError，表现为"点了打包没反应"）。
+// 返回 handle | null(不支持/回退 Blob) | 'abort'(用户取消)
+async function pickZipSaveHandle(suggestedName) {
+  if (typeof window === 'undefined' || !window.showSaveFilePicker) return null;
+  try {
+    return await window.showSaveFilePicker({
+      suggestedName: suggestedName || 'files.zip',
+      types: [{ description: 'ZIP archive', accept: { 'application/zip': ['.zip'] } }],
     });
-    const writable = await handle.createWritable();
-    await resp.body.pipeTo(writable);
+  } catch (e) {
+    if (e && e.name === 'AbortError') return 'abort';
+    return null; // 被拒/不可用 → 回退 Blob 下载
+  }
+}
+
+// 流式读取响应并回调进度。有 handle 就边下边写盘（省内存）；否则攒块最后 Blob 下载。
+async function streamZipToTarget(resp, fileHandle, filename, onProgress) {
+  const total = Number(resp.headers.get('content-length') || 0) || 0;
+  const reader = resp.body && resp.body.getReader ? resp.body.getReader() : null;
+  if (!reader) { // 老浏览器兜底：无进度
+    downloadBlob(await resp.blob(), filename);
     return;
   }
-  const blob = await resp.blob();
-  downloadBlob(blob, filename);
+  const writable = fileHandle ? await fileHandle.createWritable() : null;
+  const chunks = [];
+  let loaded = 0;
+  try {
+    for (;;) {
+      // eslint-disable-next-line no-await-in-loop
+      const { done, value } = await reader.read();
+      if (done) break;
+      loaded += value.byteLength;
+      // eslint-disable-next-line no-await-in-loop
+      if (writable) await writable.write(value); else chunks.push(value);
+      onProgress(loaded, total);
+    }
+    if (writable) { await writable.close(); return; }
+    downloadBlob(new Blob(chunks, { type: 'application/zip' }), filename);
+  } catch (e) {
+    if (writable) { try { await writable.abort(); } catch (_) { /* ignore */ } }
+    throw e;
+  }
 }
 
 function getFilenameFromContentDisposition(resp) {
@@ -64,6 +99,9 @@ export default function TransferStation() {
   const [busyKey, setBusyKey] = React.useState('');
   const busyKeyRef = React.useRef('');
   const setBusy = (k) => { busyKeyRef.current = k; setBusyKey(k); };
+  // 打包下载进度：{loaded, total, files}。服务端是流式打包(archiver 边拉边发)，没有 Content-Length，
+  // 所以 total 通常为 0 → 显示"已下载 X MB"+不定长动画条；万一有 CL 就显示真百分比。
+  const [packProgress, setPackProgress] = React.useState(null);
   const [hoverKey, setHoverKey] = React.useState(null);
   const [pressedKey, setPressedKey] = React.useState(null);
   const [dragOver, setDragOver] = React.useState(false);
@@ -244,14 +282,30 @@ export default function TransferStation() {
     }
 
     const zipName = `transfer_${Date.now()}`;
-    setBusy('pack');
-    try {
-      const token = (typeof window !== 'undefined') ? (localStorage.getItem('mamage_jwt_token') || '') : '';
-      if (!token) {
-        Toast.warning('打包下载需要先登录');
-        return;
-      }
+    const token = (typeof window !== 'undefined') ? (localStorage.getItem('mamage_jwt_token') || '') : '';
+    if (!token) {
+      Toast.warning('打包下载需要先登录');
+      return;
+    }
 
+    // ① 保存框必须在这里弹：还在用户手势里。放到 await fetch 之后会因 activation 过期抛
+    //    SecurityError，保存框弹不出来（旧版"点了打包没反应"就是这个）。
+    const handle = await pickZipSaveHandle(`${zipName}.zip`);
+    if (handle === 'abort') return; // 用户取消，不发请求
+    const fileHandle = handle || null;
+
+    setBusy('pack');
+    setPackProgress({ loaded: 0, total: 0, files: ids.length });
+    // 分块回调很密集，节流到 ~120ms 一次，避免每块都 setState 卡渲染
+    let lastTick = 0;
+    const onProgress = (loaded, total) => {
+      const now = Date.now();
+      if (now - lastTick < 120) return;
+      lastTick = now;
+      setPackProgress({ loaded, total, files: ids.length });
+    };
+
+    try {
       const resp = await fetch('/api/photos/zip', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -263,13 +317,14 @@ export default function TransferStation() {
         throw new Error(txt || `server responded ${resp.status}`);
       }
       const serverFilename = getFilenameFromContentDisposition(resp) || `${zipName}.zip`;
-      await downloadResponse(resp, serverFilename);
-      Toast.success('已开始打包下载');
+      await streamZipToTarget(resp, fileHandle, serverFilename, onProgress);
+      Toast.success('打包下载完成');
     } catch (e) {
       console.error('transfer pack download failed', e);
       Toast.error(`打包下载失败: ${e?.message || '请求错误'}`);
     } finally {
       setBusy('');
+      setPackProgress(null);
     }
   }, []);
 
@@ -772,6 +827,47 @@ export default function TransferStation() {
     transition: 'opacity 240ms ease, transform 300ms cubic-bezier(0.22, 1, 0.36, 1)',
   };
 
+  // 打包进度卡（桌面/手机共用）：fixed 贴视口——桌面在中转站左侧，手机浮在 FAB 上方
+  const packProgressNode = packProgress ? (
+    <div
+      style={{
+        position: 'fixed', zIndex: 2700,
+        ...(isMobile
+          ? { right: 12, bottom: 170 + vvInset.bottom, left: 12, width: 'auto' }
+          // 中转站浮窗占右缘 16~132px，进度卡放它左边不遮挡
+          : { right: 144, top: '50%', transform: 'translateY(-50%)', width: 212 }),
+        padding: '10px 12px', borderRadius: 12,
+        background: 'rgba(255,255,255,0.97)', border: '1px solid rgba(15,23,42,0.08)',
+        boxShadow: '0 10px 26px rgba(0,0,0,0.18)', pointerEvents: 'none',
+      }}
+    >
+      <style>{'@keyframes mm-pack-indet{0%{left:-40%}100%{left:100%}}'}</style>
+      <div style={{ fontSize: 12, fontWeight: 700, color: '#0f172a', marginBottom: 6 }}>
+        正在打包 {packProgress.files} 张照片…
+      </div>
+      <div style={{ position: 'relative', height: 6, borderRadius: 999, background: '#e5e7eb', overflow: 'hidden' }}>
+        {packProgress.total > 0 ? (
+          <div style={{
+            position: 'absolute', left: 0, top: 0, bottom: 0,
+            width: `${Math.min(100, (packProgress.loaded / packProgress.total) * 100)}%`,
+            background: 'linear-gradient(90deg,#2f2f2f,#101010)', borderRadius: 999, transition: 'width .12s linear',
+          }} />
+        ) : (
+          // 服务端流式打包无总长度 → 不定长动画条，只表达"在动"
+          <div style={{
+            position: 'absolute', top: 0, bottom: 0, width: '40%', borderRadius: 999,
+            background: 'linear-gradient(90deg,#2f2f2f,#101010)',
+            animation: 'mm-pack-indet 1.1s ease-in-out infinite',
+          }} />
+        )}
+      </div>
+      <div style={{ fontSize: 11, color: '#64748b', marginTop: 6, fontVariantNumeric: 'tabular-nums' }}>
+        已下载 {formatBytes(packProgress.loaded)}
+        {packProgress.total > 0 ? ` / ${formatBytes(packProgress.total)}` : ''}
+      </div>
+    </div>
+  ) : null;
+
   const triggerNode = (
     <div
       style={triggerStyle}
@@ -908,6 +1004,7 @@ export default function TransferStation() {
 
     const mobileNode = (
       <>
+        {packProgressNode}
         {open && (
           <div
             style={{
@@ -1126,6 +1223,8 @@ export default function TransferStation() {
       >
         <div style={{ padding: '7px 12px', borderRadius: 999, background: 'var(--liquid-glass-material-readable, rgba(255,255,255,0.72))', color: 'var(--lg-blue, #111)', fontSize: 12, fontWeight: 700, cursor: 'pointer', border: '1px solid rgba(255,255,255,0.62)', boxShadow: 'var(--liquid-glass-shadow-tight, 0 8px 18px rgba(0,0,0,0.096))', backdropFilter: 'blur(12px) saturate(1.3)', WebkitBackdropFilter: 'blur(12px) saturate(1.3)' }}>反馈问题</div>
       </a>
+
+      {packProgressNode}
 
       <Tooltip
         content={'中转站：支持“存入选中”或“直接拖拽照片”。可打包下载、复制富文本、分享外链。'}
