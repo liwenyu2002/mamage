@@ -3,6 +3,7 @@
 // 全局属性写回 blockConfig(body/accent/page)，画布与导出同源；统计只读；布局模式/编辑辅助为视图开关。
 import React from 'react';
 import { computeDocStats } from './docModel.js';
+import NumInput from './NumInput.jsx';
 import './composerTools.css';
 
 const ACCENTS = ['#1a1a1a', '#c0392b', '#1f4e8c', '#2f9e44', '#e8590c', '#7048e8', '#0c8599', '#d6336c'];
@@ -113,10 +114,10 @@ export default function ComposerToolRail({
       {openTool === 'props' && (
         <div className="ctr-panel">
           <div className="ctr-panel-title">全局属性</div>
-          <Stepper label="正文字号" display={`${fontSize}px`} onDec={() => setBody({ fontSize: clamp(fontSize - 1, 12, 30) })} onInc={() => setBody({ fontSize: clamp(fontSize + 1, 12, 30) })} />
-          <Stepper label="行距" display={lineHeight.toFixed(2)} onDec={() => setBody({ lineHeight: Math.round(clamp(lineHeight - 0.05, 1, 3) * 100) / 100 })} onInc={() => setBody({ lineHeight: Math.round(clamp(lineHeight + 0.05, 1, 3) * 100) / 100 })} />
-          <Stepper label="字间距" display={`${letterSpacing}px`} onDec={() => setBody({ letterSpacing: Math.round(clamp(letterSpacing - 0.5, 0, 8) * 10) / 10 })} onInc={() => setBody({ letterSpacing: Math.round(clamp(letterSpacing + 0.5, 0, 8) * 10) / 10 })} />
-          <Stepper label="段间距" display={`${paraSpacing}px`} onDec={() => setBody({ paraSpacing: clamp(paraSpacing - 2, 0, 80) })} onInc={() => setBody({ paraSpacing: clamp(paraSpacing + 2, 0, 80) })} />
+          <div className="ctr-row"><span className="ctr-row-label">正文字号</span><NumInput value={fontSize} onChange={(v) => setBody({ fontSize: v == null ? undefined : v })} min={12} max={40} step={1} suffix="px" /></div>
+          <div className="ctr-row"><span className="ctr-row-label">行距</span><NumInput value={lineHeight} onChange={(v) => setBody({ lineHeight: v == null ? undefined : v })} min={1} max={3} step={0.1} /></div>
+          <div className="ctr-row"><span className="ctr-row-label">字间距</span><NumInput value={letterSpacing} onChange={(v) => setBody({ letterSpacing: v == null ? undefined : v })} min={0} max={12} step={0.5} suffix="px" /></div>
+          <div className="ctr-row"><span className="ctr-row-label">段间距</span><NumInput value={paraSpacing} onChange={(v) => setBody({ paraSpacing: v == null ? undefined : v })} min={0} max={100} step={2} suffix="px" /></div>
           <div className="ctr-row">
             <span className="ctr-row-label">正文颜色</span>
             <input type="color" className="ctr-color" value={/^#[0-9a-fA-F]{6}$/.test(color) ? color : '#333333'} onChange={(e) => setBody({ color: e.target.value })} aria-label="正文颜色" />
@@ -147,7 +148,7 @@ export default function ComposerToolRail({
             <input type="color" className="ctr-color" value={/^#[0-9a-fA-F]{6}$/.test(pageBg) ? pageBg : '#ffffff'} onChange={(e) => setPage({ bg: e.target.value })} aria-label="页面背景" />
             <button type="button" className="ctr-mini" onClick={() => setPage({ bg: undefined })}>无</button>
           </div>
-          <Stepper label="左右留白" display={`${pagePad}px`} onDec={() => setPage({ paddingX: clamp(pagePad - 4, 0, 60) })} onInc={() => setPage({ paddingX: clamp(pagePad + 4, 0, 60) })} />
+          <div className="ctr-row"><span className="ctr-row-label">左右留白</span><NumInput value={pagePad} onChange={(v) => setPage({ paddingX: v == null ? undefined : v })} min={0} max={80} step={2} suffix="px" /></div>
           <button type="button" className="ctr-reset" onClick={() => onGlobalProps({ body: null, page: null })}>恢复默认</button>
         </div>
       )}

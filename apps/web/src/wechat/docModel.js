@@ -1047,6 +1047,64 @@ export function listRawPhotoGroups(html) {
  * @param {{widthPct?: number, radius?: number}} styleObj
  * @returns {string}
  */
+// ---- 布局模式：raw 块内某个嵌套元素的相对定位/边距编辑（按 element children 索引路径寻址）----
+function resolveElByPath(root, path) {
+  let node = root;
+  for (let i = 0; i < (path || []).length; i += 1) {
+    if (!node || !node.children || !node.children[path[i]]) return null;
+    node = node.children[path[i]];
+  }
+  return node === root ? null : node;
+}
+
+// 读回目标元素当前相关内联样式，供面板回显：{marginTop,Right,Bottom,Left(数值px|null), alignH, alignV}
+export function getElBoxStyle(html, path) {
+  try {
+    const doc = new DOMParser().parseFromString(`<div id="__r">${html || ''}</div>`, 'text/html');
+    const el = resolveElByPath(doc.getElementById('__r'), path);
+    if (!el) return null;
+    const s = el.style;
+    const px = (v) => { const n = parseFloat(v); return (v && /px$/.test(v) && Number.isFinite(n)) ? n : null; };
+    let alignH = null;
+    if (s.marginLeft === 'auto' && s.marginRight === 'auto') alignH = 'center';
+    else if (s.marginLeft === 'auto') alignH = 'right';
+    else if (s.marginRight === 'auto') alignH = 'left';
+    const alignV = { 'flex-start': 'top', center: 'middle', 'flex-end': 'bottom' }[s.alignSelf] || null;
+    return {
+      marginTop: px(s.marginTop),
+      marginRight: s.marginRight === 'auto' ? null : px(s.marginRight),
+      marginBottom: px(s.marginBottom),
+      marginLeft: s.marginLeft === 'auto' ? null : px(s.marginLeft),
+      alignH, alignV,
+    };
+  } catch (e) { return null; }
+}
+
+// 写回目标元素样式。patch: marginTop/Right/Bottom/Left(px 数值,可负,null=清)、alignH('left'|'center'|'right'|null)、alignV('top'|'middle'|'bottom'|null)
+export function setElBoxStyle(html, path, patch) {
+  try {
+    const doc = new DOMParser().parseFromString(`<div id="__r">${html || ''}</div>`, 'text/html');
+    const root = doc.getElementById('__r');
+    const el = resolveElByPath(root, path);
+    if (!el) return html;
+    const p = patch || {};
+    const setPx = (k, v) => { el.style[k] = (v == null ? '' : `${Number(v)}px`); };
+    if ('marginTop' in p) setPx('marginTop', p.marginTop);
+    if ('marginBottom' in p) setPx('marginBottom', p.marginBottom);
+    if ('alignH' in p) {
+      if (p.alignH === 'center') { el.style.marginLeft = 'auto'; el.style.marginRight = 'auto'; }
+      else if (p.alignH === 'right') { el.style.marginLeft = 'auto'; el.style.marginRight = '0'; }
+      else if (p.alignH === 'left') { el.style.marginLeft = '0'; el.style.marginRight = 'auto'; }
+      else { el.style.marginLeft = ''; el.style.marginRight = ''; }
+      if (p.alignH && el.tagName === 'IMG') el.style.display = 'block'; // 行内图需转块级才能 margin 居中
+    }
+    if ('marginLeft' in p) setPx('marginLeft', p.marginLeft); // 显式左右边距覆盖对齐 auto
+    if ('marginRight' in p) setPx('marginRight', p.marginRight);
+    if ('alignV' in p) { el.style.alignSelf = { top: 'flex-start', middle: 'center', bottom: 'flex-end' }[p.alignV] || ''; }
+    return root.innerHTML;
+  } catch (e) { return html; }
+}
+
 export function applyRawImgStyle(html, imgIndex, styleObj) {
   const input = String(html == null ? '' : html);
   if (!Number.isInteger(imgIndex) || imgIndex < 0) return input;

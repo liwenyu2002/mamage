@@ -9,8 +9,9 @@ import { applyBlock, BUILTIN_BLOCKS_BY_ID, WECHAT_THEMES } from './themes.js';
 import {
   makeUid, sanitizeParaHtml, sanitizeRawHtml,
   splitRawHtml, applyRawImgStyle, isRawPhotoEl, listRawPhotos, splitPastedToParagraphs,
-  spacingToStyleObject,
+  spacingToStyleObject, getElBoxStyle, setElBoxStyle,
 } from './docModel.js';
+import NumInput from './NumInput.jsx';
 import { beginDrag, registerDropZone } from './pointerDrag.js';
 import { applyThemeMasksToEl, derivePalette } from './themeColor.js';
 import './canvas.css';
@@ -196,6 +197,31 @@ function blockTypeLabel(block) {
     return { h2: '标题', h3: '小标题', quote: '引用', imageCard: '图片', divider: '分隔线', signoff: '落款' }[block.type] || '样式块';
   }
   return '块';
+}
+
+// 布局模式元素寻址：从 host(raw-host) 到 target 的 element children 索引路径；resolve 反向定位。
+// 与 docModel.setElBoxStyle 用同一口径（element children），两端(live DOM / DOMParser)解析同一 html 树形一致。
+function computeLiveElPath(host, target) {
+  if (!host || !target || target === host || !host.contains(target)) return null;
+  const path = [];
+  let node = target;
+  while (node && node !== host) {
+    const parent = node.parentElement;
+    if (!parent) return null;
+    const idx = Array.prototype.indexOf.call(parent.children, node);
+    if (idx < 0) return null;
+    path.unshift(idx);
+    node = parent;
+  }
+  return (node === host && path.length) ? path : null;
+}
+function resolveLiveElPath(host, path) {
+  let node = host;
+  for (let i = 0; i < (path || []).length; i += 1) {
+    if (!node || !node.children || !node.children[path[i]]) return null;
+    node = node.children[path[i]];
+  }
+  return node === host ? null : node;
 }
 
 function resolveStyleBlock(blocksById, block) {
@@ -505,19 +531,8 @@ function BlockToolbar({
     execTextCommand(getHostEl(), cmd, value);
   };
 
-  // 块级间距微调（行距 + 四向边距，边距可负）。存 block.spacing，画布与导出同源。
+  // 块级间距微调（行距 + 四向边距，边距可负，数值可手动输入）。存 block.spacing，画布与导出同源。
   const spacing = block.spacing || {};
-  const SPACING_BASE_LH = 1.75; // 正文默认行距，未设置时以此为步进基点
-  const clampNum = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
-  const stepLine = (d) => {
-    const cur = spacing.lineHeight != null ? Number(spacing.lineHeight) : SPACING_BASE_LH;
-    const next = Math.round(clampNum(cur + d, 1, 3) * 10) / 10;
-    onSpacing({ ...spacing, lineHeight: next });
-  };
-  const stepMargin = (key, d) => {
-    const cur = spacing[key] != null ? Number(spacing[key]) : 0;
-    onSpacing({ ...spacing, [key]: clampNum(cur + d, -120, 240) });
-  };
   const resetSpacing = () => onSpacing(null);
   const MARGIN_FIELDS = [
     ['marginTop', '上边距'], ['marginBottom', '下边距'],
@@ -635,16 +650,12 @@ function BlockToolbar({
               <div className="cve-spacing-menu" onPointerDown={toolbarRowGuard}>
                 <div className="cve-spacing-row">
                   <span className="cve-spacing-label">行距</span>
-                  <button type="button" className="cve-spacing-step" onPointerDown={toolbarRowGuard} onClick={() => stepLine(-0.1)} aria-label="减小行距">−</button>
-                  <span className="cve-spacing-val">{spacing.lineHeight != null ? Number(spacing.lineHeight).toFixed(1) : '默认'}</span>
-                  <button type="button" className="cve-spacing-step" onPointerDown={toolbarRowGuard} onClick={() => stepLine(0.1)} aria-label="增大行距">＋</button>
+                  <NumInput value={spacing.lineHeight != null ? Number(spacing.lineHeight) : null} onChange={(v) => onSpacing({ ...spacing, lineHeight: v })} min={1} max={3} step={0.1} placeholder="默认" guard={toolbarRowGuard} />
                 </div>
                 {MARGIN_FIELDS.map(([key, label]) => (
                   <div className="cve-spacing-row" key={key}>
                     <span className="cve-spacing-label">{label}</span>
-                    <button type="button" className="cve-spacing-step" onPointerDown={toolbarRowGuard} onClick={() => stepMargin(key, -2)} aria-label={`减小${label}`}>−</button>
-                    <span className="cve-spacing-val">{spacing[key] != null ? `${spacing[key]}px` : '0'}</span>
-                    <button type="button" className="cve-spacing-step" onPointerDown={toolbarRowGuard} onClick={() => stepMargin(key, 2)} aria-label={`增大${label}`}>＋</button>
+                    <NumInput value={spacing[key] != null ? Number(spacing[key]) : null} onChange={(v) => onSpacing({ ...spacing, [key]: v })} min={-200} max={400} step={2} suffix="px" placeholder="0" guard={toolbarRowGuard} />
                   </div>
                 ))}
                 <button type="button" className="cve-spacing-reset" onPointerDown={toolbarRowGuard} onClick={resetSpacing}>清除间距</button>
@@ -808,6 +819,57 @@ function BlockWrapper({
 }
 
 // ---------------------------------------------------------------------------
+// 布局模式·元素检查器：选中 raw 块内某个嵌套元素后，浮在它上方，调它在父容器内的
+// 相对定位（左右/上下居中对齐）与四向边距偏移（可负、可手动输入）。
+// ---------------------------------------------------------------------------
+function ElementInspector({ rect, box, onApply, onClose }) {
+  const b = box || {};
+  const flipBelow = rect.top < 176; // 靠画布顶时翻到元素下方，防裁
+  const style = {
+    left: Math.max(4, Math.round(rect.left)),
+    top: flipBelow ? Math.round(rect.top + rect.height + 8) : Math.round(rect.top - 8),
+    transform: flipBelow ? 'none' : 'translateY(-100%)',
+  };
+  const seg = (dim, val, label) => (
+    <button
+      type="button"
+      className={`cve-elx-seg${b[dim] === val ? ' is-on' : ''}`}
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={() => onApply({ [dim]: b[dim] === val ? null : val })}
+    >{label}</button>
+  );
+  const mField = (key, label) => (
+    <div className="cve-elx-mrow">
+      <span>{label}</span>
+      <NumInput value={b[key] != null ? b[key] : null} onChange={(v) => onApply({ [key]: v })} min={-400} max={400} step={2} suffix="px" placeholder="0" />
+    </div>
+  );
+  return (
+    <div className="cve-elx" style={style} onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
+      <div className="cve-elx-head">
+        <span className="cve-elx-title">元素定位 / 边距</span>
+        <button type="button" className="cve-elx-close" onClick={onClose} aria-label="取消选中">×</button>
+      </div>
+      <div className="cve-elx-row">
+        <span className="cve-elx-label">水平</span>
+        <div className="cve-elx-seg-group">{seg('alignH', 'left', '左')}{seg('alignH', 'center', '居中')}{seg('alignH', 'right', '右')}</div>
+      </div>
+      <div className="cve-elx-row">
+        <span className="cve-elx-label">垂直</span>
+        <div className="cve-elx-seg-group">{seg('alignV', 'top', '上')}{seg('alignV', 'middle', '居中')}{seg('alignV', 'bottom', '下')}</div>
+      </div>
+      <div className="cve-elx-margins">
+        {mField('marginTop', '上')}
+        {mField('marginBottom', '下')}
+        {mField('marginLeft', '左')}
+        {mField('marginRight', '右')}
+      </div>
+      <p className="cve-elx-hint">垂直居中仅在弹性容器内生效；水平居中对定宽元素/图片有效。</p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // 画布主组件
 // ---------------------------------------------------------------------------
 function CanvasEditor({
@@ -845,6 +907,24 @@ function CanvasEditor({
     if (activeRawImg.uid !== selectedUid) setActiveRawImg(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedUid]);
+
+  // 布局模式下选中的"单一元素"：{ uid, path }（path=从 raw-host 到该元素的 element children 索引）+ 屏幕矩形（供检查器定位）
+  const [elSel, setElSel] = React.useState(null);
+  const [elSelRect, setElSelRect] = React.useState(null);
+  React.useEffect(() => { if (!layoutMode) { setElSel(null); setElSelRect(null); } }, [layoutMode]);
+  // 高亮选中元素 + 计算其相对画布的矩形（doc/elSel 变化后重算，因 raw 重绘会换 DOM 节点）
+  React.useLayoutEffect(() => {
+    const canvas = canvasRef.current;
+    if (canvas) canvas.querySelectorAll('[data-cve-elsel]').forEach((n) => n.removeAttribute('data-cve-elsel'));
+    if (!elSel || !canvas) { return; }
+    const host = canvas.querySelector(`.cve-block[data-cve-uid="${elSel.uid}"] .cve-raw-host`);
+    const el = host ? resolveLiveElPath(host, elSel.path) : null;
+    if (!el) { setElSelRect(null); return; }
+    el.setAttribute('data-cve-elsel', '1');
+    const cr = canvas.getBoundingClientRect();
+    const r = el.getBoundingClientRect();
+    setElSelRect({ top: r.top - cr.top, left: r.left - cr.left, width: r.width, height: r.height });
+  }, [elSel, doc]);
 
   // 浮动工具条锚点：{ top, flip } | null。top=工具条相对选中块顶部的 px 偏移，flip=放锚点下方。
   // 长容器里工具条不再钉块顶（改块下方内容时够不到），而是跟随光标/选区/选中图片的垂直位置。
@@ -936,6 +1016,20 @@ function CanvasEditor({
     const next = list.map((b) => (b.uid === uid ? { ...b, ...patch } : b));
     onChange(next, opts);
   }, [list, onChange]);
+
+  // 布局模式：把某个 raw 块内嵌套元素的相对定位/边距改写进 html（持久、可撤销、导出同源）
+  const elSelBlock = elSel ? list.find((b) => b.uid === elSel.uid) : null;
+  const elBox = React.useMemo(
+    () => (elSelBlock && elSelBlock.kind === 'raw' ? getElBoxStyle(elSelBlock.html || '', elSel.path) : null),
+    [elSelBlock, elSel]
+  );
+  const applyElBox = React.useCallback((patch) => {
+    if (!elSel) return;
+    const block = list.find((b) => b.uid === elSel.uid);
+    if (!block || block.kind !== 'raw') return;
+    const nextHtml = setElBoxStyle(block.html || '', elSel.path, patch);
+    updateBlock(elSel.uid, { html: sanitizeRawHtml(nextHtml) });
+  }, [elSel, list, updateBlock]);
 
   const moveBlock = React.useCallback((uid, dir) => {
     const idx = list.findIndex((b) => b.uid === uid);
@@ -1067,7 +1161,22 @@ function CanvasEditor({
   }, [selectedUid, deleteBlock]);
 
   const handleCanvasClick = (e) => {
-    if (e.target === canvasRef.current) { onSelect(null); clearMultiSel(); }
+    if (e.target === canvasRef.current) { onSelect(null); clearMultiSel(); setElSel(null); }
+  };
+
+  // 布局模式：捕获阶段拦截点击 → 选中被点的"单一元素"（仅 raw 块内），改由元素检查器编辑其相对定位/边距。
+  // 抢在块选中/图片选中之前，避免层内点击穿透误触。点 raw 空白/host 本身=取消选中。
+  const handleLayoutClickCapture = (e) => {
+    if (!layoutMode) return;
+    const host = e.target.closest && e.target.closest('.cve-raw-host');
+    if (!host) return; // 非 raw 块：放行常规行为（para/styled 用块级间距即可）
+    const blockEl = host.closest('.cve-block');
+    const uid = blockEl && blockEl.getAttribute('data-cve-uid');
+    e.preventDefault();
+    e.stopPropagation();
+    const path = computeLiveElPath(host, e.target);
+    if (!uid || !path) { setElSel(null); return; }
+    setElSel({ uid, path });
   };
 
   // 每次渲染刷新 ref，drop zone 回调永远读到最新的 doc 与回调 props
@@ -1320,10 +1429,14 @@ function CanvasEditor({
       className={canvasClass}
       ref={canvasRef}
       style={pageStyle || undefined}
+      onClickCapture={handleLayoutClickCapture}
       onClick={handleCanvasClick}
       onPointerDown={handleCanvasPointerDown}
       onDragStart={(e) => e.preventDefault()}
     >
+      {layoutMode && elSel && elSelRect && (
+        <ElementInspector rect={elSelRect} box={elBox} onApply={applyElBox} onClose={() => setElSel(null)} />
+      )}
       {boxRect && (
         <div
           className="cve-rubber"

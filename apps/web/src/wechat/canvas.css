@@ -513,10 +513,62 @@ body.cve-box-selecting * {
   white-space: nowrap;
 }
 .cve-spacing-row {
-  display: grid;
-  grid-template-columns: 42px 26px 46px 26px;
+  display: flex;
   align-items: center;
-  gap: 5px;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* 数值输入组（行距/边距/字号等，手动键入 + 步进）——中性配色，深浅底皆可读 */
+.cve-numin { display: inline-flex; align-items: center; gap: 3px; }
+.cve-numin-btn {
+  width: 22px; height: 24px; border: none; border-radius: 6px;
+  background: rgba(128, 128, 128, 0.22); color: inherit;
+  font-size: 14px; line-height: 1; cursor: pointer;
+}
+.cve-numin-btn:hover { background: rgba(128, 128, 128, 0.4); }
+.cve-numin-input {
+  height: 24px; box-sizing: border-box;
+  border: 1px solid rgba(128, 128, 128, 0.4); border-radius: 6px;
+  background: #fff; color: #111; font-size: 12.5px; text-align: center;
+  padding: 0 4px; font-variant-numeric: tabular-nums;
+}
+.cve-numin-input:focus { outline: none; border-color: #2563eb; }
+.cve-numin-suffix { font-size: 11px; opacity: 0.55; }
+
+/* 布局模式·元素检查器（浮在选中元素上方，深色玻璃） */
+.cve-elx {
+  position: absolute;
+  z-index: 40;
+  width: 210px;
+  padding: 8px 10px 10px;
+  border-radius: 12px;
+  background: rgba(20, 22, 28, 0.96);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.36);
+  color: #f2f2f7;
+  cursor: default;
+}
+.cve-elx-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.cve-elx-title { font-size: 12px; font-weight: 700; }
+.cve-elx-close { border: none; background: transparent; color: rgba(255, 255, 255, 0.7); font-size: 16px; line-height: 1; cursor: pointer; }
+.cve-elx-close:hover { color: #fff; }
+.cve-elx-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.cve-elx-label { width: 30px; font-size: 12px; color: rgba(255, 255, 255, 0.66); }
+.cve-elx-seg-group { display: inline-flex; border-radius: 7px; overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.16); }
+.cve-elx-seg { padding: 3px 10px; border: none; background: transparent; color: #e6e6ea; font-size: 12px; cursor: pointer; }
+.cve-elx-seg:hover { background: rgba(255, 255, 255, 0.12); }
+.cve-elx-seg.is-on { background: #2563eb; color: #fff; }
+.cve-elx-margins { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; margin-top: 4px; }
+.cve-elx-mrow { display: flex; align-items: center; gap: 5px; }
+.cve-elx-mrow > span { width: 12px; font-size: 12px; color: rgba(255, 255, 255, 0.66); }
+.cve-elx-mrow .cve-numin-input { width: 40px; }
+.cve-elx-hint { margin: 8px 0 0; font-size: 10.5px; line-height: 1.5; color: rgba(255, 255, 255, 0.5); }
+
+/* 选中的单一元素高亮 */
+.cve-canvas--layout [data-cve-elsel] {
+  outline: 2px solid #2563eb !important;
+  outline-offset: -1px !important;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
 }
 .cve-spacing-label {
   color: rgba(255, 255, 255, 0.72);
