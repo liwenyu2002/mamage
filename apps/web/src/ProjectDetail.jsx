@@ -27,7 +27,7 @@ import {
 import './ProjectDetail.css';
 import { getProjectById, updateProject, deleteProject, createTimelineSection, updateTimelineSection, deleteTimelineSection, reorderTimelineSections } from './services/projectService';
 import { getToken } from './services/authService';
-import { fetchRandomByProject, searchPhotos, getPhotoById, updatePhoto, assignPhotosTimelineSection, getFacePersonInfo, labelFacePerson, renameFacePerson, uploadPhotoFiles, warmUploadApiProbe, deletePhotos, getPhotoFaces, getUploadFileLimitError, runGroupRescueJob } from './services/photoService';
+import { fetchRandomByProject, searchPhotos, getPhotoById, updatePhoto, assignPhotosTimelineSection, getFacePersonInfo, labelFacePerson, renameFacePerson, uploadPhotoFiles, warmUploadApiProbe, deletePhotos, getPhotoFaces, getUploadFileLimitError, runGroupRescueJob, isBrowserUndisplayableImage, undisplayableFormatLabel } from './services/photoService';
 import { resolveAssetUrl, BASE_URL } from './services/request';
 import IfCan from './permissions/IfCan';
 import PermButton from './permissions/PermButton';
@@ -1912,7 +1912,7 @@ function ProjectDetail({
       if (fresh.length) {
         setStagingPreviews((prev) => [
           ...(prev || []),
-          ...fresh.map((file) => (isVideoMeta(file) ? '' : URL.createObjectURL(file))),
+          ...fresh.map((file) => (isVideoMeta(file) || isBrowserUndisplayableImage(file) ? '' : URL.createObjectURL(file))),
         ]);
         setStagingSectionIds((prev) => [
           ...(prev || []),
@@ -5703,6 +5703,7 @@ function ProjectDetail({
                       {group.items.map((item) => {
                         const itemProgress = uploadProgress?.items?.[getUploadFileKey(item.file)] || null;
                         const isPreviewVideo = isVideoMeta(item.file);
+                        const isPreviewUndisplayable = !isPreviewVideo && isBrowserUndisplayableImage(item.file);
                         return (
                           <div
                             key={`${item.index}-${item.preview || item.file.name}`}
@@ -5714,6 +5715,13 @@ function ProjectDetail({
                                   <span>VIDEO</span>
                                 </span>
                                 <span className="detail-upload-preview-video-badge">视频</span>
+                              </>
+                            ) : isPreviewUndisplayable ? (
+                              <>
+                                <span className="detail-upload-preview-video-placeholder">
+                                  <span>{undisplayableFormatLabel(item.file)}</span>
+                                </span>
+                                <span className="detail-upload-preview-video-badge">转JPEG</span>
                               </>
                             ) : (
                               <img src={item.preview} alt={`preview-${item.index}`} className="detail-upload-preview-media" />

@@ -2,7 +2,7 @@
 import { Modal, Input, TextArea, DatePicker, DateTimePicker, Toast } from './ui';
 import { sectionTimeToInputValue, inputValueToSectionTime } from './utils/sectionTime';
 import './CreateAlbumModal.css';
-import { getUploadFileLimitError, uploadPhotoFiles } from './services/photoService';
+import { getUploadFileLimitError, uploadPhotoFiles, isBrowserUndisplayableImage, undisplayableFormatLabel } from './services/photoService';
 import { getProjectById } from './services/projectService';
 import { getPermissions } from './permissions/permissionStore';
 import {
@@ -240,7 +240,8 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
       const combined = [...prevFiles, ...toAdd];
 
       setStagingPreviews((prevPreviews) => {
-        const newPreviews = toAdd.map((f) => (isVideoFile(f) ? '' : URL.createObjectURL(f)));
+        // HEIC/TIFF 等浏览器显示不了：不建 objectURL（会破损），留空走占位图
+        const newPreviews = toAdd.map((f) => (isVideoFile(f) || isBrowserUndisplayableImage(f) ? '' : URL.createObjectURL(f)));
         return [...prevPreviews, ...newPreviews];
       });
       setStagingSectionKeys((prevKeys) => [...prevKeys, ...toAdd.map(() => String(sectionKey || ''))]);
@@ -544,6 +545,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
                   <div className="cam-preview-row">
                     {group.items.map((item) => {
                       const isVideo = isVideoFile(item.file);
+                      const undisplayable = !isVideo && isBrowserUndisplayableImage(item.file);
                       return (
                         <div key={item.index} className="cam-preview-item">
                           {isVideo ? (
@@ -552,6 +554,13 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
                                 <span>VIDEO</span>
                               </span>
                               <span className="cam-preview-video-badge">视频</span>
+                            </>
+                          ) : undisplayable ? (
+                            <>
+                              <span className="cam-preview-video-placeholder">
+                                <span>{undisplayableFormatLabel(item.file)}</span>
+                              </span>
+                              <span className="cam-preview-video-badge">转JPEG</span>
                             </>
                           ) : (
                             <img src={item.preview} alt={`preview-${item.index}`} className="cam-preview-media" />

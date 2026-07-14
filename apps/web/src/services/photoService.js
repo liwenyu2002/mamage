@@ -550,10 +550,27 @@ function getFileExt(name) {
 }
 
 // 前端支持的格式（与后端 ALLOWED_IMAGE_MIMES / ALLOWED_VIDEO_MIMES 对齐）。HEIC 由后端转码为 JPEG。
-const SUPPORTED_IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.heic', '.heif']);
+// avif 浏览器可显示、sharp 可处理，纯增；heic/heif/tiff 浏览器 <img> 显示不了（heic/tiff 由后端转 JPEG）。
+const SUPPORTED_IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.avif', '.heic', '.heif', '.tif', '.tiff']);
 const SUPPORTED_VIDEO_EXTS = new Set(['.mp4', '.m4v', '.mov', '.webm', '.ogg', '.ogv']);
-const SUPPORTED_IMAGE_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif']);
+const SUPPORTED_IMAGE_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif', 'image/heic', 'image/heif', 'image/tiff']);
 const SUPPORTED_VIDEO_MIMES = new Set(['video/mp4', 'video/quicktime', 'video/webm', 'video/ogg', 'video/x-m4v']);
+
+// 浏览器的 <img>/createObjectURL 无法直接显示的图片格式：本地预览会破损，须用占位图而非坏图，
+// 且不能走对象存储直传（原图存了也显示不了），一律走后端转码为 JPEG。
+const BROWSER_UNDISPLAYABLE_EXTS = new Set(['.heic', '.heif', '.tif', '.tiff']);
+export function isBrowserUndisplayableImage(file) {
+  if (!file) return false;
+  const ext = getFileExt(file.name);
+  const mime = String(file.type || '').toLowerCase();
+  return BROWSER_UNDISPLAYABLE_EXTS.has(ext) || /image\/(heic|heif|tiff|heic-sequence|heif-sequence)/.test(mime);
+}
+// 预览角标文案：HEIC / TIFF …（拿不到就用「原图」）
+export function undisplayableFormatLabel(file) {
+  const ext = getFileExt(file && file.name).replace('.', '').toUpperCase();
+  if (ext === 'TIF') return 'TIFF';
+  return ext || 'RAW';
+}
 
 // 上传前校验：不支持的格式直接返回原因（就地拦掉，不跑进度条），支持则返回 null。
 function getUnsupportedReason(file) {
@@ -576,7 +593,7 @@ function isHeicFile(file) {
 function canTryDirectUpload(file) {
   if (!file || typeof File === 'undefined' || !(file instanceof File)) return false;
   if (typeof window !== 'undefined' && window.__MAMAGE_DISABLE_DIRECT_UPLOAD__) return false;
-  if (isHeicFile(file)) return false; // HEIC 必须走服务端转码为 JPEG，不能直传对象存储（存了也不能显示）
+  if (isBrowserUndisplayableImage(file)) return false; // HEIC/TIFF 等必须走服务端转码为 JPEG，不能直传（存了也显示不了）
   const mime = String(file.type || '').toLowerCase();
   const ext = getFileExt(file.name);
   return mime.startsWith('image/') || ['.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(ext);
