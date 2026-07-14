@@ -405,12 +405,44 @@ function computeParaBodyStyles(bodyConfig, accent) {
   const textIndent = Boolean(body.textIndent);
   const align = justify ? 'justify' : 'left';
   const indent = textIndent ? 'text-indent:2em;' : '';
+  // 全局属性可自定义：字间距 / 正文色 / 段间距（未设置时沿用原默认值，保持向后兼容）
+  const letterSpacing = body.letterSpacing != null ? `${Number(body.letterSpacing)}px` : '0.03em';
+  const color = HEX_COLOR_RE.test(String(body.color || '')) ? body.color : '#333333';
+  const paraSpacing = body.paraSpacing != null ? Number(body.paraSpacing) : 20;
   return {
-    p: `font-size:${fontSize}px;line-height:${lineHeight};color:#333333;letter-spacing:0.03em;text-align:${align};${indent}margin:0 0 20px;`,
+    p: `font-size:${fontSize}px;line-height:${lineHeight};color:${color};letter-spacing:${letterSpacing};text-align:${align};${indent}margin:0 0 ${paraSpacing}px;`,
     strong: `font-weight:700;color:${accent};`,
     em: 'color:#666666;font-style:italic;',
     a: `color:${accent};text-decoration:underline;`,
   };
+}
+
+// 页面级样式（背景色 / 左右留白）→ 外层 section 内联样式片段。默认无（不改变既有观感）。
+export function computePageStyleString(page) {
+  const p = page || {};
+  let css = '';
+  if (HEX_COLOR_RE.test(String(p.bg || ''))) css += `background-color:${p.bg};`;
+  const padX = Number(p.paddingX);
+  if (p.paddingX != null && Number.isFinite(padX) && padX > 0) css += `padding-left:${padX}px;padding-right:${padX}px;`;
+  return css;
+}
+
+// 全文统计：字数（中文按字、英文按词）、字符、块/段、图片、预计阅读分钟。纯函数，UI 直接用。
+export function computeDocStats(doc) {
+  const text = docToPlainText(doc) || '';
+  const cjk = (text.match(/[一-鿿㐀-䶿]/g) || []).length;
+  const words = (text.match(/[A-Za-z0-9]+(?:['-][A-Za-z0-9]+)*/g) || []).length;
+  const chars = text.replace(/\s/g, '').length; // 不含空白的字符数
+  const blocks = Array.isArray(doc) ? doc.filter(Boolean) : [];
+  const textBlocks = blocks.filter((b) => b.kind === 'para' || b.kind === 'raw' || (b.kind === 'styled' && (b.type === 'h2' || b.type === 'h3' || b.type === 'quote' || b.type === 'signoff')));
+  let images = 0;
+  blocks.forEach((b) => {
+    if (b.kind === 'styled' && b.type === 'imageCard') images += 1;
+    else if (b.kind === 'raw') images += (String(b.html || '').match(/<img\b/gi) || []).length;
+  });
+  const wordCount = cjk + words; // 中文字 + 英文词
+  const readMinutes = Math.max(1, Math.round(wordCount / 350)); // 约 350 字/分钟
+  return { wordCount, cjk, words, chars, blocks: blocks.length, paragraphs: textBlocks.length, images, readMinutes };
 }
 
 // 块级间距微调（行距 line-height + 四向边距，边距可负）。存于 block.spacing，画布与导出同源应用。
@@ -566,7 +598,7 @@ export function docToHtmlRaw(doc, options) {
     return applyBlock(styleBlock, { content: escapeContentWithBreaks(block.content || ''), accent });
   });
 
-  const html = `<section style="font-family:${FONT_STACK};color:#333333;">${parts.join('\n')}</section>`;
+  const html = `<section style="font-family:${FONT_STACK};color:#333333;${computePageStyleString(opts.page)}">${parts.join('\n')}</section>`;
   return { html, imageCount };
 }
 

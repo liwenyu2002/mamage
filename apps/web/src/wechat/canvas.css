@@ -52,6 +52,29 @@
   outline-offset: 6px;
 }
 
+/* ---- 布局模式 / 编辑辅助（视图开关，不影响导出）---- */
+.cve-canvas--layout .cve-block:not(.cve-block--selected),
+.cve-aid-outline .cve-block:not(.cve-block--selected) {
+  outline: 1px dashed rgba(0, 0, 0, 0.28);
+  outline-offset: 4px;
+}
+.cve-canvas--layout { background-image: linear-gradient(rgba(0, 0, 0, 0.015) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 0, 0, 0.015) 1px, transparent 1px); background-size: 16px 16px; }
+.cve-aid-zebra .cve-block--even { background: rgba(0, 0, 0, 0.035); }
+.cve-block-badge {
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  z-index: 6;
+  padding: 1px 7px;
+  font-size: 10.5px;
+  line-height: 1.6;
+  border-radius: 7px 0 7px 0;
+  background: rgba(17, 17, 17, 0.82);
+  color: #fff;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
 /* 框选命中的块：虚线蓝边区别于单选实线黑边 */
 .cve-block--multi:not(.cve-block--selected) {
   outline: 2px dashed #2f6bd6;

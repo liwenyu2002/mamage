@@ -10,6 +10,7 @@ import {
 import { THEME_PRESETS, BUILTIN_BLOCKS_BY_ID, applyBlock } from './wechat/themes';
 import { copyWechatRichText, downloadImagePack } from './wechat/wechatExport';
 import CanvasEditor from './wechat/CanvasEditor';
+import ComposerToolRail from './wechat/ComposerToolRail';
 import AlbumPanel from './wechat/AlbumPanel';
 import FavoritesPanel from './wechat/FavoritesPanel';
 import ImportPreviewModal from './wechat/ImportPreviewModal';
@@ -256,6 +257,21 @@ function WechatComposer() {
   const [libraryOpen, setLibraryOpen] = React.useState(false);
   const [libType, setLibType] = React.useState('h2');
   const [sideTab, setSideTab] = React.useState('style'); // 左侧面板顶层 Tab：style|album|fav
+  // 秀米式工具栏视图开关（布局模式 / 编辑辅助），仅影响画布显示，不入草稿/导出；单独存本地
+  const [layoutMode, setLayoutMode] = React.useState(false);
+  const [editAids, setEditAids] = React.useState({ outline: false, index: false, zebra: false });
+  React.useEffect(() => {
+    try {
+      const v = JSON.parse(localStorage.getItem('wechat-composer-view') || 'null');
+      if (v && typeof v === 'object') {
+        if (typeof v.layoutMode === 'boolean') setLayoutMode(v.layoutMode);
+        if (v.editAids && typeof v.editAids === 'object') setEditAids((prev) => ({ ...prev, ...v.editAids }));
+      }
+    } catch (e) { /* ignore */ }
+  }, []);
+  React.useEffect(() => {
+    try { localStorage.setItem('wechat-composer-view', JSON.stringify({ layoutMode, editAids })); } catch (e) { /* ignore */ }
+  }, [layoutMode, editAids]);
   // 已访问过的 Tab 保持挂载（用 display 切换而非卸载），避免切走再切回丢失搜索词/滚动位置；
   // 但首次仍是懒加载——没点过的 Tab 不挂载、不发请求
   const [visitedTabs, setVisitedTabs] = React.useState(() => ({ style: true }));
@@ -350,6 +366,19 @@ function WechatComposer() {
     () => blockConfig || THEME_PRESETS[themeKey] || THEME_PRESETS[DEFAULT_THEME_KEY],
     [blockConfig, themeKey]
   );
+  // 全局属性写回 blockConfig（body/accent/page）——一改即转为自定义配置，随草稿/文件持久化。
+  // patch 是 {body?,accent?,page?} 顶层片段（body/page 传 null=复位默认）；ComposerToolRail 已合好子对象。
+  const handleGlobalProps = React.useCallback((patch) => {
+    setBlockConfig({ ...effectiveConfig, ...patch });
+  }, [effectiveConfig]);
+  // 页面级样式（背景/左右留白）→ 画布内联样式对象（导出侧走 docModel.computePageStyleString）
+  const pageStyle = React.useMemo(() => {
+    const p = effectiveConfig.page || {};
+    const st = {};
+    if (/^#[0-9a-fA-F]{6}$/.test(String(p.bg || ''))) st.backgroundColor = p.bg;
+    if (p.paddingX != null && Number(p.paddingX) > 0) { st.paddingLeft = `${Number(p.paddingX)}px`; st.paddingRight = `${Number(p.paddingX)}px`; }
+    return Object.keys(st).length ? st : null;
+  }, [effectiveConfig.page]);
   const blocksById = React.useMemo(() => {
     const map = { ...BUILTIN_BLOCKS_BY_ID };
     // 收藏快照先铺底（原 db 块被删后收藏/草稿仍可渲染），在库的真实块随后覆盖（数据更新鲜）
@@ -366,7 +395,7 @@ function WechatComposer() {
   const previewBodyHtml = React.useMemo(() => {
     if (!articlePreviewOpen) return '';
     try {
-      return docToHtml(doc, { blocksById, globalAccent: effectiveConfig.accent, body: effectiveConfig.body }).html;
+      return docToHtml(doc, { blocksById, globalAccent: effectiveConfig.accent, body: effectiveConfig.body, page: effectiveConfig.page }).html;
     } catch (e) {
       return '';
     }
@@ -856,7 +885,7 @@ function WechatComposer() {
     if (!docHasContent) { Toast.warning('画布还是空的，先从样式库插入内容'); return; }
     try {
       // 画布与复制共用 docToHtml 同源渲染（所见即所得）；标题填在公众号后台标题栏，不进正文
-      const { html } = docToHtml(doc, { blocksById, globalAccent: effectiveConfig.accent, body: effectiveConfig.body });
+      const { html } = docToHtml(doc, { blocksById, globalAccent: effectiveConfig.accent, body: effectiveConfig.body, page: effectiveConfig.page });
       // 复制到公众号:①把 /api/wx-img 代理链还原为原始 mmbiz(代理链仅本站预览用,微信里无效);
       // ②把无文字图片容器的 CSS 背景图展平成 <img>——微信粘贴会强剥背景图/svg,只留 <img> 并自动转存,
       // 展平后设计文的图才能进公众号(代价:丢叠层版式/交互)。手机预览不做这两步(仍走代理背景图保真)。
@@ -874,7 +903,7 @@ function WechatComposer() {
     if (!docHasContent) { Toast.warning('画布还是空的，先从样式库插入内容'); return; }
     setPreviewGen(true);
     try {
-      const { html } = docToHtml(doc, { blocksById, globalAccent: effectiveConfig.accent, body: effectiveConfig.body });
+      const { html } = docToHtml(doc, { blocksById, globalAccent: effectiveConfig.accent, body: effectiveConfig.body, page: effectiveConfig.page });
       const resp = await request('/api/wechat-preview', { method: 'POST', data: { title, digest, html } });
       const path = resp && resp.path;
       if (!path) throw new Error('生成预览失败');
@@ -937,7 +966,7 @@ function WechatComposer() {
       if (!window.navigator || !window.navigator.clipboard || !window.navigator.clipboard.writeText) {
         throw new Error('当前浏览器不支持剪贴板写入');
       }
-      const { html } = docToHtml(doc, { blocksById, globalAccent: effectiveConfig.accent, body: effectiveConfig.body });
+      const { html } = docToHtml(doc, { blocksById, globalAccent: effectiveConfig.accent, body: effectiveConfig.body, page: effectiveConfig.page });
       // 保留 SVG；还原 mmbiz 原链；去掉 url() 引号(公众号白名单:带引号的背景图会被整段过滤)
       const src = dequoteWeChatCssUrls(unproxyWeChatImages(html));
       await window.navigator.clipboard.writeText(src);
@@ -1287,6 +1316,18 @@ function WechatComposer() {
 
       <Content>
         <div className="wxc-workspace">
+          {/* 秀米式左侧工具栏：布局模式/全局属性/全文统计/编辑辅助 */}
+          <ComposerToolRail
+            doc={doc}
+            layoutMode={layoutMode}
+            onToggleLayout={setLayoutMode}
+            editAids={editAids}
+            onEditAids={setEditAids}
+            body={effectiveConfig.body}
+            accent={effectiveConfig.accent}
+            page={effectiveConfig.page}
+            onGlobalProps={handleGlobalProps}
+          />
           {/* 左侧面板：桌面常驻，窄屏由"样式库"按钮抽屉化；顶层三 Tab＝样式/相册/收藏 */}
           <aside className={`wxc-side-lib${libraryOpen ? ' is-open' : ''}`}>
             <div className="wxc-side-toptabs" role="tablist" aria-label="面板切换">
@@ -1500,6 +1541,9 @@ function WechatComposer() {
                 blocksById={blocksById}
                 globalAccent={effectiveConfig.accent}
                 bodyConfig={effectiveConfig.body}
+                layoutMode={layoutMode}
+                editAids={editAids}
+                pageStyle={pageStyle}
                 onRequestStylePicker={(type, uid) => { setSideTab('style'); setLibType(type); setReplaceTarget(uid); setLibraryOpen(true); }}
                 onRequestImagePick={(uid, imgIndex) => {
                   setPickerTarget(imgIndex !== undefined ? { uid, imgIndex } : uid);

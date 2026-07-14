@@ -160,26 +160,42 @@ function execTextCommand(hostEl, cmd, value) {
 
 // 正文段落内联样式：数值口径与 themes.js computeBodyStyles 的 p 规格一致（15px/1.75/两端对齐/
 // 首行缩进开关），是刻意重复而非复用——两处输出目标不同（一个是 React style 对象，一个是内联 style 字符串）。
+const HEX6_RE = /^#[0-9a-fA-F]{6}$/;
 function computeParaStyle(bodyConfig, accent) {
   const cfg = bodyConfig || {};
   const fontSize = Number(cfg.fontSize) || 15;
   const lineHeight = cfg.lineHeight || 1.75;
   const justify = cfg.justify !== false;
   const textIndent = Boolean(cfg.textIndent);
+  // 全局属性：字间距 / 正文色 / 段间距（未设置沿用默认，与 docModel.computeParaBodyStyles 口径一致）
+  const letterSpacing = cfg.letterSpacing != null ? `${Number(cfg.letterSpacing)}px` : '0.03em';
+  const color = HEX6_RE.test(String(cfg.color || '')) ? cfg.color : '#333333';
+  const paraSpacing = cfg.paraSpacing != null ? Number(cfg.paraSpacing) : 20;
   return {
     fontSize: `${fontSize}px`,
     lineHeight: String(lineHeight),
-    color: '#333333',
-    letterSpacing: '0.03em',
+    color,
+    letterSpacing,
     textAlign: justify ? 'justify' : 'left',
     textIndent: textIndent ? '2em' : undefined,
     // 用长写而非 margin 简写：块级间距按 marginTop/Bottom 覆盖时不与简写混用（React 会警告并抖动）
     marginTop: 0,
     marginRight: 0,
-    marginBottom: '20px',
+    marginBottom: `${paraSpacing}px`,
     marginLeft: 0,
     '--cve-accent': accent || '#1a1a1a',
   };
+}
+
+// 块类型 → 布局模式/编辑辅助里显示的中文角标
+function blockTypeLabel(block) {
+  if (!block) return '块';
+  if (block.kind === 'para') return '段落';
+  if (block.kind === 'raw') return '容器';
+  if (block.kind === 'styled') {
+    return { h2: '标题', h3: '小标题', quote: '引用', imageCard: '图片', divider: '分隔线', signoff: '落款' }[block.type] || '样式块';
+  }
+  return '块';
 }
 
 function resolveStyleBlock(blocksById, block) {
@@ -684,7 +700,7 @@ function BlockToolbar({
 // 单个块的外层包裹：选中态/hover 态边框、浮动工具条定位、按 kind/type 派发到具体渲染
 // ---------------------------------------------------------------------------
 function BlockWrapper({
-  block, index, total, selected, multi, styleBlock, accent, bodyStyle, activeRawImgIndex, activeRawImgKind, themePalette,
+  block, index, total, selected, multi, showBadge, styleBlock, accent, bodyStyle, activeRawImgIndex, activeRawImgKind, themePalette,
   onSelect, onMoveUp, onMoveDown, onDuplicate, onDelete,
   onChangeStyle, onChangeAccent, onInsertParaAfter, onImageClick,
   onCommitContent, onCommitCaption, onParaTransient, onParaCommit, onPasteParagraphs,
@@ -743,7 +759,7 @@ function BlockWrapper({
 
   return (
     <div
-      className={`cve-block${selected ? ' cve-block--selected' : ''}${multi ? ' cve-block--multi' : ''}`}
+      className={`cve-block${selected ? ' cve-block--selected' : ''}${multi ? ' cve-block--multi' : ''}${index % 2 ? ' cve-block--odd' : ' cve-block--even'}`}
       data-cve-uid={block.uid}
       onClick={(e) => { e.stopPropagation(); onSelect(); }}
     >
@@ -755,6 +771,9 @@ function BlockWrapper({
       >
         ⠿
       </div>
+      {showBadge && (
+        <span className="cve-block-badge" aria-hidden="true">{index + 1} · {blockTypeLabel(block)}</span>
+      )}
       {selected && (
         <BlockToolbar
           key={block.uid}
@@ -806,6 +825,9 @@ function CanvasEditor({
   onExternalDrop = () => {},
   onNotify = () => {}, // (type, message)：画布内需要轻提示时回调（如拆分失败），父组件接 Toast
   onFavoriteSelection = () => {}, // (blocks)：框选后"收藏选中"，父组件存为 snippet 收藏
+  layoutMode = false, // 布局模式：块加边框 + 类型角标，看清结构
+  editAids = null, // 编辑辅助开关 { outline, index, zebra }
+  pageStyle = null, // 页面级样式（背景/左右留白）内联对象
 }, ref) {
   const canvasRef = React.useRef(null);
   const list = Array.isArray(doc) ? doc : [];
@@ -1282,11 +1304,22 @@ function CanvasEditor({
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [list, multiSel, selectedUid, deleteSelection, deleteBlock, onSelect]);
 
+  const aids = editAids || {};
+  const canvasClass = [
+    'cve-canvas',
+    layoutMode ? 'cve-canvas--layout' : '',
+    aids.outline ? 'cve-aid-outline' : '',
+    aids.index ? 'cve-aid-index' : '',
+    aids.zebra ? 'cve-aid-zebra' : '',
+  ].filter(Boolean).join(' ');
+  const showBadge = layoutMode || aids.index;
+
   return (
     <>
     <div
-      className="cve-canvas"
+      className={canvasClass}
       ref={canvasRef}
+      style={pageStyle || undefined}
       onClick={handleCanvasClick}
       onPointerDown={handleCanvasPointerDown}
       onDragStart={(e) => e.preventDefault()}
@@ -1310,6 +1343,7 @@ function CanvasEditor({
             block={block}
             index={idx}
             total={list.length}
+            showBadge={showBadge}
             selected={block.uid === selectedUid}
             multi={multiSel.has(block.uid)}
             styleBlock={styleBlock}
