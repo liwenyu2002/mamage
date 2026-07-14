@@ -908,6 +908,14 @@
   max-width: 70%;
 }
 
+/* 手机端小图（3 列缩略图）隐藏摄影师/环节/AI/推荐角标，避免遮挡画面（详情/查看器仍可见） */
+@media (max-width: 480px) {
+  .detail-photo-item .detail-photo-chip-row,
+  .detail-photo-item .detail-photo-chip--floating {
+    display: none;
+  }
+}
+
 .detail-analysis-dot {
   width: 6px;
   height: 6px;
