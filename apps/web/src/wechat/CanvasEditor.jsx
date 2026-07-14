@@ -9,6 +9,7 @@ import { applyBlock, BUILTIN_BLOCKS_BY_ID, WECHAT_THEMES } from './themes.js';
 import {
   makeUid, sanitizeParaHtml, sanitizeRawHtml,
   splitRawHtml, applyRawImgStyle, isRawPhotoEl, listRawPhotos, splitPastedToParagraphs,
+  spacingToStyleObject,
 } from './docModel.js';
 import { beginDrag, registerDropZone } from './pointerDrag.js';
 import { applyThemeMasksToEl, derivePalette } from './themeColor.js';
@@ -172,7 +173,11 @@ function computeParaStyle(bodyConfig, accent) {
     letterSpacing: '0.03em',
     textAlign: justify ? 'justify' : 'left',
     textIndent: textIndent ? '2em' : undefined,
-    margin: '0 0 20px',
+    // 用长写而非 margin 简写：块级间距按 marginTop/Bottom 覆盖时不与简写混用（React 会警告并抖动）
+    marginTop: 0,
+    marginRight: 0,
+    marginBottom: '20px',
+    marginLeft: 0,
     '--cve-accent': accent || '#1a1a1a',
   };
 }
@@ -351,7 +356,7 @@ function ParaView({ block, bodyStyle, onTransient, onCommit, onPasteParagraphs }
 // 整文导入的原样内容块：保留原文全部内联样式的富 HTML，整块 contentEditable 改字，
 // 结构（换样式/换色/槽位）操作不适用；失焦提交时过 sanitizeRawHtml 白名单清洗
 // ---------------------------------------------------------------------------
-function RawView({ block, activeImgIndex, themePalette, onTransient, onCommit, onSelectImg }) {
+function RawView({ block, activeImgIndex, themePalette, hostStyle, onTransient, onCommit, onSelectImg }) {
   const ref = React.useRef(null);
 
   React.useLayoutEffect(() => {
@@ -430,6 +435,7 @@ function RawView({ block, activeImgIndex, themePalette, onTransient, onCommit, o
       className="cve-raw-host"
       contentEditable
       suppressContentEditableWarning
+      style={hostStyle}
       onInput={handleInput}
       onBlur={handleBlur}
       onClick={handleClick}
@@ -461,12 +467,13 @@ function toolbarRowGuard(e) {
 function BlockToolbar({
   block, index, total, styleBlock, flip, anchorTop, getHostEl, activeRawImgIndex, activeRawImgKind,
   onMoveUp, onMoveDown, onDuplicate, onDelete, onChangeStyle, onChangeAccent, onInsertParaAfter,
-  onSplitRaw, onImgStyle, onRawImgStyle, onImgReplace, onImgEdit, onManageImages,
+  onSplitRaw, onImgStyle, onRawImgStyle, onImgReplace, onImgEdit, onManageImages, onSpacing,
 }) {
   const [swatchOpen, setSwatchOpen] = React.useState(false);
   const [textSwatchOpen, setTextSwatchOpen] = React.useState(false);
   const [hlSwatchOpen, setHlSwatchOpen] = React.useState(false); // 文字底色面板
   const [sizeMenuOpen, setSizeMenuOpen] = React.useState(false);  // 字号选择面板
+  const [spacingMenuOpen, setSpacingMenuOpen] = React.useState(false); // 行距/边距面板
   const canChangeStyle = block.kind === 'styled';
   const canChangeAccent = block.kind === 'styled' && styleBlock && styleBlock.accentEditable === true;
   const isTextBlock = block.kind === 'para' || block.kind === 'raw';
@@ -481,6 +488,25 @@ function BlockToolbar({
   const runText = (cmd, value) => {
     execTextCommand(getHostEl(), cmd, value);
   };
+
+  // 块级间距微调（行距 + 四向边距，边距可负）。存 block.spacing，画布与导出同源。
+  const spacing = block.spacing || {};
+  const SPACING_BASE_LH = 1.75; // 正文默认行距，未设置时以此为步进基点
+  const clampNum = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  const stepLine = (d) => {
+    const cur = spacing.lineHeight != null ? Number(spacing.lineHeight) : SPACING_BASE_LH;
+    const next = Math.round(clampNum(cur + d, 1, 3) * 10) / 10;
+    onSpacing({ ...spacing, lineHeight: next });
+  };
+  const stepMargin = (key, d) => {
+    const cur = spacing[key] != null ? Number(spacing[key]) : 0;
+    onSpacing({ ...spacing, [key]: clampNum(cur + d, -120, 240) });
+  };
+  const resetSpacing = () => onSpacing(null);
+  const MARGIN_FIELDS = [
+    ['marginTop', '上边距'], ['marginBottom', '下边距'],
+    ['marginLeft', '左边距'], ['marginRight', '右边距'],
+  ];
 
   return (
     <div
@@ -586,6 +612,30 @@ function BlockToolbar({
           <button type="button" className="cve-toolbar-btn" onClick={() => runText('justifyRight')} title="右对齐">右</button>
           <button type="button" className="cve-toolbar-btn" onClick={() => runText('justifyFull')} title="两端对齐">两端</button>
           <span className="cve-toolbar-sep" />
+          {/* 行距 / 四向边距微调（边距支持负值，用于收紧块间距/贴合叠放） */}
+          <div className="cve-toolbar-menu-wrap">
+            <button type="button" className={`cve-toolbar-btn cve-toolbar-btn--menu${spacingMenuOpen ? ' is-on' : ''}`} onClick={() => { setSpacingMenuOpen((v) => !v); setSizeMenuOpen(false); setTextSwatchOpen(false); setHlSwatchOpen(false); }} title="行距 / 边距（支持负值）">间距 ⌄</button>
+            {spacingMenuOpen && (
+              <div className="cve-spacing-menu" onPointerDown={toolbarRowGuard}>
+                <div className="cve-spacing-row">
+                  <span className="cve-spacing-label">行距</span>
+                  <button type="button" className="cve-spacing-step" onPointerDown={toolbarRowGuard} onClick={() => stepLine(-0.1)} aria-label="减小行距">−</button>
+                  <span className="cve-spacing-val">{spacing.lineHeight != null ? Number(spacing.lineHeight).toFixed(1) : '默认'}</span>
+                  <button type="button" className="cve-spacing-step" onPointerDown={toolbarRowGuard} onClick={() => stepLine(0.1)} aria-label="增大行距">＋</button>
+                </div>
+                {MARGIN_FIELDS.map(([key, label]) => (
+                  <div className="cve-spacing-row" key={key}>
+                    <span className="cve-spacing-label">{label}</span>
+                    <button type="button" className="cve-spacing-step" onPointerDown={toolbarRowGuard} onClick={() => stepMargin(key, -2)} aria-label={`减小${label}`}>−</button>
+                    <span className="cve-spacing-val">{spacing[key] != null ? `${spacing[key]}px` : '0'}</span>
+                    <button type="button" className="cve-spacing-step" onPointerDown={toolbarRowGuard} onClick={() => stepMargin(key, 2)} aria-label={`增大${label}`}>＋</button>
+                  </div>
+                ))}
+                <button type="button" className="cve-spacing-reset" onPointerDown={toolbarRowGuard} onClick={resetSpacing}>清除间距</button>
+              </div>
+            )}
+          </div>
+          <span className="cve-toolbar-sep" />
           <button type="button" className="cve-toolbar-btn" onClick={() => runText('removeFormat')} title="清除格式">清除</button>
         </div>
       )}
@@ -639,12 +689,13 @@ function BlockWrapper({
   onChangeStyle, onChangeAccent, onInsertParaAfter, onImageClick,
   onCommitContent, onCommitCaption, onParaTransient, onParaCommit, onPasteParagraphs,
   onRawTransient, onRawCommit, onSelectRawImg,
-  onSplitRaw, onImgStyle, onRawImgStyle, onImgReplace, onImgEdit, onManageImages, toolbarAnchor,
+  onSplitRaw, onImgStyle, onRawImgStyle, onImgReplace, onImgEdit, onManageImages, onSpacing, toolbarAnchor,
 }) {
   // 浮动锚点存在时垂直跟随光标（flip 由锚点视口位置定）；否则回退默认：首块钉块下方防裁,其余块上方
   const anchored = toolbarAnchor != null;
   const flip = anchored ? toolbarAnchor.flip : index === 0;
   const bodyRef = React.useRef(null); // 文字样式命令的选区作用域校验用（execCommand 宿主）
+  const spacingStyle = React.useMemo(() => spacingToStyleObject(block.spacing), [block.spacing]); // 块级行距/边距
 
   // 把手按下即交给指针拖拽引擎；preventDefault 挡住"按下把手被当成点进相邻可编辑区"的文字光标，
   // 把手本身没有点击语义，吞掉 click 无副作用。
@@ -655,7 +706,7 @@ function BlockWrapper({
 
   function renderBody() {
     if (block.kind === 'para') {
-      return <ParaView block={block} bodyStyle={bodyStyle} onTransient={onParaTransient} onCommit={onParaCommit} onPasteParagraphs={onPasteParagraphs} />;
+      return <ParaView block={block} bodyStyle={{ ...bodyStyle, ...spacingStyle }} onTransient={onParaTransient} onCommit={onParaCommit} onPasteParagraphs={onPasteParagraphs} />;
     }
     if (block.kind === 'raw') {
       return (
@@ -663,6 +714,7 @@ function BlockWrapper({
           block={block}
           activeImgIndex={activeRawImgIndex}
           themePalette={themePalette}
+          hostStyle={spacingStyle}
           onTransient={onRawTransient}
           onCommit={onRawCommit}
           onSelectImg={onSelectRawImg}
@@ -728,6 +780,7 @@ function BlockWrapper({
           onImgReplace={onImgReplace}
           onImgEdit={onImgEdit}
           onManageImages={onManageImages}
+          onSpacing={onSpacing}
         />
       )}
       <div className="cve-block-body" ref={bodyRef}>{renderBody()}</div>
@@ -939,6 +992,11 @@ function CanvasEditor({
   // imageCard 的图片样式（宽度/圆角/裁切）：存块级 imgStyle 字段，画布与导出各自渲染
   const setImgStyle = React.useCallback((uid, imgStyle) => {
     updateBlock(uid, { imgStyle });
+  }, [updateBlock]);
+
+  // 块级间距（行距/四向边距，可负）。传 null=清除。
+  const setSpacing = React.useCallback((uid, spacing) => {
+    updateBlock(uid, { spacing: spacing || null });
   }, [updateBlock]);
 
   // raw 块内选中图片的样式：直接改写 html 里该 img 的内联 style
@@ -1284,6 +1342,7 @@ function CanvasEditor({
             onImgReplace={(imgIndex) => onRequestImagePick(block.uid, imgIndex == null ? undefined : imgIndex)}
             onImgEdit={(imgIndex) => onRequestImageEdit(block.uid, imgIndex == null ? undefined : imgIndex)}
             onManageImages={() => onManageImages(block.uid)}
+            onSpacing={(spacing) => setSpacing(block.uid, spacing)}
           />
         );
       })}

@@ -17,6 +17,8 @@ import {
   splitRawHtml,
   replaceRawImgSrc,
   applyRawImgStyle,
+  spacingToStyleObject,
+  spacingToStyleString,
 } from './docModel.js';
 
 let failCount = 0;
@@ -617,6 +619,37 @@ check(
   'widthPct 与 aspect 同时存在时外层再包一层居中限宽 section',
   renderImgStyleDoc({ aspect: '1:1', widthPct: 50 }).includes('<section style="width:50%;margin:0 auto;"><section style="overflow:hidden;'),
 );
+
+// ===========================================================================
+// 块级间距（行距/边距，可负）
+// ===========================================================================
+console.log('\n== 块级间距 spacing ==');
+{
+  check('未设置 spacing → 空对象', Object.keys(spacingToStyleObject(null)).length === 0);
+  check('未设置 spacing → 空字符串', spacingToStyleString(undefined) === '');
+  check('lineHeight 生成 unitless', spacingToStyleObject({ lineHeight: 2 }).lineHeight === '2');
+  check('margin 生成 px', spacingToStyleObject({ marginTop: 12 }).marginTop === '12px');
+  check('负 margin 保留负号', spacingToStyleString({ marginBottom: -20 }) === 'margin-bottom:-20px;');
+  check('NaN/非有限值被丢弃', Object.keys(spacingToStyleObject({ lineHeight: NaN, marginTop: Infinity })).length === 0);
+  check(
+    '多字段拼全 CSS（含负值）',
+    spacingToStyleString({ lineHeight: 1.8, marginTop: -10, marginBottom: 4, marginLeft: 0, marginRight: -6 })
+      === 'line-height:1.8;margin-top:-10px;margin-bottom:4px;margin-left:0px;margin-right:-6px;',
+  );
+
+  // para 导出：间距追加在正文样式之后（靠后声明覆盖 margin 简写/line-height）
+  const paraDoc = [{ uid: 'b-1', kind: 'para', html: '正文', spacing: { lineHeight: 2.2, marginBottom: -8 } }];
+  const paraOut = docToHtmlRaw(paraDoc).html;
+  check('para 导出含负下边距', paraOut.includes('margin-bottom:-8px;'));
+  check('para 导出含自定义行距', paraOut.includes('line-height:2.2;'));
+  check('para 无 spacing 时不追加', docToHtmlRaw([{ uid: 'b-2', kind: 'para', html: 'x' }]).html.includes('<p style="font-size'));
+
+  // raw 导出：有间距时套 section 承载，无间距时原样
+  const rawWith = docToHtmlRaw([{ uid: 'b-3', kind: 'raw', html: '<p>原文</p>', spacing: { marginTop: -30 } }]).html;
+  check('raw 有间距套 section', rawWith.includes('<section style="margin-top:-30px;"><p>原文</p></section>'));
+  const rawNo = docToHtmlRaw([{ uid: 'b-4', kind: 'raw', html: '<p>原文</p>' }]).html;
+  check('raw 无间距不套 section', !rawNo.includes('margin-top') && rawNo.includes('<p>原文</p>'));
+}
 
 console.log('\n===================================');
 console.log(`docModel 自测：通过 ${passCount}，失败 ${failCount}`);

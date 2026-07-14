@@ -413,6 +413,27 @@ function computeParaBodyStyles(bodyConfig, accent) {
   };
 }
 
+// 块级间距微调（行距 line-height + 四向边距，边距可负）。存于 block.spacing，画布与导出同源应用。
+// 只保留已显式设置且有限的数值键——未设置的键不落样式，保持样式块/正文原有默认值。
+export function spacingToStyleObject(spacing) {
+  const s = spacing || {};
+  const out = {};
+  const lh = Number(s.lineHeight);
+  if (s.lineHeight != null && Number.isFinite(lh)) out.lineHeight = String(lh);
+  ['marginTop', 'marginBottom', 'marginLeft', 'marginRight'].forEach((k) => {
+    const v = Number(s[k]);
+    if (s[k] != null && Number.isFinite(v)) out[k] = `${v}px`;
+  });
+  return out;
+}
+
+// 同一份间距 → 内联 CSS 字符串（用于导出 HTML；追加在既有 style 之后，靠后声明覆盖 margin 简写/line-height）
+export function spacingToStyleString(spacing) {
+  const o = spacingToStyleObject(spacing);
+  const kebab = { lineHeight: 'line-height', marginTop: 'margin-top', marginBottom: 'margin-bottom', marginLeft: 'margin-left', marginRight: 'margin-right' };
+  return Object.keys(o).map((k) => `${kebab[k]}:${o[k]};`).join('');
+}
+
 // para.html 只可能含 markdownToDoc/sanitizeParaHtml 产出的裸标签（<strong>/<em>/<br>/<a href="...">，
 // 不带任何 style 属性），这里按 bodyStyles 补内联样式，保证导出效果与画布/themes.js 正文视觉一致
 function styleParaInlineHtml(html, bodyStyles) {
@@ -513,14 +534,18 @@ export function docToHtmlRaw(doc, options) {
   const parts = (Array.isArray(doc) ? doc : []).map((block) => {
     if (!block) return '';
     if (block.kind === 'para') {
-      return `<p style="${bodyStyles.p}">${styleParaInlineHtml(block.html, bodyStyles)}</p>`;
+      // 块级间距追加在正文样式之后，覆盖默认 line-height/margin（含负边距）
+      return `<p style="${bodyStyles.p}${spacingToStyleString(block.spacing)}">${styleParaInlineHtml(block.html, bodyStyles)}</p>`;
     }
     if (block.kind === 'raw') {
       // 整文导入块：html 在导入与每次失焦提交时都已过 sanitizeRawHtml，这里原样拼接保排版，
       // 不套 para 正文样式（原文自带全套内联样式）；最终导出还会过 docToHtml 的 DOMPurify 兜底。
       // 主题色联动：把带 data-mm-theme 标注的元素按当前调色板刷色，让导出/复制/预览与画布一致。
       imageCount += (String(block.html || '').match(/<img\b/gi) || []).length;
-      return applyThemeMasksToHtml(block.html, themePalette);
+      const rawOut = applyThemeMasksToHtml(block.html, themePalette);
+      const spacingCss = spacingToStyleString(block.spacing);
+      // 有块级间距时套一层 section 承载（margin 调块间距、line-height 级联子元素）；无则原样拼接
+      return spacingCss ? `<section style="${spacingCss}">${rawOut}</section>` : rawOut;
     }
     const type = block.type;
     const styleBlock = lookupStyleBlock(blocksById, type, block.blockId);

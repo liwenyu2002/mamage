@@ -456,6 +456,69 @@ body.cve-box-selecting * {
   background: rgba(255, 255, 255, 0.26);
 }
 
+/* ---- 行距 / 边距（间距）微调面板 ---- */
+.cve-spacing-menu {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 9px;
+  border-radius: 12px;
+  background: rgba(17, 17, 17, 0.96);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.32);
+  z-index: 30;
+  white-space: nowrap;
+}
+.cve-spacing-row {
+  display: grid;
+  grid-template-columns: 42px 26px 46px 26px;
+  align-items: center;
+  gap: 5px;
+}
+.cve-spacing-label {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 12px;
+}
+.cve-spacing-step {
+  height: 26px;
+  width: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+.cve-spacing-step:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+.cve-spacing-val {
+  text-align: center;
+  color: #fff;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+.cve-spacing-reset {
+  margin-top: 2px;
+  height: 26px;
+  border: none;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 12px;
+  cursor: pointer;
+}
+.cve-spacing-reset:hover {
+  background: rgba(255, 90, 90, 0.28);
+  color: #fff;
+}
+
 /* ---- styled 文本块 / 图片卡：可编辑槽位 + 占位符 ---- */
 
 .cve-styled-host,
