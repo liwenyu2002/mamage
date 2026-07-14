@@ -3,7 +3,8 @@
    滚动页面纹丝不动（常驻）；主区已 margin-right 让出宽度，不遮挡画布/导出。 */
 .ctr-rail {
   position: fixed;
-  right: 14px;
+  /* 右缘中部被"中转站"浮窗(fixed right:16 宽116)占了，工具栏左移到它左侧，两者不打架 */
+  right: 140px;
   top: 50%;
   transform: translateY(-50%);
   display: flex;
@@ -177,18 +178,19 @@
 .ctr-reset:hover { background: rgba(255, 90, 90, 0.16); color: #c0392b; }
 
 /* 窄屏：工具栏转为顶部横排，弹层贴左 */
-/* 窄屏：右下角悬浮横排胶囊（仍常驻），弹层向上展开 */
+/* 窄屏：中转站在右下角，工具栏落左下角横排胶囊（仍常驻），弹层向上展开 */
 @media (max-width: 968px) {
   .ctr-rail {
     flex-direction: row;
     top: auto;
     bottom: 12px;
-    right: 12px;
+    left: 12px;
+    right: auto;
     transform: none;
   }
   .ctr-panel {
-    right: 0;
-    left: auto;
+    left: 0;
+    right: auto;
     top: auto;
     bottom: calc(100% + 8px);
     transform: none;
