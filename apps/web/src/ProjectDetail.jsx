@@ -4737,7 +4737,7 @@ function ProjectDetail({
           ref={fileInputRef}
           style={{ display: 'none' }}
           type="file"
-          accept="image/*,video/*,.heic,.heif"
+          accept="image/*,video/*,.avif,.heic,.heif,.tif,.tiff,.dng,.cr2,.cr3,.crw,.nef,.nrw,.arw,.sr2,.srf,.raf,.orf,.rw2,.raw,.pef,.srw,.x3f,.rwl,.3fr,.fff,.iiq,.mrw,.dcr,.kdc,.mos,.erf"
           multiple
           onChange={(e) => {
             handleFilesSelected(e.target.files);

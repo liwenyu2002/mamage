@@ -504,7 +504,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
           <input
             ref={filePickerRef}
             type="file"
-            accept="image/*,video/*,.heic,.heif"
+            accept="image/*,video/*,.avif,.heic,.heif,.tif,.tiff,.dng,.cr2,.cr3,.crw,.nef,.nrw,.arw,.sr2,.srf,.raf,.orf,.rw2,.raw,.pef,.srw,.x3f,.rwl,.3fr,.fff,.iiq,.mrw,.dcr,.kdc,.mos,.erf"
             multiple
             style={{ display: 'none' }}
             disabled={submitting}

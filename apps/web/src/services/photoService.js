@@ -550,20 +550,25 @@ function getFileExt(name) {
 }
 
 // 前端支持的格式（与后端 ALLOWED_IMAGE_MIMES / ALLOWED_VIDEO_MIMES 对齐）。HEIC 由后端转码为 JPEG。
-// avif 浏览器可显示、sharp 可处理，纯增；heic/heif/tiff 浏览器 <img> 显示不了（heic/tiff 由后端转 JPEG）。
-const SUPPORTED_IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.avif', '.heic', '.heif', '.tif', '.tiff']);
+// 各厂 RAW：浏览器全显示不了，后端抽内嵌 JPEG 预览转码（与 heic 一路）
+const RAW_EXTS_LIST = ['.dng', '.cr2', '.cr3', '.crw', '.nef', '.nrw', '.arw', '.sr2', '.srf', '.raf',
+  '.orf', '.rw2', '.raw', '.pef', '.srw', '.x3f', '.rwl', '.3fr', '.fff', '.iiq', '.mrw', '.dcr', '.kdc', '.mos', '.erf'];
+// avif 浏览器可显示、sharp 可处理，纯增；heic/heif/tiff/RAW 浏览器 <img> 显示不了（由后端转 JPEG）。
+const SUPPORTED_IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.avif', '.heic', '.heif', '.tif', '.tiff', ...RAW_EXTS_LIST]);
 const SUPPORTED_VIDEO_EXTS = new Set(['.mp4', '.m4v', '.mov', '.webm', '.ogg', '.ogv']);
 const SUPPORTED_IMAGE_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif', 'image/heic', 'image/heif', 'image/tiff']);
 const SUPPORTED_VIDEO_MIMES = new Set(['video/mp4', 'video/quicktime', 'video/webm', 'video/ogg', 'video/x-m4v']);
 
 // 浏览器的 <img>/createObjectURL 无法直接显示的图片格式：本地预览会破损，须用占位图而非坏图，
 // 且不能走对象存储直传（原图存了也显示不了），一律走后端转码为 JPEG。
-const BROWSER_UNDISPLAYABLE_EXTS = new Set(['.heic', '.heif', '.tif', '.tiff']);
+const BROWSER_UNDISPLAYABLE_EXTS = new Set(['.heic', '.heif', '.tif', '.tiff', ...RAW_EXTS_LIST]);
 export function isBrowserUndisplayableImage(file) {
   if (!file) return false;
   const ext = getFileExt(file.name);
   const mime = String(file.type || '').toLowerCase();
-  return BROWSER_UNDISPLAYABLE_EXTS.has(ext) || /image\/(heic|heif|tiff|heic-sequence|heif-sequence)/.test(mime);
+  return BROWSER_UNDISPLAYABLE_EXTS.has(ext)
+    || /image\/(heic|heif|tiff|heic-sequence|heif-sequence)/.test(mime)
+    || /image\/x-(adobe-dng|canon|nikon|sony|fuji|olympus|panasonic|pentax|samsung|sigma|leica|hasselblad|phaseone|minolta|kodak|leaf|epson)/i.test(mime);
 }
 // 预览角标文案：HEIC / TIFF …（拿不到就用「原图」）
 export function undisplayableFormatLabel(file) {
