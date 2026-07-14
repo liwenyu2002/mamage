@@ -1,8 +1,9 @@
 // src/services/transferStore.js
-// 全局“中转站”选择仓库：最多 50 张，跨页面、跨会话（localStorage）
+// 全局“中转站”选择仓库：最多 1000 张，跨页面、跨会话（localStorage）
+// 上限须与服务端 PHOTO_ZIP_MAX_IDS 保持一致，否则存得下却打不了包（zip 接口返 413）
 
 const STORAGE_KEY = 'photo-transfer-selection';
-const MAX_COUNT = 50;
+const MAX_COUNT = 1000;
 
 let selection = [];
 
