@@ -525,6 +525,7 @@ function App() {
                 if (data) {
                   // build a normalized share object that preserves potential metadata
                   const meta = {
+                    shareCode: code, // 分享页打包下载要用它鉴权（公开链接无登录态）
                     createdBy: data.createdBy || data.owner || null,
                     creatorName: data.creatorName || data.creator || data.sharedBy || data.ownerName || null,
                     createdAt: data.createdAt || data.created || null,

@@ -1,5 +1,6 @@
 import React from 'react';
-import { Typography, Button, Card, ButtonGroup } from './ui';
+import { Typography, Button, Card, ButtonGroup, Toast } from './ui';
+import { pickZipSaveHandle, fetchZipToTarget, formatBytes } from './services/zipDownload';
 import { resolveAssetUrl } from './services/request';
 import './ProjectDetail.css';
 
@@ -176,6 +177,48 @@ export default function ShareView({ share = {}, onBack }) {
   const [selectMode, setSelectMode] = React.useState(false);
   const [selectedMap, setSelectedMap] = React.useState({});
   const selectedCount = Object.keys(selectedMap).length;
+  const shareCode = share.shareCode || share.code || '';
+
+  // 选中的照片真实 id（打包接口按 id 取；selectedMap 的 key 是索引）
+  const photoIdOf = (p) => (p && (p.id || p.photoId || p.photo_id)) || null;
+  const selectedIdList = Object.keys(selectedMap)
+    .map((k) => photoIdOf(photos[Number(k)]))
+    .filter(Boolean);
+
+  const [packing, setPacking] = React.useState(false);
+  const [packProgress, setPackProgress] = React.useState(null);
+  // ids=null → 打包整个分享；否则打包选中的
+  const packDownload = React.useCallback(async (ids) => {
+    if (packing || !shareCode) return;
+    if (Array.isArray(ids) && ids.length === 0) { Toast.warning('请先选择照片'); return; }
+    const zipName = `${(share.title || 'share').replace(/[\\/:*?"<>|]/g, '_')}_${Date.now()}`;
+    const handle = await pickZipSaveHandle(`${zipName}.zip`); // 必须在用户手势内弹
+    if (handle === 'abort') return;
+    setPacking(true);
+    setPackProgress({ loaded: 0, total: 0 });
+    let lastTick = 0;
+    try {
+      await fetchZipToTarget({
+        shareCode,
+        photoIds: Array.isArray(ids) && ids.length ? ids : undefined,
+        zipName,
+        fileHandle: handle || null,
+        onProgress: (loaded, total) => {
+          const now = Date.now();
+          if (now - lastTick < 120) return;
+          lastTick = now;
+          setPackProgress({ loaded, total });
+        },
+      });
+      Toast.success('打包下载完成');
+    } catch (e) {
+      console.error('share pack download failed', e);
+      Toast.error(`打包下载失败: ${e?.message || '请求错误'}`);
+    } finally {
+      setPacking(false);
+      setPackProgress(null);
+    }
+  }, [packing, shareCode, share.title]);
 
   const toggleSelect = (idx) => {
     setSelectedMap((prev) => {
@@ -369,17 +412,42 @@ export default function ShareView({ share = {}, onBack }) {
                   <Button type={viewMode === 'masonry' ? 'primary' : 'tertiary'} onClick={() => setViewMode('masonry')}>瀑布流</Button>
                 </ButtonGroup>
                 {!selectMode ? (
-                  <Button onClick={() => setSelectMode(true)} style={{ marginLeft: 8 }}>选择</Button>
+                  <>
+                    <Button onClick={() => setSelectMode(true)} style={{ marginLeft: 8 }}>选择</Button>
+                    {shareCode && photos.length > 0 ? (
+                      <Button onClick={() => packDownload(null)} loading={packing} disabled={packing} style={{ marginLeft: 8 }}>
+                        {packing ? '打包中…' : `打包下载 (${photos.length})`}
+                      </Button>
+                    ) : null}
+                  </>
                 ) : (
                   <>
                     <Button onClick={selectAll} theme="borderless">全选</Button>
                     <Button onClick={clearSelection} theme="borderless">取消</Button>
-                    <Button onClick={downloadSelected} disabled={selectedCount === 0} type="primary">下载 ({selectedCount})</Button>
+                    {shareCode ? (
+                      <Button onClick={() => packDownload(selectedIdList)} disabled={selectedCount === 0 || packing} loading={packing} type="primary">
+                        {packing ? '打包中…' : `打包下载 (${selectedCount})`}
+                      </Button>
+                    ) : (
+                      <Button onClick={downloadSelected} disabled={selectedCount === 0} type="primary">下载 ({selectedCount})</Button>
+                    )}
                     <Button onClick={() => { setSelectMode(false); clearSelection(); }} style={{ marginLeft: 8 }}>完成</Button>
                   </>
                 )}
               </div>
-              <div />
+              {packProgress ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#64748b' }}>
+                  <div style={{ position: 'relative', width: 120, height: 6, borderRadius: 999, background: '#e5e7eb', overflow: 'hidden' }}>
+                    <style>{'@keyframes mm-share-indet{0%{left:-40%}100%{left:100%}}'}</style>
+                    {packProgress.total > 0 ? (
+                      <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${Math.min(100, (packProgress.loaded / packProgress.total) * 100)}%`, background: 'linear-gradient(90deg,#2f2f2f,#101010)', borderRadius: 999 }} />
+                    ) : (
+                      <div style={{ position: 'absolute', top: 0, bottom: 0, width: '40%', borderRadius: 999, background: 'linear-gradient(90deg,#2f2f2f,#101010)', animation: 'mm-share-indet 1.1s ease-in-out infinite' }} />
+                    )}
+                  </div>
+                  <span style={{ fontVariantNumeric: 'tabular-nums' }}>已下载 {formatBytes(packProgress.loaded)}</span>
+                </div>
+              ) : <div />}
             </div>
           ) : null}
 

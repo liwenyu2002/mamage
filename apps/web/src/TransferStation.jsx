@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom';
 import { Toast, Tooltip, Modal } from './ui';
 import { getAll, getCount, add, clear, subscribe, removeById } from './services/transferStore';
 import { resolveAssetUrl } from './services/request';
+import { pickZipSaveHandle, fetchZipToTarget, formatBytes } from './services/zipDownload';
 
 function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
@@ -13,58 +14,6 @@ function downloadBlob(blob, filename) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 5000);
-}
-
-function formatBytes(n) {
-  const v = Number(n) || 0;
-  if (v < 1024) return `${v} B`;
-  if (v < 1024 * 1024) return `${(v / 1024).toFixed(0)} KB`;
-  return `${(v / 1024 / 1024).toFixed(1)} MB`;
-}
-
-// 在用户手势内先弹保存框（必须早于 await fetch —— fetch 之后 transient activation 已过期，
-// showSaveFilePicker 会抛 SecurityError，表现为"点了打包没反应"）。
-// 返回 handle | null(不支持/回退 Blob) | 'abort'(用户取消)
-async function pickZipSaveHandle(suggestedName) {
-  if (typeof window === 'undefined' || !window.showSaveFilePicker) return null;
-  try {
-    return await window.showSaveFilePicker({
-      suggestedName: suggestedName || 'files.zip',
-      types: [{ description: 'ZIP archive', accept: { 'application/zip': ['.zip'] } }],
-    });
-  } catch (e) {
-    if (e && e.name === 'AbortError') return 'abort';
-    return null; // 被拒/不可用 → 回退 Blob 下载
-  }
-}
-
-// 流式读取响应并回调进度。有 handle 就边下边写盘（省内存）；否则攒块最后 Blob 下载。
-async function streamZipToTarget(resp, fileHandle, filename, onProgress) {
-  const total = Number(resp.headers.get('content-length') || 0) || 0;
-  const reader = resp.body && resp.body.getReader ? resp.body.getReader() : null;
-  if (!reader) { // 老浏览器兜底：无进度
-    downloadBlob(await resp.blob(), filename);
-    return;
-  }
-  const writable = fileHandle ? await fileHandle.createWritable() : null;
-  const chunks = [];
-  let loaded = 0;
-  try {
-    for (;;) {
-      // eslint-disable-next-line no-await-in-loop
-      const { done, value } = await reader.read();
-      if (done) break;
-      loaded += value.byteLength;
-      // eslint-disable-next-line no-await-in-loop
-      if (writable) await writable.write(value); else chunks.push(value);
-      onProgress(loaded, total);
-    }
-    if (writable) { await writable.close(); return; }
-    downloadBlob(new Blob(chunks, { type: 'application/zip' }), filename);
-  } catch (e) {
-    if (writable) { try { await writable.abort(); } catch (_) { /* ignore */ } }
-    throw e;
-  }
 }
 
 function getFilenameFromContentDisposition(resp) {
@@ -282,46 +231,32 @@ export default function TransferStation() {
     }
 
     const zipName = `transfer_${Date.now()}`;
-    const token = (typeof window !== 'undefined') ? (localStorage.getItem('mamage_jwt_token') || '') : '';
-    if (!token) {
-      Toast.warning('打包下载需要先登录');
-      return;
-    }
-
     // ① 保存框必须在这里弹：还在用户手势里。放到 await fetch 之后会因 activation 过期抛
     //    SecurityError，保存框弹不出来（旧版"点了打包没反应"就是这个）。
     const handle = await pickZipSaveHandle(`${zipName}.zip`);
     if (handle === 'abort') return; // 用户取消，不发请求
-    const fileHandle = handle || null;
 
     setBusy('pack');
     setPackProgress({ loaded: 0, total: 0, files: ids.length });
     // 分块回调很密集，节流到 ~120ms 一次，避免每块都 setState 卡渲染
     let lastTick = 0;
-    const onProgress = (loaded, total) => {
-      const now = Date.now();
-      if (now - lastTick < 120) return;
-      lastTick = now;
-      setPackProgress({ loaded, total, files: ids.length });
-    };
-
     try {
-      const resp = await fetch('/api/photos/zip', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        credentials: 'same-origin',
-        body: JSON.stringify({ photoIds: ids, zipName }),
+      await fetchZipToTarget({
+        photoIds: ids,
+        zipName,
+        fileHandle: handle || null,
+        onProgress: (loaded, total) => {
+          const now = Date.now();
+          if (now - lastTick < 120) return;
+          lastTick = now;
+          setPackProgress({ loaded, total, files: ids.length });
+        },
       });
-      if (!resp.ok) {
-        const txt = await resp.text();
-        throw new Error(txt || `server responded ${resp.status}`);
-      }
-      const serverFilename = getFilenameFromContentDisposition(resp) || `${zipName}.zip`;
-      await streamZipToTarget(resp, fileHandle, serverFilename, onProgress);
       Toast.success('打包下载完成');
     } catch (e) {
       console.error('transfer pack download failed', e);
-      Toast.error(`打包下载失败: ${e?.message || '请求错误'}`);
+      if (e && e.message === 'NOT_LOGGED_IN') Toast.warning('打包下载需要先登录');
+      else Toast.error(`打包下载失败: ${e?.message || '请求错误'}`);
     } finally {
       setBusy('');
       setPackProgress(null);
