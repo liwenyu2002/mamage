@@ -53,12 +53,28 @@
 }
 
 /* ---- 布局模式 / 编辑辅助（视图开关，不影响导出）---- */
-.cve-canvas--layout .cve-block:not(.cve-block--selected),
+/* 编辑辅助·元素边框：只描到块（元素组）层 */
 .cve-aid-outline .cve-block:not(.cve-block--selected) {
   outline: 1px dashed rgba(0, 0, 0, 0.28);
   outline-offset: 4px;
 }
-.cve-canvas--layout { background-image: linear-gradient(rgba(0, 0, 0, 0.015) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 0, 0, 0.015) 1px, transparent 1px); background-size: 16px 16px; }
+/* 布局模式（秀米 tn-editing-mode-layout 复刻）：块=外框，块内每个"单一元素"(cell)逐一描边——
+   section/div/p/img/svg/table/li 等结构元素递归全描，不止顶层元素组。:where() 保持 0 特异性，
+   让选中/框选的实线高亮仍能盖过。 */
+.cve-canvas--layout .cve-block:not(.cve-block--selected) {
+  outline: 1px dashed rgba(37, 99, 235, 0.55);
+  outline-offset: 3px;
+}
+.cve-canvas--layout .cve-block-body :where(section, div, p, blockquote, figure, figcaption, img, svg, table, thead, tbody, tr, td, th, ul, ol, li, hr, span[style*="background"]) {
+  outline: 1px dashed rgba(120, 140, 175, 0.6);
+  outline-offset: -1px;
+}
+/* 悬停某个 cell 时高亮它，方便定位 */
+.cve-canvas--layout .cve-block-body :where(section, div, p, img, svg, li):hover {
+  outline-color: rgba(37, 99, 235, 0.85);
+  background: rgba(37, 99, 235, 0.05);
+}
+.cve-canvas--layout { background-image: linear-gradient(rgba(0, 0, 0, 0.02) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 0, 0, 0.02) 1px, transparent 1px); background-size: 16px 16px; }
 .cve-aid-zebra .cve-block--even { background: rgba(0, 0, 0, 0.035); }
 .cve-block-badge {
   position: absolute;
