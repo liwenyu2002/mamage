@@ -723,6 +723,8 @@ function normalizeFacePerson(payload, sourceFace) {
     personName,
     displayName: personName || (personId ? `人物#${personId}` : (sourceFace?.faceNo ? `人脸#${sourceFace.faceNo}` : '未标注人物')),
     description: String(person.description || person.bio || person.summary || '').trim(),
+    // 服务端按人脸裁好的头像（data URI）。有它就直接当主图，不再下原图 + CSS 缩放
+    avatarDataUrl: typeof data.avatarDataUrl === 'string' && data.avatarDataUrl ? data.avatarDataUrl : '',
     relatedPhotos,
     sourceFace: sourceFace || null,
     raw: data,
@@ -5837,15 +5839,20 @@ function ProjectDetail({
             (() => {
               const relatedPhotos = Array.isArray(facePersonData.relatedPhotos) ? facePersonData.relatedPhotos : [];
               const heroPhoto = facePersonHeroPhoto || relatedPhotos[0] || null;
-              const heroSrc = heroPhoto ? (heroPhoto.url || heroPhoto.thumbUrl || '') : '';
-              const heroImgStyle = getFaceHeroImageStyle(facePersonData, heroPhoto);
+              // 主图优先用服务端裁好的头像(data URI)：直接铺满，无需下原图、无需 CSS 缩放定位 → 秒开不卡。
+              // 没有(旧数据/裁剪失败)才回退老路径：缩略图优先，再退原图。
+              const avatarSrc = facePersonData.avatarDataUrl || '';
+              const heroSrc = avatarSrc || (heroPhoto ? (heroPhoto.thumbUrl || heroPhoto.url || '') : '');
+              const heroImgStyle = avatarSrc
+                ? { width: '100%', height: '100%', objectFit: 'cover' }
+                : getFaceHeroImageStyle(facePersonData, heroPhoto);
 
               return (
                 <div className="person-sheet">
                   <div className="person-sheet-hero">
                     <div className="person-sheet-avatar">
                       {heroSrc ? (
-                        <img src={heroSrc} alt={facePersonData.displayName} style={heroImgStyle} />
+                        <img src={heroSrc} alt={facePersonData.displayName} style={heroImgStyle} loading="lazy" decoding="async" />
                       ) : (
                         <div className="person-sheet-avatar-empty">无头像</div>
                       )}
