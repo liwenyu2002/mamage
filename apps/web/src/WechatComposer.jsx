@@ -1316,18 +1316,6 @@ function WechatComposer() {
 
       <Content>
         <div className="wxc-workspace">
-          {/* 秀米式左侧工具栏：布局模式/全局属性/全文统计/编辑辅助 */}
-          <ComposerToolRail
-            doc={doc}
-            layoutMode={layoutMode}
-            onToggleLayout={setLayoutMode}
-            editAids={editAids}
-            onEditAids={setEditAids}
-            body={effectiveConfig.body}
-            accent={effectiveConfig.accent}
-            page={effectiveConfig.page}
-            onGlobalProps={handleGlobalProps}
-          />
           {/* 左侧面板：桌面常驻，窄屏由"样式库"按钮抽屉化；顶层三 Tab＝样式/相册/收藏 */}
           <aside className={`wxc-side-lib${libraryOpen ? ' is-open' : ''}`}>
             <div className="wxc-side-toptabs" role="tablist" aria-label="面板切换">
@@ -1586,6 +1574,18 @@ function WechatComposer() {
               </div>
             </Card>
           </div>
+          {/* 秀米式工具栏放右侧：布局模式/全局属性/全文统计/编辑辅助，弹层向左展开不挡其他 UI */}
+          <ComposerToolRail
+            doc={doc}
+            layoutMode={layoutMode}
+            onToggleLayout={setLayoutMode}
+            editAids={editAids}
+            onEditAids={setEditAids}
+            body={effectiveConfig.body}
+            accent={effectiveConfig.accent}
+            page={effectiveConfig.page}
+            onGlobalProps={handleGlobalProps}
+          />
         </div>
       </Content>
       </>

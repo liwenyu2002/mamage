@@ -9,7 +9,7 @@
   flex-direction: column;
   gap: 8px;
   padding: 8px 6px;
-  margin-right: 6px;
+  margin-left: 6px;
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.72);
   border: 1px solid rgba(0, 0, 0, 0.06);
@@ -36,7 +36,7 @@
 /* 弹层：浮在工具栏右侧 */
 .ctr-panel {
   position: absolute;
-  left: calc(100% + 8px);
+  right: calc(100% + 8px);
   top: 0;
   width: 236px;
   max-height: 76vh;
@@ -175,6 +175,6 @@
 
 /* 窄屏：工具栏转为顶部横排，弹层贴左 */
 @media (max-width: 900px) {
-  .ctr-rail { flex-direction: row; position: static; margin: 0 0 8px; align-self: stretch; }
-  .ctr-panel { left: 0; top: calc(100% + 8px); }
+  .ctr-rail { flex-direction: row; position: static; margin: 8px 0 0; align-self: stretch; justify-content: flex-end; }
+  .ctr-panel { right: 0; left: auto; top: calc(100% + 8px); }
 }
