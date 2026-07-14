@@ -1057,50 +1057,61 @@ function resolveElByPath(root, path) {
   return node === root ? null : node;
 }
 
-// 读回目标元素当前相关内联样式，供面板回显：{marginTop,Right,Bottom,Left(数值px|null), alignH, alignV}
+// 从一个元素读盒模型样式（live DOM 或 DOMParser 元素通用）：{marginTop,Right,Bottom,Left(px|null), alignH, alignV}
+export function readElBoxFromEl(el) {
+  if (!el || !el.style) return null;
+  const s = el.style;
+  const px = (v) => { const n = parseFloat(v); return (v && /px$/.test(v) && Number.isFinite(n)) ? n : null; };
+  let alignH = null;
+  if (s.marginLeft === 'auto' && s.marginRight === 'auto') alignH = 'center';
+  else if (s.marginLeft === 'auto') alignH = 'right';
+  else if (s.marginRight === 'auto') alignH = 'left';
+  const alignV = { 'flex-start': 'top', center: 'middle', 'flex-end': 'bottom' }[s.alignSelf] || null;
+  return {
+    marginTop: px(s.marginTop),
+    marginRight: s.marginRight === 'auto' ? null : px(s.marginRight),
+    marginBottom: px(s.marginBottom),
+    marginLeft: s.marginLeft === 'auto' ? null : px(s.marginLeft),
+    alignH, alignV,
+  };
+}
+
+// 把 patch 应用到一个元素的内联样式（live DOM 或 DOMParser 元素通用）。
+// patch: marginTop/Right/Bottom/Left(px 数值,可负,null=清)、alignH('left'|'center'|'right'|null)、alignV('top'|'middle'|'bottom'|null)
+export function applyElBoxToEl(el, patch) {
+  if (!el || !el.style) return;
+  const p = patch || {};
+  const setPx = (k, v) => { el.style[k] = (v == null ? '' : `${Number(v)}px`); };
+  if ('marginTop' in p) setPx('marginTop', p.marginTop);
+  if ('marginBottom' in p) setPx('marginBottom', p.marginBottom);
+  if ('alignH' in p) {
+    if (p.alignH === 'center') { el.style.marginLeft = 'auto'; el.style.marginRight = 'auto'; }
+    else if (p.alignH === 'right') { el.style.marginLeft = 'auto'; el.style.marginRight = '0'; }
+    else if (p.alignH === 'left') { el.style.marginLeft = '0'; el.style.marginRight = 'auto'; }
+    else { el.style.marginLeft = ''; el.style.marginRight = ''; }
+    if (p.alignH && (el.tagName === 'IMG' || (el.tagName && el.tagName.toLowerCase() === 'img'))) el.style.display = 'block';
+  }
+  if ('marginLeft' in p) setPx('marginLeft', p.marginLeft); // 显式左右边距覆盖对齐 auto
+  if ('marginRight' in p) setPx('marginRight', p.marginRight);
+  if ('alignV' in p) { el.style.alignSelf = { top: 'flex-start', middle: 'center', bottom: 'flex-end' }[p.alignV] || ''; }
+}
+
+// 读回目标元素当前盒样式（供面板回显）
 export function getElBoxStyle(html, path) {
   try {
     const doc = new DOMParser().parseFromString(`<div id="__r">${html || ''}</div>`, 'text/html');
-    const el = resolveElByPath(doc.getElementById('__r'), path);
-    if (!el) return null;
-    const s = el.style;
-    const px = (v) => { const n = parseFloat(v); return (v && /px$/.test(v) && Number.isFinite(n)) ? n : null; };
-    let alignH = null;
-    if (s.marginLeft === 'auto' && s.marginRight === 'auto') alignH = 'center';
-    else if (s.marginLeft === 'auto') alignH = 'right';
-    else if (s.marginRight === 'auto') alignH = 'left';
-    const alignV = { 'flex-start': 'top', center: 'middle', 'flex-end': 'bottom' }[s.alignSelf] || null;
-    return {
-      marginTop: px(s.marginTop),
-      marginRight: s.marginRight === 'auto' ? null : px(s.marginRight),
-      marginBottom: px(s.marginBottom),
-      marginLeft: s.marginLeft === 'auto' ? null : px(s.marginLeft),
-      alignH, alignV,
-    };
+    return readElBoxFromEl(resolveElByPath(doc.getElementById('__r'), path));
   } catch (e) { return null; }
 }
 
-// 写回目标元素样式。patch: marginTop/Right/Bottom/Left(px 数值,可负,null=清)、alignH('left'|'center'|'right'|null)、alignV('top'|'middle'|'bottom'|null)
+// 写回目标元素样式，返回新 html（持久化用）
 export function setElBoxStyle(html, path, patch) {
   try {
     const doc = new DOMParser().parseFromString(`<div id="__r">${html || ''}</div>`, 'text/html');
     const root = doc.getElementById('__r');
     const el = resolveElByPath(root, path);
     if (!el) return html;
-    const p = patch || {};
-    const setPx = (k, v) => { el.style[k] = (v == null ? '' : `${Number(v)}px`); };
-    if ('marginTop' in p) setPx('marginTop', p.marginTop);
-    if ('marginBottom' in p) setPx('marginBottom', p.marginBottom);
-    if ('alignH' in p) {
-      if (p.alignH === 'center') { el.style.marginLeft = 'auto'; el.style.marginRight = 'auto'; }
-      else if (p.alignH === 'right') { el.style.marginLeft = 'auto'; el.style.marginRight = '0'; }
-      else if (p.alignH === 'left') { el.style.marginLeft = '0'; el.style.marginRight = 'auto'; }
-      else { el.style.marginLeft = ''; el.style.marginRight = ''; }
-      if (p.alignH && el.tagName === 'IMG') el.style.display = 'block'; // 行内图需转块级才能 margin 居中
-    }
-    if ('marginLeft' in p) setPx('marginLeft', p.marginLeft); // 显式左右边距覆盖对齐 auto
-    if ('marginRight' in p) setPx('marginRight', p.marginRight);
-    if ('alignV' in p) { el.style.alignSelf = { top: 'flex-start', middle: 'center', bottom: 'flex-end' }[p.alignV] || ''; }
+    applyElBoxToEl(el, patch);
     return root.innerHTML;
   } catch (e) { return html; }
 }

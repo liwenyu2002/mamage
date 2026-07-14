@@ -9,7 +9,7 @@ import { applyBlock, BUILTIN_BLOCKS_BY_ID, WECHAT_THEMES } from './themes.js';
 import {
   makeUid, sanitizeParaHtml, sanitizeRawHtml,
   splitRawHtml, applyRawImgStyle, isRawPhotoEl, listRawPhotos, splitPastedToParagraphs,
-  spacingToStyleObject, getElBoxStyle, setElBoxStyle,
+  spacingToStyleObject, setElBoxStyle, readElBoxFromEl, applyElBoxToEl,
 } from './docModel.js';
 import NumInput from './NumInput.jsx';
 import { beginDrag, registerDropZone } from './pointerDrag.js';
@@ -398,7 +398,7 @@ function ParaView({ block, bodyStyle, onTransient, onCommit, onPasteParagraphs }
 // 整文导入的原样内容块：保留原文全部内联样式的富 HTML，整块 contentEditable 改字，
 // 结构（换样式/换色/槽位）操作不适用；失焦提交时过 sanitizeRawHtml 白名单清洗
 // ---------------------------------------------------------------------------
-function RawView({ block, activeImgIndex, themePalette, hostStyle, onTransient, onCommit, onSelectImg }) {
+function RawView({ block, activeImgIndex, themePalette, hostStyle, editable = true, onTransient, onCommit, onSelectImg }) {
   const ref = React.useRef(null);
 
   React.useLayoutEffect(() => {
@@ -475,7 +475,7 @@ function RawView({ block, activeImgIndex, themePalette, hostStyle, onTransient, 
     <div
       ref={ref}
       className="cve-raw-host"
-      contentEditable
+      contentEditable={editable}
       suppressContentEditableWarning
       style={hostStyle}
       onInput={handleInput}
@@ -711,7 +711,7 @@ function BlockToolbar({
 // 单个块的外层包裹：选中态/hover 态边框、浮动工具条定位、按 kind/type 派发到具体渲染
 // ---------------------------------------------------------------------------
 function BlockWrapper({
-  block, index, total, selected, multi, showBadge, styleBlock, accent, bodyStyle, activeRawImgIndex, activeRawImgKind, themePalette,
+  block, index, total, selected, multi, showBadge, layoutMode, styleBlock, accent, bodyStyle, activeRawImgIndex, activeRawImgKind, themePalette,
   onSelect, onMoveUp, onMoveDown, onDuplicate, onDelete,
   onChangeStyle, onChangeAccent, onInsertParaAfter, onImageClick,
   onCommitContent, onCommitCaption, onParaTransient, onParaCommit, onPasteParagraphs,
@@ -742,6 +742,7 @@ function BlockWrapper({
           activeImgIndex={activeRawImgIndex}
           themePalette={themePalette}
           hostStyle={spacingStyle}
+          editable={!layoutMode}
           onTransient={onRawTransient}
           onCommit={onRawCommit}
           onSelectImg={onSelectRawImg}
@@ -908,19 +909,23 @@ function CanvasEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedUid]);
 
-  // 布局模式下选中的"单一元素"：{ uid, path }（path=从 raw-host 到该元素的 element children 索引）+ 屏幕矩形（供检查器定位）
+  // 布局模式下选中的"单一元素"：{ uid, path }（path=从 raw-host 到该元素的 element children 索引）
   const [elSel, setElSel] = React.useState(null);
-  const [elSelRect, setElSelRect] = React.useState(null);
-  React.useEffect(() => { if (!layoutMode) { setElSel(null); setElSelRect(null); } }, [layoutMode]);
-  // 高亮选中元素 + 计算其相对画布的矩形（doc/elSel 变化后重算，因 raw 重绘会换 DOM 节点）
+  const [elSelRect, setElSelRect] = React.useState(null); // 相对画布的矩形（检查器定位）
+  const [elBox, setElBox] = React.useState(null); // 从 live 元素读到的盒样式（检查器回显；live 为准，反映所见）
+  const elSelHostRef = React.useRef(null); // 缓存 live raw-host，apply 时直接改它里的元素
+  React.useEffect(() => { if (!layoutMode) { setElSel(null); setElSelRect(null); setElBox(null); } }, [layoutMode]);
+  // 高亮选中元素 + 定位矩形 + 从 live 元素读盒样式（doc/elSel 变化后重算，因 raw 重绘会换 DOM 节点）
   React.useLayoutEffect(() => {
     const canvas = canvasRef.current;
     if (canvas) canvas.querySelectorAll('[data-cve-elsel]').forEach((n) => n.removeAttribute('data-cve-elsel'));
-    if (!elSel || !canvas) { return; }
+    if (!elSel || !canvas) { elSelHostRef.current = null; return; }
     const host = canvas.querySelector(`.cve-block[data-cve-uid="${elSel.uid}"] .cve-raw-host`);
+    elSelHostRef.current = host || null;
     const el = host ? resolveLiveElPath(host, elSel.path) : null;
-    if (!el) { setElSelRect(null); return; }
+    if (!el) { setElSelRect(null); setElBox(null); return; }
     el.setAttribute('data-cve-elsel', '1');
+    setElBox(readElBoxFromEl(el));
     const cr = canvas.getBoundingClientRect();
     const r = el.getBoundingClientRect();
     setElSelRect({ top: r.top - cr.top, left: r.left - cr.left, width: r.width, height: r.height });
@@ -1017,16 +1022,16 @@ function CanvasEditor({
     onChange(next, opts);
   }, [list, onChange]);
 
-  // 布局模式：把某个 raw 块内嵌套元素的相对定位/边距改写进 html（持久、可撤销、导出同源）
-  const elSelBlock = elSel ? list.find((b) => b.uid === elSel.uid) : null;
-  const elBox = React.useMemo(
-    () => (elSelBlock && elSelBlock.kind === 'raw' ? getElBoxStyle(elSelBlock.html || '', elSel.path) : null),
-    [elSelBlock, elSel]
-  );
+  // 布局模式：调 raw 块内嵌套元素的相对定位/边距。
+  // ①直接改 live 元素样式=即时可见（绕过 RawView 焦点守卫会跳过 innerHTML 重写的坑）；
+  // ②再从干净的 block.html 走 setElBoxStyle 落库（持久、可撤销、导出同源），不读被 data-cve-elsel/主题色污染的 live innerHTML。
   const applyElBox = React.useCallback((patch) => {
     if (!elSel) return;
     const block = list.find((b) => b.uid === elSel.uid);
     if (!block || block.kind !== 'raw') return;
+    const host = elSelHostRef.current;
+    const liveEl = host ? resolveLiveElPath(host, elSel.path) : null;
+    if (liveEl) { applyElBoxToEl(liveEl, patch); setElBox(readElBoxFromEl(liveEl)); } // 即时可见 + 回显立即更新
     const nextHtml = setElBoxStyle(block.html || '', elSel.path, patch);
     updateBlock(elSel.uid, { html: sanitizeRawHtml(nextHtml) });
   }, [elSel, list, updateBlock]);
@@ -1457,6 +1462,7 @@ function CanvasEditor({
             index={idx}
             total={list.length}
             showBadge={showBadge}
+            layoutMode={layoutMode}
             selected={block.uid === selectedUid}
             multi={multiSel.has(block.uid)}
             styleBlock={styleBlock}
