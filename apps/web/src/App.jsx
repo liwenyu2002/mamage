@@ -9,6 +9,7 @@ import { resolveAssetUrl } from './services/request';
 import IfCan from './permissions/IfCan';
 import { LiquidGlassDefs } from './liquidGlass';
 import { initLiquidLens } from './liquidLens';
+import UiZoomControl, { useUiZoom, applyDocumentZoom } from './UiZoomControl';
 
 const lazyWithPreload = (loader) => {
   const Component = React.lazy(loader);
@@ -133,6 +134,7 @@ function App() {
     }
   });
   const [isMobileHeader, setIsMobileHeader] = React.useState(() => (typeof window !== 'undefined' ? window.innerWidth <= 1024 : false));
+  const [uiZoom, setUiZoom] = useUiZoom();
   const [mobileNavVisible, setMobileNavVisible] = React.useState(false);
   const [projectInfoOpen, setProjectInfoOpen] = React.useState(false);
   const [shareMode, setShareMode] = React.useState(false);
@@ -168,6 +170,14 @@ function App() {
     }
   })();
 
+  // 整体界面缩放：仅在桌面端的主应用视图生效（分享/登录/加载页强制 1，避免它们被缩放却没有控件可复位）。
+  // 用 layoutEffect 在绘制前应用，避免刷新时从 100% 跳到已保存缩放的闪烁。
+  const inMainAppView = !isSharePath && !authLoading && (currentUser || isDemoPath);
+  const effectiveZoom = (inMainAppView && !isMobileHeader) ? uiZoom : 1;
+  React.useLayoutEffect(() => {
+    applyDocumentZoom(effectiveZoom);
+    return () => applyDocumentZoom(1);
+  }, [effectiveZoom]);
 
   const latestRequestRef = React.useRef(0);
   const latestPhotoSearchReqRef = React.useRef(0);
@@ -1433,6 +1443,9 @@ function App() {
             }}
           />
         </LazySilent>
+      ) : null}
+      {!isMobileHeader ? (
+        <UiZoomControl value={uiZoom} onChange={setUiZoom} />
       ) : null}
     </div>
   );

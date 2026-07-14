@@ -2976,7 +2976,7 @@ function ProjectDetail({
   const masonryColumns = React.useMemo(() => {
     const w = galleryWidth || 0;
     if (!w) return 3;
-    if (w <= 768) return 2;
+    if (w <= 768) return 3;
     // Force desktop to at least 4 columns so it won't fall back to 3 too early.
     if (w <= 1200) return 4;
     return Math.max(4, Math.floor((w + 12) / (240 + 12)));
