@@ -27,7 +27,7 @@ import {
 import './ProjectDetail.css';
 import { getProjectById, updateProject, deleteProject, createTimelineSection, updateTimelineSection, deleteTimelineSection, reorderTimelineSections } from './services/projectService';
 import { getToken } from './services/authService';
-import { fetchRandomByProject, searchPhotos, getPhotoById, updatePhoto, assignPhotosTimelineSection, getFacePersonInfo, labelFacePerson, renameFacePerson, uploadPhotoFiles, warmUploadApiProbe, deletePhotos, getPhotoFaces, getUploadFileLimitError, runGroupRescueJob, isBrowserUndisplayableImage, undisplayableFormatLabel } from './services/photoService';
+import { fetchRandomByProject, searchPhotos, getPhotoById, updatePhoto, assignPhotosTimelineSection, getFacePersonInfo, labelFacePerson, renameFacePerson, uploadPhotoFiles, warmUploadApiProbe, deletePhotos, getPhotoFaces, getUploadFileLimitError, runGroupRescueJob, isBrowserUndisplayableImage, isNeverBrowserPreviewable, undisplayableFormatLabel } from './services/photoService';
 import { resolveAssetUrl, BASE_URL } from './services/request';
 import IfCan from './permissions/IfCan';
 import PermButton from './permissions/PermButton';
@@ -754,6 +754,12 @@ function ProjectDetail({
   const [stagingFiles, setStagingFiles] = React.useState([]); // File objects
   const [stagingPreviews, setStagingPreviews] = React.useState([]); // object URLs
   const [stagingSectionIds, setStagingSectionIds] = React.useState([]);
+  // 预览解码失败的 objectURL（heic 在非 Safari 浏览器）→ 退占位图
+  const [failedPreviews, setFailedPreviews] = React.useState(() => new Set());
+  const markPreviewFailed = React.useCallback((url) => {
+    if (!url) return;
+    setFailedPreviews((prev) => { const n = new Set(prev); n.add(url); return n; });
+  }, []);
   const [selectedUploadSectionId, setSelectedUploadSectionId] = React.useState('');
   const [uploading, setUploading] = React.useState(false);
   const [uploadProgress, setUploadProgress] = React.useState(null);
@@ -1912,7 +1918,7 @@ function ProjectDetail({
       if (fresh.length) {
         setStagingPreviews((prev) => [
           ...(prev || []),
-          ...fresh.map((file) => (isVideoMeta(file) || isBrowserUndisplayableImage(file) ? '' : URL.createObjectURL(file))),
+          ...fresh.map((file) => (isVideoMeta(file) || isNeverBrowserPreviewable(file) ? '' : URL.createObjectURL(file))),
         ]);
         setStagingSectionIds((prev) => [
           ...(prev || []),
@@ -5704,6 +5710,10 @@ function ProjectDetail({
                         const itemProgress = uploadProgress?.items?.[getUploadFileKey(item.file)] || null;
                         const isPreviewVideo = isVideoMeta(item.file);
                         const isPreviewUndisplayable = !isPreviewVideo && isBrowserUndisplayableImage(item.file);
+                        // 占位：视频 / 铁定显示不了(tiff/raw) / heic 试真预览但解码失败(非 Safari)
+                        const showPreviewPlaceholder = !isPreviewVideo && (
+                          isNeverBrowserPreviewable(item.file) || !item.preview || failedPreviews.has(item.preview)
+                        );
                         return (
                           <div
                             key={`${item.index}-${item.preview || item.file.name}`}
@@ -5716,15 +5726,20 @@ function ProjectDetail({
                                 </span>
                                 <span className="detail-upload-preview-video-badge">视频</span>
                               </>
-                            ) : isPreviewUndisplayable ? (
+                            ) : showPreviewPlaceholder ? (
                               <>
                                 <span className="detail-upload-preview-video-placeholder">
                                   <span>{undisplayableFormatLabel(item.file)}</span>
                                 </span>
-                                <span className="detail-upload-preview-video-badge">转JPEG</span>
+                                <span className="detail-upload-preview-video-badge">{isPreviewUndisplayable ? '转JPEG' : '预览失败'}</span>
                               </>
                             ) : (
-                              <img src={item.preview} alt={`preview-${item.index}`} className="detail-upload-preview-media" />
+                              <img
+                                src={item.preview}
+                                alt={`preview-${item.index}`}
+                                className="detail-upload-preview-media"
+                                onError={() => markPreviewFailed(item.preview)}
+                              />
                             )}
                             <button
                               type="button"

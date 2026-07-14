@@ -2,7 +2,7 @@
 import { Modal, Input, TextArea, DatePicker, DateTimePicker, Toast } from './ui';
 import { sectionTimeToInputValue, inputValueToSectionTime } from './utils/sectionTime';
 import './CreateAlbumModal.css';
-import { getUploadFileLimitError, uploadPhotoFiles, isBrowserUndisplayableImage, undisplayableFormatLabel } from './services/photoService';
+import { getUploadFileLimitError, uploadPhotoFiles, isBrowserUndisplayableImage, isNeverBrowserPreviewable, undisplayableFormatLabel } from './services/photoService';
 import { getProjectById } from './services/projectService';
 import { getPermissions } from './permissions/permissionStore';
 import {
@@ -47,6 +47,12 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
   const [submitting, setSubmitting] = React.useState(false);
   const [userPermissions, setUserPermissions] = React.useState(() => getPermissions());
   const [stagingFiles, setStagingFiles] = React.useState([]);
+  // 预览解码失败的 objectURL 集合（如 heic 在非 Safari 浏览器）→ 退占位图
+  const [failedPreviews, setFailedPreviews] = React.useState(() => new Set());
+  const markPreviewFailed = React.useCallback((url) => {
+    if (!url) return;
+    setFailedPreviews((prev) => { const n = new Set(prev); n.add(url); return n; });
+  }, []);
   const [stagingPreviews, setStagingPreviews] = React.useState([]);
   // 与 stagingFiles 平行：每个文件归属的环节本地 key（'' = 未归类）
   const [stagingSectionKeys, setStagingSectionKeys] = React.useState([]);
@@ -240,8 +246,9 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
       const combined = [...prevFiles, ...toAdd];
 
       setStagingPreviews((prevPreviews) => {
-        // HEIC/TIFF 等浏览器显示不了：不建 objectURL（会破损），留空走占位图
-        const newPreviews = toAdd.map((f) => (isVideoFile(f) || isBrowserUndisplayableImage(f) ? '' : URL.createObjectURL(f)));
+        // TIFF/RAW 任何浏览器都显示不了：不建 objectURL、直接占位。HEIC 仍建 objectURL——Safari 能真预览，
+        // 其它浏览器解码失败会走 <img onError> 兜底成占位（见下方渲染）。
+        const newPreviews = toAdd.map((f) => (isVideoFile(f) || isNeverBrowserPreviewable(f) ? '' : URL.createObjectURL(f)));
         return [...prevPreviews, ...newPreviews];
       });
       setStagingSectionKeys((prevKeys) => [...prevKeys, ...toAdd.map(() => String(sectionKey || ''))]);
@@ -545,6 +552,10 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
                   <div className="cam-preview-row">
                     {group.items.map((item) => {
                       const isVideo = isVideoFile(item.file);
+                      // 显示占位：视频 / 铁定显示不了(tiff/raw) / heic 试了真预览但解码失败(非 Safari)
+                      const showPlaceholder = !isVideo && (
+                        isNeverBrowserPreviewable(item.file) || !item.preview || failedPreviews.has(item.preview)
+                      );
                       const undisplayable = !isVideo && isBrowserUndisplayableImage(item.file);
                       return (
                         <div key={item.index} className="cam-preview-item">
@@ -555,15 +566,20 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
                               </span>
                               <span className="cam-preview-video-badge">视频</span>
                             </>
-                          ) : undisplayable ? (
+                          ) : showPlaceholder ? (
                             <>
                               <span className="cam-preview-video-placeholder">
                                 <span>{undisplayableFormatLabel(item.file)}</span>
                               </span>
-                              <span className="cam-preview-video-badge">转JPEG</span>
+                              <span className="cam-preview-video-badge">{undisplayable ? '转JPEG' : '预览失败'}</span>
                             </>
                           ) : (
-                            <img src={item.preview} alt={`preview-${item.index}`} className="cam-preview-media" />
+                            <img
+                              src={item.preview}
+                              alt={`preview-${item.index}`}
+                              className="cam-preview-media"
+                              onError={() => markPreviewFailed(item.preview)}
+                            />
                           )}
                           <button
                             type="button"

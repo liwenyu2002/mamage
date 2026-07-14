@@ -570,6 +570,17 @@ export function isBrowserUndisplayableImage(file) {
     || /image\/(heic|heif|tiff|heic-sequence|heif-sequence)/.test(mime)
     || /image\/x-(adobe-dng|canon|nikon|sony|fuji|olympus|panasonic|pentax|samsung|sigma|leica|hasselblad|phaseone|minolta|kodak|leaf|epson)/i.test(mime);
 }
+// 「任何浏览器都显示不了」的图片：tiff + 各厂 RAW（传感器数据）。heic/heif 不算——Safari/苹果系能原生显示，
+// 所以 heic 应当先试真预览、失败再退占位（见上传预览组件的 onError 兜底）。
+const NEVER_PREVIEWABLE_EXTS = new Set(['.tif', '.tiff', ...RAW_EXTS_LIST]);
+export function isNeverBrowserPreviewable(file) {
+  if (!file) return false;
+  const ext = getFileExt(file.name);
+  const mime = String(file.type || '').toLowerCase();
+  return NEVER_PREVIEWABLE_EXTS.has(ext)
+    || /image\/tiff/.test(mime)
+    || /image\/x-(adobe-dng|canon|nikon|sony|fuji|olympus|panasonic|pentax|samsung|sigma|leica|hasselblad|phaseone|minolta|kodak|leaf|epson)/i.test(mime);
+}
 // 预览角标文案：HEIC / TIFF …（拿不到就用「原图」）
 export function undisplayableFormatLabel(file) {
   const ext = getFileExt(file && file.name).replace('.', '').toUpperCase();
