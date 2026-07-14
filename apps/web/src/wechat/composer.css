@@ -733,6 +733,8 @@
 
   .wxc-workarea {
     margin-left: 288px;
+    /* 右侧秀米式固定工具栏(ComposerToolRail)让出宽度，避免遮挡画布/导出区 */
+    margin-right: 72px;
   }
 }
 
