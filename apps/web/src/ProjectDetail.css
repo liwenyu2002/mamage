@@ -5893,14 +5893,17 @@ body.mamage-viewer-open [data-transfer-station-root="1"] {
 }
 
 /* ==== 环节"泳池刻度线"轨道（相册页 + 分享页共用,ShareView 也 import 本文件）==== */
-/* 结构：左缘 1.5px 竖线 + 每 12px 一道 6px 小刻度(::before)；环节标题高度处一道 14px 长刻度(::after)。
-   整条轨道仅占 padding-left 的 16px(手机 12px),内容宽度几乎不受影响。 */
-.detail-timeline-section {
+/* 轨道画在"分组外层容器"上(相册=.detail-gallery--timeline / 分享=.detail-timeline-gallery),
+   一条线贯穿全部环节不截断；每个环节标题处的主刻度由该环节自己的 ::after 从轨道"长出"。
+   整条轨道仅占容器 padding-left 的 16px(手机 12px)。 */
+.detail-gallery--timeline,
+.detail-timeline-gallery {
   position: relative;
   padding-left: 16px;
 }
 
-.detail-timeline-section::before {
+.detail-gallery--timeline::before,
+.detail-timeline-gallery::before {
   content: '';
   position: absolute;
   left: 0;
@@ -5919,11 +5922,14 @@ body.mamage-viewer-open [data-transfer-station-root="1"] {
   pointer-events: none;
 }
 
-/* 环节标题处的主刻度：更长更粗,从轨道"长出来"指向标题胶囊 */
+/* 环节标题处的主刻度：更长更粗,从容器轨道"长出来"指向标题胶囊(负 left 回探到轨道) */
+.detail-timeline-section {
+  position: relative;
+}
 .detail-timeline-section::after {
   content: '';
   position: absolute;
-  left: 0;
+  left: -16px;
   top: 17px; /* 对齐首行标题胶囊的视觉中线 */
   width: 14px;
   height: 2.5px;
@@ -5933,10 +5939,12 @@ body.mamage-viewer-open [data-transfer-station-root="1"] {
 }
 
 @media (max-width: 480px) {
-  .detail-timeline-section {
+  .detail-gallery--timeline,
+  .detail-timeline-gallery {
     padding-left: 12px;
   }
   .detail-timeline-section::after {
+    left: -12px;
     width: 11px;
     height: 2px;
   }
