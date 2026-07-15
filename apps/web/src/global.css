@@ -1921,3 +1921,31 @@ textarea {
         width: auto;
     }
 }
+
+/* ==== 分享页照片环节角标（此前无样式,裸 div 文本）==== */
+/* 小胶囊铁律配方：1px 均匀发丝边 + 实底,禁 backdrop-filter(会随照片数量成倍出现) */
+.detail-photo-section-chip {
+    position: absolute;
+    left: 8px;
+    top: 8px;
+    z-index: 2;
+    max-width: 72%;
+    padding: 3px 9px;
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.8);
+    color: #0a0a0a;
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    pointer-events: none;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+}
+/* 手机端小图不叠标签（与相册页 ≤480 隐藏角标同一设计口径,分享页断点跟工具栏取 640） */
+@media (max-width: 640px) {
+    .detail-photo-section-chip {
+        display: none;
+    }
+}
