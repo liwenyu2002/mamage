@@ -5891,3 +5891,53 @@ body.mamage-viewer-open [data-transfer-station-root="1"] {
     border-radius: 6px;
   }
 }
+
+/* ==== 环节"泳池刻度线"轨道（相册页 + 分享页共用,ShareView 也 import 本文件）==== */
+/* 结构：左缘 1.5px 竖线 + 每 12px 一道 6px 小刻度(::before)；环节标题高度处一道 14px 长刻度(::after)。
+   整条轨道仅占 padding-left 的 16px(手机 12px),内容宽度几乎不受影响。 */
+.detail-timeline-section {
+  position: relative;
+  padding-left: 16px;
+}
+
+.detail-timeline-section::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 4px;
+  width: 7px;
+  border-left: 1.5px solid rgba(5, 8, 22, 0.2);
+  /* 池边小刻度：1px 横线,间隔 12px,只向右伸 6px */
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(5, 8, 22, 0.16) 0 1px,
+    transparent 1px 12px
+  );
+  background-size: 6px 100%;
+  background-repeat: no-repeat;
+  pointer-events: none;
+}
+
+/* 环节标题处的主刻度：更长更粗,从轨道"长出来"指向标题胶囊 */
+.detail-timeline-section::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 17px; /* 对齐首行标题胶囊的视觉中线 */
+  width: 14px;
+  height: 2.5px;
+  border-radius: 2px;
+  background: rgba(5, 8, 22, 0.6);
+  pointer-events: none;
+}
+
+@media (max-width: 480px) {
+  .detail-timeline-section {
+    padding-left: 12px;
+  }
+  .detail-timeline-section::after {
+    width: 11px;
+    height: 2px;
+  }
+}
