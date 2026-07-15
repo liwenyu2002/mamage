@@ -829,6 +829,8 @@ function ProjectDetail({
   // image viewer
   const [viewerVisible, setViewerVisible] = React.useState(false);
   const [viewerIndex, setViewerIndex] = React.useState(0);
+  // 限定翻页序列（photoMetas 索引数组）：拍照找我等场景只在命中集合内切换；null=整册顺序
+  const [viewerSeq, setViewerSeq] = React.useState(null);
   const [viewerEnableOpenZoom, setViewerEnableOpenZoom] = React.useState(false);
   // whether viewer currently shows the original image (toggle per viewer open/index)
   const [viewerShowOriginal, setViewerShowOriginal] = React.useState(false);
@@ -3874,12 +3876,20 @@ function ProjectDetail({
     if (!viewerVisible || viewerCount <= 1) return;
     setViewerEnableOpenZoom(false);
     const direction = step > 0 ? 1 : -1;
-    const nextIndex = normalizeViewerIndex(viewerIndex + direction);
+    // 限定序列(拍照找我结果)时只在序列内环绕切换；否则整册顺序
+    let nextIndex;
+    if (viewerSeq && viewerSeq.length > 1) {
+      const pos = viewerSeq.indexOf(viewerIndex);
+      if (pos < 0) return;
+      nextIndex = viewerSeq[(pos + direction + viewerSeq.length) % viewerSeq.length];
+    } else {
+      nextIndex = normalizeViewerIndex(viewerIndex + direction);
+    }
     if (nextIndex === viewerIndex) return;
     // 切换照片时关闭编辑面板，避免把上一张的标签/描述保存到当前这张
     setViewerEditVisible(false);
     setViewerIndex(nextIndex);
-  }, [viewerVisible, viewerCount, normalizeViewerIndex, viewerIndex]);
+  }, [viewerVisible, viewerCount, normalizeViewerIndex, viewerIndex, viewerSeq]);
 
   const openViewerAt = React.useCallback((index, immediateSrc = '') => {
     if (index < 0) return;
@@ -3892,18 +3902,24 @@ function ProjectDetail({
     setViewerIndex(index);
     setViewerShowOriginal(false);
     setViewerVisible(true);
+    setViewerSeq(null); // 普通打开走整册顺序；找我等场景在调用后另行设序列
   }, [getViewerTargetSrc]);
 
-  // 拍照找我：命中照片 → 定位画廊索引 → 打开查看器
+  // 拍照找我：命中照片 → 打开查看器,且翻页限定在命中集合内(按相似度顺序)
   const [findMeOpen, setFindMeOpen] = React.useState(false);
-  const handleFindMePick = React.useCallback((m) => {
-    const target = String(m && m.photoId);
-    const idx = (photoMetas || []).findIndex((meta) => {
+  const handleFindMePick = React.useCallback((m, allMatches) => {
+    const indexById = (pid) => (photoMetas || []).findIndex((meta) => {
       const raw = meta && (meta.id || meta.photoId || meta.photo_id);
-      return raw != null && String(raw) === target;
+      return raw != null && String(raw) === String(pid);
     });
-    if (idx >= 0) { setFindMeOpen(false); openViewerAt(idx); }
-    else Toast.info('这张照片当前不在画廊列表里（可能被筛选条件过滤）');
+    const idx = indexById(m && m.photoId);
+    if (idx < 0) { Toast.info('这张照片当前不在画廊列表里（可能被筛选条件过滤）'); return; }
+    const seq = (Array.isArray(allMatches) ? allMatches : [])
+      .map((x) => indexById(x.photoId))
+      .filter((i) => i >= 0);
+    setFindMeOpen(false);
+    openViewerAt(idx); // 内部清序列
+    if (seq.length > 1) setViewerSeq(seq); // 同一批 setState,序列最终生效
   }, [photoMetas, openViewerAt]);
 
   const lastAutoOpenedPhotoKeyRef = React.useRef('');
@@ -5994,7 +6010,11 @@ function ProjectDetail({
                   <button type="button" className="viewer-topbar-close" aria-label="关闭" onClick={() => closeViewer()}>
                     <IconClose />
                   </button>
-                  <span className="viewer-topbar-counter">{Math.min(viewerIndex + 1, images.length)} / {images.length}</span>
+                  <span className="viewer-topbar-counter">
+                    {(viewerSeq && viewerSeq.length && viewerSeq.indexOf(viewerIndex) >= 0)
+                      ? `${viewerSeq.indexOf(viewerIndex) + 1} / ${viewerSeq.length} · 找我结果`
+                      : `${Math.min(viewerIndex + 1, images.length)} / ${images.length}`}
+                  </span>
                   {(() => {
                     const meta = (photoMetas && photoMetas[viewerIndex]) || {};
                     const rawName = meta.photographerName || meta.photographer_name || meta.photographer || (meta.photographerId ? String(meta.photographerId) : null) || (meta.photographer_id ? String(meta.photographer_id) : null);

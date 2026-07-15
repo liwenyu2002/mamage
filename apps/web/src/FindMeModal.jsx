@@ -130,7 +130,7 @@ export default function FindMeModal({ visible, mode, projectId, shareCode, onClo
                     type="button"
                     className="findme-cell"
                     title={m.title || `照片 #${m.photoId}`}
-                    onClick={() => onPickPhoto && onPickPhoto(m)}
+                    onClick={() => onPickPhoto && onPickPhoto(m, matches)}
                   >
                     <img src={m.thumbUrl || m.url} alt={m.title || `photo-${m.photoId}`} loading="lazy" />
                     <span className="findme-sim">{Math.round(m.sim * 100)}%</span>

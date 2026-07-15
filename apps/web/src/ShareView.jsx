@@ -266,7 +266,9 @@ export default function ShareView({ share = {}, onBack }) {
   const [viewerShowOriginalMap, setViewerShowOriginalMap] = React.useState({});
   const [videoErrorMap, setVideoErrorMap] = React.useState({});
 
-  const openViewer = (idx) => { setViewerIndex(idx); setViewerVisible(true); setSvChrome(true); };
+  // 限定翻页序列（photos 索引数组）：拍照找我等场景只在命中集合内切换；null=整册顺序。普通打开自动清空。
+  const [viewerSeq, setViewerSeq] = React.useState(null);
+  const openViewer = (idx) => { setViewerSeq(null); setViewerIndex(idx); setViewerVisible(true); setSvChrome(true); };
 
   // 沉浸式查看器的手机交互：滑动翻页 + 轻点切换顶/底栏
   const [svChrome, setSvChrome] = React.useState(true);
@@ -301,19 +303,37 @@ export default function ShareView({ share = {}, onBack }) {
     a.remove();
   };
 
-  // 拍照找我（公开分享页,分享码鉴权）：命中照片 → 定位索引 → 打开查看器
+  // 拍照找我（公开分享页,分享码鉴权）：命中照片 → 打开查看器,且翻页限定在命中集合内(按相似度顺序)
   const [findMeOpen, setFindMeOpen] = React.useState(false);
-  const handleFindMePick = (m) => {
-    const target = String(m && m.photoId);
-    const idx = photos.findIndex((p) => {
-      const raw = p && (p.id || p.photoId || p.photo_id);
-      return raw != null && String(raw) === target;
-    });
-    if (idx >= 0) { setFindMeOpen(false); openViewer(idx); }
+  const photoIndexById = (pid) => photos.findIndex((p) => {
+    const raw = p && (p.id || p.photoId || p.photo_id);
+    return raw != null && String(raw) === String(pid);
+  });
+  const handleFindMePick = (m, allMatches) => {
+    const idx = photoIndexById(m && m.photoId);
+    if (idx < 0) return;
+    const seq = (Array.isArray(allMatches) ? allMatches : [])
+      .map((x) => photoIndexById(x.photoId))
+      .filter((i) => i >= 0);
+    setFindMeOpen(false);
+    openViewer(idx); // 内部会清 seq
+    if (seq.length > 1) setViewerSeq(seq); // 同一批 setState,序列最终生效
   };
   const closeViewer = () => setViewerVisible(false);
-  const viewerPrev = () => setViewerIndex((i) => Math.max(0, i - 1));
-  const viewerNext = () => setViewerIndex((i) => Math.min(photos.length - 1, i + 1));
+  const viewerPrev = () => setViewerIndex((i) => {
+    if (viewerSeq && viewerSeq.length) {
+      const p = viewerSeq.indexOf(i);
+      return p > 0 ? viewerSeq[p - 1] : i;
+    }
+    return Math.max(0, i - 1);
+  });
+  const viewerNext = () => setViewerIndex((i) => {
+    if (viewerSeq && viewerSeq.length) {
+      const p = viewerSeq.indexOf(i);
+      return (p >= 0 && p < viewerSeq.length - 1) ? viewerSeq[p + 1] : i;
+    }
+    return Math.min(photos.length - 1, i + 1);
+  });
 
   // 查看器键盘操作：Esc 关闭、左右方向键翻页（lightbox 标准交互）
   React.useEffect(() => {
@@ -577,6 +597,10 @@ export default function ShareView({ share = {}, onBack }) {
         {viewerVisible ? (() => {
           const p = photos[viewerIndex] || {};
           const isVid = isVideoPhoto(p);
+          // 限定序列(找我结果)时,计数与首末判断都按序列内位置
+          const seqPos = (viewerSeq && viewerSeq.length) ? viewerSeq.indexOf(viewerIndex) : -1;
+          const navTotal = seqPos >= 0 ? viewerSeq.length : photos.length;
+          const navPos = seqPos >= 0 ? seqPos : viewerIndex;
           return (
             /* 沉浸式查看器（手机优先）：纯黑全屏图区 + 可隐藏的顶/底栏；左右滑动翻页,轻点切换栏 */
             <div className="sv-viewer" role="dialog" aria-label="照片查看器">
@@ -619,7 +643,7 @@ export default function ShareView({ share = {}, onBack }) {
 
               <div className={`sv-bar sv-bar-top${svChrome ? '' : ' sv-bar-hidden'}`}>
                 <button type="button" className="sv-btn" onClick={closeViewer} aria-label="关闭">✕</button>
-                <span className="sv-counter">{viewerIndex + 1} / {photos.length}</span>
+                <span className="sv-counter">{navPos + 1} / {navTotal}{seqPos >= 0 ? ' · 找我结果' : ''}</span>
                 {!isVid ? (
                   <button
                     type="button"
@@ -640,8 +664,8 @@ export default function ShareView({ share = {}, onBack }) {
               </div>
 
               {/* 桌面侧边翻页箭头（触屏隐藏,用滑动） */}
-              <button type="button" className="sv-nav sv-nav-left" onClick={viewerPrev} disabled={viewerIndex <= 0} aria-label="上一张">‹</button>
-              <button type="button" className="sv-nav sv-nav-right" onClick={viewerNext} disabled={viewerIndex >= photos.length - 1} aria-label="下一张">›</button>
+              <button type="button" className="sv-nav sv-nav-left" onClick={viewerPrev} disabled={navPos <= 0} aria-label="上一张">‹</button>
+              <button type="button" className="sv-nav sv-nav-right" onClick={viewerNext} disabled={navPos >= navTotal - 1} aria-label="下一张">›</button>
             </div>
           );
         })() : null}
