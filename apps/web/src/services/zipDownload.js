@@ -82,7 +82,10 @@ export async function fetchZipToTarget({ photoIds, shareCode, zipName, fileHandl
   }
 
   const filename = filenameFromResponse(resp, `${name}.zip`);
-  const total = Number(resp.headers.get('content-length') || 0) || 0;
+  // 流式 zip 没有 Content-Length；服务端打包前用内网 HEAD 求和发来的估算总量（X-Zip-Total-Bytes）
+  const total = Number(resp.headers.get('content-length') || 0)
+    || Number(resp.headers.get('x-zip-total-bytes') || 0)
+    || 0;
   const reader = resp.body && resp.body.getReader ? resp.body.getReader() : null;
   if (!reader) { downloadBlob(await resp.blob(), filename); return filename; }
 
