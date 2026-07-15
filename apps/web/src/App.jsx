@@ -5,7 +5,7 @@ import ProjectCard from './ProjectCard';
 import * as authService from './services/authService';
 import { fetchProjectList, createProject } from './services/projectService';
 import { searchPhotos } from './services/photoQueryService';
-import { resolveAssetUrl } from './services/request';
+import { resolveAssetUrl, rewriteMediaUrlsDeep } from './services/request';
 import IfCan from './permissions/IfCan';
 import { LiquidGlassDefs } from './liquidGlass';
 import { initLiquidLens } from './liquidLens';
@@ -516,9 +516,10 @@ function App() {
             try {
               const resp = await fetch(`/api/share/${code}?limit=100&offset=0`);
               // Always try to parse JSON body when possible, even if status is not ok
-              const data = await (async () => {
+              // 裸 fetch 不经 request() 封装 → 手动过内网媒体地址改写，否则内网打开分享页仍绕公网隧道
+              const data = rewriteMediaUrlsDeep(await (async () => {
                 try { return await resp.json(); } catch (e) { return null; }
-              })();
+              })());
 
               if (resp && resp.ok && data) {
                 // successful share response

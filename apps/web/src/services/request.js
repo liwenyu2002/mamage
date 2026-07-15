@@ -172,4 +172,6 @@ function resolveAssetUrl(src) {
   return ABSOLUTE_API_BASE ? `${ABSOLUTE_API_BASE}${normalized}` : normalized;
 }
 
-export { BASE_URL, ABSOLUTE_API_BASE, request, resolveAssetUrl };
+// rewriteMediaUrlsDeep 导出给"不走 request() 封装的裸 fetch"用（分享页 App 加载器/拍照找我等），
+// 否则内网入口打开时这些响应里的媒体地址不会被改写、仍绕公网隧道
+export { BASE_URL, ABSOLUTE_API_BASE, request, resolveAssetUrl, rewriteMediaUrlsDeep };

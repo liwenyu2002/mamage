@@ -5,6 +5,7 @@
 import React from 'react';
 import { Modal, Button } from './ui';
 import { getToken } from './services/authService';
+import { rewriteMediaUrlsDeep } from './services/request';
 
 const ERR_TEXT = {
   NO_FACE: '未检测到人脸，请换一张清晰的正脸照片',
@@ -58,7 +59,8 @@ export default function FindMeModal({ visible, mode, projectId, shareCode, onClo
         if (token) headers.Authorization = `Bearer ${token}`;
       }
       const resp = await fetch(url, { method: 'POST', headers, body: fd, credentials: 'same-origin' });
-      const data = await resp.json().catch(() => ({}));
+      // 裸 fetch 不经 request() 封装 → 手动过内网媒体地址改写（内网入口打开时缩略图/原图走内网）
+      const data = rewriteMediaUrlsDeep(await resp.json().catch(() => ({})));
       if (!resp.ok) {
         if (data.error === 'MULTIPLE_FACES') setErrText(`检测到 ${data.count || '多'} 张人脸，请上传或拍摄单人照`);
         else setErrText(ERR_TEXT[data.error] || `匹配失败（${data.error || resp.status}），请重试`);
