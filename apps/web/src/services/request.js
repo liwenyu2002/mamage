@@ -126,8 +126,36 @@ async function request(path, options = {}) {
   }
 
   const ct = res.headers.get('content-type') || '';
-  if (ct.includes('application/json')) return res.json();
+  if (ct.includes('application/json')) return rewriteMediaUrlsDeep(await res.json());
   return res.text();
+}
+
+// ---------------------------------------------------------------------------
+// 内网直连模式：API 返回的媒体地址是绝对公网域名(UPLOAD_BASE_URL)，导致校内从
+// http://10.100.83.67:3000 打开时，图片/视频/下载仍绕 Cloudflare 隧道(实测 1.2MB/s vs 内网 9MB/s)。
+// 这里在 JSON 返回的唯一收口做深改写：页面 host 与媒体地址 host 不同时，把
+// "https?://<别的host>/api/image/..." 改成同源相对路径 → 浏览器自动走当前(内网)入口。
+// 从公网域名打开时 host 相同 → 原样不动，公众号导出等依赖绝对地址的场景不受影响。
+// 签名(?e=&s=)按 key 路径计算、与 host 无关，改写后仍有效。
+// ---------------------------------------------------------------------------
+const PAGE_HOST = (typeof window !== 'undefined' && window.location) ? window.location.host : '';
+const ABS_MEDIA_RE = /^https?:\/\/([^/]+)(\/api\/image\/.+)$/i;
+
+function rewriteMediaUrlsDeep(value) {
+  if (!PAGE_HOST) return value;
+  if (typeof value === 'string') {
+    const m = value.match(ABS_MEDIA_RE);
+    return (m && m[1].toLowerCase() !== PAGE_HOST.toLowerCase()) ? m[2] : value;
+  }
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i += 1) value[i] = rewriteMediaUrlsDeep(value[i]);
+    return value;
+  }
+  if (value && typeof value === 'object') {
+    for (const k of Object.keys(value)) value[k] = rewriteMediaUrlsDeep(value[k]);
+    return value;
+  }
+  return value;
 }
 
 function resolveAssetUrl(src) {
