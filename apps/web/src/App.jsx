@@ -1173,30 +1173,13 @@ function App() {
                     </div>
                   ) : null}
 
-                  <div style={{ marginBottom: 20 }}>
+                  {!loading && !error && normalizedProjects.length > 0 ? (
+                    <div className="app-search-project-results">
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                       <Text strong>项目结果</Text>
                     </div>
 
                     <div className="project-grid">
-                      {loading && (
-                        <div className="mamage-grid-state is-compact">
-                          <AppLoadingState title="正在搜索项目" subtitle="匹配相册中" compact />
-                        </div>
-                      )}
-
-                      {!loading && error && (
-                        <div className="mamage-grid-state is-compact">
-                          <Text type="danger">{error}</Text>
-                        </div>
-                      )}
-
-                      {!loading && !error && normalizedProjects.length === 0 && (
-                        <div className="mamage-grid-state is-compact">
-                          <Empty description="没有匹配的项目" />
-                        </div>
-                      )}
-
                       {!loading && !error &&
                         normalizedProjects.map((project) => (
                           <ProjectCard
@@ -1213,11 +1196,12 @@ function App() {
                         <Button size="small" disabled={!projectHasMore || loading} onClick={handleProjectNextPage}>下一页</Button>
                       </div>
                     )}
-                  </div>
+                    </div>
+                  ) : null}
 
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                      <Text strong>{`照片结果${Number(photoSearchTotal) > 0 ? `（${photoSearchTotal}）` : ''}`}</Text>
+                      <Text strong>{Number(photoSearchTotal) > 0 ? `找到 ${photoSearchTotal} 张照片` : '照片结果'}</Text>
                     </div>
 
                     {photoSearchLoading && photoSearchResults.length === 0 && (

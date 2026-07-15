@@ -1672,6 +1672,12 @@ textarea {
     font-size: 12px;
 }
 
+.app-search-project-results {
+    margin: 20px 0 12px;
+    padding-top: 14px;
+    border-top: var(--liquid-glass-stroke-width, 0.5px) solid rgba(0, 0, 0, 0.12);
+}
+
 .app-search-insight__mode,
 .app-search-insight__chips span,
 .app-photo-search-card__people {
