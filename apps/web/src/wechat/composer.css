@@ -731,10 +731,28 @@
     max-height: none;
   }
 
+  /* 全媒体编辑台新增平台导航后，固定侧栏从平台栏下方开始，底边不动以缩短面板高度。 */
+  .media-studio-shell .wxc-side-lib {
+    top: 136px;
+  }
+
   .wxc-workarea {
     margin-left: 288px;
     /* 右侧让出：固定工具栏(左移到中转站左侧,约 right:140+52) + 中转站浮窗，避免遮挡画布/导出区 */
     margin-right: 200px;
+  }
+}
+
+/* 969-1024px 时主导航已切成双行手机头，但编辑器侧栏仍处于桌面固定模式。 */
+@media (min-width: 969px) and (max-width: 1024px) {
+  .media-studio-shell .wxc-side-lib {
+    top: 176px;
+  }
+}
+
+@media (max-width: 968px) {
+  .media-studio-shell .wxc-side-lib {
+    top: 176px;
   }
 }
 
