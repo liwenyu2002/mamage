@@ -242,7 +242,40 @@ export default function ShareView({ share = {}, onBack }) {
   const [viewerShowOriginalMap, setViewerShowOriginalMap] = React.useState({});
   const [videoErrorMap, setVideoErrorMap] = React.useState({});
 
-  const openViewer = (idx) => { setViewerIndex(idx); setViewerVisible(true); };
+  const openViewer = (idx) => { setViewerIndex(idx); setViewerVisible(true); setSvChrome(true); };
+
+  // 沉浸式查看器的手机交互：滑动翻页 + 轻点切换顶/底栏
+  const [svChrome, setSvChrome] = React.useState(true);
+  const svTouchRef = React.useRef(null);
+  const svTouchStart = (e) => {
+    const t = e.touches && e.touches[0];
+    if (t) svTouchRef.current = { x: t.clientX, y: t.clientY };
+  };
+  const svTouchEnd = (e) => {
+    const s = svTouchRef.current;
+    svTouchRef.current = null;
+    const t = e.changedTouches && e.changedTouches[0];
+    if (!s || !t) return;
+    const dx = t.clientX - s.x;
+    const dy = t.clientY - s.y;
+    if (Math.abs(dx) > 56 && Math.abs(dx) > Math.abs(dy) * 1.4) {
+      if (dx < 0) viewerNext(); else viewerPrev();
+    }
+  };
+  const downloadCurrentViewerPhoto = () => {
+    const p = photos[viewerIndex];
+    if (!p) return;
+    const url = originalFor(p) || thumbFor(p);
+    if (!url) return;
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `photo_${viewerIndex}${inferExt(url)}`;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
 
   // 拍照找我（公开分享页,分享码鉴权）：命中照片 → 定位索引 → 打开查看器
   const [findMeOpen, setFindMeOpen] = React.useState(false);
@@ -526,52 +559,74 @@ export default function ShareView({ share = {}, onBack }) {
           )}
         </Card>
 
-        {viewerVisible ? (
-          <div className="viewer-overlay" onClick={closeViewer}>
-            <div className="viewer-wrap">
-              <button className="viewer-nav viewer-nav-left" onClick={(e) => { e.stopPropagation(); viewerPrev(); }} aria-label="上一张" />
-              <div className="viewer-img-wrap" onClick={(e) => e.stopPropagation()}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center' }}>
-                  {isVideoPhoto(photos[viewerIndex]) ? (
-                    videoErrorMap[viewerIndex] ? (
-                      <div style={{ minWidth: 'min(560px, 80vw)', minHeight: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#050816', color: 'rgba(255,255,255,0.8)', fontSize: 14, borderRadius: 8, padding: 24, textAlign: 'center' }}>
-                        该视频暂时无法在线播放（可能仍在转码或格式不受浏览器支持），可下载后观看。
-                      </div>
-                    ) : (
-                      <video
-                        className="viewer-img"
-                        src={playbackFor(photos[viewerIndex])}
-                        poster={posterFor(photos[viewerIndex]) || undefined}
-                        controls
-                        playsInline
-                        preload="metadata"
-                        style={{ maxWidth: '86vw', maxHeight: '70vh', background: '#050816' }}
-                        onError={() => setVideoErrorMap((m) => ({ ...m, [viewerIndex]: true }))}
-                      />
-                    )
+        {viewerVisible ? (() => {
+          const p = photos[viewerIndex] || {};
+          const isVid = isVideoPhoto(p);
+          return (
+            /* 沉浸式查看器（手机优先）：纯黑全屏图区 + 可隐藏的顶/底栏；左右滑动翻页,轻点切换栏 */
+            <div className="sv-viewer" role="dialog" aria-label="照片查看器">
+              <div
+                className="sv-stage"
+                onTouchStart={svTouchStart}
+                onTouchEnd={svTouchEnd}
+                onClick={(e) => {
+                  // 点视频控件/按钮不当作"切换栏"；点空白或图片才切
+                  if (e.target.tagName === 'VIDEO' || (e.target.closest && e.target.closest('button, a'))) return;
+                  setSvChrome((v) => !v);
+                }}
+              >
+                {isVid ? (
+                  videoErrorMap[viewerIndex] ? (
+                    <div className="sv-video-error">该视频暂时无法在线播放（可能仍在转码或格式不受浏览器支持），可下载后观看。</div>
                   ) : (
-                    <img className="viewer-img" src={viewerShowOriginalMap[viewerIndex] ? originalFor(photos[viewerIndex]) : thumbFor(photos[viewerIndex])} alt="预览" />
-                  )}
-                  {!isVideoPhoto(photos[viewerIndex]) ? (
-                  <div style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
-                    <Button
-                      onClick={() => setViewerShowOriginalMap((m) => ({ ...m, [viewerIndex]: !m[viewerIndex] }))}
-                    >
-                      {viewerShowOriginalMap[viewerIndex] ? '查看缩略图' : '查看原图'}
-                    </Button>
-                  </div>
-                  ) : null}
-                  <button className="viewer-close-btn" onClick={(e) => { e.stopPropagation(); closeViewer(); }} aria-label="关闭查看器">×</button>
-                  <div style={{ maxWidth: '80vw', color: '#fff', textAlign: 'center' }}>
-                    <div style={{ fontSize: 14 }}>{photos[viewerIndex] && (photos[viewerIndex].title || '')}</div>
-                    <div style={{ fontSize: 12, color: '#ddd' }}>{photos[viewerIndex] && (photos[viewerIndex].description || '')}</div>
-                  </div>
-                </div>
+                    <video
+                      className="sv-media"
+                      src={playbackFor(p)}
+                      poster={posterFor(p) || undefined}
+                      controls
+                      playsInline
+                      preload="metadata"
+                      onError={() => setVideoErrorMap((m) => ({ ...m, [viewerIndex]: true }))}
+                    />
+                  )
+                ) : (
+                  <img
+                    className="sv-media"
+                    src={viewerShowOriginalMap[viewerIndex] ? originalFor(p) : thumbFor(p)}
+                    alt={p.title || '照片'}
+                    draggable={false}
+                  />
+                )}
               </div>
-              <button className="viewer-nav viewer-nav-right" onClick={(e) => { e.stopPropagation(); viewerNext(); }} aria-label="下一张" />
+
+              <div className={`sv-bar sv-bar-top${svChrome ? '' : ' sv-bar-hidden'}`}>
+                <button type="button" className="sv-btn" onClick={closeViewer} aria-label="关闭">✕</button>
+                <span className="sv-counter">{viewerIndex + 1} / {photos.length}</span>
+                {!isVid ? (
+                  <button
+                    type="button"
+                    className="sv-btn sv-btn-text"
+                    onClick={() => setViewerShowOriginalMap((m) => ({ ...m, [viewerIndex]: !m[viewerIndex] }))}
+                  >
+                    {viewerShowOriginalMap[viewerIndex] ? '缩略图' : '原图'}
+                  </button>
+                ) : <span className="sv-btn sv-btn-ghost" aria-hidden="true" />}
+              </div>
+
+              <div className={`sv-bar sv-bar-bottom${svChrome ? '' : ' sv-bar-hidden'}`}>
+                <div className="sv-meta">
+                  {p.title ? <div className="sv-title">{p.title}</div> : null}
+                  {p.description ? <div className="sv-desc">{p.description}</div> : null}
+                </div>
+                <button type="button" className="sv-btn sv-btn-text" onClick={downloadCurrentViewerPhoto}>⬇ 下载</button>
+              </div>
+
+              {/* 桌面侧边翻页箭头（触屏隐藏,用滑动） */}
+              <button type="button" className="sv-nav sv-nav-left" onClick={viewerPrev} disabled={viewerIndex <= 0} aria-label="上一张">‹</button>
+              <button type="button" className="sv-nav sv-nav-right" onClick={viewerNext} disabled={viewerIndex >= photos.length - 1} aria-label="下一张">›</button>
             </div>
-          </div>
-        ) : null}
+          );
+        })() : null}
 
         <FindMeModal
           visible={findMeOpen}
