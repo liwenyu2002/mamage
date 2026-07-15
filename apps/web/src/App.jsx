@@ -10,6 +10,7 @@ import IfCan from './permissions/IfCan';
 import { LiquidGlassDefs } from './liquidGlass';
 import { initLiquidLens } from './liquidLens';
 import UiZoomControl, { useUiZoom, applyDocumentZoom } from './UiZoomControl';
+import { IconFaceScan, IconSparkleAI } from './ui/icons';
 
 const lazyWithPreload = (loader) => {
   const Component = React.lazy(loader);
@@ -162,6 +163,7 @@ function App() {
   const [photoSearchHasMore, setPhotoSearchHasMore] = React.useState(false);
   const [photoSearchPage, setPhotoSearchPage] = React.useState(1);
   const [photoSearchTotal, setPhotoSearchTotal] = React.useState(0);
+  const [photoSearchMeta, setPhotoSearchMeta] = React.useState(null);
   const [hoverPhotoSearchIdx, setHoverPhotoSearchIdx] = React.useState(-1);
   const [photoPreviewVisible, setPhotoPreviewVisible] = React.useState(false);
   const [photoPreviewSrc, setPhotoPreviewSrc] = React.useState('');
@@ -276,6 +278,7 @@ function App() {
     setPhotoSearchHasMore(false);
     setPhotoSearchPage(1);
     setPhotoSearchTotal(0);
+    setPhotoSearchMeta(null);
     setHoverPhotoSearchIdx(-1);
   }, []);
 
@@ -296,6 +299,7 @@ function App() {
         page,
         pageSize: 24,
         sort: 'relevance',
+        smart: true,
         demo: isDemoPath,
       });
       if (latestPhotoSearchReqRef.current !== currentToken) return;
@@ -312,11 +316,13 @@ function App() {
       setPhotoSearchPage(page);
       setPhotoSearchTotal(Number(response?.total) || 0);
       setPhotoSearchHasMore(Boolean(response?.hasMore));
+      setPhotoSearchMeta(response?.search || null);
     } catch (err) {
       if (latestPhotoSearchReqRef.current !== currentToken) return;
       const message = err?.body || err?.message || '搜索照片失败';
       setPhotoSearchError(message);
       if (!append) setPhotoSearchResults([]);
+      if (!append) setPhotoSearchMeta(null);
       setPhotoSearchHasMore(false);
     } finally {
       if (latestPhotoSearchReqRef.current === currentToken) {
@@ -433,6 +439,7 @@ function App() {
     setPhotoSearchHasMore(false);
     setPhotoSearchPage(1);
     setPhotoSearchTotal(0);
+    setPhotoSearchMeta(null);
     loadProjects(trimmed, 1, PROJECT_PAGE_SIZE);
     loadPhotoSearchResults({ kw: trimmed, page: 1, append: false });
   }, [keyword, loadPhotoSearchResults, clearPhotoSearchState, loadProjects, isDemoPath]);
@@ -1013,8 +1020,8 @@ function App() {
             <div className="mamage-nav-search-field">
               <input
                 className="mamage-nav-search-input"
-                aria-label="搜索项目、照片、标签或摄影师"
-                placeholder={isMobileHeader ? '搜索项目 / 照片' : '搜索项目 / 照片 / 标签 / 摄影师'}
+                aria-label="用自然语言搜索项目、照片、人物或场景"
+                placeholder={isMobileHeader ? '搜索照片、人物、场景' : '试试：田心原在讲台演讲的推荐照片'}
                 value={keyword}
                 onChange={(event) => setKeyword(event.target.value)}
                 onKeyDown={(event) => {
@@ -1145,7 +1152,7 @@ function App() {
               photoSearchMode ? (
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
-                    <Text>{`关键词“${String(keyword || '').trim()}”的搜索结果`}</Text>
+                    <Text>{`“${String(keyword || '').trim()}”的搜索结果`}</Text>
                     <Button
                       size="small"
                       onClick={handleBackToList}
@@ -1153,6 +1160,18 @@ function App() {
                       清空搜索
                     </Button>
                   </div>
+
+                  {photoSearchMeta && Array.isArray(photoSearchMeta.chips) && photoSearchMeta.chips.length ? (
+                    <div className="app-search-insight" aria-label="智能搜索理解结果">
+                      <span className={`app-search-insight__mode${photoSearchMeta.aiUsed ? ' is-ai' : ''}`}>
+                        <IconSparkleAI />
+                        {photoSearchMeta.aiUsed ? 'AI 已理解' : '智能匹配'}
+                      </span>
+                      <div className="app-search-insight__chips">
+                        {photoSearchMeta.chips.map((chip) => <span key={chip}>{chip}</span>)}
+                      </div>
+                    </div>
+                  ) : null}
 
                   <div style={{ marginBottom: 20 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
@@ -1203,7 +1222,7 @@ function App() {
 
                     {photoSearchLoading && photoSearchResults.length === 0 && (
                       <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
-                        <AppLoadingState title="正在搜索照片" subtitle="按描述、标签和摄影师匹配" compact />
+                        <AppLoadingState title="正在智能检索" subtitle="理解场景、人物与画面质量" compact />
                       </div>
                     )}
 
@@ -1279,6 +1298,12 @@ function App() {
                               <Text size="small" type="tertiary" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                 {photo.photographerName ? `摄影师：${photo.photographerName}` : '摄影师：-'}
                               </Text>
+                              {Array.isArray(photo.faceNames) && photo.faceNames.length ? (
+                                <span className="app-photo-search-card__people" title={photo.faceNames.join('、')}>
+                                  <IconFaceScan />
+                                  {photo.faceNames.slice(0, 3).join('、')}{photo.faceNames.length > 3 ? ` 等 ${photo.faceNames.length} 人` : ''}
+                                </span>
+                              ) : null}
                               <div
                                 style={{
                                   position: 'absolute',

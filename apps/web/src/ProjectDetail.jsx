@@ -894,6 +894,7 @@ function ProjectDetail({
   const [searchKeyword, setSearchKeyword] = React.useState('');
   const [searching, setSearching] = React.useState(false);
   const [searchError, setSearchError] = React.useState('');
+  const [searchMeta, setSearchMeta] = React.useState(null);
   const [searchOpen, setSearchOpen] = React.useState(false);
   const [actionSheetOpen, setActionSheetOpen] = React.useState(false);
   const [mediaFilter, setMediaFilter] = React.useState('all'); // all | image | video
@@ -1776,6 +1777,7 @@ function ProjectDetail({
   React.useEffect(() => {
     setSearchKeyword('');
     setSearchError('');
+    setSearchMeta(null);
     setSearching(false);
     searchReqSeqRef.current = 0;
     hasSearchedRef.current = false;
@@ -1789,6 +1791,7 @@ function ProjectDetail({
 
       if (!q) {
         setSearchError('');
+        setSearchMeta(null);
         if (!hasSearchedRef.current) return;
         setSearching(true);
         try {
@@ -1808,6 +1811,7 @@ function ProjectDetail({
       if (!projectId) return;
       setSearching(true);
       setSearchError('');
+      setSearchMeta(null);
       try {
         const resp = await searchPhotos({
           q,
@@ -1815,10 +1819,12 @@ function ProjectDetail({
           page: 1,
           pageSize: 200,
           sort: 'relevance',
+          smart: true,
           demo: readOnly,
         });
         if (searchReqSeqRef.current !== seq) return;
         const list = Array.isArray(resp?.list) ? resp.list : [];
+        setSearchMeta(resp?.search || null);
         const nextMetas = list.map((it) => {
           const thumbSrc = resolveAssetUrl(getPhotoThumbCandidate(it));
           const originalSrc = resolveAssetUrl(getPhotoOriginalCandidate(it));
@@ -1855,11 +1861,12 @@ function ProjectDetail({
         hasSearchedRef.current = true;
       } catch (err) {
         if (searchReqSeqRef.current !== seq) return;
+        setSearchMeta(null);
         setSearchError(err?.body || err?.message || '搜索失败');
       } finally {
         if (searchReqSeqRef.current === seq) setSearching(false);
       }
-    }, 260);
+    }, 520);
 
     return () => clearTimeout(timer);
   }, [searchKeyword, projectId, reloadGalleryFromServer, readOnly]);
@@ -4793,7 +4800,7 @@ function ProjectDetail({
                 className="detail-search-input"
                 value={searchKeyword}
                 onChange={(v) => setSearchKeyword(v)}
-                placeholder="搜索照片 / 标签 / 摄影师"
+                placeholder="描述画面、人物或质量要求"
                 prefix={<IconSearch />}
                 showClear
               />
@@ -4815,6 +4822,17 @@ function ProjectDetail({
                 title="收起搜索"
               />
             </div>
+            {searchMeta && Array.isArray(searchMeta.chips) && searchMeta.chips.length ? (
+              <div className="detail-search-insight" aria-label="智能搜索理解结果">
+                <span className={`detail-search-insight-mode${searchMeta.aiUsed ? ' is-ai' : ''}`}>
+                  <IconSparkleAI />
+                  {searchMeta.aiUsed ? 'AI 已理解' : '智能匹配'}
+                </span>
+                <div className="detail-search-insight-chips">
+                  {searchMeta.chips.map((chip) => <span key={chip}>{chip}</span>)}
+                </div>
+              </div>
+            ) : null}
             {searchError ? (
               <Text type="danger" className="detail-search-error">{searchError}</Text>
             ) : null}
