@@ -114,7 +114,13 @@ export default function FindMeModal({ visible, mode, projectId, shareCode, onClo
         {result && !errText ? (
           matches.length ? (
             <>
-              <div className="findme-result-head">找到 {matches.length} 张可能有你的照片（按相似度排序）：</div>
+              <div className="findme-result-head">
+                {result.person
+                  ? (result.person.name
+                    ? `已识别为「${result.person.name}」，找到 ${matches.length} 张照片（含人物档案累积成果）：`
+                    : `已按人物档案识别到你，找到 ${matches.length} 张照片：`)
+                  : `找到 ${matches.length} 张可能有你的照片（按相似度排序）：`}
+              </div>
               <div className="findme-grid">
                 {matches.map((m) => (
                   <button
