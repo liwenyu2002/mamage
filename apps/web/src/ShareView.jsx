@@ -570,8 +570,11 @@ export default function ShareView({ share = {}, onBack }) {
                 onTouchStart={svTouchStart}
                 onTouchEnd={svTouchEnd}
                 onClick={(e) => {
-                  // 点视频控件/按钮不当作"切换栏"；点空白或图片才切
+                  // 点视频控件/按钮不拦截；其余区域按横向位置分区：左30%上一张/右30%下一张/中间切换顶底栏
                   if (e.target.tagName === 'VIDEO' || (e.target.closest && e.target.closest('button, a'))) return;
+                  const w = window.innerWidth || 1;
+                  if (e.clientX < w * 0.3) { viewerPrev(); return; }
+                  if (e.clientX > w * 0.7) { viewerNext(); return; }
                   setSvChrome((v) => !v);
                 }}
               >
