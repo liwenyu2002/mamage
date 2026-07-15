@@ -224,6 +224,29 @@ function resolveLiveElPath(host, path) {
   return node === host ? null : node;
 }
 
+// 公众号导入 HTML 里既有占满一行的 section/div，也有图片、徽标等窄元素。
+// 前者的“对齐”应作用于内部内容，后者才是移动元素盒子本身；这里用真实渲染尺寸分流，
+// 再把判定结果随 patch 一起写入 DOMParser 副本，保证即时预览和持久化使用同一套语义。
+function withElementAlignmentMode(el, patch) {
+  const next = { ...(patch || {}) };
+  if (!el || !el.parentElement) return next;
+  const tag = String(el.tagName || '').toLowerCase();
+  const isReplacedElement = ['img', 'image', 'svg', 'canvas', 'video'].includes(tag);
+  const parent = el.parentElement;
+  const rect = el.getBoundingClientRect();
+  const parentRect = parent.getBoundingClientRect();
+  const parentStyle = window.getComputedStyle ? window.getComputedStyle(parent) : null;
+  const padX = parentStyle
+    ? (parseFloat(parentStyle.paddingLeft) || 0) + (parseFloat(parentStyle.paddingRight) || 0)
+    : 0;
+  const innerWidth = Math.max(0, parentRect.width - padX);
+  const fillsParent = innerWidth > 0 && rect.width >= innerWidth * 0.92;
+  const isContainer = !isReplacedElement && (el.children.length > 0 || fillsParent);
+  if (Object.prototype.hasOwnProperty.call(next, 'alignH')) next.alignHMode = isContainer ? 'content' : 'box';
+  if (Object.prototype.hasOwnProperty.call(next, 'alignV')) next.alignVMode = isContainer ? 'content' : 'parent';
+  return next;
+}
+
 function resolveStyleBlock(blocksById, block) {
   const map = blocksById || {};
   return map[block.blockId] || BUILTIN_BLOCKS_BY_ID[FALLBACK_BLOCK_ID_BY_TYPE[block.type]] || null;
@@ -826,9 +849,12 @@ function BlockWrapper({
 function ElementInspector({ rect, box, onApply, onClose }) {
   const b = box || {};
   const flipBelow = rect.top < 176; // 靠画布顶时翻到元素下方，防裁
+  const panelWidth = Math.min(260, Math.max(210, (rect.canvasWidth || 268) - 8));
+  const maxLeft = Math.max(4, (rect.canvasWidth || panelWidth + 8) - panelWidth - 4);
   const style = {
-    left: Math.max(4, Math.round(rect.left)),
+    left: Math.max(4, Math.min(Math.round(rect.left), maxLeft)),
     top: flipBelow ? Math.round(rect.top + rect.height + 8) : Math.round(rect.top - 8),
+    width: panelWidth,
     transform: flipBelow ? 'none' : 'translateY(-100%)',
   };
   const seg = (dim, val, label) => (
@@ -837,6 +863,7 @@ function ElementInspector({ rect, box, onApply, onClose }) {
       className={`cve-elx-seg${b[dim] === val ? ' is-on' : ''}`}
       onPointerDown={(e) => e.stopPropagation()}
       onClick={() => onApply({ [dim]: b[dim] === val ? null : val })}
+      aria-pressed={b[dim] === val}
     >{label}</button>
   );
   const mField = (key, label) => (
@@ -865,7 +892,7 @@ function ElementInspector({ rect, box, onApply, onClose }) {
         {mField('marginLeft', '左')}
         {mField('marginRight', '右')}
       </div>
-      <p className="cve-elx-hint">垂直居中仅在弹性容器内生效；水平居中对定宽元素/图片有效。</p>
+      <p className="cve-elx-hint">宽容器对齐内部内容，窄元素相对父容器移动。</p>
     </div>
   );
 }
@@ -928,7 +955,7 @@ function CanvasEditor({
     setElBox(readElBoxFromEl(el));
     const cr = canvas.getBoundingClientRect();
     const r = el.getBoundingClientRect();
-    setElSelRect({ top: r.top - cr.top, left: r.left - cr.left, width: r.width, height: r.height });
+    setElSelRect({ top: r.top - cr.top, left: r.left - cr.left, width: r.width, height: r.height, canvasWidth: cr.width });
   }, [elSel, doc]);
 
   // 浮动工具条锚点：{ top, flip } | null。top=工具条相对选中块顶部的 px 偏移，flip=放锚点下方。
@@ -1031,8 +1058,9 @@ function CanvasEditor({
     if (!block || block.kind !== 'raw') return;
     const host = elSelHostRef.current;
     const liveEl = host ? resolveLiveElPath(host, elSel.path) : null;
-    if (liveEl) { applyElBoxToEl(liveEl, patch); setElBox(readElBoxFromEl(liveEl)); } // 即时可见 + 回显立即更新
-    const nextHtml = setElBoxStyle(block.html || '', elSel.path, patch);
+    const effectivePatch = withElementAlignmentMode(liveEl, patch);
+    if (liveEl) { applyElBoxToEl(liveEl, effectivePatch); setElBox(readElBoxFromEl(liveEl)); } // 即时可见 + 回显立即更新
+    const nextHtml = setElBoxStyle(block.html || '', elSel.path, effectivePatch);
     updateBlock(elSel.uid, { html: sanitizeRawHtml(nextHtml) });
   }, [elSel, list, updateBlock]);
 

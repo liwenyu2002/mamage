@@ -1057,16 +1057,31 @@ function resolveElByPath(root, path) {
   return node === root ? null : node;
 }
 
+const H_ALIGN_TO_FLEX = { left: 'flex-start', center: 'center', right: 'flex-end' };
+const V_ALIGN_TO_FLEX = { top: 'flex-start', middle: 'center', bottom: 'flex-end' };
+
 // 从一个元素读盒模型样式（live DOM 或 DOMParser 元素通用）：{marginTop,Right,Bottom,Left(px|null), alignH, alignV}
 export function readElBoxFromEl(el) {
   if (!el || !el.style) return null;
   const s = el.style;
   const px = (v) => { const n = parseFloat(v); return (v && /px$/.test(v) && Number.isFinite(n)) ? n : null; };
+  // 对齐回显认两套：盒子位移(margin auto,窄元素/图片) 或 内容对齐(text-align,全宽容器)
   let alignH = null;
   if (s.marginLeft === 'auto' && s.marginRight === 'auto') alignH = 'center';
   else if (s.marginLeft === 'auto') alignH = 'right';
   else if (s.marginRight === 'auto') alignH = 'left';
-  const alignV = { 'flex-start': 'top', center: 'middle', 'flex-end': 'bottom' }[s.alignSelf] || null;
+  if (!alignH) {
+    const ta = String(s.textAlign || '').toLowerCase();
+    if (ta === 'left' || ta === 'center' || ta === 'right') alignH = ta;
+  }
+  if (!alignH) alignH = { 'flex-start': 'left', center: 'center', 'flex-end': 'right' }[s.alignItems] || null;
+  let alignV = { 'flex-start': 'top', center: 'middle', 'flex-end': 'bottom' }[s.justifyContent] || null;
+  if (!alignV) alignV = { 'flex-start': 'top', center: 'middle', 'flex-end': 'bottom' }[s.alignSelf] || null;
+  if (!alignV) {
+    if (s.marginTop === 'auto' && s.marginBottom === 'auto') alignV = 'middle';
+    else if (s.marginTop === 'auto') alignV = 'bottom';
+    else if (s.marginBottom === 'auto') alignV = 'top';
+  }
   return {
     marginTop: px(s.marginTop),
     marginRight: s.marginRight === 'auto' ? null : px(s.marginRight),
@@ -1077,7 +1092,13 @@ export function readElBoxFromEl(el) {
 }
 
 // 把 patch 应用到一个元素的内联样式（live DOM 或 DOMParser 元素通用）。
-// patch: marginTop/Right/Bottom/Left(px 数值,可负,null=清)、alignH('left'|'center'|'right'|null)、alignV('top'|'middle'|'bottom'|null)
+// patch: marginTop/Right/Bottom/Left(px 数值,可负,null=清)、alignH('left'|'center'|'right'|null)、
+//        alignHMode('box'|'content',由调用方按实测宽度决定)、alignV('top'|'middle'|'bottom'|null)、
+//        alignVMode('parent'|'content')
+// 水平对齐两套机制（公众号 HTML 的现实）:
+//   box    = margin:auto 移动盒子 —— 只对"比父窄"的元素有效(图片/定宽块)
+//   content= text-align 对齐内容 —— 全宽容器(导入推文的 section 十有八九占满父宽)唯一可见的对齐方式,
+//            也是秀米/135 的做法。切换对齐时两套都先清掉,避免残留互相打架。
 export function applyElBoxToEl(el, patch) {
   if (!el || !el.style) return;
   const p = patch || {};
@@ -1085,15 +1106,62 @@ export function applyElBoxToEl(el, patch) {
   if ('marginTop' in p) setPx('marginTop', p.marginTop);
   if ('marginBottom' in p) setPx('marginBottom', p.marginBottom);
   if ('alignH' in p) {
-    if (p.alignH === 'center') { el.style.marginLeft = 'auto'; el.style.marginRight = 'auto'; }
-    else if (p.alignH === 'right') { el.style.marginLeft = 'auto'; el.style.marginRight = '0'; }
-    else if (p.alignH === 'left') { el.style.marginLeft = '0'; el.style.marginRight = 'auto'; }
-    else { el.style.marginLeft = ''; el.style.marginRight = ''; }
-    if (p.alignH && (el.tagName === 'IMG' || (el.tagName && el.tagName.toLowerCase() === 'img'))) el.style.display = 'block';
+    el.style.textAlign = '';
+    el.style.alignItems = '';
+    el.style.marginLeft = '';
+    el.style.marginRight = '';
+    if (p.alignH) {
+      if (p.alignHMode === 'content') {
+        el.style.textAlign = p.alignH;
+        // 如果该容器因垂直对齐已是 flex，块级子元素也应随文字一起左右移动。
+        if (String(el.style.display).toLowerCase() === 'flex') el.style.alignItems = H_ALIGN_TO_FLEX[p.alignH];
+      } else {
+        if (p.alignH === 'center') { el.style.marginLeft = 'auto'; el.style.marginRight = 'auto'; }
+        else if (p.alignH === 'right') { el.style.marginLeft = 'auto'; el.style.marginRight = '0'; }
+        else { el.style.marginLeft = '0'; el.style.marginRight = 'auto'; }
+        if (el.tagName && el.tagName.toLowerCase() === 'img') el.style.display = 'block'; // 行内图转块级才吃 margin:auto
+      }
+    }
   }
   if ('marginLeft' in p) setPx('marginLeft', p.marginLeft); // 显式左右边距覆盖对齐 auto
   if ('marginRight' in p) setPx('marginRight', p.marginRight);
-  if ('alignV' in p) { el.style.alignSelf = { top: 'flex-start', middle: 'center', bottom: 'flex-end' }[p.alignV] || ''; }
+  if ('alignV' in p) {
+    el.style.alignSelf = '';
+    el.style.justifyContent = '';
+    if (p.alignVMode === 'content') {
+      // 容器上下对齐的是内部内容。普通 block 提升为 column flex 后仍保持纵向文档流，
+      // 但在容器有明确高度时，justify-content 才能产生可见的上/中/下位置变化。
+      if (p.alignV) {
+        const display = String(el.style.display || '').toLowerCase();
+        if (display !== 'flex' && display !== 'inline-flex') el.style.display = 'flex';
+        el.style.flexDirection = 'column';
+        el.style.justifyContent = V_ALIGN_TO_FLEX[p.alignV];
+        const textHorizontal = ['left', 'center', 'right'].includes(String(el.style.textAlign || '').toLowerCase())
+          ? String(el.style.textAlign).toLowerCase()
+          : null;
+        const horizontal = p.alignH
+          || textHorizontal
+          || ({ 'flex-start': 'left', center: 'center', 'flex-end': 'right' }[el.style.alignItems]);
+        if (horizontal) el.style.alignItems = H_ALIGN_TO_FLEX[horizontal];
+      }
+    } else {
+      // 窄元素相对父容器上下移动。普通块布局没有 align-self 语义，提升父容器为 column flex
+      // 后用 auto margin 定位；既有 flex-row/grid 则保留原布局并使用 align-self。
+      const parent = el.parentElement;
+      const parentDisplay = parent && String(parent.style.display || '').toLowerCase();
+      const parentDirection = parent && String(parent.style.flexDirection || '').toLowerCase();
+      if (p.alignV && parent && parentDisplay !== 'grid' && !(parentDisplay.includes('flex') && parentDirection.startsWith('row'))) {
+        if (!parentDisplay.includes('flex')) parent.style.display = 'flex';
+        if (!parent.style.flexDirection) parent.style.flexDirection = 'column';
+        el.style.marginTop = p.alignV === 'top' ? '0px' : 'auto';
+        el.style.marginBottom = p.alignV === 'bottom' ? '0px' : 'auto';
+      } else {
+        if (el.style.marginTop === 'auto') el.style.marginTop = '';
+        if (el.style.marginBottom === 'auto') el.style.marginBottom = '';
+        el.style.alignSelf = p.alignV ? V_ALIGN_TO_FLEX[p.alignV] : '';
+      }
+    }
+  }
 }
 
 // 读回目标元素当前盒样式（供面板回显）
