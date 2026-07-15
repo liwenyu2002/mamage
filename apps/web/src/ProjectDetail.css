@@ -5949,3 +5949,41 @@ body.mamage-viewer-open [data-transfer-station-root="1"] {
     height: 2px;
   }
 }
+
+/* ==== 环节标题瘦身：玻璃大胶囊 → 贴轴小标签（配合刻度线轨道的"轴上标注"语义）==== */
+/* 小胶囊铁律：1px 发丝边 + 实底,不用 backdrop-filter(每环节一个,会成倍出现) */
+.detail-timeline-head {
+  gap: 8px;
+  margin: 0 0 6px;
+  padding: 3px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.detail-timeline-title {
+  gap: 6px;
+}
+
+.detail-timeline-title span {
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.detail-timeline-title em {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.detail-timeline-count {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* 标签变矮后主刻度对齐新的标题中线 */
+.detail-timeline-section::after {
+  top: 12px;
+}
