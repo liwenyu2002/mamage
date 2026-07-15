@@ -1844,3 +1844,74 @@ textarea {
     font-variant-numeric: tabular-nums;
 }
 .findme-empty { padding: 14px; border-radius: 10px; background: rgba(0, 0, 0, 0.04); color: #4b5563; font-size: 13px; }
+
+/* ==== 分享页工具栏（响应式：手机端按钮换行铺开，不再挤字）==== */
+.share-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+}
+.share-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    min-width: 0;
+}
+.share-actions .mamage-button {
+    white-space: nowrap;
+    flex: 0 0 auto;
+}
+.share-pack-progress {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: #64748b;
+}
+.share-pack-bar {
+    position: relative;
+    width: 120px;
+    height: 6px;
+    border-radius: 999px;
+    background: #e5e7eb;
+    overflow: hidden;
+    flex: 0 0 auto;
+}
+@media (max-width: 640px) {
+    .share-toolbar {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    /* 手机端：按钮等宽两列铺开，字号收一档但保证不换行不挤压 */
+    .share-actions {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px;
+    }
+    .share-actions > .mamage-button-group {
+        grid-column: 1 / -1;
+        display: flex;
+    }
+    .share-actions > .mamage-button-group .mamage-button {
+        flex: 1 1 0;
+    }
+    .share-actions .mamage-button {
+        width: 100%;
+        padding-left: 8px;
+        padding-right: 8px;
+        font-size: 13px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .share-pack-progress {
+        width: 100%;
+    }
+    .share-pack-bar {
+        flex: 1 1 auto;
+        width: auto;
+    }
+}

@@ -417,22 +417,22 @@ export default function ShareView({ share = {}, onBack }) {
           ) : null}
 
           {!isExpired ? (
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <div className="share-toolbar">
+              <div className="share-actions">
                 <ButtonGroup>
                   <Button type={viewMode === 'grid' ? 'primary' : 'tertiary'} onClick={() => setViewMode('grid')}>宫格</Button>
                   <Button type={viewMode === 'masonry' ? 'primary' : 'tertiary'} onClick={() => setViewMode('masonry')}>瀑布流</Button>
                 </ButtonGroup>
                 {!selectMode ? (
                   <>
-                    <Button onClick={() => setSelectMode(true)} style={{ marginLeft: 8 }}>选择</Button>
+                    <Button onClick={() => setSelectMode(true)}>选择</Button>
                     {shareCode && photos.length > 0 ? (
-                      <Button onClick={() => packDownload(null)} loading={packing} disabled={packing} style={{ marginLeft: 8 }}>
+                      <Button onClick={() => packDownload(null)} loading={packing} disabled={packing}>
                         {packing ? '打包中…' : `打包下载 (${photos.length})`}
                       </Button>
                     ) : null}
                     {shareCode && photos.length > 0 ? (
-                      <Button onClick={() => setFindMeOpen(true)} style={{ marginLeft: 8 }}>📸 拍照找我</Button>
+                      <Button onClick={() => setFindMeOpen(true)}>📸 拍照找我</Button>
                     ) : null}
                   </>
                 ) : (
@@ -446,13 +446,13 @@ export default function ShareView({ share = {}, onBack }) {
                     ) : (
                       <Button onClick={downloadSelected} disabled={selectedCount === 0} type="primary">下载 ({selectedCount})</Button>
                     )}
-                    <Button onClick={() => { setSelectMode(false); clearSelection(); }} style={{ marginLeft: 8 }}>完成</Button>
+                    <Button onClick={() => { setSelectMode(false); clearSelection(); }}>完成</Button>
                   </>
                 )}
               </div>
               {packProgress ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#64748b' }}>
-                  <div style={{ position: 'relative', width: 120, height: 6, borderRadius: 999, background: '#e5e7eb', overflow: 'hidden' }}>
+                <div className="share-pack-progress">
+                  <div className="share-pack-bar">
                     <style>{'@keyframes mm-share-indet{0%{left:-40%}100%{left:100%}}'}</style>
                     {packProgress.total > 0 ? (
                       <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${Math.min(100, (packProgress.loaded / packProgress.total) * 100)}%`, background: 'linear-gradient(90deg,#2f2f2f,#101010)', borderRadius: 999 }} />
@@ -466,7 +466,7 @@ export default function ShareView({ share = {}, onBack }) {
                     {Number.isFinite(packProgress.etaSeconds) && packProgress.etaSeconds > 0.5 ? ` · 剩余约 ${formatDuration(packProgress.etaSeconds)}` : ''}
                   </span>
                 </div>
-              ) : <div />}
+              ) : null}
             </div>
           ) : null}
 
