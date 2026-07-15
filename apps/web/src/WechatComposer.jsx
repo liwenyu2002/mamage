@@ -63,7 +63,7 @@ function normalizeDbBlock(row) {
     id: `db-${row.id}`,
     dbId: row.id,
     type: row.type,
-    name: row.name || '提取样式',
+    name: row.name || '导入样式',
     htmlTemplate: row.html_template || row.htmlTemplate || '',
     accentEditable: !!(row.accent_editable || row.accentEditable),
     source: 'extracted',
@@ -307,13 +307,9 @@ function WechatComposer() {
 
   const favoriteBlockKeys = React.useMemo(() => new Set(styleFavs.map((f) => f.refKey)), [styleFavs]);
   const favoritePhotoKeys = React.useMemo(() => new Set(photoFavs.map((f) => String(f.refKey))), [photoFavs]);
-  const [myBlocks, setMyBlocks] = React.useState([]); // 从链接提取并保存的"我的样式库"
+  const [myBlocks, setMyBlocks] = React.useState([]); // 后端保存的"我的样式库"
   const [myBlocksLoaded, setMyBlocksLoaded] = React.useState(false);
-  const [extractUrl, setExtractUrl] = React.useState('');
-  const [extracting, setExtracting] = React.useState(false);
-  const [extractedBlocks, setExtractedBlocks] = React.useState(null); // 非 null 时显示提取结果弹层
-  const [extractPicked, setExtractPicked] = React.useState({});
-  const [savingExtract, setSavingExtract] = React.useState(false);
+  const [reproduceUrl, setReproduceUrl] = React.useState('');
   const [importing, setImporting] = React.useState(false);
   const [importResult, setImportResult] = React.useState(null); // 画布非空时的"替换/追加"确认弹层数据
   const [previewGen, setPreviewGen] = React.useState(false);     // 手机预览：生成中
@@ -591,28 +587,7 @@ function WechatComposer() {
     }
   }, [effectiveConfig.accent]);
 
-  const handleExtract = React.useCallback(async () => {
-    const url = extractUrl.trim();
-    if (!url) { Toast.warning('先粘贴一篇公众号文章链接'); return; }
-    if (!/^https?:\/\/mp\.weixin\.qq\.com\//.test(url)) { Toast.warning('只支持公众号文章链接（mp.weixin.qq.com）'); return; }
-    setExtracting(true);
-    try {
-      const resp = await request('/api/wechat-style/extract', { method: 'POST', data: { url } });
-      const blocks = Array.isArray(resp && resp.blocks) ? resp.blocks : [];
-      if (!blocks.length) { Toast.info('这篇文章没有识别出可复用的样式块（可能排版太简单）'); return; }
-      const picked = {};
-      blocks.forEach((b, i) => { picked[i] = true; });
-      setExtractedBlocks(blocks);
-      setExtractPicked(picked);
-    } catch (e) {
-      console.error('[WechatComposer] extract failed', e);
-      Toast.error(e && e.message ? `提取失败：${String(e.message).slice(0, 100)}` : '提取失败，请稍后重试');
-    } finally {
-      setExtracting(false);
-    }
-  }, [extractUrl]);
-
-  // ── 整文复现：把别人的推文完整解析成 raw 块导入画布（文字/图片/排版全保留）──────
+  // ── 全文复现：把别人的推文完整解析成 raw 块导入画布（文字/图片/排版全保留）──────
 
   // raw 块（整文导入）以 html 论有无内容，与 para 同轨；styled 块看 content/src
   const docHasContent = React.useMemo(
@@ -653,7 +628,7 @@ function WechatComposer() {
   }, [doc, applyDocChange, title, docHasContent, effectiveConfig]);
 
   const handleImportArticle = React.useCallback(async () => {
-    const url = extractUrl.trim();
+    const url = reproduceUrl.trim();
     if (!url) { Toast.warning('先粘贴一篇公众号推文链接'); return; }
     // 前置链接检测：非推文链接不发请求，直接给出格式提示（后端还有同规则的二次校验）
     if (!/^https?:\/\/mp\.weixin\.qq\.com\/s([/?#]|$)/.test(url)) {
@@ -672,26 +647,7 @@ function WechatComposer() {
     } finally {
       setImporting(false);
     }
-  }, [extractUrl]);
-
-  const handleSaveExtracted = React.useCallback(async () => {
-    const chosen = (extractedBlocks || []).filter((_, i) => extractPicked[i]);
-    if (!chosen.length) { Toast.warning('先勾选要保存的样式块'); return; }
-    setSavingExtract(true);
-    try {
-      await request('/api/wechat-style/blocks', { method: 'POST', data: { blocks: chosen } });
-      Toast.success(`已存入我的样式库（${chosen.length} 个）`);
-      setExtractedBlocks(null);
-      setExtractUrl('');
-      await loadMyBlocks();
-      setLibraryOpen(true);
-    } catch (e) {
-      console.error('[WechatComposer] save extracted failed', e);
-      Toast.error(e && e.message ? `保存失败：${String(e.message).slice(0, 100)}` : '保存失败');
-    } finally {
-      setSavingExtract(false);
-    }
-  }, [extractedBlocks, extractPicked, loadMyBlocks]);
+  }, [reproduceUrl]);
 
   const handleDeleteMyBlock = React.useCallback(async (block) => {
     try {
@@ -978,7 +934,7 @@ function WechatComposer() {
   // 「复制·SVG 源码版」：保留 SVG 交互(不展平)、图片还原 mmbiz 原链，以纯文本源码复制。
   // 公众号编辑器直接 Ctrl+V 会被粘贴净化剥掉 SVG；需用 135小助手/壹伴 的「编辑源代码」入口
   // 或 F12「Edit as HTML」把这段源码注入 DOM（绕开粘贴净化，免认证）。后台白名单在保存时仍会
-  // 对 SVG 二次过滤(去 id/class、图片须素材库链接等)，故本模式主要面向已发布=已合规的整文复现内容。
+  // 对 SVG 二次过滤(去 id/class、图片须素材库链接等)，故本模式主要面向已发布=已合规的全文复现内容。
   const handleCopySvgSource = React.useCallback(async () => {
     if (!docHasContent) { Toast.warning('画布还是空的，先从样式库插入内容'); return; }
     try {
@@ -1382,22 +1338,24 @@ function WechatComposer() {
                 )}
               </div>
             )}
-            {/* 样式 tab 用 display 显隐而非卸载：保住提取输入内容与块列表滚动位置 */}
+            {/* 样式 tab 用 display 显隐而非卸载：保住复现链接与块列表滚动位置 */}
             <div className="wxc-style-pane" style={sideTab === 'style' ? undefined : { display: 'none' }}>
             <div className="wxc-lib-extract">
               <input
                 className="wxc-lib-extract-input"
-                value={extractUrl}
-                onChange={(e) => setExtractUrl(e.target.value)}
-                placeholder="贴公众号推文链接…"
-                onKeyDown={(e) => { if (e.key === 'Enter') handleExtract(); }}
+                value={reproduceUrl}
+                onChange={(e) => setReproduceUrl(e.target.value)}
+                placeholder="粘贴公众号推文链接…"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !importing) {
+                    e.preventDefault();
+                    handleImportArticle();
+                  }
+                }}
               />
               <div className="wxc-lib-extract-actions">
-                <Button size="small" type="primary" loading={extracting} disabled={extracting || importing} onClick={handleExtract} title="只提取排版样式为可复用样式块，不带文字">
-                  {extracting ? '…' : '提取样式'}
-                </Button>
-                <Button size="small" loading={importing} disabled={extracting || importing} onClick={handleImportArticle} title="整篇复现到画布：文字、图片、排版全保留">
-                  {importing ? '…' : '整文复现'}
+                <Button size="small" type="primary" loading={importing} disabled={importing} onClick={handleImportArticle} title="全文复现到画布：文字、图片、排版全保留">
+                  {importing ? '复现中…' : '全文复现'}
                 </Button>
               </div>
             </div>
@@ -1413,7 +1371,7 @@ function WechatComposer() {
                 </button>
               ))}
             </div>
-            <div className="wxc-lib-accents" title="主题色：作用于可换色的样式块，以及整文复现导入后识别出的推文配色（一键换色）">
+            <div className="wxc-lib-accents" title="主题色：作用于可换色的样式块，以及全文复现导入后识别出的推文配色（一键换色）">
               <span className="wxc-lib-accents-label">主题色</span>
               {ACCENT_CHOICES.map((hex) => (
                 <button
@@ -1642,50 +1600,7 @@ function WechatComposer() {
         )}
       </Modal>
 
-      {/* 提取结果确认：预览识别出的样式块，勾选后存入我的样式库 */}
-      <Modal
-        title={`提取到 ${extractedBlocks ? extractedBlocks.length : 0} 个样式块（勾选要保存的）`}
-        visible={!!extractedBlocks}
-        onCancel={() => setExtractedBlocks(null)}
-        footer={null}
-        width={isMobile ? 'calc(100vw - 16px)' : 720}
-      >
-        {extractedBlocks ? (
-          <div className="wxc-extract-body">
-            <div className="wxc-lib-grid">
-              {extractedBlocks.map((b, i) => (
-                <div
-                  key={i}
-                  role="button"
-                  tabIndex={0}
-                  className={`wxc-lib-block${extractPicked[i] ? ' is-active' : ''}`}
-                  onClick={() => setExtractPicked((prev) => ({ ...prev, [i]: !prev[i] }))}
-                >
-                  <div className="wxc-lib-block-stage">
-                    <div
-                      className="wxc-lib-block-scale"
-                      // eslint-disable-next-line react/no-danger
-                      dangerouslySetInnerHTML={{ __html: renderBlockPreview({ ...b, id: `ext-${i}` }) }}
-                    />
-                  </div>
-                  <div className="wxc-lib-block-meta">
-                    <span className="wxc-lib-block-name">{b.name || `提取块 ${i + 1}`}</span>
-                    <span className="wxc-lib-badge">{(BLOCK_TYPES.find((t) => t.key === b.type) || {}).name || b.type}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="wxc-extract-actions">
-              <Button type="tertiary" onClick={() => setExtractedBlocks(null)}>取消</Button>
-              <Button type="primary" loading={savingExtract} disabled={savingExtract} onClick={handleSaveExtracted}>
-                存入我的样式库（{Object.values(extractPicked).filter(Boolean).length}）
-              </Button>
-            </div>
-          </div>
-        ) : null}
-      </Modal>
-
-      {/* 整文复现：完整推文预览层，单击选块/双击改字/框选多选，选完再决定替换或追加 */}
+      {/* 全文复现：完整推文预览层，单击选块/双击改字/框选多选，选完再决定替换或追加 */}
       <ImportPreviewModal
         visible={!!importResult}
         result={importResult}

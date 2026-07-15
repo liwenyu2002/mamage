@@ -593,18 +593,6 @@
   background: repeating-linear-gradient(45deg, #111 0 6px, #999 6px 12px) !important;
 }
 
-.wxc-extract-body {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.wxc-extract-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-}
-
 @media (max-width: 768px) {
   .wxc-lib-grid {
     grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
@@ -763,7 +751,7 @@
   }
 }
 
-/* ---- 提取/复现双按钮：面板 264px 放不下"输入框+两个按钮"一行，改上下两行 ---- */
+/* ---- 全文复现入口：输入框与主按钮上下排列，适配 264px 侧栏 ---- */
 
 .wxc-lib-extract {
   flex-direction: column;
