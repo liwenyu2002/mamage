@@ -1,5 +1,5 @@
 import React from 'react';
-import { Typography, Button, Card, ButtonGroup, Toast } from './ui';
+import { Typography, Button, Card, Toast } from './ui';
 import { pickZipSaveHandle, fetchZipToTarget, formatBytes, formatDuration } from './services/zipDownload';
 import FindMeModal from './FindMeModal';
 import { resolveAssetUrl } from './services/request';
@@ -419,10 +419,25 @@ export default function ShareView({ share = {}, onBack }) {
           {!isExpired ? (
             <div className="share-toolbar">
               <div className="share-actions">
-                <ButtonGroup>
-                  <Button type={viewMode === 'grid' ? 'primary' : 'tertiary'} onClick={() => setViewMode('grid')}>宫格</Button>
-                  <Button type={viewMode === 'masonry' ? 'primary' : 'tertiary'} onClick={() => setViewMode('masonry')}>瀑布流</Button>
-                </ButtonGroup>
+                {/* 视图切换收成一个小图标钮：显示"点了会切到"的布局图标 */}
+                <Button
+                  className="share-view-toggle"
+                  title={viewMode === 'grid' ? '切换为瀑布流' : '切换为宫格'}
+                  aria-label={viewMode === 'grid' ? '切换为瀑布流' : '切换为宫格'}
+                  onClick={() => setViewMode(viewMode === 'grid' ? 'masonry' : 'grid')}
+                >
+                  {viewMode === 'grid' ? (
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                      <rect x="1" y="1" width="6" height="9" rx="1" /><rect x="9" y="1" width="6" height="5" rx="1" />
+                      <rect x="1" y="12" width="6" height="3" rx="1" /><rect x="9" y="8" width="6" height="7" rx="1" />
+                    </svg>
+                  ) : (
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                      <rect x="1" y="1" width="6" height="6" rx="1" /><rect x="9" y="1" width="6" height="6" rx="1" />
+                      <rect x="1" y="9" width="6" height="6" rx="1" /><rect x="9" y="9" width="6" height="6" rx="1" />
+                    </svg>
+                  )}
+                </Button>
                 {!selectMode ? (
                   <>
                     <Button onClick={() => setSelectMode(true)}>选择</Button>
