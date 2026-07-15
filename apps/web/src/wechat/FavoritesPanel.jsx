@@ -2,8 +2,8 @@ import React from 'react';
 import { beginDrag } from './pointerDrag';
 import './favoritesPanel.css';
 
-// 左侧面板「收藏」Tab：样式收藏 + 照片收藏两个分区，纯展示+交互转发，不持有数据源
-// （styleFavs/photoFavs/删除均由父组件通过 props 驱动，本组件不发请求）。
+// 左侧面板「收藏」Tab：排版收藏（样式与片段混排）+ 照片收藏，纯展示+交互转发，不持有数据源
+// （styleFavs/snippetFavs/photoFavs/删除均由父组件通过 props 驱动，本组件不发请求）。
 // 约束：拖拽/点击互斥交给 pointerDrag 自身的阈值判定，这里不重复处理；
 // 微缩预览的 html 已由父组件 renderBlockHtml 过 DOMPurify，本组件不再二次清洗。
 
@@ -17,15 +17,52 @@ function FavoritesPanel({
   onInsertSnippet,
   onRemoveFav,
 }) {
+  const layoutFavs = [
+    ...styleFavs.map((favorite) => ({ favorite, type: 'style' })),
+    ...snippetFavs.map((favorite) => ({ favorite, type: 'snippet' })),
+  ].sort((a, b) => {
+    const aTime = Date.parse(a.favorite.createdAt || '') || 0;
+    const bTime = Date.parse(b.favorite.createdAt || '') || 0;
+    if (aTime !== bTime) return bTime - aTime;
+    return Number(b.favorite.id || 0) - Number(a.favorite.id || 0);
+  });
+
   return (
     <div className="wxc-fav-panel">
       <section className="wxc-fav-section">
-        <div className="wxc-fav-section-title">样式收藏</div>
-        {styleFavs.length === 0 ? (
-          <div className="wxc-fav-empty">在样式库里点 ★ 收藏</div>
+        <div className="wxc-fav-section-title">排版收藏</div>
+        {layoutFavs.length === 0 ? (
+          <div className="wxc-fav-empty">在样式库或画布中点 ★ 收藏</div>
         ) : (
-          <div className="wxc-fav-block-grid">
-            {styleFavs.map((fav) => {
+          <div className="wxc-fav-layout-grid">
+            {layoutFavs.map(({ favorite: fav, type }) => {
+              if (type === 'snippet') {
+                const payload = fav.payload || {};
+                const count = Array.isArray(payload.blocks) ? payload.blocks.length : 0;
+                return (
+                  <div
+                    key={fav.id}
+                    role="button"
+                    tabIndex={0}
+                    className="wxc-fav-snippet"
+                    onClick={() => onInsertSnippet && onInsertSnippet(fav)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && onInsertSnippet) onInsertSnippet(fav); }}
+                    title="点击插入到画布末尾"
+                  >
+                    <span className="wxc-fav-snippet-icon" aria-hidden="true">▤</span>
+                    <span className="wxc-fav-snippet-name">{payload.name || '未命名排版'}</span>
+                    <span className="wxc-fav-snippet-count">{count} 块</span>
+                    <button
+                      type="button"
+                      className="wxc-fav-block-del"
+                      title="取消收藏"
+                      onClick={(e) => { e.stopPropagation(); onRemoveFav(fav.id); }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                );
+              }
               const payload = fav.payload || {};
               const blockLike = { id: fav.refKey, ...payload };
               const previewHtml = typeof renderBlockHtml === 'function' ? renderBlockHtml(blockLike) : '';
@@ -59,43 +96,6 @@ function FavoritesPanel({
                     type="button"
                     className="wxc-fav-block-del"
                     title="取消收藏"
-                    onClick={(e) => { e.stopPropagation(); onRemoveFav(fav.id); }}
-                  >
-                    ×
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
-
-      <section className="wxc-fav-section">
-        <div className="wxc-fav-section-title">片段收藏</div>
-        {snippetFavs.length === 0 ? (
-          <div className="wxc-fav-empty">在画布框选元素后点「★ 收藏」</div>
-        ) : (
-          <div className="wxc-fav-snippet-list">
-            {snippetFavs.map((fav) => {
-              const payload = fav.payload || {};
-              const count = Array.isArray(payload.blocks) ? payload.blocks.length : 0;
-              return (
-                <div
-                  key={fav.id}
-                  role="button"
-                  tabIndex={0}
-                  className="wxc-fav-snippet"
-                  onClick={() => onInsertSnippet && onInsertSnippet(fav)}
-                  onKeyDown={(e) => { if (e.key === 'Enter' && onInsertSnippet) onInsertSnippet(fav); }}
-                  title="点击插入该片段到画布末尾"
-                >
-                  <span className="wxc-fav-snippet-icon" aria-hidden="true">▤</span>
-                  <span className="wxc-fav-snippet-name">{payload.name || '片段'}</span>
-                  <span className="wxc-fav-snippet-count">{count} 块</span>
-                  <button
-                    type="button"
-                    className="wxc-fav-block-del"
-                    title="删除该片段收藏"
                     onClick={(e) => { e.stopPropagation(); onRemoveFav(fav.id); }}
                   >
                     ×

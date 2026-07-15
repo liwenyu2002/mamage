@@ -706,7 +706,7 @@ function WechatComposer() {
         };
         const resp = await addFavorite({ kind: 'styleBlock', refKey: block.id, payload });
         if (resp && resp.favorite) setStyleFavs((prev) => [resp.favorite, ...prev.filter((f) => f.refKey !== block.id)]);
-        Toast.success('已收藏样式');
+        Toast.success('已收藏');
       }
     } catch (e) {
       console.error('[WechatComposer] toggle style fav failed', e);
@@ -753,12 +753,12 @@ function WechatComposer() {
     // 名称取第一个块的文字预览
     const first = blocks[0];
     const nameText = (first.content || first.html || first.caption || '')
-      .replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().slice(0, 16) || `片段 ${blocks.length} 块`;
+      .replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().slice(0, 16) || `收藏内容 ${blocks.length} 块`;
     const refKey = `snip-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
     try {
       const resp = await addFavorite({ kind: 'snippet', refKey, payload: { name: nameText, blocks: cleanBlocks } });
       if (resp && resp.favorite) setSnippetFavs((prev) => [resp.favorite, ...prev]);
-      Toast.success(`已收藏 ${blocks.length} 个元素为片段`);
+      Toast.success(`已收藏 ${blocks.length} 个元素`);
     } catch (e) {
       console.error('[WechatComposer] favorite snippet failed', e);
       Toast.error(e && e.message && /413/.test(String(e.message)) ? '选中内容过大，无法收藏' : '收藏失败');
@@ -771,7 +771,7 @@ function WechatComposer() {
   // 唯有这里补上客户端 DOMPurify 才能与导入/编辑提交路径保持同一防线,防 base/meta refresh 注入。
   const insertSnippet = React.useCallback((snippetFav) => {
     const blocks = snippetFav && snippetFav.payload && Array.isArray(snippetFav.payload.blocks) ? snippetFav.payload.blocks : [];
-    if (!blocks.length) { Toast.warning('该片段为空'); return; }
+    if (!blocks.length) { Toast.warning('该收藏内容为空'); return; }
     const withUids = blocks.map((b) => {
       const clean = { ...b, uid: makeUid() };
       if (b && typeof b.html === 'string') {
@@ -782,7 +782,7 @@ function WechatComposer() {
     const next = [...doc, ...withUids];
     applyDocChange(next);
     setSelectedUid(withUids[0].uid);
-    Toast.success(`已插入片段（${withUids.length} 块）`);
+    Toast.success(`已插入收藏内容（${withUids.length} 块）`);
   }, [doc, applyDocChange]);
 
   // 打开图片编辑器：解析目标图片当前 src（imageCard 取 block.src；raw 取第 N 个 img 的 src）
@@ -1451,8 +1451,8 @@ function WechatComposer() {
                     <button
                       type="button"
                       className={`wxc-lib-block-star${favoriteBlockKeys.has(b.id) ? ' is-on' : ''}`}
-                      title={favoriteBlockKeys.has(b.id) ? '取消收藏' : '收藏样式'}
-                      aria-label={favoriteBlockKeys.has(b.id) ? '取消收藏' : '收藏样式'}
+                      title={favoriteBlockKeys.has(b.id) ? '取消收藏' : '收藏'}
+                      aria-label={favoriteBlockKeys.has(b.id) ? '取消收藏' : '收藏'}
                       onClick={(e) => { e.stopPropagation(); toggleStyleFav(b); }}
                       onPointerDown={(e) => e.stopPropagation()}
                     >

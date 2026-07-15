@@ -34,9 +34,9 @@
   color: rgba(0, 0, 0, 0.4);
 }
 
-/* ── 样式收藏：网格卡片，比例参考 composer.css 的 .wxc-lib-block（stage 缩放预览 + meta 名称行） ── */
+/* ── 排版收藏：样式与画布片段按收藏时间混排为同一套卡片 ── */
 
-.wxc-fav-block-grid {
+.wxc-fav-layout-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 10px;
@@ -155,43 +155,53 @@
 }
 
 @media (max-width: 768px) {
-  .wxc-fav-block-grid,
+  .wxc-fav-layout-grid,
   .wxc-fav-photo-grid {
     grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
   }
 }
 
-/* ---- 片段收藏（画布框选保存的元素组）---- */
-
-.wxc-fav-snippet-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
+/* 画布框选保存的元素组使用同尺寸摘要卡，与样式预览自然混排。 */
 
 .wxc-fav-snippet {
   position: relative;
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 34px 9px 10px;
-  border: 1px solid rgba(0, 0, 0, 0.12);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.7);
+  min-width: 0;
+  min-height: 111px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 12px 34px 10px 10px;
+  border: 2px solid rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
+  background: #fff;
   cursor: pointer;
   font-size: 13px;
+  overflow: hidden;
+  transition: border-color 120ms ease;
 }
 
 .wxc-fav-snippet:hover {
-  border-color: rgba(0, 0, 0, 0.3);
-  background: rgba(255, 255, 255, 0.95);
+  border-color: rgba(0, 0, 0, 0.24);
 }
 
-.wxc-fav-snippet-icon { color: rgba(0, 0, 0, 0.4); font-size: 14px; }
+.wxc-fav-snippet-icon {
+  display: flex;
+  width: 30px;
+  height: 30px;
+  margin-bottom: auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.06);
+  color: rgba(0, 0, 0, 0.5);
+  font-size: 16px;
+}
 
 .wxc-fav-snippet-name {
-  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  color: rgba(0, 0, 0, 0.8);
+  width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: rgba(0, 0, 0, 0.76); font-size: 12px; font-weight: 600;
 }
 
 .wxc-fav-snippet-count { flex: 0 0 auto; font-size: 11.5px; color: rgba(0, 0, 0, 0.4); }
