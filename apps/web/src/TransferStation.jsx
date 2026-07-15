@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom';
 import { Toast, Tooltip, Modal } from './ui';
 import { getAll, getCount, add, clear, subscribe, removeById } from './services/transferStore';
 import { resolveAssetUrl } from './services/request';
-import { pickZipSaveHandle, fetchZipToTarget, formatBytes } from './services/zipDownload';
+import { pickZipSaveHandle, fetchZipToTarget, formatBytes, formatDuration } from './services/zipDownload';
 
 function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
@@ -245,11 +245,11 @@ export default function TransferStation() {
         photoIds: ids,
         zipName,
         fileHandle: handle || null,
-        onProgress: (loaded, total) => {
+        onProgress: (loaded, total, stats) => {
           const now = Date.now();
           if (now - lastTick < 120) return;
           lastTick = now;
-          setPackProgress({ loaded, total, files: ids.length });
+          setPackProgress({ loaded, total, files: ids.length, speedBps: stats && stats.speedBps, etaSeconds: stats && stats.etaSeconds });
         },
       });
       Toast.success('打包下载完成');
@@ -799,7 +799,13 @@ export default function TransferStation() {
       <div style={{ fontSize: 11, color: '#64748b', marginTop: 6, fontVariantNumeric: 'tabular-nums' }}>
         已下载 {formatBytes(packProgress.loaded)}
         {packProgress.total > 0 ? ` / ${formatBytes(packProgress.total)}` : ''}
+        {packProgress.speedBps > 1024 ? ` · ${formatBytes(packProgress.speedBps)}/s` : ''}
       </div>
+      {Number.isFinite(packProgress.etaSeconds) && packProgress.etaSeconds > 0.5 ? (
+        <div style={{ fontSize: 11, color: '#0f172a', fontWeight: 600, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
+          剩余约 {formatDuration(packProgress.etaSeconds)}
+        </div>
+      ) : null}
     </div>
   ) : null;
 

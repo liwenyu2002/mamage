@@ -1,6 +1,6 @@
 import React from 'react';
 import { Typography, Button, Card, ButtonGroup, Toast } from './ui';
-import { pickZipSaveHandle, fetchZipToTarget, formatBytes } from './services/zipDownload';
+import { pickZipSaveHandle, fetchZipToTarget, formatBytes, formatDuration } from './services/zipDownload';
 import { resolveAssetUrl } from './services/request';
 import './ProjectDetail.css';
 
@@ -203,11 +203,11 @@ export default function ShareView({ share = {}, onBack }) {
         photoIds: Array.isArray(ids) && ids.length ? ids : undefined,
         zipName,
         fileHandle: handle || null,
-        onProgress: (loaded, total) => {
+        onProgress: (loaded, total, stats) => {
           const now = Date.now();
           if (now - lastTick < 120) return;
           lastTick = now;
-          setPackProgress({ loaded, total });
+          setPackProgress({ loaded, total, etaSeconds: stats && stats.etaSeconds });
         },
       });
       Toast.success('打包下载完成');
@@ -445,7 +445,11 @@ export default function ShareView({ share = {}, onBack }) {
                       <div style={{ position: 'absolute', top: 0, bottom: 0, width: '40%', borderRadius: 999, background: 'linear-gradient(90deg,#2f2f2f,#101010)', animation: 'mm-share-indet 1.1s ease-in-out infinite' }} />
                     )}
                   </div>
-                  <span style={{ fontVariantNumeric: 'tabular-nums' }}>已下载 {formatBytes(packProgress.loaded)}</span>
+                  <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    已下载 {formatBytes(packProgress.loaded)}
+                    {packProgress.total > 0 ? ` / ${formatBytes(packProgress.total)}` : ''}
+                    {Number.isFinite(packProgress.etaSeconds) && packProgress.etaSeconds > 0.5 ? ` · 剩余约 ${formatDuration(packProgress.etaSeconds)}` : ''}
+                  </span>
                 </div>
               ) : <div />}
             </div>

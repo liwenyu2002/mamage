@@ -9,6 +9,16 @@ export function formatBytes(n) {
   return `${(v / 1024 / 1024).toFixed(1)} MB`;
 }
 
+export function formatDuration(sec) {
+  if (!Number.isFinite(sec) || sec < 0) return '';
+  const s = Math.round(sec);
+  if (s < 60) return `${s} 秒`;
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  if (m < 60) return r ? `${m} 分 ${r} 秒` : `${m} 分钟`;
+  return `${Math.floor(m / 60)} 小时 ${m % 60} 分`;
+}
+
 function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -92,6 +102,23 @@ export async function fetchZipToTarget({ photoIds, shareCode, zipName, fileHandl
   const writable = fileHandle ? await fileHandle.createWritable() : null;
   const chunks = [];
   let loaded = 0;
+  // 倒计时推算：每 ≥400ms 采样一次瞬时速度，指数平滑(EMA)抗抖动；ETA=(总量-已下)/平滑速度。
+  // 只有拿到总量(X-Zip-Total-Bytes)才能算 ETA，否则只报速度。
+  let emaBps = 0;
+  let lastT = Date.now();
+  let lastLoaded = 0;
+  const stats = () => {
+    const now = Date.now();
+    const dt = now - lastT;
+    if (dt >= 400) {
+      const inst = ((loaded - lastLoaded) * 1000) / dt;
+      emaBps = emaBps > 0 ? emaBps * 0.7 + inst * 0.3 : inst;
+      lastT = now;
+      lastLoaded = loaded;
+    }
+    const etaSeconds = (total > 0 && emaBps > 1) ? Math.max(0, (total - loaded) / emaBps) : null;
+    return { speedBps: emaBps, etaSeconds };
+  };
   try {
     for (;;) {
       // eslint-disable-next-line no-await-in-loop
@@ -100,7 +127,7 @@ export async function fetchZipToTarget({ photoIds, shareCode, zipName, fileHandl
       loaded += value.byteLength;
       // eslint-disable-next-line no-await-in-loop
       if (writable) await writable.write(value); else chunks.push(value);
-      if (onProgress) onProgress(loaded, total);
+      if (onProgress) onProgress(loaded, total, stats());
     }
     if (writable) { await writable.close(); return filename; }
     downloadBlob(new Blob(chunks, { type: 'application/zip' }), filename);
