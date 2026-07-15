@@ -38,6 +38,17 @@ function getSharePhotoSectionId(photo) {
   return String(raw).trim();
 }
 
+// 从 URL 推断下载文件扩展名（查看器单张下载 / 选择模式批量下载共用）
+function inferExt(rawUrl) {
+  try {
+    const u = new URL(String(rawUrl || ''), window.location.origin);
+    const m = String(u.pathname || '').match(/\.([a-zA-Z0-9]{2,6})$/);
+    return m && m[1] ? `.${String(m[1]).toLowerCase()}` : '.jpg';
+  } catch (e) {
+    return '.jpg';
+  }
+}
+
 function getSharePhotoSectionLabel(photo, sections) {
   const direct = String(photo?.timelineSectionName || photo?.timeline_section_name || photo?.sectionName || '').trim();
   if (direct) return direct;
@@ -308,15 +319,6 @@ export default function ShareView({ share = {}, onBack }) {
     if (!idxs.length) return;
 
     let failed = 0;
-    const inferExt = (rawUrl) => {
-      try {
-        const u = new URL(String(rawUrl || ''), window.location.origin);
-        const m = String(u.pathname || '').match(/\.([a-zA-Z0-9]{2,6})$/);
-        return m && m[1] ? `.${String(m[1]).toLowerCase()}` : '.jpg';
-      } catch (e) {
-        return '.jpg';
-      }
-    };
 
     for (let n = 0; n < idxs.length; n += 1) {
       const idx = idxs[n];
