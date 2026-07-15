@@ -1810,3 +1810,37 @@ textarea {
     border-color: #111;
     cursor: default;
 }
+
+/* ==== 拍照找我（FindMeModal，相册页/分享页共用）==== */
+.findme-body { display: flex; flex-direction: column; gap: 12px; }
+.findme-pick { display: flex; flex-direction: column; gap: 10px; }
+.findme-preview {
+    width: 100%; height: 200px; border-radius: 14px; overflow: hidden; cursor: pointer;
+    background: rgba(0, 0, 0, 0.04); border: 1.5px dashed rgba(0, 0, 0, 0.18);
+    display: flex; align-items: center; justify-content: center;
+}
+.findme-preview img { width: 100%; height: 100%; object-fit: contain; background: #0a0a0a; }
+.findme-preview-empty { display: flex; flex-direction: column; align-items: center; gap: 6px; color: #6b7280; font-size: 13px; }
+.findme-preview-icon { font-size: 34px; }
+.findme-pick-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.findme-error {
+    padding: 10px 12px; border-radius: 10px; font-size: 13px;
+    background: rgba(220, 38, 38, 0.08); color: #b91c1c; border: 1px solid rgba(220, 38, 38, 0.18);
+}
+.findme-result-head { font-size: 13px; font-weight: 700; color: #0f172a; }
+.findme-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px;
+    max-height: 320px; overflow-y: auto;
+}
+.findme-cell {
+    position: relative; padding: 0; border: none; border-radius: 10px; overflow: hidden;
+    cursor: pointer; background: #eee; aspect-ratio: 1;
+}
+.findme-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.findme-cell:hover { outline: 2px solid #111; }
+.findme-sim {
+    position: absolute; right: 4px; bottom: 4px; padding: 1px 6px; border-radius: 999px;
+    background: rgba(17, 17, 17, 0.78); color: #fff; font-size: 10.5px; font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+.findme-empty { padding: 14px; border-radius: 10px; background: rgba(0, 0, 0, 0.04); color: #4b5563; font-size: 13px; }

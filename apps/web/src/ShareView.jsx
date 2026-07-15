@@ -1,6 +1,7 @@
 import React from 'react';
 import { Typography, Button, Card, ButtonGroup, Toast } from './ui';
 import { pickZipSaveHandle, fetchZipToTarget, formatBytes, formatDuration } from './services/zipDownload';
+import FindMeModal from './FindMeModal';
 import { resolveAssetUrl } from './services/request';
 import './ProjectDetail.css';
 
@@ -242,6 +243,17 @@ export default function ShareView({ share = {}, onBack }) {
   const [videoErrorMap, setVideoErrorMap] = React.useState({});
 
   const openViewer = (idx) => { setViewerIndex(idx); setViewerVisible(true); };
+
+  // 拍照找我（公开分享页,分享码鉴权）：命中照片 → 定位索引 → 打开查看器
+  const [findMeOpen, setFindMeOpen] = React.useState(false);
+  const handleFindMePick = (m) => {
+    const target = String(m && m.photoId);
+    const idx = photos.findIndex((p) => {
+      const raw = p && (p.id || p.photoId || p.photo_id);
+      return raw != null && String(raw) === target;
+    });
+    if (idx >= 0) { setFindMeOpen(false); openViewer(idx); }
+  };
   const closeViewer = () => setViewerVisible(false);
   const viewerPrev = () => setViewerIndex((i) => Math.max(0, i - 1));
   const viewerNext = () => setViewerIndex((i) => Math.min(photos.length - 1, i + 1));
@@ -419,6 +431,9 @@ export default function ShareView({ share = {}, onBack }) {
                         {packing ? '打包中…' : `打包下载 (${photos.length})`}
                       </Button>
                     ) : null}
+                    {shareCode && photos.length > 0 ? (
+                      <Button onClick={() => setFindMeOpen(true)} style={{ marginLeft: 8 }}>📸 拍照找我</Button>
+                    ) : null}
                   </>
                 ) : (
                   <>
@@ -541,6 +556,14 @@ export default function ShareView({ share = {}, onBack }) {
             </div>
           </div>
         ) : null}
+
+        <FindMeModal
+          visible={findMeOpen}
+          mode="share"
+          shareCode={shareCode}
+          onClose={() => setFindMeOpen(false)}
+          onPickPhoto={handleFindMePick}
+        />
       </div>
     </div>
   );

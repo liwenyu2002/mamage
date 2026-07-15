@@ -29,6 +29,7 @@ import { getProjectById, updateProject, deleteProject, createTimelineSection, up
 import { getToken } from './services/authService';
 import { fetchRandomByProject, searchPhotos, getPhotoById, updatePhoto, assignPhotosTimelineSection, getFacePersonInfo, labelFacePerson, renameFacePerson, uploadPhotoFiles, warmUploadApiProbe, deletePhotos, getPhotoFaces, getUploadFileLimitError, runGroupRescueJob, isBrowserUndisplayableImage, isNeverBrowserPreviewable, undisplayableFormatLabel } from './services/photoService';
 import { resolveAssetUrl, BASE_URL } from './services/request';
+import FindMeModal from './FindMeModal';
 import IfCan from './permissions/IfCan';
 import PermButton from './permissions/PermButton';
 import { canAny, getPermissions } from './permissions/permissionStore';
@@ -3893,6 +3894,18 @@ function ProjectDetail({
     setViewerVisible(true);
   }, [getViewerTargetSrc]);
 
+  // 拍照找我：命中照片 → 定位画廊索引 → 打开查看器
+  const [findMeOpen, setFindMeOpen] = React.useState(false);
+  const handleFindMePick = React.useCallback((m) => {
+    const target = String(m && m.photoId);
+    const idx = (photoMetas || []).findIndex((meta) => {
+      const raw = meta && (meta.id || meta.photoId || meta.photo_id);
+      return raw != null && String(raw) === target;
+    });
+    if (idx >= 0) { setFindMeOpen(false); openViewerAt(idx); }
+    else Toast.info('这张照片当前不在画廊列表里（可能被筛选条件过滤）');
+  }, [photoMetas, openViewerAt]);
+
   const lastAutoOpenedPhotoKeyRef = React.useRef('');
   React.useEffect(() => {
     if (!initialOpenPhotoId) return;
@@ -4947,6 +4960,22 @@ function ProjectDetail({
             <span className="detail-action-copy">
               <span className="detail-action-title">相似照片</span>
               <span className="detail-action-desc">成组查看</span>
+            </span>
+          </Button>
+
+          <Button
+            className="detail-action-tile"
+            theme="borderless"
+            onClick={() => {
+              setActionSheetOpen(false);
+              setFindMeOpen(true);
+            }}
+            aria-label="拍照找我"
+          >
+            <span className="detail-action-icon is-accent-violet" aria-hidden="true">📸</span>
+            <span className="detail-action-copy">
+              <span className="detail-action-title">拍照找我</span>
+              <span className="detail-action-desc">自拍一张，找出有你的照片</span>
             </span>
           </Button>
 
@@ -6454,6 +6483,14 @@ function ProjectDetail({
             </div>
           </Modal>
         ) : null}
+
+        <FindMeModal
+          visible={findMeOpen}
+          mode="album"
+          projectId={projectId}
+          onClose={() => setFindMeOpen(false)}
+          onPickPhoto={handleFindMePick}
+        />
 
       </div>
     </div>
