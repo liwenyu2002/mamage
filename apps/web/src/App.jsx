@@ -892,6 +892,8 @@ function App() {
     if (shareMode && shareInitialProject) {
       return (
         <div style={{ minHeight: '100vh' }}>
+          {/* 与主站同款六向断环纹样背景（fixed 层，z-index:-1） */}
+          <div className="mamage-dynamic-backdrop" aria-hidden="true" />
           <LazyPanel title="正在打开分享内容">
             <ShareView
               share={shareInitialProject}
@@ -903,6 +905,7 @@ function App() {
     }
     return (
       <div style={{ width: '100%', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div className="mamage-dynamic-backdrop" aria-hidden="true" />
         <AppLoadingState title="正在打开分享内容" subtitle="正在整理相册信息" />
       </div>
     );
