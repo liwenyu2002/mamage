@@ -206,6 +206,19 @@ export default function ShareView({ share = {}, onBack }) {
     const zipName = `${(share.title || 'share').replace(/[\\/:*?"<>|]/g, '_')}_${Date.now()}`;
     const handle = await pickZipSaveHandle(`${zipName}.zip`); // 必须在用户手势内弹
     if (handle === 'abort') return;
+    if (!handle) {
+      // 无保存对话框能力(手机/内网 http 非安全上下文) → 改走 GET 原生下载：
+      // 浏览器下载管理器立即接管,自带可见的下载条,不再"页面进度跑完才见文件"
+      const qs = new URLSearchParams({ shareCode, zipName });
+      if (Array.isArray(ids) && ids.length) qs.set('photoIds', ids.join(','));
+      const a = document.createElement('a');
+      a.href = `/api/photos/zip?${qs.toString()}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      Toast.success('已交给浏览器下载，请查看浏览器的下载列表');
+      return;
+    }
     setPacking(true);
     setPackProgress({ loaded: 0, total: 0 });
     let lastTick = 0;
