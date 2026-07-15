@@ -343,8 +343,9 @@ export default function ShareView({ share = {}, onBack }) {
     return `${days ? `${days}天 ` : ''}${hrs ? `${hrs}小时 ` : ''}${mins ? `${mins}分 ` : ''}${secs}秒`;
   };
 
-  const pagePadding = isMobileLayout ? 12 : 24;
-  const galleryGap = isMobileLayout ? 8 : 12;
+  // 手机端极限缩边距/缝隙，最大化照片可视面积
+  const pagePadding = isMobileLayout ? 3 : 24;
+  const galleryGap = isMobileLayout ? 2 : 12;
   const gridColumns = isMobileLayout ? 'repeat(3, minmax(0, 1fr))' : 'repeat(auto-fill, minmax(220px, 1fr))';
   const renderPhotoCard = (p, idx, masonry = false) => {
     const sectionLabel = getSharePhotoSectionLabel(p, timelineSections);

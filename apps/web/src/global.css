@@ -1949,3 +1949,10 @@ textarea {
         display: none;
     }
 }
+
+/* 手机端相册详情页：页面左右留白压到 3px,最大化照片可视面积(:has 只命中相册页,不影响首页卡片等) */
+@media (max-width: 480px) {
+    .mamage-content:has(.detail-page) {
+        padding: 3px !important;
+    }
+}

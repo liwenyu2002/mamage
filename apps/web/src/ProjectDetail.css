@@ -5868,3 +5868,26 @@ body.mamage-viewer-open [data-transfer-station-root="1"] {
   }
 }
 
+
+/* ==== 手机端极限缩缝（文件末尾=最终权威,覆盖前面散落的 gap 定义;新增 gap 规则请加在这之后）==== */
+@media (max-width: 768px) {
+  .detail-gallery--grid,
+  .detail-masonry-columns,
+  .detail-masonry-column,
+  .detail-timeline-grid {
+    gap: 3px;
+  }
+}
+@media (max-width: 480px) {
+  .detail-gallery--grid,
+  .detail-masonry-columns,
+  .detail-masonry-column,
+  .detail-timeline-grid {
+    gap: 2px;
+  }
+  /* 照片圆角同步收小,缝隙 2px 时大圆角会显得咬合不齐 */
+  .detail-photo-item,
+  .detail-photo-item .detail-photo img {
+    border-radius: 6px;
+  }
+}
