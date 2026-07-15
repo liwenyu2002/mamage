@@ -391,6 +391,25 @@ function WechatComposer() {
     return map;
   }, [myBlocks, styleFavs]);
 
+  // 收藏面板里的多块排版使用正式导出链渲染，确保插入前看到的文字、图片、间距和主题效果
+  // 与画布/公众号复制结果一致；docToHtml 末端自带 DOMPurify 清洗。
+  const renderSnippetPreview = React.useCallback((favorite) => {
+    const blocks = favorite && favorite.payload && Array.isArray(favorite.payload.blocks)
+      ? favorite.payload.blocks
+      : [];
+    if (!blocks.length) return '<span style="color:#999;font-size:12px">收藏内容为空</span>';
+    try {
+      return docToHtml(blocks, {
+        blocksById,
+        globalAccent: effectiveConfig.accent,
+        body: effectiveConfig.body,
+        page: effectiveConfig.page,
+      }).html;
+    } catch (e) {
+      return '<span style="color:#999;font-size:12px">预览失败</span>';
+    }
+  }, [blocksById, effectiveConfig]);
+
   // 推文预览的正文：与复制/手机预览同源的 docToHtml（保留代理背景图，composer 内正常加载）；仅弹层开着时算
   const previewBodyHtml = React.useMemo(() => {
     if (!articlePreviewOpen) return '';
@@ -1354,6 +1373,7 @@ function WechatComposer() {
                     photoFavs={photoFavs}
                     snippetFavs={snippetFavs}
                     renderBlockHtml={renderBlockPreview}
+                    renderSnippetHtml={renderSnippetPreview}
                     onInsertBlock={handleFavInsertBlock}
                     onInsertPhoto={insertPanelPhoto}
                     onInsertSnippet={insertSnippet}

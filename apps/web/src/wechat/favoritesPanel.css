@@ -38,11 +38,12 @@
 
 .wxc-fav-layout-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 10px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
 }
 
-.wxc-fav-block {
+.wxc-fav-block,
+.wxc-fav-snippet {
   position: relative;
   border: 2px solid rgba(0, 0, 0, 0.08);
   border-radius: 12px;
@@ -51,27 +52,33 @@
   cursor: pointer;
   user-select: none;
   transition: border-color 120ms ease;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 160px;
 }
 
-.wxc-fav-block:hover {
+.wxc-fav-block:hover,
+.wxc-fav-snippet:hover {
   border-color: rgba(0, 0, 0, 0.24);
 }
 
-.wxc-fav-block-stage {
-  height: 76px;
+.wxc-fav-preview-stage {
+  --wxc-fav-preview-zoom: 0.32;
+  --wxc-fav-preview-width: 312.5%;
+  min-height: 44px;
   overflow: hidden;
-  padding: 8px 10px;
+  padding: 12px 10px;
   background: #fff;
   pointer-events: none;
 }
 
-.wxc-fav-block-scale {
-  transform: scale(0.62);
-  transform-origin: left top;
-  width: 161%;
+.wxc-fav-preview-canvas {
+  width: var(--wxc-fav-preview-width);
+  zoom: var(--wxc-fav-preview-zoom);
+  color: #333;
+  overflow-wrap: anywhere;
 }
 
-.wxc-fav-block-scale img {
+.wxc-fav-preview-canvas img {
   -webkit-user-drag: none;
 }
 
@@ -155,52 +162,41 @@
 }
 
 @media (max-width: 768px) {
-  .wxc-fav-layout-grid,
   .wxc-fav-photo-grid {
     grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
   }
 }
 
-/* 画布框选保存的元素组使用同尺寸摘要卡，与样式预览自然混排。 */
+/* 窄屏抽屉更宽，按可用宽度提高预览倍率；虚拟正文宽度仍接近公众号编辑区。 */
+@media (max-width: 968px) {
+  .wxc-fav-preview-stage {
+    --wxc-fav-preview-zoom: 0.45;
+    --wxc-fav-preview-width: 222.222%;
+  }
+}
+
+@media (min-width: 481px) and (max-width: 968px) {
+  .wxc-fav-preview-stage {
+    --wxc-fav-preview-zoom: 0.75;
+    --wxc-fav-preview-width: 133.333%;
+  }
+}
+
+@media (min-width: 769px) and (max-width: 968px) {
+  .wxc-fav-preview-stage {
+    --wxc-fav-preview-zoom: 1;
+    --wxc-fav-preview-width: 100%;
+  }
+}
+
+/* 画布框选保存的元素组与单样式共用完整预览卡，不再显示摘要图标。 */
 
 .wxc-fav-snippet {
-  position: relative;
-  display: flex;
   min-width: 0;
-  min-height: 111px;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: flex-end;
-  gap: 4px;
-  padding: 12px 34px 10px 10px;
-  border: 2px solid rgba(0, 0, 0, 0.08);
-  border-radius: 12px;
-  background: #fff;
-  cursor: pointer;
-  font-size: 13px;
-  overflow: hidden;
-  transition: border-color 120ms ease;
-}
-
-.wxc-fav-snippet:hover {
-  border-color: rgba(0, 0, 0, 0.24);
-}
-
-.wxc-fav-snippet-icon {
-  display: flex;
-  width: 30px;
-  height: 30px;
-  margin-bottom: auto;
-  align-items: center;
-  justify-content: center;
-  border-radius: 8px;
-  background: rgba(0, 0, 0, 0.06);
-  color: rgba(0, 0, 0, 0.5);
-  font-size: 16px;
 }
 
 .wxc-fav-snippet-name {
-  width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   color: rgba(0, 0, 0, 0.76); font-size: 12px; font-weight: 600;
 }
 

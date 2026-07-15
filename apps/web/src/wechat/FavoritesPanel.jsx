@@ -12,12 +12,13 @@ function FavoritesPanel({
   photoFavs = [],
   snippetFavs = [],
   renderBlockHtml,
+  renderSnippetHtml,
   onInsertBlock,
   onInsertPhoto,
   onInsertSnippet,
   onRemoveFav,
 }) {
-  const layoutFavs = [
+  const layoutFavs = React.useMemo(() => [
     ...styleFavs.map((favorite) => ({ favorite, type: 'style' })),
     ...snippetFavs.map((favorite) => ({ favorite, type: 'snippet' })),
   ].sort((a, b) => {
@@ -25,7 +26,25 @@ function FavoritesPanel({
     const bTime = Date.parse(b.favorite.createdAt || '') || 0;
     if (aTime !== bTime) return bTime - aTime;
     return Number(b.favorite.id || 0) - Number(a.favorite.id || 0);
-  });
+  }), [styleFavs, snippetFavs]);
+
+  const stylePreviews = React.useMemo(() => {
+    const previews = new Map();
+    styleFavs.forEach((fav) => {
+      const payload = fav.payload || {};
+      const blockLike = { id: fav.refKey, ...payload };
+      previews.set(fav.id, typeof renderBlockHtml === 'function' ? renderBlockHtml(blockLike) : '');
+    });
+    return previews;
+  }, [styleFavs, renderBlockHtml]);
+
+  const snippetPreviews = React.useMemo(() => {
+    const previews = new Map();
+    snippetFavs.forEach((fav) => {
+      previews.set(fav.id, typeof renderSnippetHtml === 'function' ? renderSnippetHtml(fav) : '');
+    });
+    return previews;
+  }, [snippetFavs, renderSnippetHtml]);
 
   return (
     <div className="wxc-fav-panel">
@@ -39,6 +58,7 @@ function FavoritesPanel({
               if (type === 'snippet') {
                 const payload = fav.payload || {};
                 const count = Array.isArray(payload.blocks) ? payload.blocks.length : 0;
+                const previewHtml = snippetPreviews.get(fav.id) || '';
                 return (
                   <div
                     key={fav.id}
@@ -49,9 +69,17 @@ function FavoritesPanel({
                     onKeyDown={(e) => { if (e.key === 'Enter' && onInsertSnippet) onInsertSnippet(fav); }}
                     title="点击插入到画布末尾"
                   >
-                    <span className="wxc-fav-snippet-icon" aria-hidden="true">▤</span>
-                    <span className="wxc-fav-snippet-name">{payload.name || '未命名排版'}</span>
-                    <span className="wxc-fav-snippet-count">{count} 块</span>
+                    <div className="wxc-fav-preview-stage">
+                      <div
+                        className="wxc-fav-preview-canvas"
+                        // eslint-disable-next-line react/no-danger
+                        dangerouslySetInnerHTML={{ __html: previewHtml }}
+                      />
+                    </div>
+                    <div className="wxc-fav-block-meta">
+                      <span className="wxc-fav-snippet-name">{payload.name || '未命名排版'}</span>
+                      <span className="wxc-fav-snippet-count">{count} 块</span>
+                    </div>
                     <button
                       type="button"
                       className="wxc-fav-block-del"
@@ -65,7 +93,7 @@ function FavoritesPanel({
               }
               const payload = fav.payload || {};
               const blockLike = { id: fav.refKey, ...payload };
-              const previewHtml = typeof renderBlockHtml === 'function' ? renderBlockHtml(blockLike) : '';
+              const previewHtml = stylePreviews.get(fav.id) || '';
               return (
                 <div
                   key={fav.id}
@@ -82,9 +110,9 @@ function FavoritesPanel({
                   onKeyDown={(e) => { if (e.key === 'Enter') onInsertBlock(blockLike); }}
                   title={payload.name ? `${payload.name}（点击插入 / 拖到画布定位插入）` : '点击插入 / 拖到画布定位插入'}
                 >
-                  <div className="wxc-fav-block-stage">
+                  <div className="wxc-fav-preview-stage">
                     <div
-                      className="wxc-fav-block-scale"
+                      className="wxc-fav-preview-canvas"
                       // eslint-disable-next-line react/no-danger
                       dangerouslySetInnerHTML={{ __html: previewHtml }}
                     />
