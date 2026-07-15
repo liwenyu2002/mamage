@@ -28,6 +28,13 @@ const FACT_ISSUE_TYPE_LABEL = {
   number: '数字',
 };
 
+const CHANNEL_USAGE = {
+  xiaohongshu: '小红书',
+  press_release: '官网新闻',
+  report_brief: '通讯稿',
+  weibo: '微博',
+};
+
 function emptyChannelContent() {
   // factCheck 形状约定为 { issues: [{type,expect,found,snippet}], forbiddenHits: [{word,snippet}] }（后端未挂载前为 null）
   return { title: '', subtitle: '', markdownText: '', generatedHtml: '', extra: {}, photos: [], factCheck: null };
@@ -78,8 +85,10 @@ function extractFaceNames(photo) {
   return names;
 }
 
-const AiNewsWriter = () => {
+const AiNewsWriter = ({ initialChannelKey = null }) => {
   const DRAFT_STORAGE_KEY = 'mamage.aiNewsWriter.draft.v1';
+  const preferredChannelKey = CHANNELS.some((item) => item.key === initialChannelKey) ? initialChannelKey : null;
+  const preferredChannel = CHANNELS.find((item) => item.key === preferredChannelKey) || null;
   const INITIAL_FORM_VALUES = {
     eventName: '',
     eventDate: null,
@@ -103,12 +112,12 @@ const AiNewsWriter = () => {
 
   // 矩阵生成：渠道多选 + 批次状态 + 逐渠道内容（原单份 title/subtitle/markdownText/generatedHtml
   // 拆成 keyed map，key 为 channel_key；下方所有引用点同步改为读写 channelContent[activeChannelKey]）
-  const [selectedChannels, setSelectedChannels] = React.useState(DEFAULT_CHANNEL_KEYS);
+  const [selectedChannels, setSelectedChannels] = React.useState(() => (preferredChannelKey ? [preferredChannelKey] : DEFAULT_CHANNEL_KEYS));
   const [batchId, setBatchId] = React.useState(null);
   const [batchStatus, setBatchStatus] = React.useState('');
   const [channelJobs, setChannelJobs] = React.useState({}); // channelKey -> { jobId, status, error }
   const [channelContent, setChannelContent] = React.useState({}); // channelKey -> emptyChannelContent() 形状
-  const [activeChannelKey, setActiveChannelKey] = React.useState(null);
+  const [activeChannelKey, setActiveChannelKey] = React.useState(preferredChannelKey);
   // 轮询期间避免同一 job 的成功结果被重复处理（占位符替换是异步的，重复跑会闪烁/重复请求）
   const processedJobIdsRef = React.useRef(new Set());
 
@@ -176,12 +185,12 @@ const AiNewsWriter = () => {
     setReferenceArticle('');
     setInterviewText('');
     setStylePreset('默认风格');
-    setSelectedChannels(DEFAULT_CHANNEL_KEYS);
+    setSelectedChannels(preferredChannelKey ? [preferredChannelKey] : DEFAULT_CHANNEL_KEYS);
     setBatchId(null);
     setBatchStatus('');
     setChannelJobs({});
     setChannelContent({});
-    setActiveChannelKey(null);
+    setActiveChannelKey(preferredChannelKey);
     processedJobIdsRef.current = new Set();
     setAdvancedPrompt('');
     setShowAdvancedEditor(false);
@@ -189,7 +198,7 @@ const AiNewsWriter = () => {
     setParticipantDraft('');
     setCollapsedWarnings({});
     Toast.success('已清空本页缓存');
-  }, [DRAFT_STORAGE_KEY, INITIAL_FORM_VALUES]);
+  }, [DRAFT_STORAGE_KEY, INITIAL_FORM_VALUES, preferredChannelKey]);
 
   const removePhoto = React.useCallback((photoId) => {
     setSelectedPhotos((prev) => (prev || []).filter((p) => String(p.id) !== String(photoId)));
@@ -241,6 +250,15 @@ const AiNewsWriter = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 从全媒体编辑台切换平台时，默认只生成当前平台；用户仍可在页面里继续勾选其他渠道。
+  React.useEffect(() => {
+    if (!preferredChannelKey) return;
+    setSelectedChannels([preferredChannelKey]);
+    setActiveChannelKey(preferredChannelKey);
+    const usage = CHANNEL_USAGE[preferredChannelKey];
+    if (usage) setFormValues((prev) => (prev.usage === usage ? prev : { ...prev, usage }));
+  }, [preferredChannelKey]);
 
   // Auto-save draft (debounced) whenever key fields change.
   React.useEffect(() => {
@@ -1558,7 +1576,7 @@ const AiNewsWriter = () => {
     <Layout style={{ padding: isMobile ? 10 : 16, overflowX: 'hidden' }}>
       <Header style={{ background: 'transparent', padding: 0, marginBottom: 12 }}>
         <div style={{ display: 'flex', alignItems: isMobile ? 'flex-start' : 'center', justifyContent: 'space-between', gap: 12, flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
-          <h2 style={{ margin: 0 }}>AI 写稿助手</h2>
+          <h2 style={{ margin: 0 }}>{preferredChannel ? `${preferredChannel.name}编辑助手` : 'AI 写稿助手'}</h2>
           <Button type="danger" theme="borderless" size="small" onClick={clearAllDraft}>
             清空缓存
           </Button>

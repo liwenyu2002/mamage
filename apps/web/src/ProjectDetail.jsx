@@ -66,6 +66,7 @@ const ACTIVE_ANALYSIS_STATUSES = new Set(['pending', 'queued', 'running', 'proce
 const GALLERY_INITIAL_RENDER_LIMIT = 96;
 const GALLERY_RENDER_BATCH_SIZE = 96;
 const PROJECT_DETAIL_TIMEOUT_MS = 12000;
+const GROUP_RESCUE_VISIBLE = false;
 
 function getAISelectionLabel(label) {
   if (label === 'recommended') return 'AI推荐';
@@ -6384,7 +6385,7 @@ function ProjectDetail({
                       </button>
                     );
                   })()}
-                  {!readOnly && !currentViewerIsVideo && canEditPhotos && isGroupPhotoMeta(photoMetas?.[viewerIndex]) ? (
+                  {GROUP_RESCUE_VISIBLE && !readOnly && !currentViewerIsVideo && canEditPhotos && isGroupPhotoMeta(photoMetas?.[viewerIndex]) ? (
                     <button
                       type="button"
                       className="viewer-dock-btn"
@@ -6427,7 +6428,7 @@ function ProjectDetail({
         {/* Inline viewer edit 鈥?replaced modal with inline editor under the photo */}
 
         {/* 合影救场确认层：查看器语义入口打开，自动圈出连拍组 */}
-        {viewerRescue && !viewerRescue.hidden ? (
+        {GROUP_RESCUE_VISIBLE && viewerRescue && !viewerRescue.hidden ? (
           <Modal
             title="合影救场"
             className="viewer-rescue-modal"

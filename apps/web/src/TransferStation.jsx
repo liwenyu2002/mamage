@@ -889,7 +889,7 @@ export default function TransferStation() {
             draggable
             onDragStart={(e) => handleItemDragStart(e, p)}
             onDragEnd={handleItemDragEnd}
-            title="可拖到合影救场等功能页使用"
+            title="可拖到全媒体编辑台使用"
             style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px', borderRadius: 12, background: 'rgba(255,255,255,0.55)', border: '1px solid rgba(255,255,255,0.66)', cursor: 'grab' }}
           >
             <div style={{ width: 72, height: 72, overflow: 'hidden', borderRadius: 8, flex: '0 0 72px', background: '#f1f5f9' }}>

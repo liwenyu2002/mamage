@@ -1662,44 +1662,97 @@ textarea {
     background: rgba(255, 255, 255, 0.4);
 }
 
-/* 功能列表页：功能入口卡片（AI 写新闻稿 / 合影救场 并列） */
-.function-index-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-    gap: 12px;
+/* 全媒体编辑台：一级导航下的媒体平台导航。平台横向滚动，避免手机端压缩错位。 */
+.media-studio-shell {
+    min-width: 0;
 }
 
-.function-index-card {
+.media-studio-nav {
+    position: relative;
     display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 6px;
-    padding: 16px;
-    border: 1px solid rgba(0, 0, 0, 0.1);
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    min-height: 46px;
+    margin-bottom: 8px;
+    padding: 5px 7px;
+    border: 1px solid var(--mamage-glass-border);
     border-radius: 14px;
-    background: rgba(255, 255, 255, 0.6);
-    cursor: pointer;
-    text-align: left;
+    background: var(--mamage-glass-bg);
+    box-shadow: 0 7px 20px rgba(50, 82, 112, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.68);
+    backdrop-filter: var(--lg-blur);
+    -webkit-backdrop-filter: var(--lg-blur);
+}
+
+.media-studio-nav-title {
+    flex: 0 0 auto;
+    padding: 0 10px;
+    color: #000;
+    font-size: 13px;
+    font-weight: 780;
+    white-space: nowrap;
+}
+
+.media-studio-tabs {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: 3px;
+    min-width: 0;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    scrollbar-width: none;
+}
+
+.media-studio-tabs::-webkit-scrollbar {
+    display: none;
+}
+
+.media-studio-tab {
+    flex: 0 0 auto;
+    height: 34px;
+    padding: 0 14px;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background: transparent;
+    color: #000;
     font: inherit;
-    transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
+    font-size: 13px;
+    font-weight: 680;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: color 140ms ease, background 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
 }
 
-.function-index-card:hover {
-    border-color: rgba(0, 0, 0, 0.32);
-    background: rgba(255, 255, 255, 0.85);
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+.media-studio-tab:hover {
+    border-color: rgba(255, 255, 255, 0.68);
+    background: rgba(255, 255, 255, 0.52);
 }
 
-.function-index-card-title {
-    font-size: 15px;
-    font-weight: 700;
-    color: #111;
+.media-studio-tab.is-active {
+    border-color: #111;
+    background: #111;
+    color: #fff;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.16);
 }
 
-.function-index-card-desc {
-    font-size: 12.5px;
-    line-height: 1.5;
-    color: rgba(0, 0, 0, 0.55);
+.media-studio-workspace {
+    min-width: 0;
+}
+
+@media (max-width: 768px) {
+    .media-studio-nav {
+        margin-bottom: 4px;
+        padding-inline: 5px;
+    }
+
+    .media-studio-nav-title {
+        display: none;
+    }
+
+    .media-studio-tab {
+        padding-inline: 13px;
+    }
 }
 
 /* 合影救场手动模式：中转站照片点选网格 + 拖放落点 */

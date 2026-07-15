@@ -26,10 +26,26 @@ const PhotoPreviewOverlay = lazyWithPreload(() => import(/* webpackChunkName: "p
 const Scenery = lazyWithPreload(() => import(/* webpackChunkName: "scenery" */ './Scenery'));
 const AccountPage = lazyWithPreload(() => import(/* webpackChunkName: "account-page" */ './AccountPage'));
 const AiNewsWriter = lazyWithPreload(() => import(/* webpackChunkName: "ai-news-writer" */ './AiNewsWriter.jsx'));
-const GroupRescue = lazyWithPreload(() => import(/* webpackChunkName: "group-rescue" */ './GroupRescue.jsx'));
 const WechatComposer = lazyWithPreload(() => import(/* webpackChunkName: "wechat-composer" */ './WechatComposer.jsx'));
 
 const PROJECT_PAGE_SIZE = 24;
+const MEDIA_STUDIO_PLATFORMS = [
+  { key: 'wechat_article', label: '推文', path: '/function/wechat-composer', editor: 'wechat' },
+  { key: 'xiaohongshu', label: '小红书', path: '/function/xiaohongshu', editor: 'writer' },
+  { key: 'press_release', label: '新闻稿', path: '/function/news', editor: 'writer' },
+  { key: 'report_brief', label: '通讯稿', path: '/function/brief', editor: 'writer' },
+  { key: 'weibo', label: '微博', path: '/function/weibo', editor: 'writer' },
+];
+const DEFAULT_MEDIA_PLATFORM = MEDIA_STUDIO_PLATFORMS[0];
+
+function mediaPlatformFromPath(pathname) {
+  const path = String(pathname || '').replace(/\/$/, '') || '/';
+  const exact = MEDIA_STUDIO_PLATFORMS.find((item) => item.path === path);
+  if (exact) return exact;
+  if (path === '/function/ai-writer') return MEDIA_STUDIO_PLATFORMS.find((item) => item.key === 'press_release');
+  if (path === '/function' || path === '/function/group-rescue' || path.startsWith('/function/')) return DEFAULT_MEDIA_PLATFORM;
+  return null;
+}
 
 function formatHeaderDate(val) {
   if (!val && val !== 0) return '';
@@ -214,7 +230,7 @@ function App() {
 
   const preloadNavItem = React.useCallback((key) => {
     if (key === 'scenery' && Scenery.preload) Scenery.preload();
-    if (key === 'function' && AiNewsWriter.preload) AiNewsWriter.preload();
+    if (key === 'function' && WechatComposer.preload) WechatComposer.preload();
   }, []);
 
   const loadProjects = React.useCallback(async (kw = '', page = 1, pageSize = PROJECT_PAGE_SIZE) => {
@@ -589,22 +605,14 @@ function App() {
           setSelectedNav('projects');
           setCurrentProjectId(null);
         }
-      } else if (path === '/function/ai-writer') {
+      } else if (mediaPlatformFromPath(path)) {
+        const platform = mediaPlatformFromPath(path);
         setSelectedNav('function');
-        setFunctionPage('ai-writer');
+        setFunctionPage(platform.key);
         setCurrentProjectId(null);
-      } else if (path === '/function/group-rescue') {
-        setSelectedNav('function');
-        setFunctionPage('group-rescue');
-        setCurrentProjectId(null);
-      } else if (path === '/function/wechat-composer') {
-        setSelectedNav('function');
-        setFunctionPage('wechat-composer');
-        setCurrentProjectId(null);
-      } else if (path === '/function') {
-        setSelectedNav('function');
-        setFunctionPage(null);
-        setCurrentProjectId(null);
+        if (path === '/function/group-rescue') {
+          try { window.history.replaceState({}, '', DEFAULT_MEDIA_PLATFORM.path); } catch (e) { }
+        }
       } else if (pid) {
         setSelectedNav('projects');
         setCurrentProjectId(pid);
@@ -639,22 +647,14 @@ function App() {
             setSelectedNav('projects');
             setCurrentProjectId(null);
           }
-        } else if (path === '/function/ai-writer') {
+        } else if (mediaPlatformFromPath(path)) {
+          const platform = mediaPlatformFromPath(path);
           setSelectedNav('function');
-          setFunctionPage('ai-writer');
+          setFunctionPage(platform.key);
           setCurrentProjectId(null);
-        } else if (path === '/function/group-rescue') {
-          setSelectedNav('function');
-          setFunctionPage('group-rescue');
-          setCurrentProjectId(null);
-        } else if (path === '/function/wechat-composer') {
-          setSelectedNav('function');
-          setFunctionPage('wechat-composer');
-          setCurrentProjectId(null);
-        } else if (path === '/function') {
-          setSelectedNav('function');
-          setFunctionPage(null);
-          setCurrentProjectId(null);
+          if (path === '/function/group-rescue') {
+            try { window.history.replaceState({}, '', DEFAULT_MEDIA_PLATFORM.path); } catch (e) { }
+          }
         } else if (p) {
           setSelectedNav('projects');
           setCurrentProjectId(p);
@@ -789,6 +789,7 @@ function App() {
 
   const userLabel = currentUser && (currentUser.displayName || currentUser.email || currentUser.name);
   const userInitial = String(userLabel || 'U').trim().charAt(0).toUpperCase() || 'U';
+  const activeMediaPlatform = MEDIA_STUDIO_PLATFORMS.find((item) => item.key === functionPage) || DEFAULT_MEDIA_PLATFORM;
 
   const closeMobileNav = React.useCallback(() => {
     setMobileNavVisible(false);
@@ -815,13 +816,24 @@ function App() {
     try { window.history.pushState({}, '', '/scenery'); } catch (e) { }
   }, []);
 
-  // 功能导航落在功能列表页（功能不止一个后，由用户自己选）
+  // 全媒体编辑台默认进入推文平台；平台切换由页面内二级导航承接。
   const handleNavigateFunction = React.useCallback(() => {
     setSelectedNav('function');
     setCurrentProjectId(null);
-    setFunctionPage(null);
-    try { window.history.pushState({}, '', '/function'); } catch (e) { }
+    setFunctionPage(DEFAULT_MEDIA_PLATFORM.key);
+    try { window.history.pushState({}, '', DEFAULT_MEDIA_PLATFORM.path); } catch (e) { }
   }, []);
+
+  const handleNavigateMediaPlatform = React.useCallback((platform) => {
+    if (!platform) return;
+    if (functionPage === platform.key) return;
+    setSelectedNav('function');
+    setCurrentProjectId(null);
+    setFunctionPage(platform.key);
+    try { window.history.pushState({}, '', platform.path); } catch (e) { }
+    if (platform.editor === 'wechat' && WechatComposer.preload) WechatComposer.preload();
+    if (platform.editor === 'writer' && AiNewsWriter.preload) AiNewsWriter.preload();
+  }, [functionPage]);
 
   const handleNavigateAbout = React.useCallback(() => {
     setSelectedNav('about');
@@ -848,7 +860,7 @@ function App() {
   const navItems = React.useMemo(() => ([
     { key: 'projects', label: '项目', onClick: handleBackToList },
     { key: 'scenery', label: '风景', onClick: handleNavigateScenery },
-    { key: 'function', label: '功能', onClick: handleNavigateFunction },
+    { key: 'function', label: '全媒体编辑台', onClick: handleNavigateFunction },
     { key: 'about', label: '关于', onClick: handleNavigateAbout },
   ]), [handleBackToList, handleNavigateAbout, handleNavigateFunction, handleNavigateScenery]);
 
@@ -1351,51 +1363,44 @@ function App() {
                 <AccountPage currentUser={currentUser} onUpdated={(u) => { setCurrentUser(u); }} />
               </LazyPanel>
             ) : selectedNav === 'function' ? (
-              functionPage === 'ai-writer' ? (
-                <LazyPanel title="正在加载 AI 写作">
-                  <AiNewsWriter />
-                </LazyPanel>
-              ) : functionPage === 'group-rescue' ? (
-                <LazyPanel title="正在加载合影救场">
-                  <GroupRescue />
-                </LazyPanel>
-              ) : functionPage === 'wechat-composer' ? (
-                <LazyPanel title="正在加载公众号排版器">
-                  <WechatComposer />
-                </LazyPanel>
-              ) : (
-                <div style={{ padding: 24 }}>
-                  <Card title="功能" bordered>
-                    <div className="function-index-grid">
+              <section className="media-studio-shell" aria-label="全媒体编辑台">
+                <nav className="media-studio-nav" aria-label="媒体平台">
+                  <div className="media-studio-nav-title">全媒体编辑台</div>
+                  <div className="media-studio-tabs" role="tablist" aria-label="选择媒体平台">
+                    {MEDIA_STUDIO_PLATFORMS.map((platform) => (
                       <button
+                        key={platform.key}
                         type="button"
-                        className="function-index-card"
-                        onClick={() => { try { window.history.pushState({}, '', '/function/ai-writer'); } catch (e) { } setSelectedNav('function'); setFunctionPage('ai-writer'); }}
+                        role="tab"
+                        aria-selected={activeMediaPlatform.key === platform.key}
+                        className={`media-studio-tab${activeMediaPlatform.key === platform.key ? ' is-active' : ''}`}
+                        onPointerEnter={() => {
+                          if (platform.editor === 'wechat' && WechatComposer.preload) WechatComposer.preload();
+                          if (platform.editor === 'writer' && AiNewsWriter.preload) AiNewsWriter.preload();
+                        }}
+                        onFocus={() => {
+                          if (platform.editor === 'wechat' && WechatComposer.preload) WechatComposer.preload();
+                          if (platform.editor === 'writer' && AiNewsWriter.preload) AiNewsWriter.preload();
+                        }}
+                        onClick={() => handleNavigateMediaPlatform(platform)}
                       >
-                        <div className="function-index-card-title">AI 写新闻稿</div>
-                        <div className="function-index-card-desc">挑好照片，AI 按新闻稿格式生成图文初稿</div>
+                        {platform.label}
                       </button>
-                      <button
-                        type="button"
-                        className="function-index-card"
-                        onClick={() => { try { window.history.pushState({}, '', '/function/group-rescue'); } catch (e) { } setSelectedNav('function'); setFunctionPage('group-rescue'); }}
-                      >
-                        <div className="function-index-card-title">合影救场</div>
-                        <div className="function-index-card-desc">连拍合影里有人闭眼？AI 为每个人挑最佳表情合成一张</div>
-                      </button>
-                      <button
-                        type="button"
-                        className="function-index-card"
-                        onClick={() => { try { window.history.pushState({}, '', '/function/wechat-composer'); } catch (e) { } setSelectedNav('function'); setFunctionPage('wechat-composer'); }}
-                      >
-                        <div className="function-index-card-title">公众号排版器</div>
-                        <div className="function-index-card-desc">套主题排版、带图一键复制进公众号后台</div>
-                      </button>
-                    </div>
-                    <div style={{ color: '#666', marginTop: 12 }}>更多功能正在开发中</div>
-                  </Card>
+                    ))}
+                  </div>
+                </nav>
+                <div className="media-studio-workspace">
+                  {activeMediaPlatform.editor === 'wechat' ? (
+                    <LazyPanel title="正在加载推文编辑台">
+                      <WechatComposer />
+                    </LazyPanel>
+                  ) : (
+                    <LazyPanel title={`正在加载${activeMediaPlatform.label}编辑台`}>
+                      <AiNewsWriter initialChannelKey={activeMediaPlatform.key} />
+                    </LazyPanel>
+                  )}
                 </div>
-              )
+              </section>
             ) : selectedNav === 'about' ? (
               <div style={{ padding: 24, maxWidth: 720, margin: '0 auto' }}>
                 <Card title="关于 MaMage" bordered>
