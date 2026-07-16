@@ -4,7 +4,7 @@ import { Toast, Tooltip, Modal } from './ui';
 import { getAll, getCount, add, clear, getMediaKind, subscribe, removeById } from './services/transferStore';
 import { resolveAssetUrl } from './services/request';
 import { pickZipSaveHandle, fetchZipToTarget, formatBytes, formatDuration, startNativeZipDownload } from './services/zipDownload';
-import { cancelDirectZipJob, getDirectZipJob, startDirectZipJob, triggerDirectDownload } from './services/directStorage';
+import { cancelDirectZipJob, getDirectZipJob, listActiveDirectZipJobs, startDirectZipJob, triggerDirectDownload } from './services/directStorage';
 
 function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
@@ -73,6 +73,7 @@ export default function TransferStation() {
   const [packProgress, setPackProgress] = React.useState(null);
   const directPackEstimateRef = React.useRef({ sampledAt: 0, loaded: 0, speedBps: 0 });
   const directZipJobRef = React.useRef('');
+  const [resumedDirectZipJobs, setResumedDirectZipJobs] = React.useState([]);
   const [hoverKey, setHoverKey] = React.useState(null);
   const [pressedKey, setPressedKey] = React.useState(null);
   const [dragOver, setDragOver] = React.useState(false);
@@ -279,6 +280,60 @@ export default function TransferStation() {
       Toast.info('已中断压缩任务并清理临时文件');
     } catch (err) {
       console.error('cancel direct ZIP failed', err);
+      Toast.error('中断任务失败，请稍后重试');
+    }
+  }, []);
+
+  const refreshResumedDirectZipJobs = React.useCallback(async () => {
+    try {
+      const jobs = await listActiveDirectZipJobs();
+      setResumedDirectZipJobs(jobs || []);
+      return jobs || [];
+    } catch (err) {
+      console.warn('load active direct ZIP jobs failed', err);
+      return [];
+    }
+  }, []);
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined' || window.location.protocol !== 'http:') return undefined;
+    let disposed = false;
+    let timer = null;
+    const poll = async () => {
+      const jobs = await refreshResumedDirectZipJobs();
+      if (disposed) return;
+      if (jobs.some((job) => job && ['queued', 'packing'].includes(job.status))) {
+        timer = window.setTimeout(poll, 1200);
+      }
+    };
+    poll();
+    return () => {
+      disposed = true;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [refreshResumedDirectZipJobs]);
+
+  const handleResumeDirectZipDownload = React.useCallback(async (jobId) => {
+    try {
+      const job = await getDirectZipJob(jobId);
+      if (!job || !job.downloadUrl) throw new Error('DIRECT_ZIP_DOWNLOAD_URL_MISSING');
+      triggerDirectDownload(job.downloadUrl);
+      setResumedDirectZipJobs((jobs) => (jobs || []).filter((entry) => entry && entry.id !== jobId));
+      Toast.success('压缩包已交给浏览器下载');
+    } catch (err) {
+      console.error('resume direct ZIP download failed', err);
+      Toast.error('压缩包暂不可下载，请稍后重试');
+    }
+  }, []);
+
+  const handleResumeDirectZipCancel = React.useCallback(async (jobId) => {
+    try {
+      const result = await cancelDirectZipJob(jobId);
+      if (!result || !result.cancelled) throw new Error('DIRECT_ZIP_CANCEL_FAILED');
+      setResumedDirectZipJobs((jobs) => (jobs || []).filter((entry) => entry && entry.id !== jobId));
+      Toast.info('已中断压缩任务并清理临时文件');
+    } catch (err) {
+      console.error('cancel resumed direct ZIP failed', err);
       Toast.error('中断任务失败，请稍后重试');
     }
   }, []);
@@ -957,6 +1012,62 @@ export default function TransferStation() {
     </div>
   ) : null;
 
+  const resumedTaskJobs = (resumedDirectZipJobs || []).filter((job) => job && job.id !== packProgress?.jobId);
+  const resumedTaskTray = resumedTaskJobs.length ? (
+    <div
+      style={{
+        position: 'fixed', zIndex: 2690,
+        ...(isMobile
+          ? { left: 12, right: 12, bottom: (packProgress ? 290 : 174) + vvInset.bottom }
+          : { right: 144, bottom: 18, width: 258 }),
+        display: 'flex', flexDirection: 'column', gap: 8,
+        padding: 10, borderRadius: 12,
+        background: 'var(--liquid-glass-material-readable, rgba(255,255,255,0.94))',
+        border: 'var(--liquid-glass-stroke-width) solid var(--liquid-glass-border)',
+        boxShadow: 'var(--liquid-glass-shadow-tight), var(--liquid-glass-edge)',
+        backdropFilter: 'var(--liquid-glass-backdrop)',
+        WebkitBackdropFilter: 'var(--liquid-glass-backdrop)',
+        maxHeight: 'min(42vh, 330px)', overflowY: 'auto',
+      }}
+    >
+      <style>{'@keyframes mm-pack-indet{0%{left:-40%}100%{left:100%}}'}</style>
+      <div style={{ fontSize: 12, color: '#0f172a', fontWeight: 800, padding: '0 2px' }}>正在处理的下载</div>
+      {resumedTaskJobs.map((job) => {
+        const total = Math.max(0, Number(job.totalBytes) || 0);
+        const loaded = Math.max(0, Number(job.processedBytes) || 0);
+        const queued = job.status === 'queued';
+        const ready = job.status === 'ready';
+        const label = ready
+          ? '压缩包已就绪'
+          : queued
+          ? (Number(job.queueAhead) > 0 ? `正在排队，前方 ${job.queueAhead} 个任务` : '等待开始准备')
+          : '正在准备压缩包';
+        return (
+          <div key={job.id} style={{ padding: '8px', borderRadius: 9, background: 'rgba(255,255,255,0.58)', border: '1px solid rgba(15,23,42,0.08)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+              <div style={{ flex: 1, minWidth: 0, color: '#0f172a', fontSize: 11.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {label}{job.fileCount ? ` · ${job.fileCount} 项` : ''}
+              </div>
+              {ready ? (
+                <button type="button" onClick={() => handleResumeDirectZipDownload(job.id)} style={{ border: 0, borderRadius: 7, padding: '4px 7px', background: '#111827', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>下载</button>
+              ) : (
+                <button type="button" onClick={() => handleResumeDirectZipCancel(job.id)} style={{ border: '1px solid rgba(185,28,28,0.2)', borderRadius: 7, padding: '3px 6px', background: '#fff5f5', color: '#b91c1c', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>中断</button>
+              )}
+            </div>
+            {!ready && !queued ? (
+              <>
+                <div style={{ position: 'relative', height: 5, borderRadius: 999, overflow: 'hidden', background: '#e5e7eb', marginTop: 7 }}>
+                  <div style={{ position: 'absolute', inset: '0 auto 0 0', width: total > 0 ? `${Math.min(100, (loaded / total) * 100)}%` : '36%', borderRadius: 999, background: '#111827', animation: total > 0 ? undefined : 'mm-pack-indet 1.1s ease-in-out infinite' }} />
+                </div>
+                <div style={{ color: '#64748b', fontSize: 10.5, marginTop: 5, fontVariantNumeric: 'tabular-nums' }}>已处理 {formatBytes(loaded)}{total > 0 ? ` / ${formatBytes(total)}` : ''}</div>
+              </>
+            ) : null}
+          </div>
+        );
+      })}
+    </div>
+  ) : null;
+
   const triggerNode = (
     <div
       style={triggerStyle}
@@ -1100,6 +1211,7 @@ export default function TransferStation() {
     const mobileNode = (
       <>
         {packProgressNode}
+        {resumedTaskTray}
         {open && (
           <div
             style={{
@@ -1320,6 +1432,7 @@ export default function TransferStation() {
       </a>
 
       {packProgressNode}
+      {resumedTaskTray}
 
       <Tooltip
         content={'中转站：支持“存入选中”或“直接拖拽媒体”。可打包下载、复制富文本、分享外链。'}

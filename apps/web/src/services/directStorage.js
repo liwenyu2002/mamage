@@ -78,6 +78,12 @@ export async function getDirectZipJob(jobId) {
   return requestJson(`/api/photos/zip-direct/${encodeURIComponent(String(jobId))}`);
 }
 
+export async function listActiveDirectZipJobs() {
+  if (!canAttemptDirectStorage()) return [];
+  const result = await requestJson('/api/photos/zip-direct');
+  return result && Array.isArray(result.jobs) ? result.jobs : [];
+}
+
 export async function cancelDirectZipJob(jobId) {
   if (!jobId || !canAttemptDirectStorage()) return null;
   return requestJson(`/api/photos/zip-direct/${encodeURIComponent(String(jobId))}/cancel`, { method: 'POST' });
