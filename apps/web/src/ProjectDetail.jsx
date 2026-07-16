@@ -29,6 +29,7 @@ import { getProjectById, updateProject, deleteProject, createTimelineSection, up
 import { getToken } from './services/authService';
 import { fetchRandomByProject, searchPhotos, getPhotoById, updatePhoto, assignPhotosTimelineSection, getFacePersonInfo, labelFacePerson, renameFacePerson, uploadPhotoFiles, warmUploadApiProbe, deletePhotos, getPhotoFaces, getUploadFileLimitError, runGroupRescueJob, isBrowserUndisplayableImage, isNeverBrowserPreviewable, undisplayableFormatLabel } from './services/photoService';
 import { resolveAssetUrl, BASE_URL } from './services/request';
+import { getDirectMediaUrl } from './services/directStorage';
 import FindMeModal from './FindMeModal';
 import IfCan from './permissions/IfCan';
 import PermButton from './permissions/PermButton';
@@ -838,6 +839,8 @@ function ProjectDetail({
   const [viewerFaceOverlayVisible, setViewerFaceOverlayVisible] = React.useState(false);
   const [viewerFaceMap, setViewerFaceMap] = React.useState({});
   const [viewerFaceErrorMap, setViewerFaceErrorMap] = React.useState({});
+  const [directMediaUrlMap, setDirectMediaUrlMap] = React.useState({});
+  const directMediaRequestRef = React.useRef({});
   const viewerFaceFetchPromiseRef = React.useRef({});
   const [viewerImageNaturalMap, setViewerImageNaturalMap] = React.useState({});
   const [facePersonVisible, setFacePersonVisible] = React.useState(false);
@@ -2720,7 +2723,17 @@ function ProjectDetail({
     const baseName = buildDownloadBaseName(meta, index);
 
     if (isVideoMeta(meta) || options.forceOriginal || isDefaultPhotoAdjustments(adjustments)) {
-      triggerUrlDownload(url, `${baseName}${inferDownloadExt(url)}`);
+      const photoId = getPhotoRecordId(meta);
+      let downloadUrl = url;
+      if (photoId) {
+        try {
+          const directUrl = await getDirectMediaUrl(photoId, 'original', { download: true });
+          if (directUrl) downloadUrl = directUrl;
+        } catch (e) {
+          // 校园网直连失败时无感回退到本站媒体代理。
+        }
+      }
+      triggerUrlDownload(downloadUrl, `${baseName}${inferDownloadExt(url)}`);
       return { rendered: false };
     }
 
@@ -2755,6 +2768,7 @@ function ProjectDetail({
     fetchDownloadPixelSource,
     fetchRenderedPhotoBlob,
     getDownloadAdjustmentForMeta,
+    getDirectMediaUrl,
     images,
     inferDownloadExt,
     triggerBlobDownload,
@@ -3294,17 +3308,24 @@ function ProjectDetail({
 
   const getViewerTargetSrc = React.useCallback((index, showOriginal = false) => {
     const meta = photoMetas?.[index] || {};
+    const photoId = getPhotoRecordId(meta);
     if (isVideoMeta(meta)) {
       // 优先 web 转码产物；仍在转码中的新上传不回退（由占位 UI 呈现），
       // 存量视频无 playback 时回退原始文件，保持可播。
       const playback = getVideoPlaybackCandidate(meta);
+      const directVariant = playback ? 'playback' : 'original';
+      const directUrl = photoId ? directMediaUrlMap[`${photoId}:${directVariant}`] : '';
+      if (directUrl) return directUrl;
       if (playback) return playback;
       if (getVideoUploadState(meta)) return '';
       return meta.originalSrc || meta.url || '';
     }
+    const variant = showOriginal ? 'original' : 'thumb';
+    const directUrl = photoId ? directMediaUrlMap[`${photoId}:${variant}`] : '';
+    if (directUrl) return directUrl;
     if (showOriginal) return meta.originalSrc || meta.url || meta.thumbSrc || images[index] || '';
     return meta.thumbSrc || images[index] || meta.originalSrc || meta.url || '';
-  }, [photoMetas, images]);
+  }, [photoMetas, images, directMediaUrlMap]);
 
   const getMetaPhotoId = React.useCallback((meta) => {
     if (!meta) return null;
@@ -3316,6 +3337,43 @@ function ProjectDetail({
 
   const currentViewerPhotoId = React.useMemo(() => getMetaPhotoId(photoMetas?.[viewerIndex]), [photoMetas, viewerIndex, getMetaPhotoId]);
   const currentViewerIsVideo = React.useMemo(() => isVideoMeta(photoMetas?.[viewerIndex]), [photoMetas, viewerIndex]);
+
+  // 校园网 HTTP 入口拿到的是对象存储的短时签名 URL：视频播放和查看原图不再绕行 Mac mini。
+  // 公网 HTTPS / 非白名单入口会无感回退到原有的受鉴权媒体代理。
+  React.useEffect(() => {
+    if (!viewerVisible || !currentViewerPhotoId) return undefined;
+    const meta = photoMetas?.[viewerIndex] || {};
+    const variant = currentViewerIsVideo
+      ? (getVideoPlaybackCandidate(meta) ? 'playback' : 'original')
+      : (viewerShowOriginal ? 'original' : 'thumb');
+    const mapKey = `${currentViewerPhotoId}:${variant}`;
+    if (directMediaUrlMap[mapKey] || directMediaRequestRef.current[mapKey]) return undefined;
+
+    let disposed = false;
+    directMediaRequestRef.current[mapKey] = true;
+    getDirectMediaUrl(currentViewerPhotoId, variant)
+      .then((url) => {
+        if (!disposed && url) {
+          setDirectMediaUrlMap((previous) => ({ ...(previous || {}), [mapKey]: url }));
+        }
+      })
+      .catch(() => {
+        // 直连仅是加速层，代理链路始终是可靠回退。
+      })
+      .finally(() => {
+        delete directMediaRequestRef.current[mapKey];
+      });
+    return () => { disposed = true; };
+  }, [
+    currentViewerIsVideo,
+    currentViewerPhotoId,
+    directMediaUrlMap,
+    photoMetas,
+    viewerIndex,
+    viewerShowOriginal,
+    viewerVisible,
+  ]);
+
   const currentViewerFaces = React.useMemo(() => (currentViewerPhotoId ? (viewerFaceMap[currentViewerPhotoId] || []) : []), [currentViewerPhotoId, viewerFaceMap]);
   const currentViewerFaceError = currentViewerPhotoId ? (viewerFaceErrorMap[currentViewerPhotoId] || '') : '';
   const getAdjustmentForPhoto = React.useCallback((meta) => {

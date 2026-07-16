@@ -4,6 +4,7 @@ import { Toast, Tooltip, Modal } from './ui';
 import { getAll, getCount, add, clear, subscribe, removeById } from './services/transferStore';
 import { resolveAssetUrl } from './services/request';
 import { pickZipSaveHandle, fetchZipToTarget, formatBytes, formatDuration, startNativeZipDownload } from './services/zipDownload';
+import { getDirectZipJob, startDirectZipJob, triggerDirectDownload } from './services/directStorage';
 
 function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
@@ -231,6 +232,43 @@ export default function TransferStation() {
     }
 
     const zipName = `transfer_${Date.now()}`;
+    const isHttpEntry = typeof window !== 'undefined' && window.location.protocol === 'http:';
+    // 校园网 HTTP 能直连内网对象存储：后台流式组 ZIP 后，最终下载不再经过 Mac mini。
+    // HTTPS 公网入口会直接进入下方原有流程，且不会破坏 showSaveFilePicker 的用户手势。
+    if (isHttpEntry) {
+      setBusy('pack');
+      setPackProgress({ phase: 'preparing', loaded: 0, total: 0, files: ids.length });
+      try {
+        let job = await startDirectZipJob({ photoIds: ids, zipName });
+        if (job && job.id) {
+          const startedAt = Date.now();
+          while (job && job.status !== 'ready' && job.status !== 'failed') {
+            setPackProgress({
+              phase: 'preparing',
+              loaded: Math.max(Number(job.processedBytes) || 0, Number(job.uploadedBytes) || 0),
+              total: Number(job.totalBytes) || 0,
+              files: ids.length,
+            });
+            await new Promise((resolve) => window.setTimeout(resolve, 900));
+            job = await getDirectZipJob(job.id);
+            if (!job && Date.now() - startedAt > 15000) throw new Error('DIRECT_ZIP_JOB_UNAVAILABLE');
+          }
+          if (!job || job.status === 'failed') throw new Error((job && job.error) || 'DIRECT_ZIP_PREPARATION_FAILED');
+          if (!job.downloadUrl) throw new Error('DIRECT_ZIP_DOWNLOAD_URL_MISSING');
+          triggerDirectDownload(job.downloadUrl);
+          Toast.success('压缩包已就绪，正在从内网存储高速下载');
+          return;
+        }
+      } catch (e) {
+        // 加速通道异常时仍保留已有的流式打包下载，用户不会被卡死在单一路径上。
+        console.warn('direct object storage ZIP unavailable, fallback to media proxy ZIP:', e);
+        Toast.info('高速下载暂不可用，已切回兼容下载');
+      } finally {
+        setBusy('');
+        setPackProgress(null);
+      }
+    }
+
     // ① 保存框必须在这里弹：还在用户手势里。放到 await fetch 之后会因 activation 过期抛
     //    SecurityError，保存框弹不出来（旧版"点了打包没反应"就是这个）。
     const handle = await pickZipSaveHandle(`${zipName}.zip`);
@@ -793,7 +831,9 @@ export default function TransferStation() {
     >
       <style>{'@keyframes mm-pack-indet{0%{left:-40%}100%{left:100%}}'}</style>
       <div style={{ fontSize: 12, fontWeight: 700, color: '#0f172a', marginBottom: 6 }}>
-        正在打包 {packProgress.files} 张照片…
+        {packProgress.phase === 'preparing'
+          ? `正在准备高速压缩包（${packProgress.files} 项）…`
+          : `正在打包 ${packProgress.files} 张照片…`}
       </div>
       <div style={{ position: 'relative', height: 6, borderRadius: 999, background: '#e5e7eb', overflow: 'hidden' }}>
         {packProgress.total > 0 ? (
@@ -812,7 +852,7 @@ export default function TransferStation() {
         )}
       </div>
       <div style={{ fontSize: 11, color: '#64748b', marginTop: 6, fontVariantNumeric: 'tabular-nums' }}>
-        已下载 {formatBytes(packProgress.loaded)}
+        {packProgress.phase === 'preparing' ? '已处理 ' : '已下载 '}{formatBytes(packProgress.loaded)}
         {packProgress.total > 0 ? ` / ${formatBytes(packProgress.total)}` : ''}
         {packProgress.speedBps > 1024 ? ` · ${formatBytes(packProgress.speedBps)}/s` : ''}
       </div>
