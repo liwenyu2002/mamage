@@ -904,6 +904,95 @@ async function uploadViaVideoApi(formData, { onProgress, file, uploadApiBase = '
   return { data: text };
 }
 
+const DIRECT_VIDEO_UPLOAD_CONCURRENCY = 3;
+
+async function abortDirectVideoUpload(sessionId, uploadApiBase = '') {
+  if (!sessionId) return;
+  try {
+    await requestUploadJson('/api/upload/video/direct/abort', { method: 'POST', data: { sessionId } }, uploadApiBase);
+  } catch (e) {
+    // 服务端会按 TTL 回收未完成的 multipart；这里不把清理失败覆盖上传原错误。
+  }
+}
+
+async function uploadViaDirectVideo(file, fields, { onProgress, uploadApiBase = '' } = {}) {
+  const initPayload = {
+    projectId: fields.projectId,
+    timelineSectionId: fields.timelineSectionId,
+    title: fields.title,
+    description: fields.description,
+    type: 'video',
+    tags: parseMaybeJsonTags(fields.tags),
+    fileName: file.name || 'video.mp4',
+    fileSize: file.size,
+    mimeType: file.type || '',
+  };
+  emitUploadProgress(onProgress, { file, phase: 'preparing', loaded: 0, total: file.size || 0 });
+  const init = await requestUploadJson('/api/upload/video/direct/init', { method: 'POST', data: initPayload }, uploadApiBase);
+  const sessionId = init && init.sessionId;
+  const partSize = Math.max(5 * 1024 * 1024, Number(init && init.partSize) || 0);
+  const partCount = Math.max(1, Number(init && init.partCount) || 0);
+  if (!sessionId || !partSize || !partCount) throw new Error('DIRECT_VIDEO_INIT_INVALID');
+
+  const loadedByPart = new Map();
+  const etags = new Array(partCount);
+  let nextPartNumber = 1;
+  const report = () => {
+    let loaded = 0;
+    loadedByPart.forEach((bytes) => { loaded += Number(bytes) || 0; });
+    emitUploadProgress(onProgress, { file, phase: 'uploading', loaded: Math.min(file.size || loaded, loaded), total: file.size || 0 });
+  };
+
+  const uploadPart = async (partNumber) => {
+    const urlData = await requestUploadJson('/api/upload/video/direct/parts', {
+      method: 'POST', data: { sessionId, partNumbers: [partNumber] },
+    }, uploadApiBase);
+    const target = urlData && Array.isArray(urlData.parts) ? urlData.parts[0] : null;
+    if (!target || !target.uploadUrl) throw new Error('DIRECT_VIDEO_PART_URL_MISSING');
+    const start = (partNumber - 1) * partSize;
+    const body = file.slice(start, Math.min(file.size, start + partSize));
+    const response = await requestWithUploadProgress({
+      url: target.uploadUrl, method: 'PUT', body, withCredentials: false,
+      onProgress: (event) => {
+        loadedByPart.set(partNumber, Number(event && event.loaded) || 0);
+        report();
+      },
+    });
+    if (response.status < 200 || response.status >= 300) {
+      const err = new Error(`direct video part upload failed ${response.status}`);
+      err.status = response.status;
+      err.body = response.responseText || '';
+      throw err;
+    }
+    const etag = readHeader(response.headers, 'etag');
+    if (!etag) throw new Error('DIRECT_VIDEO_PART_ETAG_MISSING');
+    loadedByPart.set(partNumber, body.size);
+    etags[partNumber - 1] = { partNumber, etag };
+    report();
+  };
+
+  try {
+    const workers = Array.from({ length: Math.min(DIRECT_VIDEO_UPLOAD_CONCURRENCY, partCount) }, async () => {
+      while (nextPartNumber <= partCount) {
+        const partNumber = nextPartNumber;
+        nextPartNumber += 1;
+        await uploadPart(partNumber);
+      }
+    });
+    await Promise.all(workers);
+    emitUploadProgress(onProgress, { file, phase: 'video-processing', loaded: file.size || 0, total: file.size || 0 });
+    const response = await requestUploadJson('/api/upload/video/direct/complete', {
+      method: 'POST', data: { sessionId, parts: etags },
+    }, uploadApiBase);
+    emitUploadProgress(onProgress, { file, phase: 'done', status: 'fulfilled', loaded: file.size || 0, total: file.size || 0 });
+    return response;
+  } catch (err) {
+    await abortDirectVideoUpload(sessionId, uploadApiBase);
+    err.directUploadFailed = true;
+    throw err;
+  }
+}
+
 function shouldFallbackToApi(err) {
   if (!err) return true;
   if (err.status === 413 || err.status === 415) return false;
@@ -934,7 +1023,19 @@ async function uploadPhotos(formDataOrObj, { onProgress } = {}) {
   const uploadApiBase = await getUploadApiBase();
   try {
     if (isVideoFile(file)) {
-      return await uploadViaVideoApi(formData, { onProgress, file, uploadApiBase });
+      try {
+        return await uploadViaDirectVideo(file, fields, { onProgress, uploadApiBase });
+      } catch (directErr) {
+        if (isDirectUploadUnavailable(directErr)) {
+          if (typeof window !== 'undefined') window.__MAMAGE_DISABLE_DIRECT_UPLOAD__ = true;
+        } else {
+          // 分片直传失败时保留原视频接口作兼容兜底，避免用户卡在无法上传的状态。
+          console.warn('[photoService] direct video upload failed, fallback to API upload:', directErr);
+        }
+        if (!shouldFallbackToApi(directErr)) throw directErr;
+        emitUploadProgress(onProgress, { file, phase: 'fallback', loaded: 0, total: file && file.size ? file.size : 0 });
+        return await uploadViaVideoApi(formData, { onProgress, file, uploadApiBase });
+      }
     }
     if (canTryDirectUpload(file)) {
       try {
