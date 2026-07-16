@@ -1,7 +1,7 @@
 ﻿import React from 'react';
 import ReactDOM from 'react-dom';
 import { Toast, Tooltip, Modal } from './ui';
-import { getAll, getCount, add, clear, subscribe, removeById } from './services/transferStore';
+import { getAll, getCount, add, clear, getMediaKind, subscribe, removeById } from './services/transferStore';
 import { resolveAssetUrl } from './services/request';
 import { pickZipSaveHandle, fetchZipToTarget, formatBytes, formatDuration, startNativeZipDownload } from './services/zipDownload';
 import { getDirectZipJob, startDirectZipJob, triggerDirectDownload } from './services/directStorage';
@@ -33,6 +33,25 @@ function getFilenameFromContentDisposition(resp) {
   return null;
 }
 
+function countMediaItems(items) {
+  return (items || []).reduce((summary, item) => {
+    if (getMediaKind(item) === 'video') summary.videos += 1;
+    else summary.photos += 1;
+    return summary;
+  }, { photos: 0, videos: 0 });
+}
+
+function formatMediaSummary(summary) {
+  const parts = [];
+  if (summary && summary.photos) parts.push(`${summary.photos} 张照片`);
+  if (summary && summary.videos) parts.push(`${summary.videos} 个视频`);
+  return parts.join(' · ') || '0 项媒体';
+}
+
+function getMediaLabel(item) {
+  return getMediaKind(item) === 'video' ? '视频' : '照片';
+}
+
 export default function TransferStation() {
   const detectMobile = React.useCallback(() => {
     if (typeof window === 'undefined') return false;
@@ -52,6 +71,7 @@ export default function TransferStation() {
   // 打包下载进度：{loaded, total, files}。服务端是流式打包(archiver 边拉边发)，没有 Content-Length，
   // 所以 total 通常为 0 → 显示"已下载 X MB"+不定长动画条；万一有 CL 就显示真百分比。
   const [packProgress, setPackProgress] = React.useState(null);
+  const directPackEstimateRef = React.useRef({ sampledAt: 0, loaded: 0, speedBps: 0 });
   const [hoverKey, setHoverKey] = React.useState(null);
   const [pressedKey, setPressedKey] = React.useState(null);
   const [dragOver, setDragOver] = React.useState(false);
@@ -164,13 +184,13 @@ export default function TransferStation() {
   const handleStore = React.useCallback(() => {
     const getter = window.__MAMAGE_GET_CURRENT_PROJECT_SELECTION;
     if (typeof getter !== 'function') {
-      Toast.warning('当前页面没有可读取的选择，先在相册里勾选照片后再点“存入”。');
+      Toast.warning('当前页面没有可读取的选择，先在相册里勾选媒体后再点“存入”。');
       return;
     }
     try {
       const list = getter() || [];
       if (!list.length) {
-        Toast.info('当前没有选中任何照片');
+        Toast.info('当前没有选中任何媒体');
         return;
       }
       let added = 0;
@@ -188,12 +208,15 @@ export default function TransferStation() {
           faceNames: Array.isArray(it.faceNames) ? it.faceNames : (Array.isArray(it.personNames) ? it.personNames : []),
           personNames: Array.isArray(it.personNames) ? it.personNames : (Array.isArray(it.faceNames) ? it.faceNames : []),
           faces: Array.isArray(it.faces) ? it.faces : [],
+          mediaType: it.mediaType || it.media_type || it.kind || it.fileType || it.type || '',
+          mimeType: it.mimeType || it.mime_type || it.contentType || it.content_type || '',
+          playbackUrl: it.playbackUrl || it.playback_url || it.playbackSrc || '',
         };
         const ok = add(mapped);
         if (ok) added += 1;
         else skipped += 1;
       }
-      Toast.success(`已存入 ${added} 张，重复或超限 ${skipped} 张`);
+      Toast.success(`已存入 ${added} 项，重复或超限 ${skipped} 项`);
     } catch (e) {
       console.error('transfer store add failed', e);
       Toast.error('存入失败');
@@ -208,7 +231,7 @@ export default function TransferStation() {
     }
     Modal.confirm({
       title: '清空中转站？',
-      content: `将移除暂存的 ${count} 张照片（不会删除相册里的原片）。`,
+      content: `将移除暂存的 ${count} 项媒体（不会删除相册里的原文件）。`,
       okText: '清空',
       cancelText: '取消',
       onOk: () => {
@@ -216,6 +239,28 @@ export default function TransferStation() {
         Toast.info('已清空中转站');
       },
     });
+  }, []);
+
+  const getDirectPackProgress = React.useCallback((job, mediaSummary) => {
+    const total = Math.max(0, Number(job && job.totalBytes) || 0);
+    const loaded = Math.max(0, Number(job && job.processedBytes) || 0);
+    const now = Date.now();
+    const previous = directPackEstimateRef.current;
+    let speedBps = previous.speedBps || 0;
+    if (previous.sampledAt > 0 && now - previous.sampledAt >= 450 && loaded >= previous.loaded) {
+      const instant = ((loaded - previous.loaded) * 1000) / (now - previous.sampledAt);
+      if (instant > 0) speedBps = speedBps > 0 ? speedBps * 0.72 + instant * 0.28 : instant;
+    }
+    directPackEstimateRef.current = { sampledAt: now, loaded, speedBps };
+    return {
+      phase: 'preparing',
+      loaded,
+      total,
+      files: Number(job && job.files) || 0,
+      mediaSummary,
+      speedBps,
+      etaSeconds: total > 0 && speedBps > 1 ? Math.max(0, (total - loaded) / speedBps) : null,
+    };
   }, []);
 
   const handlePackDownload = React.useCallback(async () => {
@@ -227,28 +272,25 @@ export default function TransferStation() {
     }
     const ids = list.map((p) => p.id).filter(Boolean);
     if (!ids.length) {
-      Toast.warning('中转站内没有可下载的照片 ID');
+      Toast.warning('中转站内没有可下载的媒体 ID');
       return;
     }
 
     const zipName = `transfer_${Date.now()}`;
+    const mediaSummary = formatMediaSummary(countMediaItems(list));
     const isHttpEntry = typeof window !== 'undefined' && window.location.protocol === 'http:';
     // 校园网 HTTP 能直连内网对象存储：后台流式组 ZIP 后，最终下载不再经过 Mac mini。
     // HTTPS 公网入口会直接进入下方原有流程，且不会破坏 showSaveFilePicker 的用户手势。
     if (isHttpEntry) {
       setBusy('pack');
-      setPackProgress({ phase: 'preparing', loaded: 0, total: 0, files: ids.length });
+      directPackEstimateRef.current = { sampledAt: 0, loaded: 0, speedBps: 0 };
+      setPackProgress({ phase: 'preparing', loaded: 0, total: 0, files: ids.length, mediaSummary, speedBps: 0, etaSeconds: null });
       try {
         let job = await startDirectZipJob({ photoIds: ids, zipName });
         if (job && job.id) {
           const startedAt = Date.now();
           while (job && job.status !== 'ready' && job.status !== 'failed') {
-            setPackProgress({
-              phase: 'preparing',
-              loaded: Math.max(Number(job.processedBytes) || 0, Number(job.uploadedBytes) || 0),
-              total: Number(job.totalBytes) || 0,
-              files: ids.length,
-            });
+            setPackProgress(getDirectPackProgress({ ...job, files: ids.length }, mediaSummary));
             await new Promise((resolve) => window.setTimeout(resolve, 900));
             job = await getDirectZipJob(job.id);
             if (!job && Date.now() - startedAt > 15000) throw new Error('DIRECT_ZIP_JOB_UNAVAILABLE');
@@ -290,7 +332,7 @@ export default function TransferStation() {
     }
 
     setBusy('pack');
-    setPackProgress({ loaded: 0, total: 0, files: ids.length });
+    setPackProgress({ loaded: 0, total: 0, files: ids.length, mediaSummary });
     // 分块回调很密集，节流到 ~120ms 一次，避免每块都 setState 卡渲染
     let lastTick = 0;
     try {
@@ -302,7 +344,7 @@ export default function TransferStation() {
           const now = Date.now();
           if (now - lastTick < 120) return;
           lastTick = now;
-          setPackProgress({ loaded, total, files: ids.length, speedBps: stats && stats.speedBps, etaSeconds: stats && stats.etaSeconds });
+          setPackProgress({ loaded, total, files: ids.length, mediaSummary, speedBps: stats && stats.speedBps, etaSeconds: stats && stats.etaSeconds });
         },
       });
       Toast.success('打包下载完成');
@@ -314,7 +356,7 @@ export default function TransferStation() {
       setBusy('');
       setPackProgress(null);
     }
-  }, []);
+  }, [getDirectPackProgress]);
 
   const createShareWithExpiry = React.useCallback(async (expiresInSeconds) => {
     if (busyKeyRef.current) return;
@@ -815,6 +857,8 @@ export default function TransferStation() {
     transition: 'opacity 240ms ease, transform 300ms cubic-bezier(0.22, 1, 0.36, 1)',
   };
 
+  const stationMediaSummary = formatMediaSummary(countMediaItems(items));
+
   // 打包进度卡（桌面/手机共用）：fixed 贴视口——桌面在中转站左侧，手机浮在 FAB 上方
   const packProgressNode = packProgress ? (
     <div
@@ -832,8 +876,8 @@ export default function TransferStation() {
       <style>{'@keyframes mm-pack-indet{0%{left:-40%}100%{left:100%}}'}</style>
       <div style={{ fontSize: 12, fontWeight: 700, color: '#0f172a', marginBottom: 6 }}>
         {packProgress.phase === 'preparing'
-          ? `正在准备高速压缩包（${packProgress.files} 项）…`
-          : `正在打包 ${packProgress.files} 张照片…`}
+          ? `正在准备高速压缩包（${packProgress.mediaSummary || `${packProgress.files} 项媒体`}）…`
+          : `正在打包 ${packProgress.mediaSummary || `${packProgress.files} 项媒体`}…`}
       </div>
       <div style={{ position: 'relative', height: 6, borderRadius: 999, background: '#e5e7eb', overflow: 'hidden' }}>
         {packProgress.total > 0 ? (
@@ -860,7 +904,11 @@ export default function TransferStation() {
         <div style={{ fontSize: 11, color: '#0f172a', fontWeight: 600, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
           剩余约 {formatDuration(packProgress.etaSeconds)}
         </div>
-      ) : null}
+      ) : (packProgress.phase === 'preparing' && packProgress.total > 0 ? (
+        <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+          正在测算完成时间…
+        </div>
+      ) : null)}
     </div>
   ) : null;
 
@@ -933,7 +981,10 @@ export default function TransferStation() {
       onMouseEnter={handleMouseEnter}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 6px' }}>
-        <div style={{ fontSize: 13, color: '#0f172a', fontWeight: 700 }}>已存入 ({count})</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <div style={{ fontSize: 13, color: '#0f172a', fontWeight: 700 }}>已存入 ({count})</div>
+          <div style={{ fontSize: 11, color: '#64748b' }}>{stationMediaSummary}</div>
+        </div>
         <div style={{ fontSize: 12, color: '#64748b', cursor: 'pointer' }} onClick={() => setExpanded(false)}>关闭</div>
       </div>
 
@@ -947,8 +998,11 @@ export default function TransferStation() {
             title="可拖到全媒体编辑台使用"
             style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px', borderRadius: 12, background: 'rgba(255,255,255,0.55)', border: '1px solid rgba(255,255,255,0.66)', cursor: 'grab' }}
           >
-            <div style={{ width: 72, height: 72, overflow: 'hidden', borderRadius: 8, flex: '0 0 72px', background: '#f1f5f9' }}>
+            <div style={{ width: 72, height: 72, overflow: 'hidden', borderRadius: 8, flex: '0 0 72px', background: '#f1f5f9', position: 'relative' }}>
               <img src={p.thumbSrc || p.url} alt={`thumb-${idx}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+              <span style={{ position: 'absolute', right: 4, bottom: 4, padding: '2px 5px', borderRadius: 6, background: 'rgba(15,23,42,0.78)', color: '#fff', fontSize: 10, fontWeight: 700 }}>
+                {getMediaLabel(p)}
+              </span>
             </div>
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}>
               <div style={{ fontSize: 12, color: '#1e293b' }}>
@@ -958,7 +1012,7 @@ export default function TransferStation() {
                     <span style={{ fontWeight: 700, color: '#111', display: 'inline', whiteSpace: 'normal', wordBreak: 'break-word', margin: '0 4px' }}>
                       {p.projectTitle.length > 12 ? (p.projectTitle.slice(0, 12) + '...') : p.projectTitle}
                     </span>
-                    的照片
+                    的{getMediaLabel(p)}
                   </>
                 ) : (p.id || p.url || '未命名')}
               </div>
@@ -973,7 +1027,7 @@ export default function TransferStation() {
               <path d="M4 8h16M6 8l1.2 11a2 2 0 0 0 2 1.8h5.6a2 2 0 0 0 2-1.8L18 8M9 8V6a3 3 0 0 1 6 0v2" />
             </svg>
             <span>中转站还是空的</span>
-            <span style={{ fontSize: 11.5 }}>在相册里选择照片后点"存入"即可暂存到这里</span>
+            <span style={{ fontSize: 11.5 }}>在相册里选择照片或视频后点"存入"即可暂存到这里</span>
           </div>
         )}
       </div>
@@ -1223,7 +1277,7 @@ export default function TransferStation() {
       {packProgressNode}
 
       <Tooltip
-        content={'中转站：支持“存入选中”或“直接拖拽照片”。可打包下载、复制富文本、分享外链。'}
+        content={'中转站：支持“存入选中”或“直接拖拽媒体”。可打包下载、复制富文本、分享外链。'}
         position="left"
       >
         {triggerNode}

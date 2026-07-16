@@ -7,6 +7,20 @@ const MAX_COUNT = 1000;
 
 let selection = [];
 
+function getMediaKind(item) {
+  if (!item || typeof item !== 'object') return 'image';
+  const explicit = String(item.mediaType || item.media_type || item.kind || item.fileType || '').trim().toLowerCase();
+  const type = String(item.type || '').trim().toLowerCase();
+  const mime = String(item.mimeType || item.mime_type || item.contentType || item.content_type || '').trim().toLowerCase();
+  if (explicit === 'video' || explicit.startsWith('video/') || type === 'video' || type.startsWith('video/') || mime.startsWith('video/')) {
+    return 'video';
+  }
+  const source = String(
+    item.url || item.originalSrc || item.originalUrl || item.fullUrl || item.cosUrl || item.src || item.playbackUrl || item.playbackSrc || ''
+  ).split('?')[0].toLowerCase();
+  return /\.(mp4|m4v|mov|webm|ogv|ogg)$/i.test(source) ? 'video' : 'image';
+}
+
 function toNameList(input) {
   if (!input) return [];
   const arr = Array.isArray(input) ? input : String(input).split(/[;,，、|]/);
@@ -116,6 +130,8 @@ function add(photo) {
     photographerName: photo.photographerName || photo.photographer_name || '',
     faceNames,
     personNames: faceNames,
+    mediaType: getMediaKind(photo),
+    mimeType: photo.mimeType || photo.mime_type || photo.contentType || photo.content_type || '',
   };
   const key = normalized.id || normalized.url;
   if (!key) return false;
@@ -143,4 +159,4 @@ function clear() {
 
 load();
 
-export { getAll, getCount, add, clear, removeById, subscribe, MAX_COUNT };
+export { getAll, getCount, add, clear, getMediaKind, removeById, subscribe, MAX_COUNT };
