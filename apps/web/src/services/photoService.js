@@ -673,6 +673,25 @@ async function createThumbnailBlob(file, maxDimension = 800, quality = 0.8) {
 }
 
 async function putSignedObject(uploadTarget, body, onProgress) {
+  if (uploadTarget && uploadTarget.formFields) {
+    const form = new FormData();
+    Object.entries(uploadTarget.formFields).forEach(([key, value]) => form.append(key, String(value)));
+    form.append('file', body, (body && body.name) || 'upload.bin');
+    const postResp = await requestWithUploadProgress({
+      url: uploadTarget.uploadUrl,
+      method: 'POST',
+      body: form,
+      withCredentials: false,
+      onProgress,
+    });
+    if (postResp.status < 200 || postResp.status >= 300) {
+      const err = new Error(`direct upload POST failed ${postResp.status}`);
+      err.status = postResp.status;
+      err.body = postResp.responseText || '';
+      throw err;
+    }
+    return;
+  }
   const resp = await requestWithUploadProgress({
     url: uploadTarget.uploadUrl,
     method: 'PUT',
@@ -930,6 +949,23 @@ async function uploadViaDirectVideo(file, fields, { onProgress, uploadApiBase = 
   emitUploadProgress(onProgress, { file, phase: 'preparing', loaded: 0, total: file.size || 0 });
   const init = await requestUploadJson('/api/upload/video/direct/init', { method: 'POST', data: initPayload }, uploadApiBase);
   const sessionId = init && init.sessionId;
+  if (sessionId && init && init.upload && init.upload.uploadUrl && init.upload.formFields) {
+    try {
+      await putSignedObject(init.upload, file, (event) => {
+        emitUploadProgress(onProgress, {
+          file, phase: 'uploading', loaded: Number(event && event.loaded) || 0, total: Number(event && event.total) || file.size || 0,
+        });
+      });
+      emitUploadProgress(onProgress, { file, phase: 'video-processing', loaded: file.size || 0, total: file.size || 0 });
+      const response = await requestUploadJson('/api/upload/video/direct/complete', { method: 'POST', data: { sessionId } }, uploadApiBase);
+      emitUploadProgress(onProgress, { file, phase: 'done', status: 'fulfilled', loaded: file.size || 0, total: file.size || 0 });
+      return response;
+    } catch (err) {
+      await abortDirectVideoUpload(sessionId, uploadApiBase);
+      err.directUploadFailed = true;
+      throw err;
+    }
+  }
   const partSize = Math.max(5 * 1024 * 1024, Number(init && init.partSize) || 0);
   const partCount = Math.max(1, Number(init && init.partCount) || 0);
   if (!sessionId || !partSize || !partCount) throw new Error('DIRECT_VIDEO_INIT_INVALID');
