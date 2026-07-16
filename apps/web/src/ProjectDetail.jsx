@@ -68,6 +68,9 @@ const GALLERY_INITIAL_RENDER_LIMIT = 96;
 const GALLERY_RENDER_BATCH_SIZE = 96;
 const PROJECT_DETAIL_TIMEOUT_MS = 12000;
 const GROUP_RESCUE_VISIBLE = false;
+// 移动端带 RAW/TIFF 等扩展名会被系统降级到通用文件选择器；只声明媒体 MIME 才能优先进入照片库。
+const MOBILE_MEDIA_ACCEPT = 'image/*,video/*';
+const DESKTOP_MEDIA_ACCEPT = 'image/*,video/*,.avif,.heic,.heif,.tif,.tiff,.dng,.cr2,.cr3,.crw,.nef,.nrw,.arw,.sr2,.srf,.raf,.orf,.rw2,.raw,.pef,.srw,.x3f,.rwl,.3fr,.fff,.iiq,.mrw,.dcr,.kdc,.mos,.erf';
 
 function getAISelectionLabel(label) {
   if (label === 'recommended') return 'AI推荐';
@@ -1884,12 +1887,14 @@ function ProjectDetail({
       Toast.warning('上传功能已禁用');
       return;
     }
-    if (uploadTimelineEnabled && uploadTimelineSections.length) {
+    // 手机优先把一次轻触交给原生媒体选择器。时间轴归属可在选完后立刻调整，
+    // 不让用户为了进相册先多点一层弹窗。
+    if (!isMobile && uploadTimelineEnabled && uploadTimelineSections.length) {
       setUploadMode(true);
       return;
     }
     if (fileInputRef.current) fileInputRef.current.click();
-  }, [DISABLE_UPLOAD_FEATURE, uploadTimelineEnabled, uploadTimelineSections]);
+  }, [DISABLE_UPLOAD_FEATURE, isMobile, uploadTimelineEnabled, uploadTimelineSections]);
 
   const handleFilesSelected = React.useCallback((files, forcedSectionId) => {
     if (DISABLE_UPLOAD_FEATURE) {
@@ -1911,11 +1916,15 @@ function ProjectDetail({
       Toast.warning(`已跳过 ${oversizedCount} 个超过 3GB 的视频`);
     }
     if (!acceptedList.length) return;
-    const nextSectionId = String(forcedSectionId || selectedUploadSectionId || '');
+    const fallbackSection = uploadTimelineSections.find((section) => section && section.id);
+    const nextSectionId = String(forcedSectionId || selectedUploadSectionId || (fallbackSection && fallbackSection.id) || '');
     if (uploadTimelineEnabled && uploadTimelineSections.length && !nextSectionId) {
       Toast.warning('请先选择要上传的环节');
       setUploadMode(true);
       return;
+    }
+    if (uploadTimelineEnabled && nextSectionId && String(nextSectionId) !== String(selectedUploadSectionId || '')) {
+      setSelectedUploadSectionId(nextSectionId);
     }
     setStagingFiles((prevFiles) => {
       const existing = new Set((prevFiles || []).map((file) => `${file.name}::${file.size}::${file.lastModified}`));
@@ -4838,10 +4847,11 @@ function ProjectDetail({
         <input
           id="project-file-input"
           ref={fileInputRef}
-          style={{ display: 'none' }}
+          style={{ position: 'fixed', width: 1, height: 1, opacity: 0, pointerEvents: 'none', left: -1, top: -1 }}
           type="file"
-          accept="image/*,video/*,.avif,.heic,.heif,.tif,.tiff,.dng,.cr2,.cr3,.crw,.nef,.nrw,.arw,.sr2,.srf,.raf,.orf,.rw2,.raw,.pef,.srw,.x3f,.rwl,.3fr,.fff,.iiq,.mrw,.dcr,.kdc,.mos,.erf"
+          accept={isMobile ? MOBILE_MEDIA_ACCEPT : DESKTOP_MEDIA_ACCEPT}
           multiple
+          tabIndex={-1}
           onChange={(e) => {
             handleFilesSelected(e.target.files);
             try { e.target.value = ''; } catch (err) { }

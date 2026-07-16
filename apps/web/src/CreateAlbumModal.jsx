@@ -14,6 +14,10 @@ import {
   reduceUploadProgress,
 } from './utils/uploadProgress';
 
+// 手机端仅声明媒体 MIME，避免 RAW/TIFF 扩展名让浏览器跳转到通用文件管理器。
+const MOBILE_MEDIA_ACCEPT = 'image/*,video/*';
+const DESKTOP_MEDIA_ACCEPT = 'image/*,video/*,.avif,.heic,.heif,.tif,.tiff,.dng,.cr2,.cr3,.crw,.nef,.nrw,.arw,.sr2,.srf,.raf,.orf,.rw2,.raw,.pef,.srw,.x3f,.rwl,.3fr,.fff,.iiq,.mrw,.dcr,.kdc,.mos,.erf';
+
 function TagChip({ tag, onRemove }) {
   // 删除按钮常驻显示：hover-only 在触屏设备上无法触发
   return (
@@ -511,10 +515,11 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
           <input
             ref={filePickerRef}
             type="file"
-            accept="image/*,video/*,.avif,.heic,.heif,.tif,.tiff,.dng,.cr2,.cr3,.crw,.nef,.nrw,.arw,.sr2,.srf,.raf,.orf,.rw2,.raw,.pef,.srw,.x3f,.rwl,.3fr,.fff,.iiq,.mrw,.dcr,.kdc,.mos,.erf"
+            accept={isMobileLayout ? MOBILE_MEDIA_ACCEPT : DESKTOP_MEDIA_ACCEPT}
             multiple
-            style={{ display: 'none' }}
+            style={{ position: 'fixed', width: 1, height: 1, opacity: 0, pointerEvents: 'none', left: -1, top: -1 }}
             disabled={submitting}
+            tabIndex={-1}
             onChange={(e) => {
               handleFilesSelected(e.target.files, pendingSectionKeyRef.current);
               try { e.target.value = ''; } catch (err) {}
