@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom';
 import { Toast, Tooltip, Modal } from './ui';
 import { getAll, getCount, add, clear, subscribe, removeById } from './services/transferStore';
 import { resolveAssetUrl } from './services/request';
-import { pickZipSaveHandle, fetchZipToTarget, formatBytes, formatDuration } from './services/zipDownload';
+import { pickZipSaveHandle, fetchZipToTarget, formatBytes, formatDuration, startNativeZipDownload } from './services/zipDownload';
 
 function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
@@ -235,6 +235,21 @@ export default function TransferStation() {
     //    SecurityError，保存框弹不出来（旧版"点了打包没反应"就是这个）。
     const handle = await pickZipSaveHandle(`${zipName}.zip`);
     if (handle === 'abort') return; // 用户取消，不发请求
+
+    if (!handle) {
+      setBusy('pack');
+      try {
+        await startNativeZipDownload({ photoIds: ids, zipName });
+        Toast.success('已交给浏览器下载，请查看下载列表');
+      } catch (e) {
+        console.error('transfer native pack download failed', e);
+        if (e && e.message === 'NOT_LOGGED_IN') Toast.warning('打包下载需要先登录');
+        else Toast.error(`打包下载失败: ${e?.message || '请求错误'}`);
+      } finally {
+        setBusy('');
+      }
+      return;
+    }
 
     setBusy('pack');
     setPackProgress({ loaded: 0, total: 0, files: ids.length });

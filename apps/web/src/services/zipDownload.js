@@ -57,6 +57,35 @@ export async function pickZipSaveHandle(suggestedName) {
   }
 }
 
+// 非安全上下文（校内 IP 的 http 页面）没有 File System Access API。用 Bearer 换取一个
+// 短时一次性票据，再交给浏览器原生下载管理器，避免数 GB ZIP 全部暂存在页面内存。
+export async function startNativeZipDownload({ photoIds, zipName }) {
+  const token = (typeof window !== 'undefined') ? (localStorage.getItem('mamage_jwt_token') || '') : '';
+  if (!token) throw new Error('NOT_LOGGED_IN');
+  const resp = await fetch('/api/photos/zip-ticket', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    credentials: 'same-origin',
+    body: JSON.stringify({ photoIds, zipName }),
+  });
+  if (!resp.ok) {
+    let message = `server responded ${resp.status}`;
+    try {
+      const data = await resp.json();
+      if (data && data.error) message = data.error;
+    } catch (_) { /* ignore */ }
+    throw new Error(message);
+  }
+  const data = await resp.json();
+  if (!data || !data.ticket) throw new Error('DOWNLOAD_TICKET_MISSING');
+
+  const a = document.createElement('a');
+  a.href = `/api/photos/zip?ticket=${encodeURIComponent(data.ticket)}`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
 /**
  * 拉取 zip 并落地。
  * @param {object} o
