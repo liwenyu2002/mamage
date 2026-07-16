@@ -78,6 +78,11 @@ export async function getDirectZipJob(jobId) {
   return requestJson(`/api/photos/zip-direct/${encodeURIComponent(String(jobId))}`);
 }
 
+export async function cancelDirectZipJob(jobId) {
+  if (!jobId || !canAttemptDirectStorage()) return null;
+  return requestJson(`/api/photos/zip-direct/${encodeURIComponent(String(jobId))}/cancel`, { method: 'POST' });
+}
+
 export function triggerDirectDownload(url) {
   if (!url || typeof document === 'undefined') return false;
   const anchor = document.createElement('a');

@@ -4,7 +4,7 @@ import { Toast, Tooltip, Modal } from './ui';
 import { getAll, getCount, add, clear, getMediaKind, subscribe, removeById } from './services/transferStore';
 import { resolveAssetUrl } from './services/request';
 import { pickZipSaveHandle, fetchZipToTarget, formatBytes, formatDuration, startNativeZipDownload } from './services/zipDownload';
-import { getDirectZipJob, startDirectZipJob, triggerDirectDownload } from './services/directStorage';
+import { cancelDirectZipJob, getDirectZipJob, startDirectZipJob, triggerDirectDownload } from './services/directStorage';
 
 function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
@@ -72,6 +72,7 @@ export default function TransferStation() {
   // 所以 total 通常为 0 → 显示"已下载 X MB"+不定长动画条；万一有 CL 就显示真百分比。
   const [packProgress, setPackProgress] = React.useState(null);
   const directPackEstimateRef = React.useRef({ sampledAt: 0, loaded: 0, speedBps: 0 });
+  const directZipJobRef = React.useRef('');
   const [hoverKey, setHoverKey] = React.useState(null);
   const [pressedKey, setPressedKey] = React.useState(null);
   const [dragOver, setDragOver] = React.useState(false);
@@ -255,6 +256,7 @@ export default function TransferStation() {
     return {
       phase: 'preparing',
       status: job && job.status ? job.status : 'packing',
+      jobId: job && job.id ? String(job.id) : '',
       loaded,
       total,
       files: Number(job && job.files) || 0,
@@ -264,6 +266,21 @@ export default function TransferStation() {
       queueAhead: Math.max(0, Number(job && job.queueAhead) || 0),
       queuePosition: Math.max(0, Number(job && job.queuePosition) || 0),
     };
+  }, []);
+
+  const handleCancelDirectPack = React.useCallback(async (event) => {
+    if (event) event.stopPropagation();
+    const jobId = directZipJobRef.current;
+    if (!jobId) return;
+    setPackProgress((previous) => previous ? { ...previous, status: 'cancelling' } : previous);
+    try {
+      const result = await cancelDirectZipJob(jobId);
+      if (!result || !result.cancelled) throw new Error('DIRECT_ZIP_CANCEL_FAILED');
+      Toast.info('已中断压缩任务并清理临时文件');
+    } catch (err) {
+      console.error('cancel direct ZIP failed', err);
+      Toast.error('中断任务失败，请稍后重试');
+    }
   }, []);
 
   const handlePackDownload = React.useCallback(async () => {
@@ -287,16 +304,21 @@ export default function TransferStation() {
     if (isHttpEntry) {
       setBusy('pack');
       directPackEstimateRef.current = { sampledAt: 0, loaded: 0, speedBps: 0 };
-      setPackProgress({ phase: 'preparing', status: 'creating', loaded: 0, total: 0, files: ids.length, mediaSummary, speedBps: 0, etaSeconds: null, queueAhead: 0, queuePosition: 0 });
+      setPackProgress({ phase: 'preparing', status: 'creating', jobId: '', loaded: 0, total: 0, files: ids.length, mediaSummary, speedBps: 0, etaSeconds: null, queueAhead: 0, queuePosition: 0 });
       try {
         let job = await startDirectZipJob({ photoIds: ids, zipName });
         if (job && job.id) {
+          directZipJobRef.current = String(job.id);
           const startedAt = Date.now();
-          while (job && job.status !== 'ready' && job.status !== 'failed') {
+          while (job && !['ready', 'failed', 'cancelled'].includes(job.status)) {
             setPackProgress(getDirectPackProgress({ ...job, files: ids.length }, mediaSummary));
             await new Promise((resolve) => window.setTimeout(resolve, 900));
             job = await getDirectZipJob(job.id);
             if (!job && Date.now() - startedAt > 15000) throw new Error('DIRECT_ZIP_JOB_UNAVAILABLE');
+          }
+          if (job && job.status === 'cancelled') {
+            Toast.info('压缩任务已中断');
+            return;
           }
           if (!job || job.status === 'failed') throw new Error((job && job.error) || 'DIRECT_ZIP_PREPARATION_FAILED');
           if (!job.downloadUrl) throw new Error('DIRECT_ZIP_DOWNLOAD_URL_MISSING');
@@ -305,10 +327,12 @@ export default function TransferStation() {
           return;
         }
       } catch (e) {
+        if (e && e.message === 'DIRECT_ZIP_CANCELLED') return;
         // 加速通道异常时仍保留已有的流式打包下载，用户不会被卡死在单一路径上。
         console.warn('direct object storage ZIP unavailable, fallback to media proxy ZIP:', e);
         Toast.info('高速下载暂不可用，已切回兼容下载');
       } finally {
+        directZipJobRef.current = '';
         setBusy('');
         setPackProgress(null);
       }
@@ -873,16 +897,30 @@ export default function TransferStation() {
           : { right: 144, top: '50%', transform: 'translateY(-50%)', width: 212 }),
         padding: '10px 12px', borderRadius: 12,
         background: 'rgba(255,255,255,0.97)', border: '1px solid rgba(15,23,42,0.08)',
-        boxShadow: '0 10px 26px rgba(0,0,0,0.18)', pointerEvents: 'none',
+        boxShadow: '0 10px 26px rgba(0,0,0,0.18)', pointerEvents: 'auto',
       }}
     >
       <style>{'@keyframes mm-pack-indet{0%{left:-40%}100%{left:100%}}'}</style>
-      <div style={{ fontSize: 12, fontWeight: 700, color: '#0f172a', marginBottom: 6 }}>
-        {packProgress.phase === 'preparing' && packProgress.queueAhead > 0
-          ? `正在排队准备压缩包（${packProgress.mediaSummary || `${packProgress.files} 项媒体`}）…`
-          : packProgress.phase === 'preparing'
-          ? `正在准备高速压缩包（${packProgress.mediaSummary || `${packProgress.files} 项媒体`}）…`
-          : `正在打包 ${packProgress.mediaSummary || `${packProgress.files} 项媒体`}…`}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+        <div style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 700, color: '#0f172a' }}>
+          {packProgress.phase === 'preparing' && packProgress.status === 'cancelling'
+            ? '正在中断压缩任务…'
+            : packProgress.phase === 'preparing' && packProgress.queueAhead > 0
+            ? `正在排队准备压缩包（${packProgress.mediaSummary || `${packProgress.files} 项媒体`}）…`
+            : packProgress.phase === 'preparing'
+            ? `正在准备高速压缩包（${packProgress.mediaSummary || `${packProgress.files} 项媒体`}）…`
+            : `正在打包 ${packProgress.mediaSummary || `${packProgress.files} 项媒体`}…`}
+        </div>
+        {packProgress.phase === 'preparing' && packProgress.jobId ? (
+          <button
+            type="button"
+            onClick={handleCancelDirectPack}
+            disabled={packProgress.status === 'cancelling'}
+            style={{ flex: '0 0 auto', border: '1px solid rgba(185,28,28,0.24)', borderRadius: 7, padding: '3px 6px', background: '#fff5f5', color: '#b91c1c', fontSize: 11, fontWeight: 700, cursor: packProgress.status === 'cancelling' ? 'wait' : 'pointer', opacity: packProgress.status === 'cancelling' ? 0.6 : 1 }}
+          >
+            中断
+          </button>
+        ) : null}
       </div>
       <div style={{ position: 'relative', height: 6, borderRadius: 999, background: '#e5e7eb', overflow: 'hidden' }}>
         {packProgress.total > 0 ? (
