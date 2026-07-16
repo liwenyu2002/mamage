@@ -6089,7 +6089,7 @@ function ProjectDetail({
 
         {/* Image viewer overlay (no container) */}
         {viewerVisible ? (
-        <div className="viewer-overlay is-open" onClick={closeViewer} aria-hidden="false">
+        <div className="viewer-overlay viewer-overlay--immersive is-open" onClick={closeViewer} aria-hidden="false">
             <div className="viewer-wrap">
               {/* 顶部状态栏：关闭+计数+摄影师·环节 | AI 分+推荐+原图开关（只读状态集中于此） */}
               <div className="viewer-topbar" onClick={(e) => e.stopPropagation()}>
