@@ -254,12 +254,15 @@ export default function TransferStation() {
     directPackEstimateRef.current = { sampledAt: now, loaded, speedBps };
     return {
       phase: 'preparing',
+      status: job && job.status ? job.status : 'packing',
       loaded,
       total,
       files: Number(job && job.files) || 0,
       mediaSummary,
       speedBps,
       etaSeconds: total > 0 && speedBps > 1 ? Math.max(0, (total - loaded) / speedBps) : null,
+      queueAhead: Math.max(0, Number(job && job.queueAhead) || 0),
+      queuePosition: Math.max(0, Number(job && job.queuePosition) || 0),
     };
   }, []);
 
@@ -284,7 +287,7 @@ export default function TransferStation() {
     if (isHttpEntry) {
       setBusy('pack');
       directPackEstimateRef.current = { sampledAt: 0, loaded: 0, speedBps: 0 };
-      setPackProgress({ phase: 'preparing', loaded: 0, total: 0, files: ids.length, mediaSummary, speedBps: 0, etaSeconds: null });
+      setPackProgress({ phase: 'preparing', status: 'creating', loaded: 0, total: 0, files: ids.length, mediaSummary, speedBps: 0, etaSeconds: null, queueAhead: 0, queuePosition: 0 });
       try {
         let job = await startDirectZipJob({ photoIds: ids, zipName });
         if (job && job.id) {
@@ -875,7 +878,9 @@ export default function TransferStation() {
     >
       <style>{'@keyframes mm-pack-indet{0%{left:-40%}100%{left:100%}}'}</style>
       <div style={{ fontSize: 12, fontWeight: 700, color: '#0f172a', marginBottom: 6 }}>
-        {packProgress.phase === 'preparing'
+        {packProgress.phase === 'preparing' && packProgress.queueAhead > 0
+          ? `正在排队准备压缩包（${packProgress.mediaSummary || `${packProgress.files} 项媒体`}）…`
+          : packProgress.phase === 'preparing'
           ? `正在准备高速压缩包（${packProgress.mediaSummary || `${packProgress.files} 项媒体`}）…`
           : `正在打包 ${packProgress.mediaSummary || `${packProgress.files} 项媒体`}…`}
       </div>
@@ -896,15 +901,17 @@ export default function TransferStation() {
         )}
       </div>
       <div style={{ fontSize: 11, color: '#64748b', marginTop: 6, fontVariantNumeric: 'tabular-nums' }}>
-        {packProgress.phase === 'preparing' ? '已处理 ' : '已下载 '}{formatBytes(packProgress.loaded)}
-        {packProgress.total > 0 ? ` / ${formatBytes(packProgress.total)}` : ''}
-        {packProgress.speedBps > 1024 ? ` · ${formatBytes(packProgress.speedBps)}/s` : ''}
+        {packProgress.queueAhead > 0
+          ? `前方还有 ${packProgress.queueAhead} 个任务`
+          : <>{packProgress.phase === 'preparing' ? '已处理 ' : '已下载 '}{formatBytes(packProgress.loaded)}
+            {packProgress.total > 0 ? ` / ${formatBytes(packProgress.total)}` : ''}
+            {packProgress.speedBps > 1024 ? ` · ${formatBytes(packProgress.speedBps)}/s` : ''}</>}
       </div>
-      {Number.isFinite(packProgress.etaSeconds) && packProgress.etaSeconds > 0.5 ? (
+      {packProgress.queueAhead === 0 && Number.isFinite(packProgress.etaSeconds) && packProgress.etaSeconds > 0.5 ? (
         <div style={{ fontSize: 11, color: '#0f172a', fontWeight: 600, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
           剩余约 {formatDuration(packProgress.etaSeconds)}
         </div>
-      ) : (packProgress.phase === 'preparing' && packProgress.total > 0 ? (
+      ) : (packProgress.queueAhead === 0 && packProgress.phase === 'preparing' && packProgress.total > 0 ? (
         <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
           正在测算完成时间…
         </div>
