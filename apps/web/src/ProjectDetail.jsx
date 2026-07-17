@@ -1664,16 +1664,20 @@ function ProjectDetail({
     const photoId = getPhotoRecordId(photo);
     if (!photoId || !photo || !isVideoMeta(photo)) return false;
     const playbackSrc = resolveAssetUrl(getVideoPlaybackCandidate(photo));
-    if (!playbackSrc) return false;
 
     const currentMetas = Array.isArray(photoMetasRef.current) ? photoMetasRef.current : [];
     const nextMetas = currentMetas.map((meta) => {
       if (String(getPhotoRecordId(meta) || '') !== String(photoId)) return meta;
-      return {
+      const next = {
         ...(meta || {}),
         ...photo,
         thumbSrc: resolveAssetUrl(getPhotoThumbCandidate(photo)) || meta.thumbSrc || meta.thumbUrl,
         originalSrc: resolveAssetUrl(getPhotoOriginalCandidate(photo)) || meta.originalSrc || meta.url,
+      };
+      // 直传视频会先有封面与语义状态，再完成播放转码；两阶段都要同步回相册。
+      if (!playbackSrc) return next;
+      return {
+        ...next,
         playbackSrc,
         playbackUrl: photo.playbackUrl || photo.playback_url || meta.playbackUrl || meta.playback_url,
         playback_url: photo.playback_url || photo.playbackUrl || meta.playback_url || meta.playbackUrl,
@@ -1684,7 +1688,7 @@ function ProjectDetail({
       };
     });
     applyGalleryMetas(nextMetas);
-    return true;
+    return Boolean(playbackSrc);
   }, [applyGalleryMetas]);
 
   // 轮询超时（转码失败/任务丢失）时清掉 processing 状态，
