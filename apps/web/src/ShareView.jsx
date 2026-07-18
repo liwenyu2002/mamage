@@ -165,6 +165,12 @@ export default function ShareView({ share = {}, onBack }) {
     return resolveAssetUrl(p.url || p.originalUrl || p.original || p.full || p.large || p.imageUrl || p.src || p.fileUrl || p);
   };
 
+  // 公开分享的单张照片下载优先走全尺寸、限体积的公网下载版；缺失时保持原图回退。
+  const publicDownloadFor = (p) => {
+    if (!p || typeof p === 'string') return null;
+    return resolveAssetUrl(p.publicDownloadUrl || p.public_download_url || p.webDownloadUrl || '');
+  };
+
   const isVideoPhoto = (p) => {
     if (!p || typeof p === 'string') return false;
     const t = String(p.type || p.mediaType || p.media_type || '').toLowerCase();
@@ -217,7 +223,7 @@ export default function ShareView({ share = {}, onBack }) {
   const downloadCurrentViewerPhoto = () => {
     const p = photos[viewerIndex];
     if (!p) return;
-    const url = originalFor(p) || thumbFor(p);
+    const url = (isVideoPhoto(p) ? null : publicDownloadFor(p)) || originalFor(p) || thumbFor(p);
     if (!url) return;
     const a = document.createElement('a');
     a.href = url;
