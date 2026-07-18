@@ -19,7 +19,9 @@ const ERR_TEXT = {
 };
 
 const FIND_ME_MAX_SIDE = 1600;
-const FIND_ME_TARGET_BYTES = 4 * 1024 * 1024;
+// 拍照找我只需要用于人脸检索，不应把原始相机大图带上网络。
+// 使用十进制 1,000,000 bytes，确保浏览器和移动端都能稳定显示为 1MB 以内。
+const FIND_ME_TARGET_BYTES = 1_000_000;
 
 function loadFindMeImage(file) {
   if (typeof createImageBitmap === 'function') {
@@ -64,25 +66,32 @@ async function compressFindMeImage(file) {
   const sourceHeight = Number(image.height || image.naturalHeight || 0);
   if (!sourceWidth || !sourceHeight) throw new Error('FIND_ME_IMAGE_DIMENSIONS_MISSING');
 
-  const scale = Math.min(1, FIND_ME_MAX_SIDE / Math.max(sourceWidth, sourceHeight));
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.max(1, Math.round(sourceWidth * scale));
-  canvas.height = Math.max(1, Math.round(sourceHeight * scale));
-  const context = canvas.getContext('2d', { alpha: false });
-  if (!context) throw new Error('FIND_ME_CANVAS_UNAVAILABLE');
-  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+  let best = null;
+  // 先尽量保留 1600px 的识别细节；复杂照片再逐级缩小，确保不会把
+  // 1MB 上限交给服务端碰运气。质量序列从高到低，命中后立即停止。
+  const maxSides = [FIND_ME_MAX_SIDE, 1400, 1200, 1000, 800, 640];
+  const qualities = [0.92, 0.86, 0.80, 0.74, 0.68, 0.62, 0.56, 0.50, 0.44, 0.38, 0.32, 0.26, 0.20, 0.15];
+  for (const maxSide of maxSides) {
+    const scale = Math.min(1, maxSide / Math.max(sourceWidth, sourceHeight));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(sourceWidth * scale));
+    canvas.height = Math.max(1, Math.round(sourceHeight * scale));
+    const context = canvas.getContext('2d', { alpha: false });
+    if (!context) throw new Error('FIND_ME_CANVAS_UNAVAILABLE');
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+    for (const quality of qualities) {
+      const blob = await canvasToJpegBlob(canvas, quality);
+      if (!best || blob.size < best.size) best = blob;
+      if (blob.size <= FIND_ME_TARGET_BYTES) break;
+    }
+    if (best && best.size <= FIND_ME_TARGET_BYTES) break;
+  }
   if (typeof image.close === 'function') image.close();
 
-  let best = null;
-  for (const quality of [0.88, 0.82, 0.76, 0.68, 0.6, 0.52]) {
-    const blob = await canvasToJpegBlob(canvas, quality);
-    best = blob;
-    if (blob.size <= FIND_ME_TARGET_BYTES) break;
-  }
-
-  // A browser encoder should make a major reduction for a 30MB camera image. If
-  // it does not, keep the smallest result rather than inflating the upload.
-  if (!best || best.size >= file.size) return file;
+  // 640px JPEG 通常足以保证人脸检索；如果极端浏览器仍无法压到上限，
+  // 回退原图让服务端返回明确错误，也不上传一个“看似压缩但仍超限”的文件。
+  if (!best || best.size > FIND_ME_TARGET_BYTES || best.size >= file.size) return file;
   try {
     return new File([best], 'find-me.jpg', { type: 'image/jpeg', lastModified: Date.now() });
   } catch (e) {
