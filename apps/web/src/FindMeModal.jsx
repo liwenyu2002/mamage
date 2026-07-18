@@ -18,35 +18,135 @@ const ERR_TEXT = {
   EMPTY_SCOPE: '这里还没有可匹配的照片',
 };
 
+const FIND_ME_MAX_SIDE = 1600;
+const FIND_ME_TARGET_BYTES = 4 * 1024 * 1024;
+
+function loadFindMeImage(file) {
+  if (typeof createImageBitmap === 'function') {
+    return createImageBitmap(file, { imageOrientation: 'from-image' }).catch(() => loadFindMeImageElement(file));
+  }
+  return loadFindMeImageElement(file);
+}
+
+function loadFindMeImageElement(file) {
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error('FIND_ME_IMAGE_DECODE_FAILED'));
+    };
+    image.src = objectUrl;
+  });
+}
+
+function canvasToJpegBlob(canvas, quality) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error('FIND_ME_IMAGE_ENCODE_FAILED'));
+    }, 'image/jpeg', quality);
+  });
+}
+
+async function compressFindMeImage(file) {
+  if (!file || !String(file.type || '').startsWith('image/')) return file;
+  // Small files do not need another lossy pass; large originals are always decoded
+  // and reduced before they enter the face-matching request.
+  if (file.size <= FIND_ME_TARGET_BYTES) return file;
+
+  const image = await loadFindMeImage(file);
+  const sourceWidth = Number(image.width || image.naturalWidth || 0);
+  const sourceHeight = Number(image.height || image.naturalHeight || 0);
+  if (!sourceWidth || !sourceHeight) throw new Error('FIND_ME_IMAGE_DIMENSIONS_MISSING');
+
+  const scale = Math.min(1, FIND_ME_MAX_SIDE / Math.max(sourceWidth, sourceHeight));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(sourceWidth * scale));
+  canvas.height = Math.max(1, Math.round(sourceHeight * scale));
+  const context = canvas.getContext('2d', { alpha: false });
+  if (!context) throw new Error('FIND_ME_CANVAS_UNAVAILABLE');
+  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+  if (typeof image.close === 'function') image.close();
+
+  let best = null;
+  for (const quality of [0.88, 0.82, 0.76, 0.68, 0.6, 0.52]) {
+    const blob = await canvasToJpegBlob(canvas, quality);
+    best = blob;
+    if (blob.size <= FIND_ME_TARGET_BYTES) break;
+  }
+
+  // A browser encoder should make a major reduction for a 30MB camera image. If
+  // it does not, keep the smallest result rather than inflating the upload.
+  if (!best || best.size >= file.size) return file;
+  try {
+    return new File([best], 'find-me.jpg', { type: 'image/jpeg', lastModified: Date.now() });
+  } catch (e) {
+    return best;
+  }
+}
+
 export default function FindMeModal({ visible, mode, projectId, shareCode, onClose, onPickPhoto }) {
   const [file, setFile] = React.useState(null);
   const [preview, setPreview] = React.useState('');
   const [busy, setBusy] = React.useState(false);
+  const [compressing, setCompressing] = React.useState(false);
+  const [compressionNotice, setCompressionNotice] = React.useState('');
   const [result, setResult] = React.useState(null); // {matches, scannedFaces}
   const [errText, setErrText] = React.useState('');
   const cameraRef = React.useRef(null);
   const pickerRef = React.useRef(null);
+  const compressionSeqRef = React.useRef(0);
 
   const reset = React.useCallback(() => {
-    setFile(null); setResult(null); setErrText(''); setBusy(false);
+    compressionSeqRef.current += 1;
+    setFile(null); setResult(null); setErrText(''); setBusy(false); setCompressing(false); setCompressionNotice('');
     setPreview((old) => { if (old) URL.revokeObjectURL(old); return ''; });
   }, []);
 
   React.useEffect(() => { if (!visible) reset(); }, [visible, reset]);
 
-  const onFile = (f) => {
+  const onFile = async (f) => {
     if (!f) return;
+    const sequence = compressionSeqRef.current + 1;
+    compressionSeqRef.current = sequence;
     setResult(null); setErrText('');
-    setFile(f);
+    setFile(null);
+    setCompressing(true);
+    setCompressionNotice('正在压缩照片…');
     setPreview((old) => { if (old) URL.revokeObjectURL(old); return URL.createObjectURL(f); });
+    try {
+      const uploadFile = await compressFindMeImage(f);
+      if (compressionSeqRef.current !== sequence) return;
+      setFile(uploadFile);
+      setCompressionNotice(uploadFile === f ? '' : `已压缩至 ${(uploadFile.size / 1024 / 1024).toFixed(1)}MB`);
+      if (uploadFile !== f) {
+        setPreview((old) => {
+          if (old) URL.revokeObjectURL(old);
+          return URL.createObjectURL(uploadFile);
+        });
+      }
+    } catch (e) {
+      if (compressionSeqRef.current !== sequence) return;
+      // HEIC and a few browser-specific formats may not be canvas-decodable;
+      // retain the server-side fallback instead of blocking the user completely.
+      setFile(f);
+      setCompressionNotice('浏览器无法压缩，将尝试原图上传');
+    } finally {
+      if (compressionSeqRef.current === sequence) setCompressing(false);
+    }
   };
 
   const submit = async () => {
-    if (!file || busy) return;
+    if (!file || busy || compressing) return;
     setBusy(true); setErrText(''); setResult(null);
     try {
       const fd = new FormData();
-      fd.append('photo', file);
+      fd.append('photo', file, file.name || 'find-me.jpg');
       const headers = {};
       let url;
       if (mode === 'share') {
@@ -101,13 +201,14 @@ export default function FindMeModal({ visible, mode, projectId, shareCode, onClo
           <div className="findme-pick-actions">
             <Button onClick={() => cameraRef.current && cameraRef.current.click()}>📷 拍照</Button>
             <Button onClick={() => pickerRef.current && pickerRef.current.click()}>🖼 从相册选择</Button>
-            <Button type="primary" loading={busy} disabled={!file || busy} onClick={submit}>
-              {busy ? '识别匹配中…' : '开始找我'}
+            <Button type="primary" loading={busy || compressing} disabled={!file || busy || compressing} onClick={submit}>
+              {compressing ? '压缩中…' : (busy ? '识别匹配中…' : '开始找我')}
             </Button>
           </div>
           {/* capture=user 在手机上直接唤起前置摄像头；桌面浏览器会退化为文件选择 */}
           <input ref={cameraRef} type="file" accept="image/*" capture="user" style={{ display: 'none' }} onChange={(e) => { onFile(e.target.files && e.target.files[0]); e.target.value = ''; }} />
           <input ref={pickerRef} type="file" accept="image/*,.heic,.heif" style={{ display: 'none' }} onChange={(e) => { onFile(e.target.files && e.target.files[0]); e.target.value = ''; }} />
+          {compressionNotice ? <span style={{ fontSize: 12, color: compressing ? '#2563eb' : '#687386' }}>{compressionNotice}</span> : null}
           <span style={{ fontSize: 12, color: '#9098a2' }}>照片仅用于本次匹配，不会被保存。</span>
         </div>
 
