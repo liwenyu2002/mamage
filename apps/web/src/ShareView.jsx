@@ -1,6 +1,5 @@
 import React from 'react';
-import { Typography, Button, Card, Toast } from './ui';
-import { pickZipSaveHandle, fetchZipToTarget, formatBytes, formatDuration } from './services/zipDownload';
+import { Typography, Button, Card } from './ui';
 import FindMeModal from './FindMeModal';
 import { resolveAssetUrl } from './services/request';
 import './ProjectDetail.css';
@@ -38,7 +37,7 @@ function getSharePhotoSectionId(photo) {
   return String(raw).trim();
 }
 
-// 从 URL 推断下载文件扩展名（查看器单张下载 / 选择模式批量下载共用）
+// 从 URL 推断查看器单张下载的文件扩展名。
 function inferExt(rawUrl) {
   try {
     const u = new URL(String(rawUrl || ''), window.location.origin);
@@ -186,80 +185,7 @@ export default function ShareView({ share = {}, onBack }) {
     return resolveAssetUrl(p.playbackUrl || p.playback_url || p.url || '') || null;
   };
 
-  const [selectMode, setSelectMode] = React.useState(false);
-  const [selectedMap, setSelectedMap] = React.useState({});
-  const selectedCount = Object.keys(selectedMap).length;
   const shareCode = share.shareCode || share.code || '';
-
-  // 选中的照片真实 id（打包接口按 id 取；selectedMap 的 key 是索引）
-  const photoIdOf = (p) => (p && (p.id || p.photoId || p.photo_id)) || null;
-  const selectedIdList = Object.keys(selectedMap)
-    .map((k) => photoIdOf(photos[Number(k)]))
-    .filter(Boolean);
-
-  const [packing, setPacking] = React.useState(false);
-  const [packProgress, setPackProgress] = React.useState(null);
-  // ids=null → 打包整个分享；否则打包选中的
-  const packDownload = React.useCallback(async (ids) => {
-    if (packing || !shareCode) return;
-    if (Array.isArray(ids) && ids.length === 0) { Toast.warning('请先选择照片'); return; }
-    const zipName = `${(share.title || 'share').replace(/[\\/:*?"<>|]/g, '_')}_${Date.now()}`;
-    const handle = await pickZipSaveHandle(`${zipName}.zip`); // 必须在用户手势内弹
-    if (handle === 'abort') return;
-    if (!handle) {
-      // 无保存对话框能力(手机/内网 http 非安全上下文) → 改走 GET 原生下载：
-      // 浏览器下载管理器立即接管,自带可见的下载条,不再"页面进度跑完才见文件"
-      const qs = new URLSearchParams({ shareCode, zipName });
-      if (Array.isArray(ids) && ids.length) qs.set('photoIds', ids.join(','));
-      const a = document.createElement('a');
-      a.href = `/api/photos/zip?${qs.toString()}`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      Toast.success('已交给浏览器下载，请查看浏览器的下载列表');
-      return;
-    }
-    setPacking(true);
-    setPackProgress({ loaded: 0, total: 0 });
-    let lastTick = 0;
-    try {
-      await fetchZipToTarget({
-        shareCode,
-        photoIds: Array.isArray(ids) && ids.length ? ids : undefined,
-        zipName,
-        fileHandle: handle || null,
-        onProgress: (loaded, total, stats) => {
-          const now = Date.now();
-          if (now - lastTick < 120) return;
-          lastTick = now;
-          setPackProgress({ loaded, total, etaSeconds: stats && stats.etaSeconds });
-        },
-      });
-      Toast.success('打包下载完成');
-    } catch (e) {
-      console.error('share pack download failed', e);
-      Toast.error(`打包下载失败: ${e?.message || '请求错误'}`);
-    } finally {
-      setPacking(false);
-      setPackProgress(null);
-    }
-  }, [packing, shareCode, share.title]);
-
-  const toggleSelect = (idx) => {
-    setSelectedMap((prev) => {
-      const next = { ...prev };
-      if (next[idx]) delete next[idx];
-      else next[idx] = true;
-      return next;
-    });
-  };
-
-  const selectAll = () => {
-    const all = {};
-    photos.forEach((_, i) => { all[i] = true; });
-    setSelectedMap(all);
-  };
-  const clearSelection = () => setSelectedMap({});
 
   const [viewerVisible, setViewerVisible] = React.useState(false);
   const [viewerIndex, setViewerIndex] = React.useState(0);
@@ -347,43 +273,6 @@ export default function ShareView({ share = {}, onBack }) {
     return () => document.removeEventListener('keydown', onKey);
   }, [viewerVisible, photos.length]);
 
-  const downloadSelected = async () => {
-    const idxs = Object.keys(selectedMap).map((k) => Number(k)).sort((a, b) => a - b);
-    if (!idxs.length) return;
-
-    let failed = 0;
-
-    for (let n = 0; n < idxs.length; n += 1) {
-      const idx = idxs[n];
-      const p = photos[idx];
-      const url = originalFor(p) || thumbFor(p);
-      if (!url) continue;
-      try {
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `photo_${idx}${inferExt(url)}`;
-        a.target = '_blank';
-        a.rel = 'noopener';
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        if (n < idxs.length - 1) {
-          await new Promise((resolve) => setTimeout(resolve, 80));
-        }
-      } catch (err) {
-        console.warn('downloadSelected failed, fallback to open new tab', err);
-        try { window.open(url, '_blank'); } catch (e) { }
-        failed += 1;
-      }
-    }
-
-    if (failed > 0) {
-      try {
-        alert(`有 ${failed} 张图片无法自动下载。已尝试在新标签页打开，可右键另存为。`);
-      } catch (e) { }
-    }
-  };
-
   const [remainingSec, setRemainingSec] = React.useState(() => {
     if (typeof remainingSecondsField === 'number') return remainingSecondsField;
     if (expiresAtField) {
@@ -424,7 +313,7 @@ export default function ShareView({ share = {}, onBack }) {
         <div
           className="detail-photo"
           style={{ cursor: 'pointer', aspectRatio: masonry ? undefined : '1 / 1' }}
-          onClick={() => { if (selectMode) toggleSelect(idx); else openViewer(idx); }}
+          onClick={() => openViewer(idx)}
         >
           {isVideo && !poster ? (
             <div style={{ width: '100%', height: masonry ? 160 : '100%', background: '#111726', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.75)', fontSize: 13, letterSpacing: '0.08em' }}>
@@ -444,11 +333,6 @@ export default function ShareView({ share = {}, onBack }) {
           ) : null}
           {sectionLabel ? <div className="detail-photo-section-chip">{sectionLabel}</div> : null}
         </div>
-        {selectMode ? (
-          <div style={{ position: 'absolute', left: 8, top: 8 }}>
-            <input type="checkbox" checked={!!selectedMap[idx]} onChange={(e) => { e.stopPropagation(); toggleSelect(idx); }} />
-          </div>
-        ) : null}
       </div>
     );
   };
@@ -507,50 +391,10 @@ export default function ShareView({ share = {}, onBack }) {
                     </svg>
                   )}
                 </Button>
-                {!selectMode ? (
-                  <>
-                    <Button onClick={() => setSelectMode(true)}>选择</Button>
-                    {shareCode && photos.length > 0 ? (
-                      <Button onClick={() => packDownload(null)} loading={packing} disabled={packing}>
-                        {packing ? '打包中…' : `打包下载 (${photos.length})`}
-                      </Button>
-                    ) : null}
-                    {shareCode && photos.length > 0 ? (
-                      <Button onClick={() => setFindMeOpen(true)}>📸 拍照找我</Button>
-                    ) : null}
-                  </>
-                ) : (
-                  <>
-                    <Button onClick={selectAll} theme="borderless">全选</Button>
-                    <Button onClick={clearSelection} theme="borderless">取消</Button>
-                    {shareCode ? (
-                      <Button onClick={() => packDownload(selectedIdList)} disabled={selectedCount === 0 || packing} loading={packing} type="primary">
-                        {packing ? '打包中…' : `打包下载 (${selectedCount})`}
-                      </Button>
-                    ) : (
-                      <Button onClick={downloadSelected} disabled={selectedCount === 0} type="primary">下载 ({selectedCount})</Button>
-                    )}
-                    <Button onClick={() => { setSelectMode(false); clearSelection(); }}>完成</Button>
-                  </>
-                )}
+                {shareCode && photos.length > 0 ? (
+                  <Button onClick={() => setFindMeOpen(true)}>📸 拍照找我</Button>
+                ) : null}
               </div>
-              {packProgress ? (
-                <div className="share-pack-progress">
-                  <div className="share-pack-bar">
-                    <style>{'@keyframes mm-share-indet{0%{left:-40%}100%{left:100%}}'}</style>
-                    {packProgress.total > 0 ? (
-                      <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${Math.min(100, (packProgress.loaded / packProgress.total) * 100)}%`, background: 'linear-gradient(90deg,#2f2f2f,#101010)', borderRadius: 999 }} />
-                    ) : (
-                      <div style={{ position: 'absolute', top: 0, bottom: 0, width: '40%', borderRadius: 999, background: 'linear-gradient(90deg,#2f2f2f,#101010)', animation: 'mm-share-indet 1.1s ease-in-out infinite' }} />
-                    )}
-                  </div>
-                  <span style={{ fontVariantNumeric: 'tabular-nums' }}>
-                    已下载 {formatBytes(packProgress.loaded)}
-                    {packProgress.total > 0 ? ` / ${formatBytes(packProgress.total)}` : ''}
-                    {Number.isFinite(packProgress.etaSeconds) && packProgress.etaSeconds > 0.5 ? ` · 剩余约 ${formatDuration(packProgress.etaSeconds)}` : ''}
-                  </span>
-                </div>
-              ) : null}
             </div>
           ) : null}
 

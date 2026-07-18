@@ -2010,22 +2010,6 @@ textarea {
     white-space: nowrap;
     flex: 0 0 auto;
 }
-.share-pack-progress {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 12px;
-    color: #64748b;
-}
-.share-pack-bar {
-    position: relative;
-    width: 120px;
-    height: 6px;
-    border-radius: 999px;
-    background: #e5e7eb;
-    overflow: hidden;
-    flex: 0 0 auto;
-}
 /* 视图切换小图标钮（替代原宫格/瀑布流胶囊组，省空间） */
 .share-view-toggle {
     width: 34px;
@@ -2057,13 +2041,6 @@ textarea {
     }
     .share-view-toggle {
         width: 34px;
-    }
-    .share-pack-progress {
-        width: 100%;
-    }
-    .share-pack-bar {
-        flex: 1 1 auto;
-        width: auto;
     }
 }
 
