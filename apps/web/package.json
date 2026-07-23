@@ -11,7 +11,7 @@
   "scripts": {
     "start": "webpack serve --mode development",
     "dev:prod": "MAMAGE_BACKEND_URL=https://mamage.wenyuli.site MAMAGE_DISABLE_DIRECT_UPLOAD=1 webpack serve --mode development",
-    "dev:mini": "MAMAGE_BACKEND_URL=http://10.11.12.63:8080 MAMAGE_DISABLE_DIRECT_UPLOAD=1 WEBPACK_DEV_SERVER_PORT=5188 webpack serve --mode development",
+    "dev:mini": "MAMAGE_BACKEND_URL=http://10.100.65.147:8080 MAMAGE_DISABLE_DIRECT_UPLOAD=1 WEBPACK_DEV_SERVER_PORT=5188 webpack serve --mode development",
     "build": "webpack --mode production"
   },
   "devDependencies": {
