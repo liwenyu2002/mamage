@@ -2557,6 +2557,29 @@ function ProjectDetail({
     setAllSelected(!everyVisibleSelected);
   }, [getMediaFilteredIndexes, selectedMap]);
 
+  const getTimelineSectionSelectionIndexes = React.useCallback((sectionId) => {
+    const normalizedSectionId = sectionId === null || sectionId === undefined ? '' : String(sectionId);
+    return getMediaFilteredIndexes().filter((index) => (
+      getPhotoTimelineSectionId(photoMetas?.[index]) === normalizedSectionId
+    ));
+  }, [getMediaFilteredIndexes, photoMetas]);
+
+  const toggleSelectTimelineSection = React.useCallback((sectionId) => {
+    const indexes = getTimelineSectionSelectionIndexes(sectionId);
+    if (!indexes.length) return;
+    const map = Object.assign({}, selectedMap || {});
+    const everySectionPhotoSelected = indexes.every((index) => !!map[String(index)]);
+    if (everySectionPhotoSelected) {
+      indexes.forEach((index) => { delete map[String(index)]; });
+    } else {
+      indexes.forEach((index) => { map[String(index)] = true; });
+    }
+    const filteredIndexes = getMediaFilteredIndexes();
+    setSelectedMap(map);
+    setSelectedCount(Object.keys(map).length);
+    setAllSelected(filteredIndexes.length > 0 && filteredIndexes.every((index) => !!map[String(index)]));
+  }, [getMediaFilteredIndexes, getTimelineSectionSelectionIndexes, selectedMap]);
+
   React.useEffect(() => {
     if (!deleteMode) return;
     const indexes = getMediaFilteredIndexes();
@@ -5272,6 +5295,10 @@ function ProjectDetail({
               <div className="detail-timeline-gallery">
                 {timelineGalleryGroups.map((group) => {
                   const sectionRailKey = group.key || group.id || group.name;
+                  const sectionSelectionIndexes = deleteMode ? getTimelineSectionSelectionIndexes(group.id) : [];
+                  const selectedSectionPhotoCount = sectionSelectionIndexes.filter((index) => !!selectedMap[String(index)]).length;
+                  const sectionAllSelected = sectionSelectionIndexes.length > 0 && selectedSectionPhotoCount === sectionSelectionIndexes.length;
+                  const sectionPartiallySelected = selectedSectionPhotoCount > 0 && !sectionAllSelected;
                   return (
                   <section
                     id={group.domId}
@@ -5292,9 +5319,25 @@ function ProjectDetail({
                     <div className="detail-timeline-head">
                       <div className="detail-timeline-title">
                         <span>{group.name}</span>
+                        {deleteMode && sectionSelectionIndexes.length ? (
+                          <label
+                            className="detail-timeline-section-selectall"
+                            title={sectionAllSelected ? `取消全选${group.name}` : `全选${group.name}`}
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={sectionAllSelected}
+                              ref={(node) => { if (node) node.indeterminate = sectionPartiallySelected; }}
+                              onChange={() => toggleSelectTimelineSection(group.id)}
+                              aria-label={`${sectionAllSelected ? '取消全选' : '全选'}${group.name}`}
+                            />
+                            <span>全选</span>
+                          </label>
+                        ) : null}
                         {group.sectionTime ? <em>{group.sectionTime}</em> : null}
                       </div>
-                      <span className="detail-timeline-count">{group.items.length} 张</span>
+                      <span className="detail-timeline-count">{deleteMode ? sectionSelectionIndexes.length : group.items.length} 张</span>
                     </div>
                     {group.items.length ? renderTimelineGroupItems(group) : (
                       <div

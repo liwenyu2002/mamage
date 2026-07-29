@@ -10,7 +10,8 @@
   "dependenciesMeta": {},
   "scripts": {
     "start": "webpack serve --mode development",
-    "dev:prod": "MAMAGE_BACKEND_URL=https://mamage.wenyuli.site MAMAGE_DISABLE_DIRECT_UPLOAD=1 webpack serve --mode development",
+    "dev:full": "MAMAGE_BACKEND_URL=http://localhost:8000 webpack serve --mode development",
+    "dev:prod": "MAMAGE_BACKEND_URL=https://mamage.wenyuli.site MAMAGE_DISABLE_DIRECT_UPLOAD=1 MAMAGE_PRODUCTION_READONLY=1 webpack serve --mode development",
     "dev:mini": "MAMAGE_BACKEND_URL=http://10.100.65.147:8080 MAMAGE_DISABLE_DIRECT_UPLOAD=1 WEBPACK_DEV_SERVER_PORT=5188 webpack serve --mode development",
     "build": "webpack --mode production"
   },

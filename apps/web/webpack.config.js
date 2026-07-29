@@ -22,6 +22,7 @@ try {
 
 const devProxyTarget = process.env.MAMAGE_BACKEND_URL || 'http://localhost:8001';
 const devProxyContexts = ['/api', '/uploads', '/static'];
+const productionReadOnly = String(process.env.MAMAGE_PRODUCTION_READONLY || '').trim() === '1';
 
 const nodeModulePackageTest = (packages) => (module) => {
   const resource = module.nameForCondition && module.nameForCondition();
@@ -145,6 +146,27 @@ module.exports = {
     // Serve index.html for unknown routes so SPA routes like /share/:code work in dev
     historyApiFallback: true,
     open: process.env.WEBPACK_DEV_SERVER_OPEN === '0' ? false : true,
+    setupMiddlewares: (middlewares) => {
+      if (productionReadOnly) {
+        middlewares.unshift({
+          name: 'mamage-production-readonly-guard',
+          middleware: (req, res, next) => {
+            const method = String(req.method || 'GET').toUpperCase();
+            const pathname = String(req.url || '').split('?')[0];
+            const safeRead = method === 'GET' || method === 'HEAD' || method === 'OPTIONS';
+            const passwordLogin = method === 'POST' && pathname === '/api/users/login';
+            if (safeRead || passwordLogin || !pathname.startsWith('/api/')) return next();
+            res.statusCode = 405;
+            res.setHeader('Content-Type', 'application/json; charset=utf-8');
+            return res.end(JSON.stringify({
+              error: 'PRODUCTION_READONLY',
+              message: '本地前端当前连接生产只读 API，已阻止写操作。',
+            }));
+          },
+        });
+      }
+      return middlewares;
+    },
     proxy: [
       {
         context: devProxyContexts,

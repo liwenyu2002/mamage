@@ -18,7 +18,8 @@ const ABSOLUTE_API_BASE = BASE_URL || '';
 async function request(path, options = {}) {
   const method = (options.method || 'GET').toUpperCase();
   let url = `${BASE_URL}${path}`;
-  const headers = Object.assign({ 'Content-Type': 'application/json' }, options.headers || {});
+  const isFormData = typeof FormData !== 'undefined' && options.data instanceof FormData;
+  const headers = Object.assign(isFormData ? {} : { 'Content-Type': 'application/json' }, options.headers || {});
 
   // Request body logging is opt-in; uploads and batch edits should stay quiet by default.
   const LOG_REQUESTS = typeof window !== 'undefined' && Boolean(window.__MAMAGE_LOG_REQUESTS);
@@ -67,8 +68,8 @@ async function request(path, options = {}) {
     const qs = new URLSearchParams(options.data).toString();
     url += (path.includes('?') ? '&' : '?') + qs;
   } else if (options.data) {
-    // 其余方法默认以 JSON body 发送
-    fetchOpts.body = JSON.stringify(options.data);
+    // FormData 交给浏览器补 multipart boundary；其他请求默认发送 JSON。
+    fetchOpts.body = isFormData ? options.data : JSON.stringify(options.data);
   }
 
   // Log outgoing request body when enabled (don't log sensitive tokens)
@@ -119,7 +120,14 @@ async function request(path, options = {}) {
   }
   if (!res.ok) {
     const text = await res.text();
-    const err = new Error(`Request failed ${res.status} ${res.statusText}`);
+    let detail = '';
+    try {
+      const parsed = text ? JSON.parse(text) : null;
+      detail = parsed && (parsed.message || parsed.error) ? String(parsed.message || parsed.error) : '';
+    } catch (e) {
+      detail = String(text || '').trim().slice(0, 300);
+    }
+    const err = new Error(detail || `Request failed ${res.status} ${res.statusText}`);
     err.status = res.status;
     err.body = text;
     throw err;

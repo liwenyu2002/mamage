@@ -28,6 +28,7 @@ const Scenery = lazyWithPreload(() => import(/* webpackChunkName: "scenery" */ '
 const AccountPage = lazyWithPreload(() => import(/* webpackChunkName: "account-page" */ './AccountPage'));
 const AiNewsWriter = lazyWithPreload(() => import(/* webpackChunkName: "ai-news-writer" */ './AiNewsWriter.jsx'));
 const WechatComposer = lazyWithPreload(() => import(/* webpackChunkName: "wechat-composer" */ './WechatComposer.jsx'));
+const VideoEditor = lazyWithPreload(() => import(/* webpackChunkName: "video-editor" */ './VideoEditor.jsx'));
 
 const PROJECT_PAGE_SIZE = 24;
 const MEDIA_STUDIO_PLATFORMS = [
@@ -36,7 +37,10 @@ const MEDIA_STUDIO_PLATFORMS = [
   { key: 'press_release', label: '新闻稿', path: '/function/news', editor: 'writer' },
   { key: 'report_brief', label: '通讯稿', path: '/function/brief', editor: 'writer' },
   { key: 'weibo', label: '微博', path: '/function/weibo', editor: 'writer' },
+  { key: 'video_editor', label: '视频剪辑', path: '/function/video', editor: 'video' },
 ];
+const TEXT_MEDIA_PLATFORMS = MEDIA_STUDIO_PLATFORMS.filter((platform) => platform.editor !== 'video');
+const VIDEO_MEDIA_PLATFORM = MEDIA_STUDIO_PLATFORMS.find((platform) => platform.editor === 'video');
 const DEFAULT_MEDIA_PLATFORM = MEDIA_STUDIO_PLATFORMS[0];
 
 function mediaPlatformFromPath(pathname) {
@@ -797,6 +801,8 @@ function App() {
   const userLabel = currentUser && (currentUser.displayName || currentUser.email || currentUser.name);
   const userInitial = String(userLabel || 'U').trim().charAt(0).toUpperCase() || 'U';
   const activeMediaPlatform = MEDIA_STUDIO_PLATFORMS.find((item) => item.key === functionPage) || DEFAULT_MEDIA_PLATFORM;
+  const activeMediaSection = activeMediaPlatform.editor === 'video' ? 'video' : 'text';
+  const activeTextPlatformIndex = Math.max(0, TEXT_MEDIA_PLATFORMS.findIndex((item) => item.key === activeMediaPlatform.key));
 
   const closeMobileNav = React.useCallback(() => {
     setMobileNavVisible(false);
@@ -840,6 +846,7 @@ function App() {
     try { window.history.pushState({}, '', platform.path); } catch (e) { }
     if (platform.editor === 'wechat' && WechatComposer.preload) WechatComposer.preload();
     if (platform.editor === 'writer' && AiNewsWriter.preload) AiNewsWriter.preload();
+    if (platform.editor === 'video' && VideoEditor.preload) VideoEditor.preload();
   }, [functionPage]);
 
   const handleNavigateAbout = React.useCallback(() => {
@@ -1375,33 +1382,80 @@ function App() {
               <section className="media-studio-shell" aria-label="全媒体编辑台">
                 <nav className="media-studio-nav" aria-label="媒体平台">
                   <div className="media-studio-nav-title">全媒体编辑台</div>
-                  <div className="media-studio-tabs" role="tablist" aria-label="选择媒体平台">
-                    {MEDIA_STUDIO_PLATFORMS.map((platform) => (
+                  <div className="media-studio-nav-groups">
+                    <div className="media-studio-primary-tabs" role="tablist" aria-label="选择内容类型">
                       <button
-                        key={platform.key}
                         type="button"
                         role="tab"
-                        aria-selected={activeMediaPlatform.key === platform.key}
-                        className={`media-studio-tab${activeMediaPlatform.key === platform.key ? ' is-active' : ''}`}
+                        aria-selected={activeMediaSection === 'text'}
+                        className={`media-studio-primary-tab${activeMediaSection === 'text' ? ' is-active' : ''}`}
                         onPointerEnter={() => {
-                          if (platform.editor === 'wechat' && WechatComposer.preload) WechatComposer.preload();
-                          if (platform.editor === 'writer' && AiNewsWriter.preload) AiNewsWriter.preload();
+                          if (WechatComposer.preload) WechatComposer.preload();
+                          if (AiNewsWriter.preload) AiNewsWriter.preload();
                         }}
                         onFocus={() => {
-                          if (platform.editor === 'wechat' && WechatComposer.preload) WechatComposer.preload();
-                          if (platform.editor === 'writer' && AiNewsWriter.preload) AiNewsWriter.preload();
+                          if (WechatComposer.preload) WechatComposer.preload();
+                          if (AiNewsWriter.preload) AiNewsWriter.preload();
                         }}
-                        onClick={() => handleNavigateMediaPlatform(platform)}
+                        onClick={() => handleNavigateMediaPlatform(activeMediaSection === 'text' ? activeMediaPlatform : DEFAULT_MEDIA_PLATFORM)}
                       >
-                        {platform.label}
+                        <span>文本内容</span>
                       </button>
-                    ))}
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={activeMediaSection === 'video'}
+                        className={`media-studio-primary-tab${activeMediaSection === 'video' ? ' is-active' : ''}`}
+                        onPointerEnter={() => { if (VideoEditor.preload) VideoEditor.preload(); }}
+                        onFocus={() => { if (VideoEditor.preload) VideoEditor.preload(); }}
+                        onClick={() => handleNavigateMediaPlatform(VIDEO_MEDIA_PLATFORM)}
+                      >
+                        <span>视频剪辑</span>
+                      </button>
+                    </div>
+                    {activeMediaSection === 'text' ? (
+                      <div className="media-studio-secondary-row">
+                        <span className="media-studio-secondary-label">文本类型</span>
+                        <div
+                          className="media-studio-secondary-tabs"
+                          role="tablist"
+                          aria-label="选择文本类型"
+                          style={{ '--media-studio-subtab-offset': `${activeTextPlatformIndex * 67}px` }}
+                        >
+                          <span className="media-studio-subtab-indicator" aria-hidden="true" />
+                          {TEXT_MEDIA_PLATFORMS.map((platform) => (
+                            <button
+                              key={platform.key}
+                              type="button"
+                              role="tab"
+                              aria-selected={activeMediaPlatform.key === platform.key}
+                              className={`media-studio-subtab${activeMediaPlatform.key === platform.key ? ' is-active' : ''}`}
+                              onPointerEnter={() => {
+                                if (platform.editor === 'wechat' && WechatComposer.preload) WechatComposer.preload();
+                                if (platform.editor === 'writer' && AiNewsWriter.preload) AiNewsWriter.preload();
+                              }}
+                              onFocus={() => {
+                                if (platform.editor === 'wechat' && WechatComposer.preload) WechatComposer.preload();
+                                if (platform.editor === 'writer' && AiNewsWriter.preload) AiNewsWriter.preload();
+                              }}
+                              onClick={() => handleNavigateMediaPlatform(platform)}
+                            >
+                              {platform.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 </nav>
                 <div className="media-studio-workspace">
                   {activeMediaPlatform.editor === 'wechat' ? (
                     <LazyPanel title="正在加载推文编辑台">
                       <WechatComposer />
+                    </LazyPanel>
+                  ) : activeMediaPlatform.editor === 'video' ? (
+                    <LazyPanel title="正在加载视频剪辑工作台">
+                      <VideoEditor />
                     </LazyPanel>
                   ) : (
                     <LazyPanel title={`正在加载${activeMediaPlatform.label}编辑台`}>
