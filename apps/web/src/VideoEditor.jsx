@@ -165,6 +165,7 @@ function normalizeProductionVideo(item, project) {
     createdAt: item.createdAt || '',
     aiScore: item.aiScore,
     aiQuality: item.aiQuality,
+    analysis: item.videoAnalysis || item.video_analysis || item.analysis || null,
     origin: 'production',
     remote: true,
     offline: !url,
@@ -988,15 +989,25 @@ function VideoEditor() {
   }, [clips, sources, uploadingCount, projectId, saveProject, aspectRatio]);
 
   const analyzeAllSources = React.useCallback(async () => {
-    const candidates = sources.filter((source) => source.assetId && !source.analysis);
-    if (!candidates.length) return Toast.info('可分析的素材已经处理完成');
+    const candidates = sources.filter((source) => source.assetId && (!source.analysis || Number(source.analysis.version) < 2));
+    if (!candidates.length) return Toast.info('可分析的素材已经完成全程语义理解');
     setAiBusy(true);
+    let completed = 0;
+    let failed = 0;
     try {
       for (const source of candidates) {
-        const response = await analyzeVideoAsset(source.assetId);
-        setSources((items) => items.map((item) => item.id === source.id ? { ...item, analysis: response.analysis } : item));
+        setSources((items) => items.map((item) => item.id === source.id ? { ...item, analysisState: 'running', analysisError: '' } : item));
+        try {
+          const response = await analyzeVideoAsset(source.assetId);
+          setSources((items) => items.map((item) => item.id === source.id ? { ...item, analysis: response.analysis, analysisState: 'done', analysisError: '' } : item));
+          completed += 1;
+        } catch (error) {
+          failed += 1;
+          setSources((items) => items.map((item) => item.id === source.id ? { ...item, analysisState: 'failed', analysisError: error.message || '全程分析失败' } : item));
+        }
       }
-      Toast.success(`已完成 ${candidates.length} 个素材的镜头与静音分析`);
+      if (completed) Toast.success(`已完成 ${completed} 个素材的全程语义理解${failed ? `，${failed} 个待重试` : ''}`);
+      else Toast.error('素材全程语义理解失败，请稍后重试');
     } catch (error) { Toast.error(error.message || '素材分析失败'); }
     finally { setAiBusy(false); }
   }, [sources]);
@@ -1252,7 +1263,7 @@ function VideoEditor() {
                 <span className="ve-media-meta">
                   <strong>{source.name}</strong>
                   {source.origin === 'production' ? <em>生产项目 · {source.productionProjectName}</em> : <em>本地上传</em>}
-                  <small>{source.offline ? '素材离线' : `${source.width || '-'}×${source.height || '-'} · ${source.analysis ? source.analysis.summary : '双击添加'}`}</small>
+                  <small>{source.offline ? '素材离线' : source.analysisState === 'running' ? '正在理解全片时间线…' : source.analysisState === 'failed' ? (source.analysisError || '全程分析失败') : source.analysis ? `${source.width || '-'}×${source.height || '-'} · ${source.analysis.coverage ? `全片 ${source.analysis.coverage.segmentCount || 0} 段 · ` : ''}${source.analysis.summary}` : '双击添加'}</small>
                 </span>
               </button>
             ))}
@@ -1422,7 +1433,7 @@ function VideoEditor() {
           <section className="ve-ai-card">
             <div className="ve-ai-title"><span>✦</span><div><strong>AI 导演</strong><small>自动编排与粗剪</small></div></div>
             {sourceProjects.length ? <div className="ve-ai-project-context"><span>项目上下文</span><strong>{sourceProjects.map(projectLabel).join('、')}</strong><small>AI 会结合项目名称、时间、标签和视频元数据进行跨项目编排</small></div> : null}
-            <button type="button" className="ve-analysis-run" onClick={analyzeAllSources} disabled={aiBusy || !sources.some((source) => source.assetId)}>分析镜头 / 静音</button>
+            <button type="button" className="ve-analysis-run" onClick={analyzeAllSources} disabled={aiBusy || !sources.some((source) => source.assetId)}>{aiBusy ? '正在理解全片…' : '全程语义理解'}</button>
             <div className="ve-caption-entry"><input value={captionDraft} onChange={(event) => setCaptionDraft(event.target.value)} placeholder={`在 ${formatTime(playhead)} 添加字幕`} /><button type="button" onClick={addCaptionAtPlayhead}>＋ 字幕</button></div>
             <label>剪辑目标<textarea rows="5" value={brief} onChange={(event) => setBrief(event.target.value)} /></label>
             <div className="ve-field-row">

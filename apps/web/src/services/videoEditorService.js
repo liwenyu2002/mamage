@@ -114,7 +114,9 @@ async function uploadVideoAsset(file, metadata = {}, { onProgress } = {}) {
 }
 
 async function analyzeVideoAsset(assetId) {
-  return videoRequest(`/video-projects/assets/${assetId}/analyze`, { method: 'POST', timeoutMs: 5 * 60 * 1000 });
+  // Full-duration temporal understanding samples and understands the whole
+  // timeline. A five-minute browser deadline is too short for longer sources.
+  return videoRequest(`/video-projects/assets/${assetId}/analyze`, { method: 'POST', timeoutMs: 30 * 60 * 1000 });
 }
 
 async function listVideoProjects() {
@@ -165,7 +167,7 @@ async function listProductionProjects({ page = 1, pageSize = 100, keyword = '' }
 async function listProductionProjectMedia(projectId, limit = 500) {
   const response = await request('/api/photos', {
     method: 'GET',
-    data: { projectId, limit },
+    data: { projectId, limit, includeVideoAnalysis: true },
     timeoutMs: 60000,
   });
   if (Array.isArray(response)) return response;
