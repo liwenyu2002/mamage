@@ -52,16 +52,25 @@ function isBlankClip(clip) {
   return Boolean(clip && clip.kind === 'blank');
 }
 
+function transitionOverlap(previous, clip) {
+  const transition = String(clip && clip.transition || '').toLowerCase();
+  if (!previous || !['dissolve', 'fade', 'flash'].includes(transition)) return 0;
+  const overlap = Math.min(0.35, clipDuration(previous) / 2, clipDuration(clip) / 2);
+  return overlap >= 0.08 ? overlap : 0;
+}
+
 function projectDuration(clips) {
-  return (Array.isArray(clips) ? clips : []).reduce((sum, clip) => sum + clipDuration(clip), 0);
+  const offsets = buildOffsets(clips);
+  return offsets.length ? offsets[offsets.length - 1].end : 0;
 }
 
 function buildOffsets(clips) {
   let cursor = 0;
-  return clips.map((clip) => {
+  return (Array.isArray(clips) ? clips : []).map((clip, index, list) => {
     const duration = clipDuration(clip);
-    const item = { clip, start: cursor, end: cursor + duration, duration };
-    cursor += duration;
+    const overlap = index ? transitionOverlap(list[index - 1], clip) : 0;
+    const item = { clip, start: Math.max(0, cursor - overlap), end: Math.max(0, cursor - overlap) + duration, duration, overlap };
+    cursor = item.end;
     return item;
   });
 }
@@ -192,7 +201,7 @@ function serializableProject(project) {
   const serializedSources = project.sources.map((source) => ({
     ...source,
     url: source.serverUrl || (source.url && !source.url.startsWith('blob:') ? source.url : ''),
-    offline: !(source.assetId || (source.url && !source.url.startsWith('blob:'))),
+    offline: !(source.assetId || source.productionPhotoId || (source.url && !source.url.startsWith('blob:'))),
   }));
   return {
     version: 2,
@@ -293,7 +302,12 @@ function VideoEditor() {
       setProjectId(saved.serverProjectId || null);
       setProjectName(saved.name || '未命名视频工程');
       setAspectRatio(saved.aspectRatio || '16:9');
-      setSources(Array.isArray(saved.sources) ? saved.sources.map((source) => ({ ...source, url: source.url || '', serverUrl: source.url || '', offline: !source.url })) : []);
+      setSources(Array.isArray(saved.sources) ? saved.sources.map((source) => ({
+        ...source,
+        url: source.url || '',
+        serverUrl: source.url || '',
+        offline: !(source.assetId || source.productionPhotoId || source.url),
+      })) : []);
       setClips(saved.clips);
       setAudioClips(Array.isArray(saved.audioClips) ? saved.audioClips : []);
       setCaptions(Array.isArray(saved.captions) ? saved.captions : []);
@@ -387,7 +401,7 @@ function VideoEditor() {
   const hasUnrenderableClips = React.useMemo(() => clips.some((clip) => {
     if (isBlankClip(clip)) return false;
     const source = sources.find((item) => item.id === clip.sourceId);
-    return !source || !source.assetId;
+    return !source || !(source.assetId || source.productionPhotoId);
   }), [clips, sources]);
   const selectedClip = React.useMemo(() => clips.find((clip) => clip.id === selectedClipId) || null, [clips, selectedClipId]);
   const activeInfo = React.useMemo(() => {
@@ -506,7 +520,13 @@ function VideoEditor() {
       setUploadingCount(list.length);
       Toast.success(`已导入 ${loaded.length} 个视频素材，正在上传以支持云端保存和导出`);
       loaded.forEach((localSource, index) => {
-        uploadVideoAsset(list[index]).then((response) => {
+        uploadVideoAsset(list[index], localSource, {
+          onProgress: (event) => setSources((previous) => previous.map((source) => source.id === localSource.id ? {
+            ...source,
+            uploadPhase: event.phase,
+            uploadProgress: event.total ? Math.round((event.loaded / event.total) * 100) : source.uploadProgress,
+          } : source)),
+        }).then((response) => {
           const asset = response.asset;
           setSources((previous) => previous.map((source) => source.id === localSource.id ? {
             ...source,
@@ -514,6 +534,8 @@ function VideoEditor() {
             serverUrl: asset.url,
             hasAudio: asset.hasAudio,
             offline: false,
+            uploadPhase: 'done',
+            uploadProgress: 100,
           } : source));
         }).catch((error) => {
           Toast.warning(`${localSource.name} 上传失败，仍可本地剪辑：${error.message || ''}`);
@@ -950,7 +972,7 @@ function VideoEditor() {
   const startRender = React.useCallback(async () => {
     if (!clips.length) return Toast.warning('时间线为空，无法导出');
     if (uploadingCount) return Toast.warning('素材仍在上传，请稍候');
-    const missing = sources.some((source) => clips.some((clip) => clip.sourceId === source.id) && !source.assetId);
+    const missing = sources.some((source) => clips.some((clip) => clip.sourceId === source.id) && !(source.assetId || source.productionPhotoId));
     if (missing) return Toast.warning('时间线上有素材尚未上传，无法用 FFmpeg 导出');
     setCloudBusy(true);
     try {
@@ -1150,7 +1172,7 @@ function VideoEditor() {
           <button type="button" onClick={redo} disabled={!future.length} title="重做">↷</button>
           <button type="button" onClick={() => saveProject()} disabled={cloudBusy}>{cloudBusy ? '处理中…' : '立即保存'}</button>
           <button type="button" onClick={exportEditDecisionList}>导出剪辑单</button>
-          <button type="button" className="is-export" onClick={startRender} disabled={cloudBusy || !clips.length || uploadingCount > 0 || hasUnrenderableClips} title={hasUnrenderableClips ? '生产项目素材当前只读；导出前请从本地上传对应源文件' : '使用本地 FFmpeg 渲染 MP4'}>FFmpeg 导出</button>
+          <button type="button" className="is-export" onClick={startRender} disabled={cloudBusy || !clips.length || uploadingCount > 0 || hasUnrenderableClips} title={hasUnrenderableClips ? '时间线上仍有未同步素材' : '使用本地 FFmpeg 渲染 MP4'}>FFmpeg 导出</button>
           <button type="button" className="is-primary" onClick={runAiRoughCut} disabled={aiBusy || !sources.length}>
             {aiBusy ? 'AI 正在编排…' : 'AI 自动粗剪'}
           </button>
@@ -1311,10 +1333,10 @@ function VideoEditor() {
                   {timelineDropIndex !== null ? (
                     <span
                       className="ve-drop-marker"
-                      style={{ left: offsets.slice(0, timelineDropIndex).reduce((sum, item) => sum + (item.duration * zoom), 0) }}
+                      style={{ left: ((timelineDropIndex >= offsets.length ? duration : (offsets[timelineDropIndex] || {}).start) || 0) * zoom }}
                     />
                   ) : null}
-                  {offsets.map((item) => {
+                  {offsets.map((item, index) => {
                     const source = sources.find((entry) => entry.id === item.clip.sourceId);
                     const blank = isBlankClip(item.clip);
                     const clipName = blank ? '留白' : (source ? source.name : '缺失素材');
@@ -1327,7 +1349,7 @@ function VideoEditor() {
                         data-clip-id={item.clip.id}
                         draggable={trimmingClipId !== item.clip.id}
                         className={`ve-clip${blank ? ' is-blank' : ''}${activeInfo && activeInfo.clip.id === item.clip.id ? ' is-active' : ''}${selectedClipId === item.clip.id ? ' is-selected' : ''}${draggedClipId === item.clip.id ? ' is-dragging' : ''}${trimmingClipId === item.clip.id ? ' is-trimming' : ''}`}
-                        style={{ width: item.duration * zoom }}
+                        style={{ width: item.duration * zoom, marginLeft: index ? -(item.overlap || 0) * zoom : 0 }}
                         onClick={(event) => {
                           event.stopPropagation();
                           const rect = event.currentTarget.getBoundingClientRect();

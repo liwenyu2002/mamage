@@ -462,6 +462,33 @@
   font-weight: 700;
 }
 
+.detail-timeline-section-selectall {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 3px;
+  margin: 0;
+  color: rgba(5, 8, 22, 0.82);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+}
+
+.detail-timeline-section-selectall input {
+  box-sizing: border-box;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: #050816;
+  cursor: pointer;
+}
+
+.detail-timeline-section-selectall span {
+  white-space: nowrap;
+}
+
 .detail-timeline-count {
   flex: 0 0 auto;
   color: rgba(5, 8, 22, 0.66);
@@ -1960,6 +1987,16 @@
   .detail-timeline-title em,
   .detail-timeline-count {
     font-size: 11px;
+  }
+
+  .detail-timeline-section-selectall {
+    gap: 2px;
+    font-size: 10px;
+  }
+
+  .detail-timeline-section-selectall input {
+    width: 13px;
+    height: 13px;
   }
 
   .detail-timeline-grid {
