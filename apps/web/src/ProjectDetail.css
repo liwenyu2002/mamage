@@ -6174,3 +6174,212 @@ body.mamage-viewer-open [data-transfer-station-root="1"] {
 .detail-timeline-section::after {
   top: 12px;
 }
+
+/* 视频查看器：总语义默认收起，展开后提供可跳转的全程时间线。 */
+.viewer-dock .viewer-info-card.has-video-semantic {
+  pointer-events: auto;
+  text-shadow: none;
+}
+
+.viewer-dock .viewer-info-card.has-video-semantic.is-expanded {
+  max-height: min(42vh, 500px);
+}
+
+.viewer-video-semantic {
+  color: #fff;
+}
+
+.viewer-video-semantic-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.viewer-video-semantic-title {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+}
+
+.viewer-video-semantic-title svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+}
+
+.viewer-video-semantic-title div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.viewer-video-semantic-title strong {
+  color: #fff;
+  font-size: 14px;
+  font-weight: 780;
+  line-height: 1.2;
+}
+
+.viewer-video-semantic-title span {
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.7);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.viewer-video-semantic-toggle {
+  flex: 0 0 auto;
+  min-height: 29px;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.viewer-video-semantic-toggle:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.viewer-video-semantic-pending {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 8px;
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.viewer-video-semantic-summary {
+  margin-top: 9px;
+  color: rgba(255, 255, 255, 0.94);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.5;
+}
+
+.viewer-video-semantic-tags {
+  margin-top: 9px;
+}
+
+.viewer-info-card.has-video-semantic .viewer-semantic-tag {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.viewer-video-semantic-details {
+  display: grid;
+  gap: 13px;
+  margin-top: 13px;
+  padding-top: 13px;
+  border-top: 1px solid rgba(255, 255, 255, 0.13);
+}
+
+.viewer-video-semantic-section {
+  margin: 0;
+}
+
+.viewer-video-semantic-section h4,
+.viewer-video-semantic-lists b,
+.viewer-video-semantic-facts b {
+  display: block;
+  margin: 0 0 5px;
+  color: rgba(255, 255, 255, 0.64);
+  font-size: 11px;
+  font-weight: 760;
+  line-height: 1.2;
+}
+
+.viewer-video-semantic-section p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.94);
+  font-size: 13px;
+  line-height: 1.62;
+  white-space: pre-wrap;
+}
+
+.viewer-video-semantic-facts,
+.viewer-video-semantic-lists,
+.viewer-video-semantic-lines {
+  display: grid;
+  gap: 7px;
+}
+
+.viewer-video-semantic-facts {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.viewer-video-semantic-facts span,
+.viewer-video-semantic-lists span,
+.viewer-video-semantic-lines span {
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.viewer-video-timeline {
+  display: grid;
+  gap: 5px;
+}
+
+.viewer-video-timeline button {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 9px;
+  width: 100%;
+  padding: 6px 0;
+  border: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: transparent;
+  color: #fff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.viewer-video-timeline button:last-child {
+  border-bottom: 0;
+}
+
+.viewer-video-timeline button:hover span {
+  color: #fff;
+}
+
+.viewer-video-timeline time {
+  color: rgba(255, 255, 255, 0.62);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.viewer-video-timeline span {
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.9);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+@media (max-width: 768px) {
+  .viewer-overlay--immersive .viewer-dock .viewer-info-card.has-video-semantic.is-expanded {
+    max-height: min(46dvh, 390px);
+  }
+
+  .viewer-video-semantic-facts {
+    grid-template-columns: 1fr;
+  }
+
+  .viewer-video-timeline button {
+    grid-template-columns: 80px minmax(0, 1fr);
+  }
+}

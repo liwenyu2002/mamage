@@ -62,6 +62,9 @@ const VIDEO_PLAYBACK_POLL_INITIAL_DELAY_MS = 2500;
 const VIDEO_PLAYBACK_POLL_INTERVAL_MS = 4000;
 // 转码队列并发=1，多个视频排队时单个可能等很久：给足 ~30 分钟
 const VIDEO_PLAYBACK_POLL_MAX_ATTEMPTS = 450;
+const VIDEO_SEMANTIC_POLL_INITIAL_DELAY_MS = 350;
+const VIDEO_SEMANTIC_POLL_INTERVAL_MS = 5000;
+const VIDEO_SEMANTIC_POLL_MAX_ATTEMPTS = 360;
 const AI_QUALITY_TAGS = ['AI recommended', 'AI medium', 'AI rejected'];
 const ACTIVE_ANALYSIS_STATUSES = new Set(['pending', 'queued', 'running', 'processing']);
 const GALLERY_INITIAL_RENDER_LIMIT = 96;
@@ -531,6 +534,45 @@ function normalizePhotoAiStatus(value) {
   return raw;
 }
 
+function parseVideoAnalysis(value) {
+  if (!value) return null;
+  if (typeof value === 'object' && !Array.isArray(value)) return value;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function getVideoSemanticAnalysis(meta) {
+  return parseVideoAnalysis(meta && (meta.videoAnalysis || meta.video_analysis || meta.temporalAnalysis || meta.temporal_analysis));
+}
+
+function getVideoSemanticGlobal(analysis) {
+  return analysis && analysis.global && typeof analysis.global === 'object' ? analysis.global : {};
+}
+
+function toVideoSemanticList(value, limit = 16) {
+  const values = Array.isArray(value) ? value : (value ? [value] : []);
+  const seen = new Set();
+  return values.map((item) => String(item || '').trim()).filter((item) => {
+    if (!item || seen.has(item)) return false;
+    seen.add(item);
+    return true;
+  }).slice(0, limit);
+}
+
+function formatVideoSemanticTime(value) {
+  const seconds = Math.max(0, Number(value) || 0);
+  const whole = Math.floor(seconds);
+  const hours = Math.floor(whole / 3600);
+  const minutes = Math.floor((whole % 3600) / 60);
+  const rest = whole % 60;
+  if (hours) return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(rest).padStart(2, '0')}`;
+  return `${String(minutes).padStart(2, '0')}:${String(rest).padStart(2, '0')}`;
+}
+
 function normalizePhotoForGallery(photo) {
   if (!photo || typeof photo !== 'object') return null;
   const id = getPhotoRecordId(photo);
@@ -859,6 +901,11 @@ function ProjectDetail({
   const [photoAnalysisPendingMap, setPhotoAnalysisPendingMap] = React.useState({});
   const analysisPollTimersRef = React.useRef({});
   const videoPlaybackPollTimersRef = React.useRef({});
+  const videoSemanticPollTimersRef = React.useRef({});
+  const viewerVideoRefs = React.useRef({});
+  const [viewerVideoAnalysisMap, setViewerVideoAnalysisMap] = React.useState({});
+  const [viewerVideoAnalysisLoadingMap, setViewerVideoAnalysisLoadingMap] = React.useState({});
+  const [viewerVideoAnalysisExpanded, setViewerVideoAnalysisExpanded] = React.useState(false);
   // AI selection mode toggle
   const [showAILabels, setShowAILabels] = React.useState(false);
   // AI quality labels (recommended/medium/rejected) indexed by photo ID
@@ -948,6 +995,10 @@ function ProjectDetail({
       try { clearTimeout(timer); } catch (e) { }
     });
     videoPlaybackPollTimersRef.current = {};
+    Object.values(videoSemanticPollTimersRef.current || {}).forEach((timer) => {
+      try { clearTimeout(timer); } catch (e) { }
+    });
+    videoSemanticPollTimersRef.current = {};
   }, []);
 
   React.useEffect(() => {
@@ -1556,6 +1607,16 @@ function ProjectDetail({
     delete videoPlaybackPollTimersRef.current[key];
   }, []);
 
+  const clearVideoSemanticPollTimer = React.useCallback((photoId) => {
+    const key = String(photoId || '').trim();
+    if (!key) return;
+    const timer = videoSemanticPollTimersRef.current[key];
+    if (timer) {
+      try { clearTimeout(timer); } catch (e) { }
+    }
+    delete videoSemanticPollTimersRef.current[key];
+  }, []);
+
   const mergePhotoAnalysisResult = React.useCallback((photo) => {
     const photoId = getPhotoRecordId(photo);
     if (!photoId) return false;
@@ -1659,6 +1720,50 @@ function ProjectDetail({
 
     analysisPollTimersRef.current[key] = setTimeout(poll, ANALYSIS_POLL_INITIAL_DELAY_MS);
   }, [clearAnalysisPollTimer, mergePhotoAnalysisResult]);
+
+  const mergeVideoSemanticResult = React.useCallback((photo) => {
+    const photoId = getPhotoRecordId(photo);
+    if (!photoId) return { analysis: null, pending: false };
+    const analysis = getVideoSemanticAnalysis(photo);
+    const semantic = extractPhotoSemantic(photo);
+    mergePhotoAnalysisResult(photo);
+    if (analysis) {
+      setViewerVideoAnalysisMap((prev) => ({ ...(prev || {}), [photoId]: analysis }));
+    }
+    return { analysis, pending: semantic.analysisPending };
+  }, [mergePhotoAnalysisResult]);
+
+  // 视频的总语义比缩略图标签晚得多；查看器独立轮询它，不能被已有标签提前判定为“已完成”。
+  const scheduleVideoSemanticPolling = React.useCallback((photoId) => {
+    const key = String(photoId || '').trim();
+    if (!key || videoSemanticPollTimersRef.current[key]) return;
+    setViewerVideoAnalysisLoadingMap((prev) => ({ ...(prev || {}), [key]: true }));
+
+    let attempts = 0;
+    const poll = async () => {
+      attempts += 1;
+      try {
+        const photo = await getPhotoById(key);
+        const result = mergeVideoSemanticResult(photo);
+        if (result.analysis || !result.pending) {
+          setViewerVideoAnalysisLoadingMap((prev) => ({ ...(prev || {}), [key]: false }));
+          clearVideoSemanticPollTimer(key);
+          return;
+        }
+      } catch (err) {
+        console.warn('[ProjectDetail] video semantic polling failed:', key, err);
+      }
+
+      if (attempts >= VIDEO_SEMANTIC_POLL_MAX_ATTEMPTS) {
+        setViewerVideoAnalysisLoadingMap((prev) => ({ ...(prev || {}), [key]: false }));
+        clearVideoSemanticPollTimer(key);
+        return;
+      }
+      videoSemanticPollTimersRef.current[key] = setTimeout(poll, VIDEO_SEMANTIC_POLL_INTERVAL_MS);
+    };
+
+    videoSemanticPollTimersRef.current[key] = setTimeout(poll, VIDEO_SEMANTIC_POLL_INITIAL_DELAY_MS);
+  }, [clearVideoSemanticPollTimer, mergeVideoSemanticResult]);
 
   const mergeVideoPlaybackResult = React.useCallback((photo) => {
     const photoId = getPhotoRecordId(photo);
@@ -3371,8 +3476,38 @@ function ProjectDetail({
     return sid || null;
   }, []);
 
-  const currentViewerPhotoId = React.useMemo(() => getMetaPhotoId(photoMetas?.[viewerIndex]), [photoMetas, viewerIndex, getMetaPhotoId]);
-  const currentViewerIsVideo = React.useMemo(() => isVideoMeta(photoMetas?.[viewerIndex]), [photoMetas, viewerIndex]);
+  const currentViewerMeta = React.useMemo(() => photoMetas?.[viewerIndex] || null, [photoMetas, viewerIndex]);
+  const currentViewerPhotoId = React.useMemo(() => getMetaPhotoId(currentViewerMeta), [currentViewerMeta, getMetaPhotoId]);
+  const currentViewerIsVideo = React.useMemo(() => isVideoMeta(currentViewerMeta), [currentViewerMeta]);
+  const currentViewerVideoAnalysis = React.useMemo(() => {
+    if (!currentViewerIsVideo || !currentViewerPhotoId) return null;
+    return viewerVideoAnalysisMap[currentViewerPhotoId] || getVideoSemanticAnalysis(currentViewerMeta);
+  }, [currentViewerIsVideo, currentViewerPhotoId, currentViewerMeta, viewerVideoAnalysisMap]);
+  const currentViewerVideoAnalysisLoading = Boolean(
+    currentViewerPhotoId && viewerVideoAnalysisLoadingMap[currentViewerPhotoId] && !currentViewerVideoAnalysis
+  );
+
+  React.useEffect(() => {
+    setViewerVideoAnalysisExpanded(false);
+  }, [currentViewerPhotoId, viewerVisible]);
+
+  React.useEffect(() => {
+    if (!viewerVisible || !currentViewerIsVideo || !currentViewerPhotoId || currentViewerVideoAnalysis) return;
+    scheduleVideoSemanticPolling(currentViewerPhotoId);
+  }, [currentViewerIsVideo, currentViewerPhotoId, currentViewerVideoAnalysis, scheduleVideoSemanticPolling, viewerVisible]);
+
+  const seekViewerVideo = React.useCallback((seconds) => {
+    const video = currentViewerPhotoId ? viewerVideoRefs.current[currentViewerPhotoId] : null;
+    if (!video) return;
+    const target = Math.max(0, Number(seconds) || 0);
+    try {
+      video.currentTime = target;
+      const playback = video.play();
+      if (playback && typeof playback.catch === 'function') playback.catch(() => null);
+    } catch (e) {
+      // 某些浏览器在元数据尚未就绪时会拒绝 seek；用户可直接拖动进度条。
+    }
+  }, [currentViewerPhotoId]);
 
   // 校园网 HTTP 入口拿到的是对象存储的短时签名 URL：视频播放和查看原图不再绕行 Mac mini。
   // 公网 HTTPS / 非白名单入口会无感回退到原有的受鉴权媒体代理。
@@ -6239,6 +6374,11 @@ function ProjectDetail({
                                 {isSlideVideo ? (
                                   slideSrc ? (
                                     <video
+                                      ref={(node) => {
+                                        if (!slidePhotoId) return;
+                                        if (node) viewerVideoRefs.current[slidePhotoId] = node;
+                                        else delete viewerVideoRefs.current[slidePhotoId];
+                                      }}
                                       src={slideSrc}
                                       className="viewer-carousel-img viewer-carousel-video"
                                       controls
@@ -6392,16 +6532,35 @@ function ProjectDetail({
               {/* 底部信息+操作坞：语义信息卡 + 一条图标操作栏，全部集中在此 */}
               <div className="viewer-dock" onClick={(e) => e.stopPropagation()}>
                 {photoMetas && photoMetas[viewerIndex] ? (() => {
-                       const state = getPhotoSemanticState(photoMetas[viewerIndex] || {});
+                       const meta = photoMetas[viewerIndex] || {};
+                       const state = getPhotoSemanticState(meta);
                        const { description, tags, pending } = state;
                        const hasDesc = !!description;
                        const hasTags = tags.length > 0;
-                       const hasVerdict = !!getPhotoAiQuality(photoMetas[viewerIndex]);
-                       if (!hasDesc && !hasTags && !pending && !viewerEditVisible && !hasVerdict) return null;
+                       const hasVerdict = !!getPhotoAiQuality(meta);
+                       const videoAnalysis = currentViewerIsVideo ? currentViewerVideoAnalysis : null;
+                       const videoGlobal = getVideoSemanticGlobal(videoAnalysis);
+                       const videoTotalSemantic = String(videoGlobal.totalSemantic || videoAnalysis?.totalSemantic || videoAnalysis?.detailedSummary || '').trim();
+                       const videoSummary = String(videoGlobal.description || videoGlobal.summary || videoAnalysis?.summary || description || '').trim();
+                       const videoTags = toVideoSemanticList([...(Array.isArray(videoGlobal.tags) ? videoGlobal.tags : []), ...tags], 18);
+                       const videoEntities = toVideoSemanticList(videoGlobal.keyEntities || videoGlobal.entities || videoGlobal.keyObjects, 12);
+                       const videoVisibleText = toVideoSemanticList(videoGlobal.visibleText, 12);
+                       const videoSearchTerms = toVideoSemanticList(videoGlobal.searchTerms, 16);
+                       const videoNarrative = toVideoSemanticList(videoGlobal.narrative, 8);
+                       const videoKeyMoments = (Array.isArray(videoGlobal.keyMoments) ? videoGlobal.keyMoments : [])
+                         .filter((item) => item && typeof item === 'object')
+                         .slice(0, 8);
+                       const videoSegments = (Array.isArray(videoAnalysis?.segments) ? videoAnalysis.segments : [])
+                         .filter((item) => item && typeof item === 'object')
+                         .slice(0, 24);
+                       const videoCoverage = videoAnalysis?.coverage || {};
+                       const videoDuration = Number(videoCoverage.duration || videoCoverage.end || 0);
+                       const videoPending = currentViewerIsVideo && !videoAnalysis && (pending || currentViewerVideoAnalysisLoading);
+                       if (!hasDesc && !hasTags && !pending && !viewerEditVisible && !hasVerdict && !videoAnalysis && !videoPending) return null;
                        return (
                          <div
-                           className={`viewer-info-card${viewerEditVisible ? ' is-editing' : ''}`}
-                          onClick={viewerEditVisible ? (e) => e.stopPropagation() : undefined}
+                           className={`viewer-info-card${viewerEditVisible ? ' is-editing' : ''}${currentViewerIsVideo ? ' has-video-semantic' : ''}${currentViewerIsVideo && viewerVideoAnalysisExpanded ? ' is-expanded' : ''}`}
+                          onClick={viewerEditVisible || currentViewerIsVideo ? (e) => e.stopPropagation() : undefined}
                         >
                           {viewerEditVisible ? (
                             <div className="viewer-edit-panel">
@@ -6428,6 +6587,107 @@ function ProjectDetail({
                                 </div>
                               </div>
                             </div>
+                           ) : currentViewerIsVideo ? (
+                             <div className="viewer-video-semantic">
+                               <div className="viewer-video-semantic-head">
+                                 <div className="viewer-video-semantic-title">
+                                   <IconSparkleAI />
+                                   <div>
+                                     <strong>全片理解</strong>
+                                     <span>
+                                       {videoAnalysis
+                                         ? `已覆盖 ${videoDuration ? formatVideoSemanticTime(videoDuration) : '全片'}${videoCoverage.segmentCount ? ` · ${videoCoverage.segmentCount} 个时段` : ''}`
+                                         : (videoPending ? '正在抽样理解全片' : '尚未生成全片时间线')}
+                                     </span>
+                                   </div>
+                                 </div>
+                                 {videoAnalysis ? (
+                                   <button
+                                     type="button"
+                                     className="viewer-video-semantic-toggle"
+                                     onClick={(e) => { e.stopPropagation(); setViewerVideoAnalysisExpanded((value) => !value); }}
+                                   >
+                                     {viewerVideoAnalysisExpanded ? '收起' : '展开'}
+                                   </button>
+                                 ) : null}
+                               </div>
+                               {videoPending ? (
+                                 <div className="viewer-video-semantic-pending">
+                                   <span className="detail-analysis-dot" />
+                                   正在理解全片，结果完成后会自动显示
+                                 </div>
+                               ) : null}
+                               {videoAnalysis ? (
+                                 <>
+                                   {videoSummary ? <div className="viewer-video-semantic-summary">{videoSummary}</div> : null}
+                                   {videoTags.length ? (
+                                     <div className="viewer-semantic-tags viewer-video-semantic-tags">
+                                       {videoTags.map((tag) => <span key={tag} className="viewer-semantic-tag">{tag}</span>)}
+                                     </div>
+                                   ) : null}
+                                   {viewerVideoAnalysisExpanded ? (
+                                     <div className="viewer-video-semantic-details">
+                                       {videoTotalSemantic ? (
+                                         <section className="viewer-video-semantic-section">
+                                           <h4>总语义</h4>
+                                           <p>{videoTotalSemantic}</p>
+                                         </section>
+                                       ) : null}
+                                       {(videoGlobal.event || videoGlobal.setting) ? (
+                                         <div className="viewer-video-semantic-facts">
+                                           {videoGlobal.event ? <span><b>活动</b>{videoGlobal.event}</span> : null}
+                                           {videoGlobal.setting ? <span><b>场景</b>{videoGlobal.setting}</span> : null}
+                                         </div>
+                                       ) : null}
+                                       {videoKeyMoments.length ? (
+                                         <section className="viewer-video-semantic-section">
+                                           <h4>重点片段</h4>
+                                           <div className="viewer-video-timeline">
+                                             {videoKeyMoments.map((moment, index) => (
+                                               <button type="button" key={`${moment.start || 0}-${index}`} onClick={(e) => { e.stopPropagation(); seekViewerVideo(moment.start); }}>
+                                                 <time>{formatVideoSemanticTime(moment.start)} - {formatVideoSemanticTime(moment.end)}</time>
+                                                 <span>{moment.summary || moment.reason || `第 ${index + 1} 个重点片段`}</span>
+                                               </button>
+                                             ))}
+                                           </div>
+                                         </section>
+                                       ) : null}
+                                       {videoSegments.length ? (
+                                         <section className="viewer-video-semantic-section">
+                                           <h4>全程时间线</h4>
+                                           <div className="viewer-video-timeline viewer-video-timeline--full">
+                                             {videoSegments.map((segment, index) => (
+                                               <button type="button" key={`${segment.start || 0}-${segment.end || 0}-${index}`} onClick={(e) => { e.stopPropagation(); seekViewerVideo(segment.start); }}>
+                                                 <time>{formatVideoSemanticTime(segment.start)} - {formatVideoSemanticTime(segment.end)}</time>
+                                                 <span>{segment.summary || segment.eventStage || `第 ${index + 1} 段`}</span>
+                                               </button>
+                                             ))}
+                                           </div>
+                                         </section>
+                                       ) : null}
+                                       {videoNarrative.length ? (
+                                         <section className="viewer-video-semantic-section">
+                                           <h4>叙事索引</h4>
+                                           <div className="viewer-video-semantic-lines">{videoNarrative.map((line, index) => <span key={`${line}-${index}`}>{line}</span>)}</div>
+                                         </section>
+                                       ) : null}
+                                       {(videoEntities.length || videoVisibleText.length || videoSearchTerms.length) ? (
+                                         <div className="viewer-video-semantic-lists">
+                                           {videoEntities.length ? <div><b>人物与物件</b><span>{videoEntities.join(' · ')}</span></div> : null}
+                                           {videoVisibleText.length ? <div><b>画面文字</b><span>{videoVisibleText.join(' · ')}</span></div> : null}
+                                           {videoSearchTerms.length ? <div><b>检索词</b><span>{videoSearchTerms.join(' · ')}</span></div> : null}
+                                         </div>
+                                       ) : null}
+                                     </div>
+                                   ) : null}
+                                 </>
+                               ) : (
+                                 <>
+                                   {hasDesc ? <div className="viewer-description">{description}</div> : null}
+                                   {hasTags ? <div className="viewer-semantic-tags">{tags.map((tag, index) => <span key={index} className="viewer-semantic-tag">{tag}</span>)}</div> : null}
+                                 </>
+                               )}
+                             </div>
                            ) : (
                              <div className="viewer-semantic-panel">
                                {pending && !hasDesc && !hasTags && (
