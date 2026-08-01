@@ -6298,6 +6298,60 @@ body.mamage-viewer-open [data-transfer-station-root="1"] {
   line-height: 1.2;
 }
 
+.viewer-video-transcript-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.viewer-video-transcript-head h4 {
+  margin-bottom: 5px;
+}
+
+.viewer-video-transcript-head span {
+  flex: 0 0 auto;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.viewer-video-transcript-list button {
+  align-items: start;
+}
+
+.viewer-video-transcript-list button span {
+  display: -webkit-box;
+  overflow: hidden;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.viewer-video-transcript-toggle {
+  margin-top: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.viewer-video-transcript-toggle:hover {
+  color: #fff;
+}
+
+.viewer-video-transcript-empty {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .viewer-video-semantic-section p {
   margin: 0;
   color: rgba(255, 255, 255, 0.94);

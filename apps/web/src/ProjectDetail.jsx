@@ -553,6 +553,23 @@ function getVideoSemanticGlobal(analysis) {
   return analysis && analysis.global && typeof analysis.global === 'object' ? analysis.global : {};
 }
 
+function getVideoTranscript(analysis) {
+  if (!analysis || typeof analysis !== 'object') return null;
+  const raw = analysis.transcript || (analysis.audio && analysis.audio.transcript);
+  return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : null;
+}
+
+function getVideoTranscriptSegments(transcript, limit = 4000) {
+  return (Array.isArray(transcript && transcript.segments) ? transcript.segments : [])
+    .filter((item) => item && typeof item === 'object' && String(item.text || '').trim())
+    .map((item) => ({
+      start: Math.max(0, Number(item.start) || 0),
+      end: Math.max(0, Number(item.end) || Number(item.start) || 0),
+      text: String(item.text || '').trim(),
+    }))
+    .slice(0, limit);
+}
+
 function toVideoSemanticList(value, limit = 16) {
   const values = Array.isArray(value) ? value : (value ? [value] : []);
   const seen = new Set();
@@ -906,6 +923,7 @@ function ProjectDetail({
   const [viewerVideoAnalysisMap, setViewerVideoAnalysisMap] = React.useState({});
   const [viewerVideoAnalysisLoadingMap, setViewerVideoAnalysisLoadingMap] = React.useState({});
   const [viewerVideoAnalysisExpanded, setViewerVideoAnalysisExpanded] = React.useState(false);
+  const [viewerVideoTranscriptExpanded, setViewerVideoTranscriptExpanded] = React.useState(false);
   // AI selection mode toggle
   const [showAILabels, setShowAILabels] = React.useState(false);
   // AI quality labels (recommended/medium/rejected) indexed by photo ID
@@ -3489,6 +3507,7 @@ function ProjectDetail({
 
   React.useEffect(() => {
     setViewerVideoAnalysisExpanded(false);
+    setViewerVideoTranscriptExpanded(false);
   }, [currentViewerPhotoId, viewerVisible]);
 
   React.useEffect(() => {
@@ -6553,6 +6572,26 @@ function ProjectDetail({
                        const videoSegments = (Array.isArray(videoAnalysis?.segments) ? videoAnalysis.segments : [])
                          .filter((item) => item && typeof item === 'object')
                          .slice(0, 24);
+                       const videoTranscript = getVideoTranscript(videoAnalysis);
+                       const videoTranscriptStatus = String(videoTranscript?.status || '').toLowerCase();
+                       const videoTranscriptSegments = getVideoTranscriptSegments(videoTranscript);
+                       const shownVideoTranscriptSegments = viewerVideoTranscriptExpanded
+                         ? videoTranscriptSegments
+                         : videoTranscriptSegments.slice(0, 8);
+                       const videoTranscriptCoverage = Number(videoTranscript?.coverage?.duration || videoTranscript?.coverage?.end || 0);
+                       const videoTranscriptStatusText = videoTranscriptStatus === 'done'
+                         ? '已完成转写'
+                         : videoTranscriptStatus === 'partial'
+                           ? `已转写前 ${formatVideoSemanticTime(videoTranscriptCoverage)}`
+                           : videoTranscriptStatus === 'no-speech'
+                             ? '未检测到可转写语音'
+                             : videoTranscriptStatus === 'failed'
+                               ? '转写暂未完成'
+                               : videoTranscriptStatus === 'unavailable'
+                                 ? '该视频没有可用音轨'
+                                 : videoTranscriptStatus === 'disabled'
+                                   ? '未启用声音转写'
+                                   : '声音转写准备中';
                        const videoCoverage = videoAnalysis?.coverage || {};
                        const videoDuration = Number(videoCoverage.duration || videoCoverage.end || 0);
                        const videoPending = currentViewerIsVideo && !videoAnalysis && (pending || currentViewerVideoAnalysisLoading);
@@ -6663,6 +6702,37 @@ function ProjectDetail({
                                                </button>
                                              ))}
                                            </div>
+                                         </section>
+                                       ) : null}
+                                       {videoTranscript ? (
+                                         <section className="viewer-video-semantic-section viewer-video-transcript-section">
+                                           <div className="viewer-video-transcript-head">
+                                             <h4>声音转文字</h4>
+                                             <span>{videoTranscriptStatusText}</span>
+                                           </div>
+                                           {videoTranscriptSegments.length ? (
+                                             <>
+                                               <div className="viewer-video-timeline viewer-video-transcript-list">
+                                                 {shownVideoTranscriptSegments.map((segment, index) => (
+                                                   <button type="button" key={`${segment.start}-${segment.end}-${index}`} onClick={(e) => { e.stopPropagation(); seekViewerVideo(segment.start); }}>
+                                                     <time>{formatVideoSemanticTime(segment.start)} - {formatVideoSemanticTime(segment.end)}</time>
+                                                     <span>{segment.text}</span>
+                                                   </button>
+                                                 ))}
+                                               </div>
+                                               {videoTranscriptSegments.length > 8 ? (
+                                                 <button
+                                                   type="button"
+                                                   className="viewer-video-transcript-toggle"
+                                                   onClick={(e) => { e.stopPropagation(); setViewerVideoTranscriptExpanded((value) => !value); }}
+                                                 >
+                                                   {viewerVideoTranscriptExpanded ? '收起转写' : `查看完整转写（${videoTranscriptSegments.length} 段）`}
+                                                 </button>
+                                               ) : null}
+                                             </>
+                                           ) : (
+                                             <p className="viewer-video-transcript-empty">{videoTranscriptStatusText}</p>
+                                           )}
                                          </section>
                                        ) : null}
                                        {videoNarrative.length ? (
