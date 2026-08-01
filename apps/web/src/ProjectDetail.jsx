@@ -570,6 +570,11 @@ function getVideoTranscriptSegments(transcript, limit = 4000) {
     .slice(0, limit);
 }
 
+function isVideoTranscriptFinal(analysis) {
+  const status = String(getVideoTranscript(analysis)?.status || '').trim().toLowerCase();
+  return ['done', 'partial', 'no-speech', 'unavailable', 'disabled', 'failed'].includes(status);
+}
+
 function toVideoSemanticList(value, limit = 16) {
   const values = Array.isArray(value) ? value : (value ? [value] : []);
   const seen = new Set();
@@ -1763,7 +1768,8 @@ function ProjectDetail({
       try {
         const photo = await getPhotoById(key);
         const result = mergeVideoSemanticResult(photo);
-        if (result.analysis || !result.pending) {
+        const transcriptReady = result.analysis && isVideoTranscriptFinal(result.analysis);
+        if ((!result.analysis && !result.pending) || transcriptReady) {
           setViewerVideoAnalysisLoadingMap((prev) => ({ ...(prev || {}), [key]: false }));
           clearVideoSemanticPollTimer(key);
           return;
@@ -3511,7 +3517,8 @@ function ProjectDetail({
   }, [currentViewerPhotoId, viewerVisible]);
 
   React.useEffect(() => {
-    if (!viewerVisible || !currentViewerIsVideo || !currentViewerPhotoId || currentViewerVideoAnalysis) return;
+    if (!viewerVisible || !currentViewerIsVideo || !currentViewerPhotoId) return;
+    if (currentViewerVideoAnalysis && isVideoTranscriptFinal(currentViewerVideoAnalysis)) return;
     scheduleVideoSemanticPolling(currentViewerPhotoId);
   }, [currentViewerIsVideo, currentViewerPhotoId, currentViewerVideoAnalysis, scheduleVideoSemanticPolling, viewerVisible]);
 
