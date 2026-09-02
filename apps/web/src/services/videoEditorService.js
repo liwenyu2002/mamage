@@ -1,10 +1,11 @@
 import { request } from './request';
+import { MAX_VIDEO_UPLOAD_BYTES, MAX_VIDEO_UPLOAD_TEXT, MAX_VIDEO_API_FALLBACK_BYTES } from '../constants/videoUpload';
 
 // 生产版与图库共用同一套后端和当前登录用户的 JWT。
 // 不再使用双后端联调阶段的独立视频入口、媒体代理或共享开发密钥。
 const VIDEO_API = '/api';
 const videoRequest = (path, options) => request(`${VIDEO_API}${path}`, options);
-const MAX_EDITOR_VIDEO_BYTES = 3 * 1024 * 1024 * 1024;
+const MAX_EDITOR_VIDEO_BYTES = MAX_VIDEO_UPLOAD_BYTES;
 
 async function requestRoughCut(payload) {
   return videoRequest('/ai/video/rough-cut', { method: 'POST', data: payload, timeoutMs: 120000 });
@@ -68,14 +69,15 @@ async function abortDirectVideoAsset(sessionId) {
   }
 }
 
-function shouldFallbackToServer(error) {
+function shouldFallbackToServer(error, file) {
+  if (Number(file && file.size) > MAX_VIDEO_API_FALLBACK_BYTES) return false;
   return !error || ![401, 403, 413, 415].includes(Number(error.status));
 }
 
 async function uploadVideoAsset(file, metadata = {}, { onProgress } = {}) {
   if (!file) throw new Error('请选择视频文件');
   if (Number(file.size) > MAX_EDITOR_VIDEO_BYTES) {
-    const error = new Error('视频不能超过 3GB');
+    const error = new Error(`视频不能超过 ${MAX_VIDEO_UPLOAD_TEXT}`);
     error.status = 413;
     throw error;
   }
@@ -102,7 +104,12 @@ async function uploadVideoAsset(file, metadata = {}, { onProgress } = {}) {
     return result;
   } catch (error) {
     await abortDirectVideoAsset(sessionId);
-    if (!shouldFallbackToServer(error)) throw error;
+    if (!shouldFallbackToServer(error, file)) {
+      if (Number(file.size) > MAX_VIDEO_API_FALLBACK_BYTES && !error.userMessage) {
+        error.userMessage = '超过 5GB 的视频必须直传对象存储，请检查网络或稍后重试';
+      }
+      throw error;
+    }
   }
 
   const form = new FormData();

@@ -27,7 +27,7 @@ import {
 import './ProjectDetail.css';
 import { getProjectById, updateProject, deleteProject, createTimelineSection, updateTimelineSection, deleteTimelineSection, reorderTimelineSections } from './services/projectService';
 import { getToken } from './services/authService';
-import { fetchRandomByProject, searchPhotos, getPhotoById, updatePhoto, assignPhotosTimelineSection, getFacePersonInfo, labelFacePerson, renameFacePerson, uploadPhotoFiles, warmUploadApiProbe, deletePhotos, getPhotoFaces, getUploadFileLimitError, runGroupRescueJob, isBrowserUndisplayableImage, isNeverBrowserPreviewable, undisplayableFormatLabel } from './services/photoService';
+import { fetchRandomByProject, searchPhotos, getPhotoById, updatePhoto, assignPhotosTimelineSection, getFacePersonInfo, labelFacePerson, renameFacePerson, uploadPhotoFiles, warmUploadApiProbe, deletePhotos, getPhotoFaces, getUploadFileLimitError, FRONTEND_MAX_VIDEO_UPLOAD_TEXT, runGroupRescueJob, isBrowserUndisplayableImage, isNeverBrowserPreviewable, undisplayableFormatLabel } from './services/photoService';
 import { resolveAssetUrl, BASE_URL } from './services/request';
 import { getDirectMediaUrl } from './services/directStorage';
 import FindMeModal from './FindMeModal';
@@ -2046,7 +2046,7 @@ function ProjectDetail({
       acceptedList.push(file);
     });
     if (oversizedCount) {
-      Toast.warning(`已跳过 ${oversizedCount} 个超过 3GB 的视频`);
+      Toast.warning(`已跳过 ${oversizedCount} 个超过 ${FRONTEND_MAX_VIDEO_UPLOAD_TEXT} 的视频`);
     }
     if (!acceptedList.length) return;
     const fallbackSection = uploadTimelineSections.find((section) => section && section.id);

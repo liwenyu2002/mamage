@@ -1,6 +1,7 @@
 // src/services/photoService.js
 import { request, BASE_URL } from './request';
 import { fetchLatestByType, fetchRandomByProject, searchPhotos } from './photoQueryService';
+import { MAX_VIDEO_UPLOAD_BYTES, MAX_VIDEO_UPLOAD_TEXT, MAX_VIDEO_API_FALLBACK_BYTES } from '../constants/videoUpload';
 
 // 默认串行(并发 1，原 4)：公网经 cloudflared 慢隧道(~0.37MB/s)上传，多张并发会把带宽切分，
 // 单张大图耗时轻松超过 Cloudflare 源站 100s 上限触发 524。串行让每张都独享全部隧道带宽——
@@ -9,7 +10,8 @@ import { fetchLatestByType, fetchRandomByProject, searchPhotos } from './photoQu
 const DEFAULT_UPLOAD_CONCURRENCY = Math.max(1, Number(
   (typeof window !== 'undefined' && window.__MAMAGE_UPLOAD_CONCURRENCY__) || 1
 ));
-const FRONTEND_MAX_VIDEO_UPLOAD_BYTES = 3 * 1024 * 1024 * 1024;
+const FRONTEND_MAX_VIDEO_UPLOAD_BYTES = MAX_VIDEO_UPLOAD_BYTES;
+const FRONTEND_MAX_VIDEO_UPLOAD_TEXT = MAX_VIDEO_UPLOAD_TEXT;
 const DEFAULT_LAN_UPLOAD_API_BASES = [];
 const UPLOAD_PROBE_TIMEOUT_MS = Math.max(250, Number(
   (typeof window !== 'undefined' && window.__MAMAGE_UPLOAD_PROBE_TIMEOUT_MS__) || 800
@@ -38,7 +40,7 @@ function isVideoFile(file) {
 
 function getUploadFileLimitError(file) {
   if (isVideoFile(file) && Number(file && file.size) > FRONTEND_MAX_VIDEO_UPLOAD_BYTES) {
-    const maxText = '3GB';
+    const maxText = MAX_VIDEO_UPLOAD_TEXT;
     const err = new Error(`视频不能超过 ${maxText}`);
     err.code = 'FRONTEND_VIDEO_TOO_LARGE';
     err.status = 413;
@@ -924,6 +926,7 @@ async function uploadViaVideoApi(formData, { onProgress, file, uploadApiBase = '
 }
 
 const DIRECT_VIDEO_UPLOAD_CONCURRENCY = 3;
+const DIRECT_VIDEO_PART_URL_BATCH = 12;
 
 async function abortDirectVideoUpload(sessionId, uploadApiBase = '') {
   if (!sessionId) return;
@@ -979,11 +982,7 @@ async function uploadViaDirectVideo(file, fields, { onProgress, uploadApiBase = 
     emitUploadProgress(onProgress, { file, phase: 'uploading', loaded: Math.min(file.size || loaded, loaded), total: file.size || 0 });
   };
 
-  const uploadPart = async (partNumber) => {
-    const urlData = await requestUploadJson('/api/upload/video/direct/parts', {
-      method: 'POST', data: { sessionId, partNumbers: [partNumber] },
-    }, uploadApiBase);
-    const target = urlData && Array.isArray(urlData.parts) ? urlData.parts[0] : null;
+  const uploadPart = async (partNumber, target) => {
     if (!target || !target.uploadUrl) throw new Error('DIRECT_VIDEO_PART_URL_MISSING');
     const start = (partNumber - 1) * partSize;
     const body = file.slice(start, Math.min(file.size, start + partSize));
@@ -1010,9 +1009,24 @@ async function uploadViaDirectVideo(file, fields, { onProgress, uploadApiBase = 
   try {
     const workers = Array.from({ length: Math.min(DIRECT_VIDEO_UPLOAD_CONCURRENCY, partCount) }, async () => {
       while (nextPartNumber <= partCount) {
-        const partNumber = nextPartNumber;
-        nextPartNumber += 1;
-        await uploadPart(partNumber);
+        const batch = [];
+        while (batch.length < DIRECT_VIDEO_PART_URL_BATCH && nextPartNumber <= partCount) {
+          batch.push(nextPartNumber);
+          nextPartNumber += 1;
+        }
+        const urlData = await requestUploadJson('/api/upload/video/direct/parts', {
+          method: 'POST', data: { sessionId, partNumbers: batch },
+        }, uploadApiBase);
+        const targets = new Map(
+          (urlData && Array.isArray(urlData.parts) ? urlData.parts : [])
+            .map((target) => [Number(target && target.partNumber), target])
+        );
+        if (batch.some((partNumber) => !targets.has(partNumber))) {
+          throw new Error('DIRECT_VIDEO_PART_URL_MISSING');
+        }
+        // 每个 worker 只负责一个批次，保持总并发为 DIRECT_VIDEO_UPLOAD_CONCURRENCY，
+        // 同时把 100GB 文件的签名请求从数千次降到数百次。
+        for (const partNumber of batch) await uploadPart(partNumber, targets.get(partNumber));
       }
     });
     await Promise.all(workers);
@@ -1029,8 +1043,10 @@ async function uploadViaDirectVideo(file, fields, { onProgress, uploadApiBase = 
   }
 }
 
-function shouldFallbackToApi(err) {
+function shouldFallbackToApi(err, file) {
   if (!err) return true;
+  // 大于 5GB 的文件不能落 Mac Mini 临时盘，直传失败时直接报错并清理会话。
+  if (Number(file && file.size) > MAX_VIDEO_API_FALLBACK_BYTES) return false;
   if (err.status === 413 || err.status === 415) return false;
   if (err.status === 401 || err.status === 403) return false;
   return true;
@@ -1065,10 +1081,15 @@ async function uploadPhotos(formDataOrObj, { onProgress } = {}) {
         if (isDirectUploadUnavailable(directErr)) {
           if (typeof window !== 'undefined') window.__MAMAGE_DISABLE_DIRECT_UPLOAD__ = true;
         } else {
-          // 分片直传失败时保留原视频接口作兼容兜底，避免用户卡在无法上传的状态。
+          // 5GB 以内保留原视频接口作兼容兜底；更大的文件必须留在对象存储直传链路。
           console.warn('[photoService] direct video upload failed, fallback to API upload:', directErr);
         }
-        if (!shouldFallbackToApi(directErr)) throw directErr;
+        if (!shouldFallbackToApi(directErr, file)) {
+          if (Number(file && file.size) > MAX_VIDEO_API_FALLBACK_BYTES && !directErr.userMessage) {
+            directErr.userMessage = '超过 5GB 的视频必须直传对象存储，请检查网络或稍后重试';
+          }
+          throw directErr;
+        }
         emitUploadProgress(onProgress, { file, phase: 'fallback', loaded: 0, total: file && file.size ? file.size : 0 });
         return await uploadViaVideoApi(formData, { onProgress, file, uploadApiBase });
       }
@@ -1304,6 +1325,7 @@ export {
   getFaceClusterConfig,
   updateFaceClusterConfig,
   FRONTEND_MAX_VIDEO_UPLOAD_BYTES,
+  FRONTEND_MAX_VIDEO_UPLOAD_TEXT,
   getUploadFileLimitError,
   uploadPhotos,
   uploadPhotoFiles,

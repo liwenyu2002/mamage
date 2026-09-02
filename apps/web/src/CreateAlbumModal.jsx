@@ -2,7 +2,7 @@
 import { Modal, Input, TextArea, DatePicker, DateTimePicker, Toast } from './ui';
 import { sectionTimeToInputValue, inputValueToSectionTime } from './utils/sectionTime';
 import './CreateAlbumModal.css';
-import { getUploadFileLimitError, uploadPhotoFiles, isBrowserUndisplayableImage, isNeverBrowserPreviewable, undisplayableFormatLabel } from './services/photoService';
+import { getUploadFileLimitError, FRONTEND_MAX_VIDEO_UPLOAD_TEXT, uploadPhotoFiles, isBrowserUndisplayableImage, isNeverBrowserPreviewable, undisplayableFormatLabel } from './services/photoService';
 import { getProjectById } from './services/projectService';
 import { getPermissions } from './permissions/permissionStore';
 import {
@@ -225,7 +225,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
       acceptedIncoming.push(file);
     });
     if (oversizedCount > 0) {
-      try { Toast.warning(`已跳过 ${oversizedCount} 个超过 3GB 的视频`); } catch (e) {}
+      try { Toast.warning(`已跳过 ${oversizedCount} 个超过 ${FRONTEND_MAX_VIDEO_UPLOAD_TEXT} 的视频`); } catch (e) {}
     }
     if (!acceptedIncoming.length) return;
 
