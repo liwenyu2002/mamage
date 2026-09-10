@@ -927,6 +927,8 @@ async function uploadViaVideoApi(formData, { onProgress, file, uploadApiBase = '
 
 const DIRECT_VIDEO_UPLOAD_CONCURRENCY = 3;
 const DIRECT_VIDEO_PART_URL_BATCH = 12;
+// 代理直传走站点同源链路（可能经 Cloudflare），并发和分片都更保守，避免单请求超过源站 100s 超时。
+const DIRECT_VIDEO_PROXY_UPLOAD_CONCURRENCY = 2;
 
 async function abortDirectVideoUpload(sessionId, uploadApiBase = '') {
   if (!sessionId) return;
@@ -934,6 +936,97 @@ async function abortDirectVideoUpload(sessionId, uploadApiBase = '') {
     await requestUploadJson('/api/upload/video/direct/abort', { method: 'POST', data: { sessionId } }, uploadApiBase);
   } catch (e) {
     // 服务端会按 TTL 回收未完成的 multipart；这里不把清理失败覆盖上传原错误。
+  }
+}
+
+// 仅网络级失败（XHR 无法连接，status 为 0/undefined）值得换通道重试；
+// 协议约定类错误重试也是同样结果，直接抛出。
+const NON_RETRYABLE_DIRECT_VIDEO_ERRORS = new Set([
+  'DIRECT_VIDEO_INIT_INVALID',
+  'DIRECT_VIDEO_PART_URL_MISSING',
+  'DIRECT_VIDEO_PART_ETAG_MISSING',
+]);
+function isNetworkLevelError(err) {
+  if (!err || NON_RETRYABLE_DIRECT_VIDEO_ERRORS.has(err.message)) return false;
+  const status = Number(err.status);
+  return status === 0 || !Number.isFinite(status);
+}
+
+async function uploadViaDirectVideoPartProxy(init, file, { onProgress, uploadApiBase = '' } = {}) {
+  const sessionId = init && init.sessionId;
+  const partSize = Math.max(5 * 1024 * 1024, Number(init && init.partSize) || 0);
+  const partCount = Math.max(1, Number(init && init.partCount) || 0);
+  const partUrlTemplate = String(init && init.partUploadUrlPath || '');
+  if (!sessionId || !partSize || !partCount || !partUrlTemplate.includes('{partNumber}')) {
+    throw new Error('DIRECT_VIDEO_INIT_INVALID');
+  }
+
+  const loadedByPart = new Map();
+  const etags = new Array(partCount);
+  let nextPartNumber = 1;
+  const report = () => {
+    let loaded = 0;
+    loadedByPart.forEach((bytes) => { loaded += Number(bytes) || 0; });
+    emitUploadProgress(onProgress, { file, phase: 'uploading', loaded: Math.min(file.size || loaded, loaded), total: file.size || 0 });
+  };
+
+  const uploadPart = async (partNumber, attempt = 1) => {
+    const start = (partNumber - 1) * partSize;
+    const body = file.slice(start, Math.min(file.size, start + partSize));
+    const uploadUrl = resolveUploadApiUrl(partUrlTemplate.replace('{partNumber}', String(partNumber)), uploadApiBase);
+    const response = await requestWithUploadProgress({
+      url: uploadUrl,
+      method: 'PUT',
+      headers: getAuthHeaders({ 'Content-Type': 'application/octet-stream' }),
+      body,
+      withCredentials: true,
+      onProgress: (event) => {
+        loadedByPart.set(partNumber, Number(event && event.loaded) || 0);
+        report();
+      },
+    });
+    if (response.status < 200 || response.status >= 300) {
+      // 429（并发上限）/5xx（存储抖动）值得退避后重试同一分片，其他错误直接抛。
+      if ((response.status === 429 || response.status >= 500) && attempt < 4) {
+        await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+        return uploadPart(partNumber, attempt + 1);
+      }
+      const err = new Error(`proxy video part upload failed ${response.status}`);
+      err.status = response.status;
+      err.body = response.responseText || '';
+      throw err;
+    }
+    let etag = null;
+    try {
+      const parsed = JSON.parse(response.responseText || '');
+      etag = parsed && parsed.etag;
+    } catch (e) { /* body 解析失败再看头 */ }
+    if (!etag) etag = readHeader(response.headers, 'etag');
+    if (!etag) throw new Error('DIRECT_VIDEO_PART_ETAG_MISSING');
+    loadedByPart.set(partNumber, body.size);
+    etags[partNumber - 1] = { partNumber, etag };
+    report();
+  };
+
+  try {
+    const workers = Array.from({ length: Math.min(DIRECT_VIDEO_PROXY_UPLOAD_CONCURRENCY, partCount) }, async () => {
+      while (nextPartNumber <= partCount) {
+        const partNumber = nextPartNumber;
+        nextPartNumber += 1;
+        await uploadPart(partNumber);
+      }
+    });
+    await Promise.all(workers);
+    emitUploadProgress(onProgress, { file, phase: 'video-processing', loaded: file.size || 0, total: file.size || 0 });
+    const response = await requestUploadJson('/api/upload/video/direct/complete', {
+      method: 'POST', data: { sessionId, parts: etags },
+    }, uploadApiBase);
+    emitUploadProgress(onProgress, { file, phase: 'done', status: 'fulfilled', loaded: file.size || 0, total: file.size || 0 });
+    return response;
+  } catch (err) {
+    await abortDirectVideoUpload(sessionId, uploadApiBase);
+    err.directUploadFailed = true;
+    throw err;
   }
 }
 
@@ -948,9 +1041,15 @@ async function uploadViaDirectVideo(file, fields, { onProgress, uploadApiBase = 
     fileName: file.name || 'video.mp4',
     fileSize: file.size,
     mimeType: file.type || '',
+    // 服务端据此判断：HTTPS 页面 + HTTP 存储端点必须走代理通道（混合内容拦截）。
+    clientProtocol: (typeof window !== 'undefined' && window.location && window.location.protocol) || '',
   };
   emitUploadProgress(onProgress, { file, phase: 'preparing', loaded: 0, total: file.size || 0 });
-  const init = await requestUploadJson('/api/upload/video/direct/init', { method: 'POST', data: initPayload }, uploadApiBase);
+  let init = await requestUploadJson('/api/upload/video/direct/init', { method: 'POST', data: initPayload }, uploadApiBase);
+  if (init && init.transport === 'proxy') {
+    return uploadViaDirectVideoPartProxy(init, file, { onProgress, uploadApiBase });
+  }
+
   const sessionId = init && init.sessionId;
   if (sessionId && init && init.upload && init.upload.uploadUrl && init.upload.formFields) {
     try {
@@ -1037,6 +1136,23 @@ async function uploadViaDirectVideo(file, fields, { onProgress, uploadApiBase = 
     emitUploadProgress(onProgress, { file, phase: 'done', status: 'fulfilled', loaded: file.size || 0, total: file.size || 0 });
     return response;
   } catch (err) {
+    // 直传分片遇到网络级失败（如 HTTPS 页面指向不可达端点、跨网防火墙）时，
+    // 放弃该会话并改走代理通道重试一次；HTTP 层错误（4xx/5xx）不重试。
+    if (isNetworkLevelError(err)) {
+      await abortDirectVideoUpload(sessionId, uploadApiBase);
+      try {
+        const retryInit = await requestUploadJson('/api/upload/video/direct/init', {
+          method: 'POST', data: { ...initPayload, transport: 'proxy' },
+        }, uploadApiBase);
+        if (retryInit && retryInit.transport === 'proxy') {
+          return uploadViaDirectVideoPartProxy(retryInit, file, { onProgress, uploadApiBase });
+        }
+        if (retryInit && retryInit.sessionId) await abortDirectVideoUpload(retryInit.sessionId, uploadApiBase);
+      } catch (retryErr) {
+        if (retryErr && retryErr.status) throw retryErr;
+        throw err;
+      }
+    }
     await abortDirectVideoUpload(sessionId, uploadApiBase);
     err.directUploadFailed = true;
     throw err;
