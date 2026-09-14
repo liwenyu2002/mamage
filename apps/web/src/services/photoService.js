@@ -484,6 +484,45 @@ async function mergeFacePersons({ targetPersonId, sourcePersonIds } = {}) {
   });
 }
 
+// 系统认错人了？——人物拆分三连：拉脸列表（带头像）→ 智能拆分预览 → 执行拆分
+async function getPersonFaces({ personId, page = 1, pageSize = 48 } = {}) {
+  const pid = personId !== undefined && personId !== null ? String(personId).trim() : '';
+  if (!pid) throw new Error('getPersonFaces: personId is required');
+  return request(`/api/persons/${encodeURIComponent(pid)}/faces`, {
+    method: 'GET',
+    data: { page, pageSize },
+  });
+}
+
+async function previewPersonSplit({ personId, seedFaceIds } = {}) {
+  const pid = personId !== undefined && personId !== null ? String(personId).trim() : '';
+  if (!pid) throw new Error('previewPersonSplit: personId is required');
+  const seeds = Array.isArray(seedFaceIds)
+    ? seedFaceIds.map((x) => Number(x)).filter((x) => Number.isFinite(x) && x > 0)
+    : [];
+  if (!seeds.length) throw new Error('previewPersonSplit: seedFaceIds is required');
+  return request(`/api/persons/${encodeURIComponent(pid)}/split-preview`, {
+    method: 'POST',
+    data: { seedFaceIds: seeds },
+  });
+}
+
+async function splitPerson({ personId, moveFaceIds, newPersonName } = {}) {
+  const pid = personId !== undefined && personId !== null ? String(personId).trim() : '';
+  if (!pid) throw new Error('splitPerson: personId is required');
+  const moves = Array.isArray(moveFaceIds)
+    ? moveFaceIds.map((x) => Number(x)).filter((x) => Number.isFinite(x) && x > 0)
+    : [];
+  if (!moves.length) throw new Error('splitPerson: moveFaceIds is required');
+  return request(`/api/persons/${encodeURIComponent(pid)}/split`, {
+    method: 'POST',
+    data: {
+      moveFaceIds: moves,
+      newPersonName: newPersonName || undefined,
+    },
+  });
+}
+
 async function getFaceClusterConfig() {
   return request('/api/faces/cluster/config', {
     method: 'GET',
@@ -1438,6 +1477,9 @@ export {
   renameFacePerson,
   listFacePersons,
   mergeFacePersons,
+  getPersonFaces,
+  previewPersonSplit,
+  splitPerson,
   getFaceClusterConfig,
   updateFaceClusterConfig,
   FRONTEND_MAX_VIDEO_UPLOAD_BYTES,

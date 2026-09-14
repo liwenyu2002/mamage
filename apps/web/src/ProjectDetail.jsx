@@ -27,7 +27,7 @@ import {
 import './ProjectDetail.css';
 import { getProjectById, updateProject, deleteProject, createTimelineSection, updateTimelineSection, deleteTimelineSection, reorderTimelineSections } from './services/projectService';
 import { getToken } from './services/authService';
-import { fetchRandomByProject, searchPhotos, getPhotoById, updatePhoto, assignPhotosTimelineSection, getFacePersonInfo, labelFacePerson, renameFacePerson, uploadPhotoFiles, warmUploadApiProbe, deletePhotos, getPhotoFaces, getUploadFileLimitError, FRONTEND_MAX_VIDEO_UPLOAD_TEXT, runGroupRescueJob, isBrowserUndisplayableImage, isNeverBrowserPreviewable, undisplayableFormatLabel } from './services/photoService';
+import { fetchRandomByProject, searchPhotos, getPhotoById, updatePhoto, assignPhotosTimelineSection, getFacePersonInfo, labelFacePerson, renameFacePerson, uploadPhotoFiles, warmUploadApiProbe, deletePhotos, getPhotoFaces, getUploadFileLimitError, FRONTEND_MAX_VIDEO_UPLOAD_TEXT, runGroupRescueJob, isBrowserUndisplayableImage, isNeverBrowserPreviewable, undisplayableFormatLabel, getPersonFaces, previewPersonSplit, splitPerson } from './services/photoService';
 import { resolveAssetUrl, BASE_URL } from './services/request';
 import { getDirectMediaUrl } from './services/directStorage';
 import FindMeModal from './FindMeModal';
@@ -917,6 +917,21 @@ function ProjectDetail({
   const [facePersonHeroPhoto, setFacePersonHeroPhoto] = React.useState(null);
   const [facePersonEditName, setFacePersonEditName] = React.useState('');
   const [facePersonSaving, setFacePersonSaving] = React.useState(false);
+  // 系统认错人了？——人物拆分（select=勾种子脸，preview=预览两组归属）
+  const [faceSplitMode, setFaceSplitMode] = React.useState(null);
+  const [faceSplitFaces, setFaceSplitFaces] = React.useState([]);
+  const [faceSplitTotal, setFaceSplitTotal] = React.useState(0);
+  const [faceSplitHasMore, setFaceSplitHasMore] = React.useState(false);
+  const [faceSplitNextPage, setFaceSplitNextPage] = React.useState(2);
+  const [faceSplitLoading, setFaceSplitLoading] = React.useState(false);
+  const [faceSplitLoadingMore, setFaceSplitLoadingMore] = React.useState(false);
+  const [faceSplitSeedIds, setFaceSplitSeedIds] = React.useState(() => new Set());
+  const [faceSplitPreviewing, setFaceSplitPreviewing] = React.useState(false);
+  const [faceSplitPreview, setFaceSplitPreview] = React.useState(null);
+  const [faceSplitMoveIds, setFaceSplitMoveIds] = React.useState(() => new Set());
+  const [faceSplitNewName, setFaceSplitNewName] = React.useState('');
+  const [faceSplitSubmitting, setFaceSplitSubmitting] = React.useState(false);
+  const [faceSplitError, setFaceSplitError] = React.useState('');
   // parsed photo tags and descriptions indexed by photo ID
   const [photoTagsMap, setPhotoTagsMap] = React.useState({});
   const [photoDescMap, setPhotoDescMap] = React.useState({});
@@ -3807,6 +3822,20 @@ function ProjectDetail({
     setFacePersonError('');
     setFacePersonEditName('');
     setFacePersonHeroPhoto(null);
+    setFaceSplitMode(null);
+    setFaceSplitFaces([]);
+    setFaceSplitTotal(0);
+    setFaceSplitHasMore(false);
+    setFaceSplitNextPage(2);
+    setFaceSplitLoading(false);
+    setFaceSplitLoadingMore(false);
+    setFaceSplitSeedIds(new Set());
+    setFaceSplitPreviewing(false);
+    setFaceSplitPreview(null);
+    setFaceSplitMoveIds(new Set());
+    setFaceSplitNewName('');
+    setFaceSplitSubmitting(false);
+    setFaceSplitError('');
   }, []);
 
   const openFacePersonModal = React.useCallback(async (face) => {
@@ -3838,6 +3867,186 @@ function ProjectDetail({
       setFacePersonLoading(false);
     }
   }, [pickFacePersonHeroPhoto, projectId]);
+
+  // ---- 系统认错人了？拆分流程 ----
+  const resetFaceSplitState = React.useCallback(() => {
+    setFaceSplitSeedIds(new Set());
+    setFaceSplitPreview(null);
+    setFaceSplitMoveIds(new Set());
+    setFaceSplitNewName('');
+    setFaceSplitError('');
+    setFaceSplitPreviewing(false);
+    setFaceSplitSubmitting(false);
+  }, []);
+
+  const exitFaceSplit = React.useCallback(() => {
+    setFaceSplitMode(null);
+    resetFaceSplitState();
+  }, [resetFaceSplitState]);
+
+  const startFaceSplit = React.useCallback(async () => {
+    if (!facePersonData?.personId) {
+      Toast.warning('该人脸尚未归入人物，无需拆分');
+      return;
+    }
+    setFaceSplitMode('select');
+    resetFaceSplitState();
+    setFaceSplitFaces([]);
+    setFaceSplitHasMore(false);
+    setFaceSplitNextPage(2);
+    setFaceSplitLoading(true);
+    try {
+      const data = await getPersonFaces({ personId: facePersonData.personId, page: 1, pageSize: 48 });
+      const list = Array.isArray(data?.faces) ? data.faces : [];
+      setFaceSplitFaces(list);
+      setFaceSplitTotal(Number(data?.total) || list.length);
+      setFaceSplitHasMore(Boolean(data?.hasMore));
+    } catch (err) {
+      console.error('getPersonFaces failed', err);
+      setFaceSplitError(err?.body || err?.message || '拉取人物人脸失败');
+    } finally {
+      setFaceSplitLoading(false);
+    }
+  }, [facePersonData, resetFaceSplitState]);
+
+  const loadMoreFaceSplitFaces = React.useCallback(async () => {
+    if (!facePersonData?.personId || faceSplitLoadingMore) return;
+    setFaceSplitLoadingMore(true);
+    try {
+      const data = await getPersonFaces({ personId: facePersonData.personId, page: faceSplitNextPage, pageSize: 48 });
+      const list = Array.isArray(data?.faces) ? data.faces : [];
+      setFaceSplitFaces((prev) => {
+        const seen = new Set(prev.map((x) => String(x?.faceId || '')));
+        return prev.concat(list.filter((x) => x && x.faceId && !seen.has(String(x.faceId))));
+      });
+      setFaceSplitTotal(Number(data?.total) || 0);
+      setFaceSplitHasMore(Boolean(data?.hasMore));
+      setFaceSplitNextPage((p) => p + 1);
+    } catch (err) {
+      setFaceSplitError(err?.body || err?.message || '加载更多失败');
+    } finally {
+      setFaceSplitLoadingMore(false);
+    }
+  }, [facePersonData, faceSplitLoadingMore, faceSplitNextPage]);
+
+  const toggleFaceSplitSeed = React.useCallback((faceId) => {
+    const sid = String(faceId || '');
+    if (!sid) return;
+    setFaceSplitSeedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(sid)) next.delete(sid);
+      else next.add(sid);
+      return next;
+    });
+  }, []);
+
+  const runFaceSplitPreview = React.useCallback(async () => {
+    if (!facePersonData?.personId || !faceSplitSeedIds.size) {
+      Toast.warning('先勾选至少一张认错的脸');
+      return;
+    }
+    setFaceSplitPreviewing(true);
+    setFaceSplitError('');
+    try {
+      const data = await previewPersonSplit({
+        personId: facePersonData.personId,
+        seedFaceIds: Array.from(faceSplitSeedIds),
+      });
+      const preview = {
+        stats: data?.stats || {},
+        moveFaces: Array.isArray(data?.moveFaces) ? data.moveFaces : [],
+        keepFaces: Array.isArray(data?.keepFaces) ? data.keepFaces : [],
+        undecidedFaces: Array.isArray(data?.undecidedFaces) ? data.undecidedFaces : [],
+      };
+      setFaceSplitPreview(preview);
+      setFaceSplitMoveIds(new Set(preview.moveFaces.map((x) => String(x?.faceId || '')).filter(Boolean)));
+      setFaceSplitMode('preview');
+    } catch (err) {
+      console.error('previewPersonSplit failed', err);
+      setFaceSplitError(err?.body || err?.message || '生成拆分预览失败');
+    } finally {
+      setFaceSplitPreviewing(false);
+    }
+  }, [facePersonData, faceSplitSeedIds]);
+
+  const toggleFaceSplitMove = React.useCallback((faceId) => {
+    const fid = String(faceId || '');
+    if (!fid) return;
+    setFaceSplitMoveIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(fid)) next.delete(fid);
+      else next.add(fid);
+      return next;
+    });
+  }, []);
+
+  const confirmFaceSplit = React.useCallback(async () => {
+    if (!facePersonData?.personId || !faceSplitMoveIds.size || !faceSplitPreview) return;
+    const stats = faceSplitPreview.stats || {};
+    const totalFaces = Number(stats.totalFaces) || 0;
+    if (faceSplitMoveIds.size >= totalFaces) {
+      Toast.warning('至少保留一张脸给原人物');
+      return;
+    }
+    const confirmed = window.confirm(
+      `确认拆分？将把 ${faceSplitMoveIds.size} 张脸从「${facePersonData.displayName || `人物#${facePersonData.personId}`}」拆出到新人物，原人物保留其余脸。`
+    );
+    if (!confirmed) return;
+
+    setFaceSplitSubmitting(true);
+    setFaceSplitError('');
+    try {
+      const res = await splitPerson({
+        personId: facePersonData.personId,
+        moveFaceIds: Array.from(faceSplitMoveIds),
+        newPersonName: String(faceSplitNewName || '').trim(),
+      });
+      Toast.success(`已拆出 ${res?.movedFaces ?? faceSplitMoveIds.size} 张脸到新人物 #${res?.newPersonId || ''}`);
+
+      // 受影响照片的人脸缓存作废，查看器里的人脸框标签会重新拉取
+      const allPreviewFaces = [
+        ...(faceSplitPreview.moveFaces || []),
+        ...(faceSplitPreview.keepFaces || []),
+        ...(faceSplitPreview.undecidedFaces || []),
+      ];
+      const movedPhotoIds = new Set(
+        allPreviewFaces
+          .filter((x) => x && faceSplitMoveIds.has(String(x.faceId)))
+          .map((x) => String(x.photoId || ''))
+          .filter(Boolean)
+      );
+      if (movedPhotoIds.size) {
+        setViewerFaceMap((prev) => {
+          const next = { ...(prev || {}) };
+          movedPhotoIds.forEach((id) => { delete next[id]; });
+          return next;
+        });
+      }
+
+      setFaceSplitMode(null);
+      resetFaceSplitState();
+
+      // 刷新人物面板为原人物拆分后的最新数据
+      try {
+        const data = await getFacePersonInfo({
+          personId: facePersonData.personId,
+          projectId: projectId || undefined,
+        });
+        const normalized = normalizeFacePerson(data, facePersonData.sourceFace || null);
+        setFacePersonData(normalized);
+        setFacePersonEditName(normalized.personName || '');
+        setFacePersonHeroPhoto(pickFacePersonHeroPhoto(normalized));
+      } catch (e) {
+        console.warn('refresh face person after split failed', e);
+      }
+    } catch (err) {
+      console.error('splitPerson failed', err);
+      setFaceSplitError(err?.body || err?.message || '拆分失败，请重试');
+    } finally {
+      setFaceSplitSubmitting(false);
+    }
+  }, [facePersonData, faceSplitMoveIds, faceSplitPreview, faceSplitNewName, resetFaceSplitState, projectId, pickFacePersonHeroPhoto]);
+  // ---- 拆分流程结束 ----
 
   const saveFacePersonName = React.useCallback(async () => {
     if (!facePersonData) return;
@@ -4257,6 +4466,7 @@ function ProjectDetail({
   const canEditPhotos = hasPerm('photos.edit');
   const canPackDownload = readOnly || hasPerm('photos.zip');
   const canEditFacePersonName = hasPerm('faces.label');
+  const canSplitFacePerson = hasPerm('faces.merge');
 
   React.useEffect(() => {
     if (!canUploadPhotos) return;
@@ -6241,7 +6451,178 @@ function ProjectDetail({
                     </div>
                   </div>
 
-                  {relatedPhotos.length > 0 ? (
+                  {!faceSplitMode && canSplitFacePerson && facePersonData.personId && relatedPhotos.length >= 2 ? (
+                    <div className="person-sheet-split-entry">
+                      <Button size="small" theme="light" type="warning" onClick={startFaceSplit} loading={faceSplitLoading}>
+                        系统认错人了？拆分这个人
+                      </Button>
+                      <Text type="tertiary" size="small">把混进来的另一张脸拆出去，单独成新人物</Text>
+                    </div>
+                  ) : null}
+
+                  {faceSplitMode === 'select' ? (
+                    <div className="person-split">
+                      <div className="person-split-head">
+                        <div className="person-split-title">系统认错人了？</div>
+                        <div className="person-split-sub">
+                          点选不属于「{facePersonData.displayName || `人物#${facePersonData.personId}`}」的脸（可多选），AI 会连同长得像的脸一起拆出去
+                        </div>
+                      </div>
+                      {faceSplitError ? (
+                        <div className="person-split-error"><Text type="danger">{faceSplitError}</Text></div>
+                      ) : null}
+                      {faceSplitLoading ? (
+                        <div className="person-split-loading"><Text type="tertiary">正在整理该人物的人脸…</Text></div>
+                      ) : (
+                        <>
+                          <div className="person-split-grid">
+                            {faceSplitFaces.map((f) => (
+                              <button
+                                type="button"
+                                key={`split-seed-${f.faceId}`}
+                                className={`person-split-chip${faceSplitSeedIds.has(String(f.faceId)) ? ' is-selected' : ''}`}
+                                onClick={(e) => { e.stopPropagation(); toggleFaceSplitSeed(f.faceId); }}
+                                title={f.photoTitle || `照片 ${f.photoId}`}
+                              >
+                                {f.avatarDataUrl || f.thumbUrl ? (
+                                  <img src={f.avatarDataUrl || f.thumbUrl} alt={f.photoTitle || '人脸'} loading="lazy" decoding="async" />
+                                ) : (
+                                  <span className="person-split-chip-empty">无图</span>
+                                )}
+                                {faceSplitSeedIds.has(String(f.faceId)) ? <span className="person-split-chip-check">✓</span> : null}
+                              </button>
+                            ))}
+                            {!faceSplitFaces.length ? <Text type="tertiary">该人物暂无人脸数据</Text> : null}
+                          </div>
+                          {faceSplitHasMore ? (
+                            <div className="person-split-more">
+                              <Button size="small" theme="borderless" loading={faceSplitLoadingMore} onClick={loadMoreFaceSplitFaces}>
+                                加载更多（已显示 {faceSplitFaces.length}/{faceSplitTotal}）
+                              </Button>
+                            </div>
+                          ) : null}
+                        </>
+                      )}
+                      <div className="person-split-actions">
+                        <Text type="tertiary" size="small">已选 {faceSplitSeedIds.size} 张</Text>
+                        <div className="person-split-actions-btns">
+                          <Button size="small" theme="borderless" onClick={exitFaceSplit}>取消</Button>
+                          <Button
+                            size="small"
+                            theme="solid"
+                            type="warning"
+                            disabled={!faceSplitSeedIds.size}
+                            loading={faceSplitPreviewing}
+                            onClick={runFaceSplitPreview}
+                          >
+                            智能拆分预览
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {faceSplitMode === 'preview' && faceSplitPreview ? (() => {
+                    const allSplitFaces = [
+                      ...(faceSplitPreview.moveFaces || []),
+                      ...(faceSplitPreview.keepFaces || []),
+                      ...(faceSplitPreview.undecidedFaces || []),
+                    ];
+                    const seenFaceIds = new Set();
+                    const uniqueSplitFaces = allSplitFaces.filter((f) => {
+                      const fid = String(f?.faceId || '');
+                      if (!fid || seenFaceIds.has(fid)) return false;
+                      seenFaceIds.add(fid);
+                      return true;
+                    });
+                    const undecidedIds = new Set((faceSplitPreview.undecidedFaces || []).map((f) => String(f?.faceId || '')));
+                    const seedBadgeIds = faceSplitSeedIds;
+                    const moveList = uniqueSplitFaces.filter((f) => faceSplitMoveIds.has(String(f.faceId)));
+                    const keepList = uniqueSplitFaces.filter((f) => !faceSplitMoveIds.has(String(f.faceId)));
+                    const totalFaces = Number(faceSplitPreview.stats?.totalFaces) || uniqueSplitFaces.length;
+                    return (
+                      <div className="person-split">
+                        <div className="person-split-head">
+                          <div className="person-split-title">拆分预览</div>
+                          <div className="person-split-sub">
+                            拆出 {moveList.length} 张 · 保留 {Math.max(0, totalFaces - moveList.length)} 张 · 点头像可调整分组
+                          </div>
+                        </div>
+                        {faceSplitError ? (
+                          <div className="person-split-error"><Text type="danger">{faceSplitError}</Text></div>
+                        ) : null}
+                        <div className="person-split-group">
+                          <div className="person-split-group-title">拆出成新人物（{moveList.length}）</div>
+                          <div className="person-split-grid">
+                            {moveList.map((f) => (
+                              <button
+                                type="button"
+                                key={`split-move-${f.faceId}`}
+                                className="person-split-chip is-move"
+                                onClick={(e) => { e.stopPropagation(); toggleFaceSplitMove(f.faceId); }}
+                                title={`${f.photoTitle || `照片 ${f.photoId}`}${Number.isFinite(Number(f.scoreSeed)) ? ` · 与种子相似度 ${f.scoreSeed}` : ''}`}
+                              >
+                                {f.avatarDataUrl || f.thumbUrl ? (
+                                  <img src={f.avatarDataUrl || f.thumbUrl} alt={f.photoTitle || '人脸'} loading="lazy" decoding="async" />
+                                ) : (
+                                  <span className="person-split-chip-empty">无图</span>
+                                )}
+                                {seedBadgeIds.has(String(f.faceId)) ? <span className="person-split-chip-badge">种子</span> : null}
+                              </button>
+                            ))}
+                            {!moveList.length ? <Text type="tertiary">没有要拆出的脸</Text> : null}
+                          </div>
+                        </div>
+                        <div className="person-split-group">
+                          <div className="person-split-group-title">保留给「{facePersonData.displayName || `人物#${facePersonData.personId}`}」（{keepList.length}）</div>
+                          <div className="person-split-grid">
+                            {keepList.map((f) => (
+                              <button
+                                type="button"
+                                key={`split-keep-${f.faceId}`}
+                                className="person-split-chip"
+                                onClick={(e) => { e.stopPropagation(); toggleFaceSplitMove(f.faceId); }}
+                                title={f.photoTitle || `照片 ${f.photoId}`}
+                              >
+                                {f.avatarDataUrl || f.thumbUrl ? (
+                                  <img src={f.avatarDataUrl || f.thumbUrl} alt={f.photoTitle || '人脸'} loading="lazy" decoding="async" />
+                                ) : (
+                                  <span className="person-split-chip-empty">无图</span>
+                                )}
+                                {undecidedIds.has(String(f.faceId)) ? <span className="person-split-chip-badge is-undecided">拿不准</span> : null}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="person-split-name">
+                          <Input
+                            value={faceSplitNewName}
+                            onChange={(v) => setFaceSplitNewName(v)}
+                            placeholder="新人物姓名（可选，可稍后再改）"
+                            maxLength={80}
+                          />
+                        </div>
+                        <div className="person-split-actions">
+                          <Text type="tertiary" size="small">确认后立即生效，两张脸将彻底分开</Text>
+                          <div className="person-split-actions-btns">
+                            <Button size="small" theme="borderless" onClick={() => setFaceSplitMode('select')}>返回重选</Button>
+                            <Button
+                              size="small"
+                              theme="solid"
+                              type="danger"
+                              disabled={!faceSplitMoveIds.size}
+                              loading={faceSplitSubmitting}
+                              onClick={confirmFaceSplit}
+                            >
+                              确认拆分
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })() : null}
+
+                  {!faceSplitMode && relatedPhotos.length > 0 ? (
                     <div className="person-sheet-grid">
                       {relatedPhotos.map((item, idx) => {
                         const thumb = item.thumbUrl || item.url || '';
@@ -6286,9 +6667,9 @@ function ProjectDetail({
                         );
                       })}
                     </div>
-                  ) : (
+                  ) : !faceSplitMode ? (
                     <Empty description="暂无关联照片" />
-                  )}
+                  ) : null}
                 </div>
               );
             })()

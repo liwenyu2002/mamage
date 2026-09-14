@@ -2291,6 +2291,173 @@
   text-decoration: underline;
 }
 
+/* 系统认错人了？——人物拆分 */
+.person-sheet-split-entry {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px dashed #f5c16c;
+  background: #fffdf5;
+}
+
+.person-split {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid #e5edf8;
+  background: #fbfdff;
+}
+
+.person-split-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.person-split-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.person-split-sub {
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.5;
+}
+
+.person-split-error {
+  padding: 6px 0;
+}
+
+.person-split-loading {
+  padding: 18px 0;
+  text-align: center;
+}
+
+.person-split-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  gap: 8px;
+}
+
+.person-split-chip {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border: 2px solid #e2e8f0;
+  border-radius: 10px;
+  overflow: hidden;
+  padding: 0;
+  margin: 0;
+  background: #e5e7eb;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
+}
+
+.person-split-chip img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.person-split-chip:hover {
+  border-color: #94a3b8;
+  transform: translateY(-1px);
+}
+
+.person-split-chip.is-selected {
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.18);
+}
+
+.person-split-chip.is-move {
+  border-color: #f59e0b;
+}
+
+.person-split-chip-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #64748b;
+  font-size: 12px;
+  background: #e5e7eb;
+}
+
+.person-split-chip-check {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  background: #f59e0b;
+  color: #fff;
+  font-size: 12px;
+  line-height: 18px;
+  text-align: center;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.25);
+}
+
+.person-split-chip-badge {
+  position: absolute;
+  left: 3px;
+  top: 3px;
+  padding: 1px 5px;
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.65);
+  color: #fff;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.person-split-chip-badge.is-undecided {
+  background: rgba(100, 116, 139, 0.85);
+}
+
+.person-split-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.person-split-group-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.person-split-more {
+  display: flex;
+  justify-content: center;
+}
+
+.person-split-name {
+  display: flex;
+}
+
+.person-split-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.person-split-actions-btns {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 /* viewer styles */
 .viewer-wrap {
   position: relative;
