@@ -686,6 +686,16 @@ function App() {
     return () => window.removeEventListener('popstate', onPop);
   }, []);
 
+  // 无 ai.generate 权限的人直接访问编辑台 URL（如 /wechat）时，弹回项目列表
+  React.useEffect(() => {
+    if (selectedNav !== 'function') return;
+    if (!currentUser) return; // 未登录/加载中：渲染层兜底
+    if (canUseMediaStudio) return;
+    setSelectedNav('projects');
+    setCurrentProjectId(null);
+    try { window.history.replaceState({}, '', '/'); } catch (e) { }
+  }, [selectedNav, currentUser, canUseMediaStudio]);
+
   const normalizedProjects = React.useMemo(() => {
     const result = projects.map((project) => {
       const id = project?.id ?? project?.projectId ?? project?._id;
@@ -871,12 +881,20 @@ function App() {
     }
   }, []);
 
+  // 全媒体编辑台：后端所有接口都要求 ai.generate（现仅 admin/superadmin 拥有）。
+  // 无权限者不显示入口，直达路由弹回项目列表，渲染层再兜一层底。
+  const canUseMediaStudio = Boolean(
+    currentUser
+    && Array.isArray(currentUser.permissions)
+    && currentUser.permissions.includes('ai.generate')
+  );
+
   const navItems = React.useMemo(() => ([
     { key: 'projects', label: '项目', onClick: handleBackToList },
     { key: 'scenery', label: '风景', onClick: handleNavigateScenery },
-    { key: 'function', label: '全媒体编辑台', onClick: handleNavigateFunction },
+    ...(canUseMediaStudio ? [{ key: 'function', label: '全媒体编辑台', onClick: handleNavigateFunction }] : []),
     { key: 'about', label: '关于', onClick: handleNavigateAbout },
-  ]), [handleBackToList, handleNavigateAbout, handleNavigateFunction, handleNavigateScenery]);
+  ]), [canUseMediaStudio, handleBackToList, handleNavigateAbout, handleNavigateFunction, handleNavigateScenery]);
 
   const renderNavItem = React.useCallback((item, mobile = false) => (
     <button
@@ -1379,6 +1397,7 @@ function App() {
                 <AccountPage currentUser={currentUser} onUpdated={(u) => { setCurrentUser(u); }} />
               </LazyPanel>
             ) : selectedNav === 'function' ? (
+              canUseMediaStudio ? (
               <section className="media-studio-shell" aria-label="全媒体编辑台">
                 <nav className="media-studio-nav" aria-label="媒体平台">
                   <div className="media-studio-nav-title">全媒体编辑台</div>
@@ -1464,6 +1483,28 @@ function App() {
                   )}
                 </div>
               </section>
+              ) : (
+                <div style={{ padding: 24, maxWidth: 560, margin: '0 auto' }}>
+                  <Card title="无访问权限">
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                      <Text>全媒体编辑台仅对管理员开放。</Text>
+                      <div>
+                        <UiButton
+                          theme="solid"
+                          type="primary"
+                          onClick={() => {
+                            setSelectedNav('projects');
+                            setCurrentProjectId(null);
+                            try { window.history.replaceState({}, '', '/'); } catch (e) { }
+                          }}
+                        >
+                          回到相册
+                        </UiButton>
+                      </div>
+                    </div>
+                  </Card>
+                </div>
+              )
             ) : selectedNav === 'about' ? (
               <div style={{ padding: 24, maxWidth: 720, margin: '0 auto' }}>
                 <Card title="关于 MaMage" bordered>
