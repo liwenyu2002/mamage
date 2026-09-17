@@ -2600,3 +2600,15 @@ video.sv-media {
   line-height: 1.5;
   color: var(--lg-text-tertiary, rgba(31, 41, 55, 0.5));
 }
+
+/* 搜索零结果自动放宽提示 */
+.app-search-relaxed {
+  margin: -4px 0 12px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px dashed rgba(31, 111, 235, 0.35);
+  background: rgba(31, 111, 235, 0.06);
+  color: #1f4b8f;
+  font-size: 12px;
+  line-height: 1.6;
+}

@@ -1219,7 +1219,7 @@ function App() {
               <input
                 className="mamage-nav-search-input"
                 aria-label="用自然语言搜索项目、照片、人物或场景"
-                placeholder={isMobileHeader ? '搜索照片、人物、场景' : '试试：田心原在讲台演讲的推荐照片'}
+                placeholder={isMobileHeader ? '搜索照片、人物、场景' : '试试：王婧琦的单人照'}
                 value={keyword}
                 onChange={(event) => setKeyword(event.target.value)}
                 onKeyDown={(event) => {
@@ -1370,6 +1370,10 @@ function App() {
                         {photoSearchMeta.chips.map((chip) => <span key={chip}>{chip}</span>)}
                       </div>
                     </div>
+                  ) : null}
+
+                  {photoSearchMeta && photoSearchMeta.relaxedHint ? (
+                    <div className="app-search-relaxed" role="status">{photoSearchMeta.relaxedHint}</div>
                   ) : null}
 
                   {!loading && !error && normalizedProjects.length > 0 ? (
