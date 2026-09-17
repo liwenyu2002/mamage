@@ -35,6 +35,7 @@ const WechatComposer = lazyWithPreload(() => import(/* webpackChunkName: "wechat
 const VideoEditor = lazyWithPreload(() => import(/* webpackChunkName: "video-editor" */ './VideoEditor.jsx'));
 
 const PROJECT_PAGE_SIZE = 24;
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MEDIA_STUDIO_PLATFORMS = [
   { key: 'wechat_article', label: '推文', path: '/function/wechat-composer', editor: 'wechat' },
   { key: 'xiaohongshu', label: '小红书', path: '/function/xiaohongshu', editor: 'writer' },
@@ -280,7 +281,16 @@ function App() {
     setError(null);
     try {
       // 后端分页接口：GET /api/projects/list?page=1&pageSize=24&keyword=xxx
-      const response = await fetchProjectList({ page: normalizedPage, pageSize: normalizedPageSize, keyword: normalizedKw || undefined, demo: isDemoPath, sort: projectSort.key, order: projectSort.order });
+      const response = await fetchProjectList({
+        page: normalizedPage,
+        pageSize: normalizedPageSize,
+        keyword: normalizedKw || undefined,
+        demo: isDemoPath,
+        sort: projectSort.key,
+        order: projectSort.order,
+        dateFrom: DATE_RE.test(projectDateFilter.from) ? projectDateFilter.from : undefined,
+        dateTo: DATE_RE.test(projectDateFilter.to) ? projectDateFilter.to : undefined,
+      });
       if (latestRequestRef.current !== currentToken) return;
 
       const list = Array.isArray(response?.list) ? response.list : [];
@@ -962,16 +972,44 @@ function App() {
     </button>
   ), [closeMobileNav, preloadNavItem, selectedNav]);
 
-  const handleProjectSortClick = React.useCallback((key) => {
-    if (key !== 'createdAt' && key !== 'eventDate') return;
+  // 单按钮循环：创建↓ → 创建↑ → 活动↓ → 活动↑ → 创建↓
+  const handleProjectSortClick = React.useCallback(() => {
     setProjectSort((prev) => {
-      const next = prev.key === key
-        ? { key, order: prev.order === 'desc' ? 'asc' : 'desc' }
-        : { key, order: 'desc' };
+      let next;
+      if (prev.key === 'createdAt' && prev.order === 'desc') next = { key: 'createdAt', order: 'asc' };
+      else if (prev.key === 'createdAt') next = { key: 'eventDate', order: 'desc' };
+      else if (prev.order === 'desc') next = { key: 'eventDate', order: 'asc' };
+      else next = { key: 'createdAt', order: 'desc' };
       try { localStorage.setItem('mamage_project_sort', JSON.stringify(next)); } catch (e) { /* ignore */ }
       return next;
     });
   }, []);
+
+  // 时间筛选（闭区间）：活动时间优先，没填的相册按创建日期参与筛选
+  const [projectDateFilterOpen, setProjectDateFilterOpen] = React.useState(false);
+  const [projectDateFilter, setProjectDateFilter] = React.useState(() => {
+    try {
+      const saved = JSON.parse(String(localStorage.getItem('mamage_project_date_filter') || ''));
+      if (saved && typeof saved === 'object') {
+        return { from: DATE_RE.test(saved.from) ? saved.from : '', to: DATE_RE.test(saved.to) ? saved.to : '' };
+      }
+    } catch (e) { /* ignore */ }
+    return { from: '', to: '' };
+  });
+  const persistProjectDateFilter = React.useCallback((next) => {
+    try { localStorage.setItem('mamage_project_date_filter', JSON.stringify(next)); } catch (e) { /* ignore */ }
+  }, []);
+  const handleProjectDateFilterChange = React.useCallback((patch) => {
+    setProjectDateFilter((prev) => {
+      const next = { ...prev, ...patch };
+      persistProjectDateFilter(next);
+      return next;
+    });
+  }, [persistProjectDateFilter]);
+  const clearProjectDateFilter = React.useCallback(() => {
+    setProjectDateFilter({ from: '', to: '' });
+    persistProjectDateFilter({ from: '', to: '' });
+  }, [persistProjectDateFilter]);
 
   const showProjectPager = (projectPage > 1) || projectHasMore;
   const projectPageText = projectTotal > 0
@@ -1412,23 +1450,52 @@ function App() {
                 </div>
               ) : (
                 <>
-                  <div className="project-sort-bar">
-                      <span className="project-sort-label">排序</span>
-                      {(['createdAt', 'eventDate'] ).map((key) => {
-                        const active = projectSort.key === key;
-                        const arrow = active ? (projectSort.order === 'desc' ? '↓' : '↑') : '';
-                        return (
+                  <div className="project-toolbar">
+                    <button
+                      type="button"
+                      className="project-sort-chip"
+                      onClick={handleProjectSortClick}
+                      title="点击切换排序方式：创建时间 ↓ → 创建时间 ↑ → 活动时间 ↓ → 活动时间 ↑"
+                    >
+                      {projectSort.key === 'createdAt' ? '按创建时间' : '按活动时间'}
+                      {projectSort.order === 'desc' ? '↓' : '↑'}
+                    </button>
+                    <button
+                      type="button"
+                      className={`project-sort-chip${(projectDateFilter.from || projectDateFilter.to) ? ' is-active' : ''}`}
+                      onClick={() => setProjectDateFilterOpen((v) => !v)}
+                      title="按时间范围筛选相册（活动时间优先，未填按创建日期）"
+                    >
+                      时间筛选
+                    </button>
+                    {projectDateFilterOpen ? (
+                      <span className="project-date-filter">
+                        <input
+                          type="date"
+                          value={projectDateFilter.from}
+                          max={projectDateFilter.to || undefined}
+                          onChange={(e) => handleProjectDateFilterChange({ from: e.target.value })}
+                          aria-label="开始日期"
+                        />
+                        <span className="project-date-filter-sep">—</span>
+                        <input
+                          type="date"
+                          value={projectDateFilter.to}
+                          min={projectDateFilter.from || undefined}
+                          onChange={(e) => handleProjectDateFilterChange({ to: e.target.value })}
+                          aria-label="结束日期"
+                        />
+                        {(projectDateFilter.from || projectDateFilter.to) ? (
                           <button
-                            key={key}
                             type="button"
-                            className={`project-sort-chip${active ? ' is-active' : ''}`}
-                            onClick={() => handleProjectSortClick(key)}
-                            title={key === 'createdAt' ? '按相册创建时间排序，点击切换升降序' : '按活动举办时间排序，点击切换升降序'}
+                            className="project-date-filter-clear"
+                            onClick={clearProjectDateFilter}
                           >
-                            {key === 'createdAt' ? '创建时间' : '活动时间'}{arrow}
+                            清除
                           </button>
-                        );
-                      })}
+                        ) : null}
+                      </span>
+                    ) : null}
                   </div>
                   <div className="project-grid">
                     {loading && (
