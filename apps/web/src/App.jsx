@@ -1046,6 +1046,20 @@ function App() {
     try { localStorage.setItem('mamage_project_sort', JSON.stringify({ key, order })); } catch (e) { /* ignore */ }
     setSortMenuOpen(false);
   }, []);
+
+  // 时间筛选（闭区间）：活动时间优先，没填的相册按创建日期参与筛选
+  const [projectDateFilter, setProjectDateFilter] = React.useState(() => {
+    try {
+      const saved = JSON.parse(String(localStorage.getItem('mamage_project_date_filter') || ''));
+      if (saved && typeof saved === 'object') {
+        return {
+          from: DATE_RE.test(saved.from) ? saved.from : '',
+          to: DATE_RE.test(saved.to) ? saved.to : '',
+        };
+      }
+    } catch (e) { /* ignore */ }
+    return { from: '', to: '' };
+  });
   const persistProjectDateFilter = React.useCallback((next) => {
     try { localStorage.setItem('mamage_project_date_filter', JSON.stringify(next)); } catch (e) { /* ignore */ }
   }, []);
