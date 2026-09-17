@@ -64,7 +64,7 @@ export async function login(email, password) {
     method: 'POST',
     body: JSON.stringify(payload),
   });
-  if (!r.ok) throw new Error((r.data && r.data.error) || '登录失败');
+  if (!r.ok) throw new Error((r.data && (r.data.message || r.data.error)) || '登录失败');
   if (r.data && r.data.token) setToken(r.data.token);
   // Backend login response should include: { id, token, username, role, permissions }
   // Return the full data (no need to call me() again if login response is complete)
