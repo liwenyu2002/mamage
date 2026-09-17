@@ -33,6 +33,8 @@ const nodeModulePackageTest = (packages) => (module) => {
 };
 
 const publicAssets = [
+  'robots.txt',
+  '.well-known/security.txt',
   'favicon.svg',
   'favicon.png',
   'favicon-16x16.png',
@@ -63,7 +65,11 @@ module.exports = {
     filename: 'bundle.[contenthash].js',
     chunkFilename: 'bundle.[name].[contenthash].js',
     publicPath: '/',
-    clean: true,
+    // 保留历史哈希包：部署新版本后，边缘/浏览器里未过期的旧 HTML 引用的旧 chunk
+    // 依然可加载，避免"原地覆盖删旧文件 → 旧页面白屏"。dist 会缓慢累积，定期手动清理即可。
+    clean: {
+      keep: /^(?:bundle\.[^/]+\.(?:js|css)(?:\.LICENSE\.txt)?|bundle\.[^/]+\.(?:js|css)\.map)$/,
+    },
   },
   mode: 'development',
   optimization: {

@@ -10,8 +10,6 @@ import * as authService from './authService';
 
 const PUBLIC_ORIGIN = 'https://mamage.wenyuli.site';
 const PREF_KEY = 'mamage_entry_pref'; // 'auto' | 'public'
-const LAST_AUTO_KEY = 'mamage_last_auto_switch_at';
-const AUTO_COOLDOWN_MS = 6 * 60 * 60 * 1000;
 
 export async function fetchLanEntry() {
   try {
@@ -66,24 +64,26 @@ export function publicStayUrl() {
   return `${PUBLIC_ORIGIN}/?entry=public`;
 }
 
-// App 挂载时调用一次。返回 true 表示已触发跳转（页面即将被替换）。
-export async function maybeAutoSwitchToLan() {
+// App 挂载时调用一次：自动检测仍在（后端比对公网出口判定是否校园网），但不再
+// 静默整页跳转——自签证书会让不知情的用户直接撞上浏览器证书错误页。改为返回
+// 入口信息，由页面内提示条让用户知情后一键切换（token/路径交接逻辑不变）。
+export async function checkLanEntryOffer() {
   try {
-    if (typeof window === 'undefined') return false;
-    if (isLanOrigin()) return false; // 已在内网入口，绝不反向自动跳（防回弹）
-    if (getEntryPref() !== 'auto') return false; // 用户已表达"留在公网"
-    const last = Number(localStorage.getItem(LAST_AUTO_KEY) || 0) || 0;
-    if (Date.now() - last < AUTO_COOLDOWN_MS) return false;
+    if (typeof window === 'undefined') return null;
+    if (isLanOrigin()) return null; // 已在内网入口，绝不反向自动跳（防回弹）
+    if (getEntryPref() !== 'auto') return null; // 用户已表达"留在公网"
+    try {
+      if (sessionStorage.getItem('mamage_lan_banner_dismissed') === '1') return null;
+    } catch (e) { /* ignore */ }
 
     const info = await fetchLanEntry();
-    if (!info || !info.visitorOnIntranet) return false;
-
-    localStorage.setItem(LAST_AUTO_KEY, String(Date.now()));
-    const token = authService.getToken() || '';
-    const path = (window.location.pathname || '/') + (window.location.search || '');
-    window.location.replace(buildLanEntryUrl(info, token, path));
-    return true;
+    if (!info || !info.visitorOnIntranet) return null;
+    return info;
   } catch (e) {
-    return false;
+    return null;
   }
+}
+
+export function dismissLanEntryOffer() {
+  try { sessionStorage.setItem('mamage_lan_banner_dismissed', '1'); } catch (e) { /* ignore */ }
 }

@@ -5,7 +5,7 @@ import ProjectCard from './ProjectCard';
 import * as authService from './services/authService';
 import {
   fetchLanEntry, isLanOrigin, buildLanEntryUrl, publicStayUrl,
-  setEntryPref, maybeAutoSwitchToLan,
+  setEntryPref, checkLanEntryOffer, dismissLanEntryOffer,
 } from './services/networkService';
 import { fetchProjectList, createProject } from './services/projectService';
 import { searchPhotos } from './services/photoQueryService';
@@ -139,7 +139,9 @@ function App() {
   React.useEffect(() => initLiquidLens(), []);
 
   // 入口自动选择：先落地 ?entry=public/auto 偏好（内网页面「公网入口」菜单跳来的），
-  // 再做校园网判定；命中即整页跳内网入口（带 token 与当前路径）。
+  // 再做校园网判定。检测全自动，但切换改为页面内提示条一键完成——静默跳转会
+  // 把不知情用户甩进自签证书的浏览器整页警告。
+  const [lanEntryOffer, setLanEntryOffer] = React.useState(null);
   React.useEffect(() => {
     try {
       const params = new URLSearchParams(window.location.search);
@@ -151,7 +153,23 @@ function App() {
         window.history.replaceState({}, '', window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash);
       }
     } catch (e) { /* ignore */ }
-    maybeAutoSwitchToLan();
+    checkLanEntryOffer().then((offer) => { if (offer) setLanEntryOffer(offer); });
+  }, []);
+
+  const handleLanEntrySwitch = React.useCallback(() => {
+    if (!lanEntryOffer) return;
+    const path = (window.location.pathname || '/') + (window.location.search || '');
+    window.location.replace(buildLanEntryUrl(lanEntryOffer, authService.getToken() || '', path));
+  }, [lanEntryOffer]);
+
+  const handleLanEntryStay = React.useCallback(() => {
+    setEntryPref('public'); // 记住"留在公网"，直到菜单里重新点内网入口恢复自动
+    setLanEntryOffer(null);
+  }, []);
+
+  const handleLanEntryDismiss = React.useCallback(() => {
+    dismissLanEntryOffer();
+    setLanEntryOffer(null);
   }, []);
   const [projects, setProjects] = React.useState([]);
   const [projectPage, setProjectPage] = React.useState(1);
@@ -1073,6 +1091,16 @@ function App() {
 
   return (
     <div className="mamage-shell">
+      {lanEntryOffer ? (
+        <div className="lan-entry-banner" role="status">
+          <span className="lan-entry-banner__text">
+            检测到你在校园网，可切换到内网入口，上传下载更快（首次访问需在浏览器提示中选「高级 → 继续访问」）
+          </span>
+          <button type="button" className="lan-entry-banner__btn is-primary" onClick={handleLanEntrySwitch}>切换到内网</button>
+          <button type="button" className="lan-entry-banner__btn" onClick={handleLanEntryStay}>留在公网</button>
+          <button type="button" className="lan-entry-banner__close" onClick={handleLanEntryDismiss} aria-label="关闭提示">×</button>
+        </div>
+      ) : null}
       <LiquidGlassDefs />
       <div className="mamage-dynamic-backdrop" aria-hidden="true" />
       <header className={`mamage-header${currentProjectId ? ' is-project-detail' : ''}${isMobileHeader ? ' is-mobile-header' : ' is-desktop-header'}`}>

@@ -2411,3 +2411,71 @@ video.sv-media {
 .project-date-filter-clear:hover {
   text-decoration: underline;
 }
+
+/* 校园网内网入口提示条（自动检测命中后显示，一键切换） */
+.lan-entry-banner {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 12000;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: min(720px, calc(100vw - 24px));
+  padding: 10px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(31, 111, 235, 0.28);
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.14);
+}
+
+.lan-entry-banner__text {
+  font-size: 13px;
+  color: #334155;
+  line-height: 1.5;
+}
+
+.lan-entry-banner__btn {
+  border: 1px solid #c9d8ee;
+  background: #fff;
+  color: #1f6feb;
+  font-size: 12px;
+  line-height: 1;
+  padding: 8px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.lan-entry-banner__btn:hover {
+  border-color: #1f6feb;
+}
+
+.lan-entry-banner__btn.is-primary {
+  background: #1f6feb;
+  border-color: #1f6feb;
+  color: #fff;
+}
+
+.lan-entry-banner__btn.is-primary:hover {
+  background: #1a5fd0;
+}
+
+.lan-entry-banner__close {
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 6px;
+}
+
+.lan-entry-banner__close:hover {
+  color: #475569;
+}
