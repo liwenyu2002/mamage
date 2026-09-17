@@ -330,7 +330,7 @@ function App() {
         setLoading(false);
       }
     }
-  }, [isDemoPath]);
+  }, [isDemoPath, projectSort, projectDateFilter]);
 
   const clearPhotoSearchState = React.useCallback(() => {
     setPhotoSearchMode(false);
