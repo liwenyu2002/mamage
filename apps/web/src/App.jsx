@@ -3,6 +3,7 @@ import React from 'react';
 import { Typography as UiTypography, Button as UiButton, Empty as UiEmpty, Card as UiCard, Toast, HexLoader } from './ui';
 import ProjectCard from './ProjectCard';
 import * as authService from './services/authService';
+import { fetchLanEntry, isLanOrigin, buildLanEntryUrl, publicEntryUrl } from './services/networkService';
 import { fetchProjectList, createProject } from './services/projectService';
 import { searchPhotos } from './services/photoQueryService';
 import { resolveAssetUrl, rewriteMediaUrlsDeep } from './services/request';
@@ -121,11 +122,11 @@ function Card({ title, children }) {
   return <UiCard title={title}>{children}</UiCard>;
 }
 
-// 钉钉 OAuth 回调把 JWT 挂在 fragment 上（不进服务器日志）；模块加载即落地并清理
+// 钉钉 OAuth / 内网入口交接把 JWT 挂在 fragment 上（不进服务器日志）；模块加载即落地并清理
 try {
-  const dtkMatch = String(window.location.hash || '').match(/dingtalk_token=([^&]+)/);
-  if (dtkMatch) {
-    localStorage.setItem('mamage_jwt_token', decodeURIComponent(dtkMatch[1]));
+  const tokenInHash = String(window.location.hash || '').match(/(?:dingtalk_token|mamage_token)=([^&]+)/);
+  if (tokenInHash) {
+    localStorage.setItem('mamage_jwt_token', decodeURIComponent(tokenInHash[1]));
     window.history.replaceState({}, '', window.location.pathname + window.location.search);
   }
 } catch (e) { /* ignore */ }
@@ -871,6 +872,23 @@ function App() {
     setCurrentProjectId(null);
   }, []);
 
+  // 入口切换：公网页面点「内网入口」→ 后端实时上报 Mini 当前内网地址 → 带 token 交接打开；
+  // 内网页面则反向提供公网入口。IP 轮换后地址自动跟随，使用者无需再问管理员。
+  const handleSwitchNetworkEntry = React.useCallback(async () => {
+    if (isLanOrigin()) {
+      try { window.open(publicEntryUrl(), '_blank', 'noopener'); } catch (e) { window.location.href = publicEntryUrl(); }
+      return;
+    }
+    Toast.info('正在获取内网地址…');
+    const info = await fetchLanEntry();
+    if (!info) {
+      Toast.warning('暂未取到内网地址，请稍后再试');
+      return;
+    }
+    const url = buildLanEntryUrl(info, authService.getToken() || '');
+    try { window.open(url, '_blank', 'noopener'); } catch (e) { window.location.href = url; }
+  }, []);
+
   const handleLogout = React.useCallback(async () => {
     try {
       await authService.logout();
@@ -1108,6 +1126,7 @@ function App() {
                 </summary>
                 <div className="mamage-user-menu-panel">
                   <button type="button" onClick={handleNavigateAccount}>账户信息</button>
+                  <button type="button" onClick={handleSwitchNetworkEntry}>{isLanOrigin() ? '公网入口' : '内网入口'}</button>
                   <button type="button" onClick={handleLogout}>退出账号</button>
                 </div>
               </details>
