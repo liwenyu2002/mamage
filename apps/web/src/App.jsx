@@ -3,7 +3,10 @@ import React from 'react';
 import { Typography as UiTypography, Button as UiButton, Empty as UiEmpty, Card as UiCard, Toast, HexLoader } from './ui';
 import ProjectCard from './ProjectCard';
 import * as authService from './services/authService';
-import { fetchLanEntry, isLanOrigin, buildLanEntryUrl, publicEntryUrl } from './services/networkService';
+import {
+  fetchLanEntry, isLanOrigin, buildLanEntryUrl, publicStayUrl,
+  setEntryPref, maybeAutoSwitchToLan,
+} from './services/networkService';
 import { fetchProjectList, createProject } from './services/projectService';
 import { searchPhotos } from './services/photoQueryService';
 import { resolveAssetUrl, rewriteMediaUrlsDeep } from './services/request';
@@ -133,6 +136,22 @@ try {
 
 function App() {
   React.useEffect(() => initLiquidLens(), []);
+
+  // 入口自动选择：先落地 ?entry=public/auto 偏好（内网页面「公网入口」菜单跳来的），
+  // 再做校园网判定；命中即整页跳内网入口（带 token 与当前路径）。
+  React.useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const entry = String(params.get('entry') || '').toLowerCase();
+      if (entry === 'public' || entry === 'auto') {
+        setEntryPref(entry);
+        params.delete('entry');
+        const qs = params.toString();
+        window.history.replaceState({}, '', window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash);
+      }
+    } catch (e) { /* ignore */ }
+    maybeAutoSwitchToLan();
+  }, []);
   const [projects, setProjects] = React.useState([]);
   const [projectPage, setProjectPage] = React.useState(1);
   const [projectHasMore, setProjectHasMore] = React.useState(false);
@@ -872,11 +891,12 @@ function App() {
     setCurrentProjectId(null);
   }, []);
 
-  // 入口切换：公网页面点「内网入口」→ 后端实时上报 Mini 当前内网地址 → 带 token 交接打开；
-  // 内网页面则反向提供公网入口。IP 轮换后地址自动跟随，使用者无需再问管理员。
+  // 入口切换（手动兜底）：公网页面点「内网入口」→ 后端实时上报 Mini 当前内网地址 →
+  // 带 token 交接打开，并恢复自动策略；内网页面点「公网入口」→ 跳公网并停用自动跳转。
   const handleSwitchNetworkEntry = React.useCallback(async () => {
     if (isLanOrigin()) {
-      try { window.open(publicEntryUrl(), '_blank', 'noopener'); } catch (e) { window.location.href = publicEntryUrl(); }
+      const url = publicStayUrl();
+      try { window.open(url, '_blank', 'noopener'); } catch (e) { window.location.href = url; }
       return;
     }
     Toast.info('正在获取内网地址…');
@@ -885,7 +905,9 @@ function App() {
       Toast.warning('暂未取到内网地址，请稍后再试');
       return;
     }
-    const url = buildLanEntryUrl(info, authService.getToken() || '');
+    setEntryPref('auto'); // 手动去内网 = 下次访问公网继续自动跳
+    const path = (window.location.pathname || '/') + (window.location.search || '');
+    const url = buildLanEntryUrl(info, authService.getToken() || '', path);
     try { window.open(url, '_blank', 'noopener'); } catch (e) { window.location.href = url; }
   }, []);
 

@@ -2,7 +2,6 @@ import React from 'react';
 import { Card, Input, Button, Toast } from './ui';
 import './AuthPage.css';
 import * as authService from './services/authService';
-import { fetchLanEntry, isLanOrigin, buildLanEntryUrl, publicEntryUrl } from './services/networkService';
 
 const PASSWORD_RE = /^(?![0-9]+$)(?![a-zA-Z]+$)[0-9A-Za-z]{8,16}$/;
 const EMAIL_RE = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
@@ -19,57 +18,6 @@ function validateLoginInput({ email, password }) {
   if (!password || password.length === 0) return { ok: false, msg: '请输入密码' };
   // 不进行邮箱格式校验，允许学号等其他凭证
   return { ok: true };
-}
-
-// 公网/内网入口选择卡：内网地址由后端实时上报（IP 轮换自动跟随）。
-// 在公网页面显示内网入口；在内网页面反向显示公网入口。
-function LanEntryChooser() {
-  const [lanInfo, setLanInfo] = React.useState(null);
-  const [loaded, setLoaded] = React.useState(false);
-  React.useEffect(() => {
-    let canceled = false;
-    fetchLanEntry().then((d) => {
-      if (canceled) return;
-      setLanInfo(d);
-      setLoaded(true);
-    });
-    return () => { canceled = true; };
-  }, []);
-
-  const onLan = isLanOrigin();
-  if (onLan) {
-    return (
-      <Card className="auth-entry-card" title="网络入口" bordered>
-        <div className="auth-entry-row">
-          <span className="auth-entry-current">当前：内网入口（校园网直连，速度最快）</span>
-          <a className="auth-entry-link" href={publicEntryUrl()}>切换到公网入口</a>
-        </div>
-      </Card>
-    );
-  }
-  if (!loaded) return null;
-  return (
-    <Card className="auth-entry-card" title="选择网络入口" bordered>
-      <div className="auth-entry-row">
-        <span className="auth-entry-current">当前：公网入口（任意网络可用）</span>
-      </div>
-      {lanInfo ? (
-        <div className="auth-entry-row">
-          <span>内网入口（校园网内速度更快）：</span>
-          <a className="auth-entry-link" href={buildLanEntryUrl(lanInfo, authService.getToken() || '')}>
-            {`https://${lanInfo.lanIp}:${lanInfo.lanPort || 3443}`}
-          </a>
-        </div>
-      ) : (
-        <div className="auth-entry-row">
-          <span className="auth-entry-hint">内网入口暂不可用</span>
-        </div>
-      )}
-      <div className="auth-entry-note">
-        内网地址随校园网 IP 自动更新，无需手动记录。首次访问内网入口会提示「不是私密连接」（自签证书），选「高级 → 继续访问」即可。
-      </div>
-    </Card>
-  );
 }
 
 export default function AuthPage({ onAuthenticated }) {
@@ -538,7 +486,6 @@ export default function AuthPage({ onAuthenticated }) {
           </div>
         )}
       </Card>
-      <LanEntryChooser />
     </div>
   );
 }
