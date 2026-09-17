@@ -259,6 +259,16 @@ function App() {
     if (key === 'function' && WechatComposer.preload) WechatComposer.preload();
   }, []);
 
+  // 相册排序：key=createdAt|eventDate，order=desc|asc；选择记在 localStorage
+  const [projectSort, setProjectSort] = React.useState(() => {
+    try {
+      const saved = JSON.parse(String(localStorage.getItem('mamage_project_sort') || ''));
+      if (saved && (saved.key === 'eventDate' || saved.key === 'createdAt')
+        && (saved.order === 'asc' || saved.order === 'desc')) return saved;
+    } catch (e) { /* ignore */ }
+    return { key: 'createdAt', order: 'desc' };
+  });
+
   const loadProjects = React.useCallback(async (kw = '', page = 1, pageSize = PROJECT_PAGE_SIZE) => {
     const currentToken = latestRequestRef.current + 1;
     latestRequestRef.current = currentToken;
@@ -270,7 +280,7 @@ function App() {
     setError(null);
     try {
       // 后端分页接口：GET /api/projects/list?page=1&pageSize=24&keyword=xxx
-      const response = await fetchProjectList({ page: normalizedPage, pageSize: normalizedPageSize, keyword: normalizedKw || undefined, demo: isDemoPath });
+      const response = await fetchProjectList({ page: normalizedPage, pageSize: normalizedPageSize, keyword: normalizedKw || undefined, demo: isDemoPath, sort: projectSort.key, order: projectSort.order });
       if (latestRequestRef.current !== currentToken) return;
 
       const list = Array.isArray(response?.list) ? response.list : [];
@@ -952,6 +962,17 @@ function App() {
     </button>
   ), [closeMobileNav, preloadNavItem, selectedNav]);
 
+  const handleProjectSortClick = React.useCallback((key) => {
+    if (key !== 'createdAt' && key !== 'eventDate') return;
+    setProjectSort((prev) => {
+      const next = prev.key === key
+        ? { key, order: prev.order === 'desc' ? 'asc' : 'desc' }
+        : { key, order: 'desc' };
+      try { localStorage.setItem('mamage_project_sort', JSON.stringify(next)); } catch (e) { /* ignore */ }
+      return next;
+    });
+  }, []);
+
   const showProjectPager = (projectPage > 1) || projectHasMore;
   const projectPageText = projectTotal > 0
     ? `第 ${projectPage} 页 / 共 ${Math.max(1, Math.ceil(projectTotal / PROJECT_PAGE_SIZE))} 页（共 ${projectTotal} 个相册）`
@@ -1391,6 +1412,24 @@ function App() {
                 </div>
               ) : (
                 <>
+                  <div className="project-sort-bar">
+                      <span className="project-sort-label">排序</span>
+                      {(['createdAt', 'eventDate'] ).map((key) => {
+                        const active = projectSort.key === key;
+                        const arrow = active ? (projectSort.order === 'desc' ? '↓' : '↑') : '';
+                        return (
+                          <button
+                            key={key}
+                            type="button"
+                            className={`project-sort-chip${active ? ' is-active' : ''}`}
+                            onClick={() => handleProjectSortClick(key)}
+                            title={key === 'createdAt' ? '按相册创建时间排序，点击切换升降序' : '按活动举办时间排序，点击切换升降序'}
+                          >
+                            {key === 'createdAt' ? '创建时间' : '活动时间'}{arrow}
+                          </button>
+                        );
+                      })}
+                  </div>
                   <div className="project-grid">
                     {loading && (
                       <div className="mamage-grid-state">

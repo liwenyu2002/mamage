@@ -8,10 +8,17 @@ async function fetchLatestProjects(limit = 4) {
   });
 }
 
-async function fetchProjectList({ page = 1, pageSize = 24, keyword = '', demo = false } = {}) {
+async function fetchProjectList({ page = 1, pageSize = 24, keyword = '', demo = false, sort, order } = {}) {
   const res = await request('/api/projects/list', {
     method: 'GET',
-    data: { page, pageSize, keyword, demo: demo ? 1 : undefined }
+    data: {
+      page,
+      pageSize,
+      keyword,
+      demo: demo ? 1 : undefined,
+      sort: sort || undefined,
+      order: order || undefined,
+    },
   });
 
   const list = Array.isArray(res.list) ? res.list : [];
