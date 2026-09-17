@@ -2415,7 +2415,8 @@ video.sv-media {
 /* 校园网内网入口提示条（自动检测命中后显示，一键切换） */
 .lan-entry-banner {
   position: fixed;
-  top: 14px;
+  bottom: 18px;
+  top: auto;
   left: 50%;
   transform: translateX(-50%);
   z-index: 12000;
