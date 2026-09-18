@@ -1141,6 +1141,21 @@ function App() {
   }
 
   if (!currentUser && !isDemoPath) {
+    // 隐私说明对未登录访客开放（合规惯例），从登录页可直达
+    if (selectedNav === 'privacy') {
+      return (
+        <div style={{ minHeight: '100vh', padding: '32px 16px' }}>
+          <LazyPanel title="正在打开隐私说明">
+            <PrivacyPage
+              onBack={() => {
+                setSelectedNav('projects');
+                try { window.history.pushState({}, '', '/login'); } catch (e) { }
+              }}
+            />
+          </LazyPanel>
+        </div>
+      );
+    }
     return (
       <LazyPanel title="正在打开登录页">
         <AuthPage onAuthenticated={(u) => { setCurrentUser(u); loadProjects(); }} />

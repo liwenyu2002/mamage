@@ -114,3 +114,18 @@
   font-size: 12px;
 }
 
+
+.auth-privacy-link {
+  text-align: center;
+}
+
+.auth-privacy-link a {
+  color: #475569;
+  font-size: 12.5px;
+  text-decoration: none;
+}
+
+.auth-privacy-link a:hover {
+  color: #111827;
+  text-decoration: underline;
+}

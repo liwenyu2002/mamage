@@ -486,6 +486,9 @@ export default function AuthPage({ onAuthenticated }) {
           </div>
         )}
       </Card>
+      <div className="auth-privacy-link">
+        <a href="/privacy">隐私说明</a>
+      </div>
     </div>
   );
 }
