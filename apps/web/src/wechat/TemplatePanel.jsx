@@ -19,7 +19,7 @@ export default function TemplatePanel({
   return (
     <div className="tpl-panel">
       <div className="tpl-panel-hint">
-        模板包含<Text code>占位文</Text>与<Text code>占位图</Text>：套用后可用 AI 按简报一键填充文案，图片在右侧「相册」里点占位图替换。
+        模板包含<b>占位文</b>与<b>占位图</b>：套用后可用 AI 按简报一键填充文案，图片在右侧「相册」里点占位图替换。
       </div>
 
       <div className="tpl-list">
