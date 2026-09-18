@@ -3,6 +3,7 @@ import React from 'react';
 import { Typography as UiTypography, Button as UiButton, Empty as UiEmpty, Card as UiCard, Toast, HexLoader } from './ui';
 import ProjectCard from './ProjectCard';
 import * as authService from './services/authService';
+import PrivacyPage from './PrivacyPage';
 import {
   fetchLanEntry, isLanOrigin, buildLanEntryUrl, publicStayUrl,
   setEntryPref, checkLanEntryOffer, dismissLanEntryOffer,
@@ -689,7 +690,10 @@ function App() {
           })();
         }
       }
-      if (path === '/scenery') {
+      if (path === '/privacy') {
+        setSelectedNav('privacy');
+        setCurrentProjectId(null);
+      } else if (path === '/scenery') {
         setSelectedNav('scenery');
         setCurrentProjectId(null);
       } else if (path === '/login') {
@@ -731,7 +735,10 @@ function App() {
           try { window.location.reload(); } catch (e) { window.location.href = path; }
           return;
         }
-        if (path === '/scenery') {
+        if (path === '/privacy') {
+          setSelectedNav('privacy');
+          setCurrentProjectId(null);
+        } else if (path === '/scenery') {
           setSelectedNav('scenery');
           setCurrentProjectId(null);
         } else if (path === '/login') {
@@ -941,6 +948,12 @@ function App() {
     if (platform.editor === 'writer' && AiNewsWriter.preload) AiNewsWriter.preload();
     if (platform.editor === 'video' && VideoEditor.preload) VideoEditor.preload();
   }, [functionPage]);
+
+  const handleNavigatePrivacy = React.useCallback(() => {
+    setSelectedNav('privacy');
+    setCurrentProjectId(null);
+    try { window.history.pushState({}, '', '/privacy'); } catch (e) { }
+  }, []);
 
   const handleNavigateAbout = React.useCallback(() => {
     setSelectedNav('about');
@@ -1766,11 +1779,25 @@ function App() {
                   </Card>
                 </div>
               )
+            ) : selectedNav === 'privacy' ? (
+              <LazyPanel title="正在打开隐私说明">
+                <PrivacyPage onBack={handleBackToList} />
+              </LazyPanel>
             ) : selectedNav === 'about' ? (
               <div style={{ padding: 24, maxWidth: 720, margin: '0 auto' }}>
                 <Card title="关于 MaMage" bordered>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10, lineHeight: 1.7 }}>
                     <Text>MaMage 是一套面向校园活动的照片/视频图库：按相册与活动环节组织媒体，支持批量上传、AI 智能打标与选片、人脸识别、时间轴浏览、跨相册中转与限时分享。</Text>
+                <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+                  <button
+                    type="button"
+                    className="privacy-back-btn"
+                    onClick={handleNavigatePrivacy}
+                  >
+                    隐私说明 →
+                  </button>
+                </div>
+                <Text></Text>
                     <Text type="tertiary" size="small">照片存储于对象存储并经私有代理签名访问；AI 能力由本地视觉模型驱动。</Text>
                     <Text type="tertiary" size="small">© 2026 MaMage 校园图库</Text>
                   </div>
@@ -1798,7 +1825,14 @@ function App() {
 
       {!currentProjectId ? (
         <footer className="mamage-footer" style={{ textAlign: 'center' }}>
-          MaMage 校园图库 © {new Date().getFullYear()}
+          MaMage 校园图库 © {new Date().getFullYear()} ·{' '}
+          <button
+            type="button"
+            onClick={handleNavigatePrivacy}
+            style={{ border: 'none', background: 'transparent', color: 'inherit', font: 'inherit', cursor: 'pointer', textDecoration: 'underline' }}
+          >
+            隐私说明
+          </button>
         </footer>
       ) : null}
       {mountTransferStation ? (
