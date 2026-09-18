@@ -485,10 +485,12 @@ export default function AuthPage({ onAuthenticated }) {
             </div>
           </div>
         )}
+
+        <div className="auth-consent-row">
+          登录即代表同意
+          <a href="/privacy">《隐私说明》</a>
+        </div>
       </Card>
-      <div className="auth-privacy-link">
-        <a href="/privacy">隐私说明</a>
-      </div>
     </div>
   );
 }

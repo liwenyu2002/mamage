@@ -115,17 +115,23 @@
 }
 
 
-.auth-privacy-link {
+/* 登录即同意行：卡片内、主按钮下方，融入表单节奏 */
+.auth-consent-row {
   text-align: center;
-}
-
-.auth-privacy-link a {
-  color: #475569;
+  margin-top: 16px;
   font-size: 12.5px;
-  text-decoration: none;
+  line-height: 1.6;
+  color: rgba(31, 41, 55, 0.52);
 }
 
-.auth-privacy-link a:hover {
+.auth-consent-row a {
+  color: rgba(31, 41, 55, 0.78);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(31, 41, 55, 0.25);
+  padding-bottom: 1px;
+}
+
+.auth-consent-row a:hover {
   color: #111827;
-  text-decoration: underline;
+  border-bottom-color: #111827;
 }
