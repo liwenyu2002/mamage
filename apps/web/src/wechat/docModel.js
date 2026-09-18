@@ -437,8 +437,8 @@ export function computeDocStats(doc) {
   const textBlocks = blocks.filter((b) => b.kind === 'para' || b.kind === 'raw' || (b.kind === 'styled' && (b.type === 'h2' || b.type === 'h3' || b.type === 'quote' || b.type === 'signoff')));
   let images = 0;
   blocks.forEach((b) => {
-    if (b.kind === 'styled' && b.type === 'imageCard') images += 1;
-    else if (b.kind === 'raw') images += (String(b.html || '').match(/<img\b/gi) || []).length;
+    if (b.kind === 'styled' && b.type === 'imageCard' && !String(b.src || '').startsWith('data:')) images += 1; // 占位图(data URI)不计入
+    else if (b.kind === 'raw') images += (String(b.html || '').replace(/<img\b[^>]*src=["']data:[^"']*["'][^>]*>/gi, '').match(/<img\b/gi) || []).length;
   });
   const wordCount = cjk + words; // 中文字 + 英文词
   const readMinutes = Math.max(1, Math.round(wordCount / 350)); // 约 350 字/分钟

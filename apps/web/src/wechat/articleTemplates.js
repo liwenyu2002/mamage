@@ -10,7 +10,7 @@ export const PLACEHOLDER_IMAGE = 'data:image/svg+xml;utf8,' + encodeURIComponent
   + '<circle cx="320" cy="150" r="34" fill="#f7f8fa"/>'
   + '<path d="M80 320 L240 190 L400 280 L520 220 L570 320 Z" fill="#b9c1cc"/>'
   + '<path d="M180 320 L300 230 L430 320 Z" fill="#c9d0da"/>'
-  + '<text x="320" y="70" text-anchor="middle" font-family="PingFang SC, sans-serif" font-size="26" fill="#8a94a3">占位图 · 点右侧「相册」替换</text>'
+  + '<text x="320" y="70" text-anchor="middle" font-family="PingFang SC, sans-serif" font-size="26" fill="#8a94a3">占位图 · 点击即可换图</text>'
   + '</svg>'
 );
 

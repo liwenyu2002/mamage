@@ -5,6 +5,8 @@ import { ARTICLE_TEMPLATES, extractPlaceholders } from './articleTemplates';
 // 纯展示与输入收集，套用/填充动作由 WechatComposer 注入（要走画布历史栈与 setDoc）。
 export default function TemplatePanel({
   onApplyTemplate,
+  onAutoImageFill,
+  placeholderImageCount,
   onAppendTemplate,
   appliedTemplateKey,
   docPlaceholderText,
@@ -19,7 +21,7 @@ export default function TemplatePanel({
   return (
     <div className="tpl-panel">
       <div className="tpl-panel-hint">
-        模板包含<b>占位文</b>与<b>占位图</b>：套用后可用 AI 按简报一键填充文案，图片在右侧「相册」里点占位图替换。
+        模板包含<b>占位文</b>与<b>占位图</b>：占位文由 AI 按简报生成；占位图<b>直接点它</b>即可换图（支持相册浏览与 AI 搜图），或用下方「AI 配图」批量选。
       </div>
 
       <div className="tpl-list">
@@ -80,6 +82,16 @@ export default function TemplatePanel({
             >
               {aiBusy ? 'AI 正在撰写…' : '生成并填入模板'}
             </button>
+            {typeof placeholderImageCount === 'number' && placeholderImageCount > 0 ? (
+              <button
+                type="button"
+                className="tpl-btn is-block"
+                disabled={aiBusy}
+                onClick={() => onAutoImageFill && onAutoImageFill()}
+              >
+                🖼 AI 配图（{placeholderImageCount} 张占位图）
+              </button>
+            ) : null}
           </div>
         ) : null}
       </div>

@@ -21,6 +21,8 @@ import { listFavorites, addFavorite, removeFavorite } from './services/favorites
 import { makeUid, markdownToDoc, docToHtml, docToPlainText, createHistory, sanitizeRawHtml, sanitizeParaHtml, replaceRawPhotoSrc, listRawPhotos, listRawPhotoGroups, unproxyWeChatImages, flattenWeChatBgToImg, dequoteWeChatCssUrls } from './wechat/docModel';
 import { ARTICLE_TEMPLATES, extractPlaceholders } from './wechat/articleTemplates';
 import TemplatePanel from './wechat/TemplatePanel';
+import PhotoPickerModal from './wechat/PhotoPickerModal';
+import AIImageFillModal from './wechat/AIImageFillModal';
 import { autoTagThemeColors, detectThemePrimary } from './wechat/themeColor';
 import { beginDrag } from './wechat/pointerDrag';
 import { makeQrSvg } from './wechat/qr';
@@ -224,6 +226,25 @@ function WechatComposer() {
   }, []);
 
   // ── 推文模板：套用 / 追加 / AI 填充 ──────────────────────────
+  const [aiImageOpen, setAiImageOpen] = React.useState(false);
+
+  // 画布中的占位图槽位：imageCard 且 src 是 data: 占位 SVG；语义取 caption「占位图：X」的 X
+  const placeholderImageSlots = React.useMemo(() => (doc || [])
+    .filter((b) => b.kind === 'styled' && b.type === 'imageCard' && String(b.src || '').startsWith('data:'))
+    .map((b) => ({ uid: b.uid, semantic: String(b.caption || '占位图').replace(/^占位图[：:]\s*/, '') || '配图' })), [doc]);
+
+  const handleApplyImagePicks = React.useCallback((picks) => {
+    if (!picks.length) return;
+    const byUid = new Map(picks.map(({ uid, item }) => [uid, item]));
+    const next = (docRef.current || []).map((b) => {
+      const item = byUid.get(b.uid);
+      if (!item) return b;
+      return { ...b, src: item.fullUrl || item.thumbUrl, caption: String(item.description || b.caption || '').slice(0, 40) || b.caption };
+    });
+    applyDocChange(next);
+    Toast.success(`已替换 ${picks.length} 张占位图（图注同步为照片描述）`);
+  }, [applyDocChange]);
+
   const [appliedTemplateKey, setAppliedTemplateKey] = React.useState(null);
   const [aiBusy, setAiBusy] = React.useState(false);
   const [aiBrief, setAiBrief] = React.useState('');
@@ -231,19 +252,18 @@ function WechatComposer() {
   const blocksFromTemplate = React.useCallback((tpl) => markdownToDoc(tpl.markdown, { blockConfig }), [blockConfig]);
 
   const handleApplyTemplate = React.useCallback((tpl) => {
-    const hasContent = (doc || []).some((b) => String(b.html || '').trim() !== '');
-    let replace = true;
-    if (hasContent) replace = window.confirm('画布已有内容。确定：用模板替换全部；取消：改为追加到末尾。');
+    // 与 docHasContent 同口径：styled 块（标题/引用/图片卡）只有 content/src，没有 html
+    const hasContent = (doc || []).some((b) => ((b.kind === 'para' || b.kind === 'raw') ? String(b.html || '').trim() : (b.content || b.src)));
+    if (hasContent && !window.confirm(`用模板「${tpl.name}」替换整个画布？当前内容将丢失（可撤销一次）。`)) return;
     const newBlocks = blocksFromTemplate(tpl);
-    if (replace) {
+    {
+
       applyDocChange(newBlocks);
       setTitle(tpl.titleTemplate || '');
       setDigest(tpl.digestTemplate || '');
-    } else {
-      applyDocChange([...(doc || []), ...newBlocks]);
     }
     setAppliedTemplateKey(tpl.key);
-    Toast.success(replace ? `已套用模板「${tpl.name}」，占位文等待填充` : `已追加模板「${tpl.name}」`);
+    Toast.success(`已套用模板「${tpl.name}」，占位文等待填充`);
   }, [doc, applyDocChange, blocksFromTemplate]);
 
   const handleAppendTemplate = React.useCallback((tpl) => {
@@ -255,9 +275,22 @@ function WechatComposer() {
   // 画布 + 标题摘要里现存的占位符（供面板展示与 AI 填充目标）
   const docPlaceholderText = React.useMemo(() => {
     const parts = [title || '', digest || ''];
-    (doc || []).forEach((b) => parts.push(String(b.html || '')));
+    (doc || []).forEach((b) => {
+      // styled 块的占位符在 content/caption 里，para/raw 在 html 里，三处都要扫
+      parts.push(String(b.html || ''), String(b.content || ''), String(b.caption || ''));
+    });
     return parts.join('\n');
   }, [doc, title, digest]);
+
+  // AI 生成期间用户可能继续编辑：应用结果时读最新值，避免旧闭包覆盖新输入
+  const docRef = React.useRef(doc);
+  const titleRef = React.useRef(title);
+  const digestRef = React.useRef(digest);
+  React.useEffect(() => { docRef.current = doc; }, [doc]);
+  React.useEffect(() => { titleRef.current = title; }, [title]);
+  React.useEffect(() => { digestRef.current = digest; }, [digest]);
+
+  const escapeReKey = (k) => String(k).replace(/[|.*+?^${}()|[\]\\]/g, '\\$&');
 
   const escapeHtmlLite = (t) => String(t == null ? '' : t)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -276,7 +309,7 @@ function WechatComposer() {
       )).map((key) => ({ key, label: key }));
       const resp = await request('/api/wechat-compositions/ai-fill', {
         method: 'POST',
-        data: { slots, brief: aiBrief.trim(), titleHint: title || '' },
+        data: { slots, brief: aiBrief.trim(), titleHint: titleRef.current || '' },
       });
       const values = (resp && resp.values) || {};
       const filled = Object.keys(values);
@@ -284,23 +317,24 @@ function WechatComposer() {
         Toast.info('AI 未返回可填充的内容，请补充简报后重试');
         return;
       }
-      // 块内替换：占位符是纯文本形态，值转义后 换行转 br
-      const re = new RegExp(`\{\{(?:${filled.map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\}\}`, 'g');
-      const nextBlocks = (doc || []).map((b) => (
-        re.test(b.html || '') ? { ...b, html: String(b.html).replace(re, (m0) => fillTextToHtml(values[m0.slice(2, -2)] || m0)) } : b
-      ));
-      applyDocChange(nextBlocks);
-      let nextTitle = title || '';
-      let nextDigest = digest || '';
-      filled.forEach((k) => {
-        const re1 = new RegExp(k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
-        nextTitle = nextTitle.replace(re1, values[k]);
-        nextDigest = nextDigest.replace(re1, values[k]);
+      const alt = filled.map((k) => escapeReKey(k)).join('|');
+      const phRe = new RegExp(`\\{\\{(?:${alt})\\}\\}`, 'g');
+      const subPlaceholders = (text) => String(text || '').replace(phRe, (m0) => fillTextToHtml(values[m0.slice(2, -2)] || m0));
+      const subPlain = (text) => String(text || '').replace(phRe, (m0) => (values[m0.slice(2, -2)] || m0));
+      // 三字段都替换；不先用 test() 判断（全局正则 lastIndex 会跨块残留导致漏替换）
+      const nextBlocks = (docRef.current || []).map((b) => {
+        const html = b.html != null ? subPlaceholders(b.html) : b.html;
+        const content = b.content != null ? subPlain(b.content) : b.content;
+        const caption = b.caption != null ? subPlain(b.caption) : b.caption;
+        return (html === b.html && content === b.content && caption === b.caption) ? b : { ...b, html, content, caption };
       });
+      applyDocChange(nextBlocks);
+      let nextTitle = subPlain(titleRef.current || '');
+      let nextDigest = subPlain(digestRef.current || '');
       if (resp.title) nextTitle = resp.title;
       if (resp.digest) nextDigest = resp.digest;
-      setTitle(nextTitle);
-      setDigest(nextDigest);
+      setTitle(String(nextTitle).slice(0, TITLE_LIMIT));
+      setDigest(String(nextDigest).slice(0, DIGEST_LIMIT));
       Toast.success(`AI 已填充 ${filled.length} 处占位文${resp.title ? '，标题摘要同步更新' : ''}`);
     } catch (e) {
       console.error('[WechatComposer] ai-fill failed', e);
@@ -308,7 +342,8 @@ function WechatComposer() {
     } finally {
       setAiBusy(false);
     }
-  }, [doc, title, digest, aiBrief, appliedTemplateKey, docPlaceholderText, applyDocChange]);
+  }, [aiBrief, appliedTemplateKey, docPlaceholderText, applyDocChange]);
+
 
   const handleUndo = React.useCallback(() => {
     const prev = historyRef.current.undo();
@@ -1408,6 +1443,8 @@ function WechatComposer() {
             {visitedTabs.tpl && (
               <div className="wxc-tabpane" style={sideTab === 'tpl' ? undefined : { display: 'none' }}>
                 <TemplatePanel
+                  onAutoImageFill={() => setAiImageOpen(true)}
+                  placeholderImageCount={placeholderImageSlots.length}
                   onApplyTemplate={handleApplyTemplate}
                   onAppendTemplate={handleAppendTemplate}
                   appliedTemplateKey={appliedTemplateKey}
@@ -1672,36 +1709,21 @@ function WechatComposer() {
       </>
       )}
 
-      <Modal
+      <AIImageFillModal
+        visible={aiImageOpen}
+        onClose={() => setAiImageOpen(false)}
+        slots={placeholderImageSlots}
+        contextText={title || ''}
+        onApply={handleApplyImagePicks}
+      />
+
+      <PhotoPickerModal
         visible={pickerOpen}
-        title="从中转站插图（点击插入到光标处）"
-        onCancel={() => setPickerOpen(false)}
-        footer={null}
-      >
-        {stationItems.length ? (
-          <div className="wxc-photopick-grid">
-            {stationItems.map((it) => (
-              <button
-                key={it.id}
-                type="button"
-                className="wxc-photopick-thumb"
-                onClick={() => insertPhoto(it)}
-                title={it.description || `插入照片 #${it.id}`}
-              >
-                {it.thumbUrl ? (
-                  <img src={it.thumbUrl} alt={it.description || `#${it.id}`} loading="lazy" />
-                ) : (
-                  <span className="wxc-photopick-fallback">#{it.id}</span>
-                )}
-              </button>
-            ))}
-          </div>
-        ) : (
-          <Text type="secondary">
-            中转站还没有照片。先打开相册，把要用的照片存入右侧中转站，再回来插图。
-          </Text>
-        )}
-      </Modal>
+        onClose={() => setPickerOpen(false)}
+        stationItems={stationItems}
+        onPick={insertPhoto}
+        replacing={!!pickerTarget}
+      />
 
       {/* 全文复现：完整推文预览层，单击选块/双击改字/框选多选，选完再决定替换或追加 */}
       <ImportPreviewModal
