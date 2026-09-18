@@ -26,9 +26,10 @@ export default function AIImageFillModal({ visible, onClose, slots, contextText,
     if (!slots.length) return undefined;
     let canceled = false;
     setLoading(true);
-    const activity = String(contextText || '').slice(0, 30).trim();
     Promise.all(slots.map((slot) => {
-      const q = [slot.semantic, activity, '推荐'].filter(Boolean).join(' ');
+      // 标题常含诗意词（如"以星空为幕"）与照片描述词不匹配，只带槽位语义 + 质量词；
+      // 零结果时后端会自动放宽，语义太宽也优于空手而归
+      const q = [slot.semantic, '推荐'].filter(Boolean).join(' ');
       return request('/api/photos/search', {
         method: 'GET',
         data: { q, smart: 1, page: 1, pageSize: CANDIDATES, sort: 'relevance' },
