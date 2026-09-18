@@ -19,6 +19,8 @@ import ArticlePreviewModal from './wechat/ArticlePreviewModal';
 import RawImagesModal from './wechat/RawImagesModal';
 import { listFavorites, addFavorite, removeFavorite } from './services/favoritesService';
 import { makeUid, markdownToDoc, docToHtml, docToPlainText, createHistory, sanitizeRawHtml, sanitizeParaHtml, replaceRawPhotoSrc, listRawPhotos, listRawPhotoGroups, unproxyWeChatImages, flattenWeChatBgToImg, dequoteWeChatCssUrls } from './wechat/docModel';
+import { ARTICLE_TEMPLATES, extractPlaceholders } from './wechat/articleTemplates';
+import TemplatePanel from './wechat/TemplatePanel';
 import { autoTagThemeColors, detectThemePrimary } from './wechat/themeColor';
 import { beginDrag } from './wechat/pointerDrag';
 import { makeQrSvg } from './wechat/qr';
@@ -220,6 +222,93 @@ function WechatComposer() {
       setHistoryTick((t) => t + 1);
     }
   }, []);
+
+  // ── 推文模板：套用 / 追加 / AI 填充 ──────────────────────────
+  const [appliedTemplateKey, setAppliedTemplateKey] = React.useState(null);
+  const [aiBusy, setAiBusy] = React.useState(false);
+  const [aiBrief, setAiBrief] = React.useState('');
+
+  const blocksFromTemplate = React.useCallback((tpl) => markdownToDoc(tpl.markdown, { blockConfig }), [blockConfig]);
+
+  const handleApplyTemplate = React.useCallback((tpl) => {
+    const hasContent = (doc || []).some((b) => String(b.html || '').trim() !== '');
+    let replace = true;
+    if (hasContent) replace = window.confirm('画布已有内容。确定：用模板替换全部；取消：改为追加到末尾。');
+    const newBlocks = blocksFromTemplate(tpl);
+    if (replace) {
+      applyDocChange(newBlocks);
+      setTitle(tpl.titleTemplate || '');
+      setDigest(tpl.digestTemplate || '');
+    } else {
+      applyDocChange([...(doc || []), ...newBlocks]);
+    }
+    setAppliedTemplateKey(tpl.key);
+    Toast.success(replace ? `已套用模板「${tpl.name}」，占位文等待填充` : `已追加模板「${tpl.name}」`);
+  }, [doc, applyDocChange, blocksFromTemplate]);
+
+  const handleAppendTemplate = React.useCallback((tpl) => {
+    applyDocChange([...(doc || []), ...blocksFromTemplate(tpl)]);
+    setAppliedTemplateKey(tpl.key);
+    Toast.success(`已追加模板「${tpl.name}」`);
+  }, [doc, applyDocChange, blocksFromTemplate]);
+
+  // 画布 + 标题摘要里现存的占位符（供面板展示与 AI 填充目标）
+  const docPlaceholderText = React.useMemo(() => {
+    const parts = [title || '', digest || ''];
+    (doc || []).forEach((b) => parts.push(String(b.html || '')));
+    return parts.join('\n');
+  }, [doc, title, digest]);
+
+  const escapeHtmlLite = (t) => String(t == null ? '' : t)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const fillTextToHtml = (t) => escapeHtmlLite(t).replace(/\n/g, '<br>');
+
+  const handleAiFill = React.useCallback(async () => {
+    const keys = extractPlaceholders(docPlaceholderText);
+    if (!aiBrief.trim() && !keys.length) {
+      Toast.warning('请先填写活动简报，或套用一个模板');
+      return;
+    }
+    setAiBusy(true);
+    try {
+      const slots = (keys.length ? keys : extractPlaceholders(
+        (ARTICLE_TEMPLATES.find((t) => t.key === appliedTemplateKey) || ARTICLE_TEMPLATES[0]).markdown
+      )).map((key) => ({ key, label: key }));
+      const resp = await request('/api/wechat-compositions/ai-fill', {
+        method: 'POST',
+        data: { slots, brief: aiBrief.trim(), titleHint: title || '' },
+      });
+      const values = (resp && resp.values) || {};
+      const filled = Object.keys(values);
+      if (!filled.length) {
+        Toast.info('AI 未返回可填充的内容，请补充简报后重试');
+        return;
+      }
+      // 块内替换：占位符是纯文本形态，值转义后 换行转 br
+      const re = new RegExp(`\{\{(?:${filled.map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\}\}`, 'g');
+      const nextBlocks = (doc || []).map((b) => (
+        re.test(b.html || '') ? { ...b, html: String(b.html).replace(re, (m0) => fillTextToHtml(values[m0.slice(2, -2)] || m0)) } : b
+      ));
+      applyDocChange(nextBlocks);
+      let nextTitle = title || '';
+      let nextDigest = digest || '';
+      filled.forEach((k) => {
+        const re1 = new RegExp(k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+        nextTitle = nextTitle.replace(re1, values[k]);
+        nextDigest = nextDigest.replace(re1, values[k]);
+      });
+      if (resp.title) nextTitle = resp.title;
+      if (resp.digest) nextDigest = resp.digest;
+      setTitle(nextTitle);
+      setDigest(nextDigest);
+      Toast.success(`AI 已填充 ${filled.length} 处占位文${resp.title ? '，标题摘要同步更新' : ''}`);
+    } catch (e) {
+      console.error('[WechatComposer] ai-fill failed', e);
+      Toast.error(`AI 填充失败：${(e && (e.body && e.body.error || e.message)) || '请稍后重试'}`);
+    } finally {
+      setAiBusy(false);
+    }
+  }, [doc, title, digest, aiBrief, appliedTemplateKey, docPlaceholderText, applyDocChange]);
 
   const handleUndo = React.useCallback(() => {
     const prev = historyRef.current.undo();
@@ -1294,7 +1383,7 @@ function WechatComposer() {
           {/* 左侧面板：桌面常驻，窄屏由"样式库"按钮抽屉化；顶层三 Tab＝样式/相册/收藏 */}
           <aside className={`wxc-side-lib${libraryOpen ? ' is-open' : ''}`}>
             <div className="wxc-side-toptabs" role="tablist" aria-label="面板切换">
-              {[['style', '样式'], ['album', '相册'], ['fav', '收藏']].map(([key, name]) => (
+              {[['style', '样式'], ['album', '相册'], ['tpl', '模板'], ['fav', '收藏']].map(([key, name]) => (
                 <button
                   key={key}
                   type="button"
@@ -1313,6 +1402,20 @@ function WechatComposer() {
                   onInsertPhoto={insertPanelPhoto}
                   onToggleFavorite={togglePhotoFav}
                   favoritePhotoKeys={favoritePhotoKeys}
+                />
+              </div>
+            )}
+            {visitedTabs.tpl && (
+              <div className="wxc-tabpane" style={sideTab === 'tpl' ? undefined : { display: 'none' }}>
+                <TemplatePanel
+                  onApplyTemplate={handleApplyTemplate}
+                  onAppendTemplate={handleAppendTemplate}
+                  appliedTemplateKey={appliedTemplateKey}
+                  docPlaceholderText={docPlaceholderText}
+                  aiBusy={aiBusy}
+                  onAiFill={handleAiFill}
+                  aiBrief={aiBrief}
+                  onAiBriefChange={setAiBrief}
                 />
               </div>
             )}
