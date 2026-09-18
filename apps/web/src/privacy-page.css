@@ -5,6 +5,8 @@
   display: flex;
   flex-direction: column;
   gap: 18px;
+  /* 给底部固定的内网入口提示条留出空间，避免遮挡正文 */
+  padding-bottom: 96px;
 }
 
 .privacy-hero {
