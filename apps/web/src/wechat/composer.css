@@ -1175,6 +1175,11 @@ body.wxc-dragging {
   flex-direction: column;
   gap: 12px;
   padding: 12px;
+  /* 面板内容(6卡+AI区)超高时在面板内滚动，与相册/收藏面板一致 */
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .tpl-panel-hint {
