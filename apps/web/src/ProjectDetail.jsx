@@ -2275,6 +2275,16 @@ function ProjectDetail({
     performUploadGroups,
   ]);
 
+  // 弹窗内拖文件到具体环节后自动开始上传，与弹窗外直接拖拽的行为一致。
+  // 用票据等 staging 状态落定再触发（confirmUpload 闭包依赖 stagingFiles，
+  // effect 会在其重建后拿到最新值），避免同一 tick 里读到旧暂存列表。
+  const [autoUploadTicket, setAutoUploadTicket] = React.useState(0);
+  React.useEffect(() => {
+    if (!autoUploadTicket) return;
+    setAutoUploadTicket(0);
+    confirmUpload();
+  }, [autoUploadTicket, confirmUpload]);
+
 
   const openEdit = React.useCallback(() => {
     const p = project || {};
@@ -6247,6 +6257,8 @@ function ProjectDetail({
                   onDrop={(e) => {
                     e.preventDefault();
                     if (e.dataTransfer && e.dataTransfer.files) handleFilesSelected(e.dataTransfer.files, group.sectionId);
+                    // 拖到明确环节=明确上传意图：空闲时暂存落定后自动开始，无需再点「确认上传」
+                    if (!uploading) setAutoUploadTicket((t) => t + 1);
                   }}
                 >
                   <div className="detail-upload-section-head">
