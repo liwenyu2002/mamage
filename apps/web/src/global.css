@@ -2354,6 +2354,9 @@ video.sv-media {
   position: fixed;
   bottom: 18px;
   top: auto;
+  /* 背景对指针/拖拽事件透明（按钮恢复可点）：横在页面底部的提示条 otherwise 会挡住
+     原生拖拽路径（照片→右下角中转站），拖影经过时 dropEffect 被打成 none 造成“卡住” */
+  pointer-events: none;
   left: 50%;
   transform: translateX(-50%);
   z-index: 12000;
@@ -2376,6 +2379,11 @@ video.sv-media {
   font-size: 13px;
   color: #334155;
   line-height: 1.5;
+}
+
+.lan-entry-banner__btn,
+.lan-entry-banner__close {
+  pointer-events: auto;
 }
 
 .lan-entry-banner__btn {
