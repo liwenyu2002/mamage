@@ -218,6 +218,7 @@ function App() {
   const [workspaceSwitching, setWorkspaceSwitching] = React.useState(false);
   const [workspacePanelOpen, setWorkspacePanelOpen] = React.useState(false);
   const [workspacePanelPhotoIds, setWorkspacePanelPhotoIds] = React.useState([]);
+  const [albumShareProject, setAlbumShareProject] = React.useState(null);
   const [authLoading, setAuthLoading] = React.useState(() => {
     try {
       return Boolean(authService.getToken && authService.getToken());
@@ -481,6 +482,17 @@ function App() {
       setWorkspaceSwitching(false);
     }
   }, []);
+
+  const openAlbumShare = React.useCallback((album) => {
+    if (!album?.id || !workspaceInfo?.activeUnitId
+      || Number(album.unitId) !== Number(workspaceInfo.activeUnitId)) {
+      Toast.warning('请先切换到相册所属的工作空间');
+      return;
+    }
+    setWorkspacePanelPhotoIds([]);
+    setAlbumShareProject(album);
+    setWorkspacePanelOpen(true);
+  }, [workspaceInfo]);
 
   React.useEffect(() => {
     if (typeof window === 'undefined') {
@@ -882,6 +894,10 @@ function App() {
     const sid = String(currentProjectId);
     return normalizedProjects.find((project) => String(project.id) === sid) || null;
   }, [normalizedProjects, currentProjectId]);
+  const activeWorkspaceRole = workspaceInfo?.units?.find((unit) =>
+    Number(unit.id) === Number(workspaceInfo.activeUnitId))?.role;
+  const canShareWorkspace = Boolean(workspaceInfo?.activeUnitId
+    && (workspaceInfo.collegeAdmin || ['editor', 'manager'].includes(activeWorkspaceRole)));
 
   const projectHeader = React.useMemo(() => {
     if (!currentProjectId) return null;
@@ -1362,9 +1378,10 @@ function App() {
                   {workspaceInfo?.activeUnitId ? (
                     <button type="button" onClick={() => {
                       if (userMenuRef.current) userMenuRef.current.open = false;
+                      setAlbumShareProject(null);
                       setWorkspacePanelPhotoIds([]);
                       setWorkspacePanelOpen(true);
-                    }}>工作空间与分享</button>
+                    }}>工作空间管理</button>
                   ) : null}
                   <button type="button" onClick={handleNavigateAccount}>账户信息</button>
                   <button type="button" onClick={handleSwitchNetworkEntry}>{isLanOrigin() ? '公网入口' : '内网入口'}</button>
@@ -1430,6 +1447,8 @@ function App() {
                 initialOpenPhotoId={pendingOpenPhotoId}
                 onInitialOpenPhotoHandled={handleInitialPhotoOpened}
                 onProjectHeaderChange={setActiveProjectHeader}
+                onShareAlbum={!isDemoPath && canShareWorkspace ? openAlbumShare : null}
+                shareUnitId={workspaceInfo?.activeUnitId}
               />
             </LazyPanel>
           ) : (
@@ -1912,6 +1931,7 @@ function App() {
         <LazySilent>
           <TransferStation onInternalShare={(photoIds) => {
             if (!workspaceInfo?.activeUnitId) return Toast.warning('请先切换到部门工作空间');
+            setAlbumShareProject(null);
             setWorkspacePanelPhotoIds(photoIds);
             setWorkspacePanelOpen(true);
           }} />
@@ -1920,10 +1940,11 @@ function App() {
       {workspacePanelOpen ? (
         <LazySilent>
           <WorkspacePanel visible={workspacePanelOpen} workspaceInfo={workspaceInfo}
-            initialProjectId={workspacePanelPhotoIds.length ? null : currentProjectId}
+            initialProjectId={albumShareProject?.id || (workspacePanelPhotoIds.length ? null : currentProjectId)}
+            albumShareProject={albumShareProject}
             initialPhotoIds={workspacePanelPhotoIds}
             onOpenProject={handleSelectProject}
-            onClose={() => setWorkspacePanelOpen(false)} />
+            onClose={() => { setWorkspacePanelOpen(false); setAlbumShareProject(null); }} />
         </LazySilent>
       ) : null}
       {showCreateModal ? (

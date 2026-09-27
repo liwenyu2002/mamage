@@ -6,6 +6,25 @@
   padding: 0 20px 20px;
 }
 
+.workspace-album-summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 0;
+  border-bottom: 1px solid rgba(25, 35, 40, 0.12);
+  color: #111;
+  font-size: 13px;
+}
+
+.workspace-album-summary strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+}
+
 .workspace-tabs {
   display: flex;
   gap: 4px;
@@ -254,6 +273,10 @@
   border-bottom: 1px solid rgba(25, 35, 40, 0.12);
 }
 
+.workspace-public-create.is-album-share {
+  grid-template-columns: minmax(0, 1fr) 90px auto;
+}
+
 .workspace-public-create select,
 .workspace-public-create button {
   min-width: 0;
@@ -296,6 +319,16 @@
 }
 
 @media (max-width: 700px) {
+  .workspace-album-summary {
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 4px 8px;
+  }
+
+  .workspace-album-summary span:last-child {
+    grid-column: 2;
+    font-size: 12px;
+  }
+
   .workspace-row {
     flex-wrap: wrap;
     gap: 8px;
@@ -341,5 +374,13 @@
   .workspace-public-create select:nth-child(1),
   .workspace-public-create select:nth-child(2) {
     grid-column: 1 / -1;
+  }
+
+  .workspace-public-create.is-album-share {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .workspace-public-create.is-album-share select:nth-child(2) {
+    grid-column: auto;
   }
 }

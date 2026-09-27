@@ -9,6 +9,7 @@ import {
   listPublicShares, createPublicShare, revokePublicShare, listPendingPublicPhotos, approvePublicPhotos,
   getAiWorkspaceStats,
 } from './services/workspaceService';
+import { publicEntryUrl } from './services/networkService';
 import './WorkspacePanel.css';
 
 const MODES = [
@@ -45,9 +46,10 @@ function expiryLabel(value) {
 }
 
 export default function WorkspacePanel({ visible, onClose, workspaceInfo, initialProjectId,
-  initialPhotoIds = [], onOpenProject }) {
+  initialPhotoIds = [], albumShareProject = null, onOpenProject }) {
   const activeUnitId = workspaceInfo?.activeUnitId;
   const activeUnit = workspaceInfo?.units?.find((unit) => Number(unit.id) === Number(activeUnitId));
+  const albumShareProjectId = Number(albumShareProject?.id) || null;
   const canManage = Boolean(workspaceInfo?.collegeAdmin || activeUnit?.role === 'manager');
   const canShare = Boolean(workspaceInfo?.collegeAdmin || ['editor', 'manager'].includes(activeUnit?.role));
   const [tab, setTab] = React.useState('received');
@@ -78,31 +80,38 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
 
   const refreshLists = React.useCallback(async () => {
     const [inbox, outbox, publicLinks] = await Promise.all([
-      listReceivedShares(), listSentShares(), listPublicShares(),
+      albumShareProjectId ? [] : listReceivedShares(), listSentShares(), listPublicShares(),
     ]);
     setReceived(Array.isArray(inbox) ? inbox : []);
     setSent(Array.isArray(outbox) ? outbox : []);
     setPublicShares(Array.isArray(publicLinks) ? publicLinks : []);
-  }, []);
+  }, [albumShareProjectId]);
 
   React.useEffect(() => {
     if (!visible || !activeUnitId) return undefined;
     let live = true;
-    setTab(initialPhotoIds.length || initialProjectId ? 'create' : 'received');
-    setProjectId(initialProjectId ? String(initialProjectId) : '');
+    setTab(albumShareProjectId || initialPhotoIds.length || initialProjectId ? 'create' : 'received');
+    setProjectId(albumShareProjectId ? String(albumShareProjectId) : (initialProjectId ? String(initialProjectId) : ''));
     setDetail(null);
     Promise.all([
       refreshLists(),
-      listWorkspaceAlbums().then((rows) => {
+      albumShareProjectId ? null : listWorkspaceAlbums().then((rows) => {
         if (live) setProjects(rows || []);
       }),
-      canManage ? listUnitMembers(activeUnitId).then((rows) => { if (live) setMembers(rows || []); }) : null,
-      canManage ? getAiWorkspaceStats().then((data) => { if (live) setAiStats(data.rows || []); }) : null,
-      workspaceInfo?.collegeAdmin ? listFaceGrants().then((rows) => { if (live) setFaceGrants(rows || []); }) : null,
+      !albumShareProjectId && canManage ? listUnitMembers(activeUnitId).then((rows) => { if (live) setMembers(rows || []); }) : null,
+      !albumShareProjectId && canManage ? getAiWorkspaceStats().then((data) => { if (live) setAiStats(data.rows || []); }) : null,
+      !albumShareProjectId && workspaceInfo?.collegeAdmin ? listFaceGrants().then((rows) => { if (live) setFaceGrants(rows || []); }) : null,
     ]).catch((err) => { if (live) Toast.error(err.message || '工作空间加载失败'); });
     return () => { live = false; };
-  }, [visible, activeUnitId, initialProjectId, initialPhotoIds.length, canManage,
+  }, [visible, activeUnitId, initialProjectId, initialPhotoIds.length, albumShareProjectId, canManage,
     workspaceInfo?.collegeAdmin, refreshLists]);
+
+  const visibleSent = albumShareProjectId
+    ? sent.filter((share) => share.shareType === 'album' && Number(share.projectId) === albumShareProjectId)
+    : sent;
+  const visiblePublicShares = albumShareProjectId
+    ? publicShares.filter((share) => Number(share.projectId) === albumShareProjectId)
+    : publicShares;
 
   React.useEffect(() => {
     if (!visible || !targetUnitId) { setRecipients([]); return undefined; }
@@ -155,13 +164,14 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
   };
 
   const submitShare = async () => {
+    const selectedProjectId = albumShareProjectId || Number(projectId);
     if (!targetUnitId) return Toast.warning('请选择接收部门');
-    if (!initialPhotoIds.length && !projectId) return Toast.warning('请选择相册');
+    if (!initialPhotoIds.length && !selectedProjectId) return Toast.warning('请选择相册');
     setBusy(true);
     try {
       const body = {
         shareType: initialPhotoIds.length ? 'collection' : 'album',
-        ...(initialPhotoIds.length ? { photoIds: initialPhotoIds } : { projectId: Number(projectId) }),
+        ...(initialPhotoIds.length ? { photoIds: initialPhotoIds } : { projectId: selectedProjectId }),
         targetUnitId: Number(targetUnitId), targetUserId: targetUserId ? Number(targetUserId) : null,
         mode,
         ...(expiry === 'permanent' ? { permanent: true } : { expiresInDays: Number(expiry) }),
@@ -206,16 +216,17 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
   };
 
   const submitPublicShare = async () => {
-    if (!projectId) return Toast.warning('请选择相册');
+    const selectedProjectId = albumShareProjectId || Number(projectId);
+    if (!selectedProjectId) return Toast.warning('请选择相册');
     setBusy(true);
     try {
       const created = await createPublicShare({
-        shareType: 'project', projectId: Number(projectId),
+        shareType: 'project', projectId: selectedProjectId,
         syncMode: canManage ? publicSync : 'approval',
         expiresInSeconds: Number(publicExpiry) * 86400,
       });
       await refreshLists();
-      const link = `${window.location.origin}/share/${created.code}`;
+      const link = `${publicEntryUrl()}/share/${created.code}`;
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(link);
         Toast.success('公开链接已创建并复制');
@@ -259,16 +270,26 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
   };
 
   return (
-    <Modal visible={visible} onCancel={onClose} title={activeUnit?.name || '工作空间'}
-      className="workspace-dialog" width={920} bodyStyle={{ maxHeight: 'min(76vh, 760px)', overflowY: 'auto' }} footer={null}>
+    <Modal visible={visible} onCancel={onClose} title={albumShareProjectId ? '分享相册' : (activeUnit?.name || '工作空间')}
+      className={`workspace-dialog${albumShareProjectId ? ' is-album-share' : ''}`}
+      width={albumShareProjectId ? 700 : 920} bodyStyle={{ maxHeight: 'min(76vh, 760px)', overflowY: 'auto' }} footer={null}>
       {!activeUnitId ? <div className="workspace-empty">历史相册暂不支持部门分享，请先切换到一个部门。</div> : <>
-        <div className="workspace-tabs" role="tablist" aria-label="工作空间">
-          {[
+        {albumShareProjectId ? (
+          <div className="workspace-album-summary">
+            <span>当前相册</span>
+            <strong title={albumShareProject.title}>{albumShareProject.title || '未命名相册'}</strong>
+            <span>{activeUnit?.name}</span>
+          </div>
+        ) : null}
+        <div className="workspace-tabs" role="tablist" aria-label={albumShareProjectId ? '相册分享方式' : '工作空间'}>
+          {(albumShareProjectId ? [
+            ['create', '部门分享'], ['public', '公开链接'], ['sent', '部门记录'],
+          ] : [
             ['received', '与我共享'], ['sent', '已发分享'],
             ...(canShare ? [['create', '创建分享']] : []),
             ...(canShare ? [['public', '公开链接']] : []),
             ...(canManage ? [['members', '成员']] : []),
-          ].map(([key, label]) => (
+          ]).map(([key, label]) => (
             <button type="button" role="tab" aria-selected={tab === key} key={key}
               className={tab === key ? 'is-active' : ''} onClick={() => { setTab(key); setDetail(null); }}>
               {label}
@@ -311,7 +332,7 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
         </div>}
 
         {tab === 'sent' && <div className="workspace-section">
-          {!sent.length ? <div className="workspace-empty">还没有发出的分享</div> : sent.map((share) =>
+          {!visibleSent.length ? <div className="workspace-empty">还没有发出的部门分享</div> : visibleSent.map((share) =>
             <div className="workspace-row" key={share.id}>
               <div className="workspace-row-main">
                 <strong>{share.albumName || '照片集合'}</strong>
@@ -322,13 +343,13 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
         </div>}
 
         {tab === 'create' && canShare && <div className="workspace-form">
-          <label>素材
+          {!albumShareProjectId ? <label>素材
             {initialPhotoIds.length ? <span>{initialPhotoIds.length} 项选中素材</span> :
               <select value={projectId} onChange={(event) => setProjectId(event.target.value)}>
                 <option value="">选择相册</option>
                 {projects.map((project) => <option key={project.id} value={project.id}>{project.name || project.title}</option>)}
               </select>}
-          </label>
+          </label> : null}
           <label>接收部门
             <select value={targetUnitId} onChange={(event) => { setTargetUnitId(event.target.value); setTargetUserId(''); }}>
               <option value="">选择部门</option>
@@ -364,11 +385,11 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
         </div>}
 
         {tab === 'public' && canShare && <div className="workspace-section">
-          <div className="workspace-public-create">
-            <select value={projectId} onChange={(event) => setProjectId(event.target.value)} aria-label="选择公开分享相册">
+          <div className={`workspace-public-create${albumShareProjectId ? ' is-album-share' : ''}`}>
+            {!albumShareProjectId ? <select value={projectId} onChange={(event) => setProjectId(event.target.value)} aria-label="选择公开分享相册">
               <option value="">选择相册</option>
               {projects.map((project) => <option key={project.id} value={project.id}>{project.name || project.title}</option>)}
-            </select>
+            </select> : null}
             <select value={publicSync} disabled={!canManage}
               onChange={(event) => setPublicSync(event.target.value)} aria-label="新增照片同步方式">
               <option value="approval">新增照片需负责人确认</option>
@@ -377,16 +398,16 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
             <select value={publicExpiry} onChange={(event) => setPublicExpiry(event.target.value)} aria-label="公开链接有效期">
               <option value="7">7 天</option><option value="30">30 天</option><option value="90">90 天</option>
             </select>
-            <button type="button" disabled={busy || !projectId} onClick={submitPublicShare}>创建链接</button>
+            <button type="button" disabled={busy || !(albumShareProjectId || projectId)} onClick={submitPublicShare}>创建链接</button>
           </div>
-          {publicShares.map((share) => <div className="workspace-row" key={share.code}>
+          {visiblePublicShares.map((share) => <div className="workspace-row" key={share.code}>
             <div className="workspace-row-main">
               <strong>{share.albumName || share.title || '照片集合'}</strong>
               <span>{share.syncMode === 'automatic' ? '自动同步' : '人工确认'} · {expiryLabel(share.expiresAt)}
                 {Number(share.pendingCount) > 0 ? ` · ${share.pendingCount} 张待确认` : ''}</span>
             </div>
             <button type="button" onClick={() => {
-              const link = `${window.location.origin}/share/${share.code}`;
+              const link = `${publicEntryUrl()}/share/${share.code}`;
               if (navigator.clipboard?.writeText) {
                 navigator.clipboard.writeText(link).then(() => Toast.success('链接已复制'))
                   .catch(() => Toast.info(link));

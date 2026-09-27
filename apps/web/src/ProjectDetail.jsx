@@ -17,6 +17,7 @@ import {
   IconSearch,
   IconTrash,
   IconDownload,
+  IconShare,
   IconSliders,
   IconFaceScan,
   IconStar,
@@ -616,6 +617,8 @@ function ProjectDetail({
   galleryMode: controlledGalleryMode,
   onGalleryModeChange,
   onProjectHeaderChange,
+  onShareAlbum,
+  shareUnitId,
 }) {
   const DISABLE_UPLOAD_FEATURE = !!readOnly;
   const DISABLE_DELETE_FEATURE = !!readOnly;
@@ -5231,6 +5234,23 @@ function ProjectDetail({
         </div>
 
         <div className="detail-actions-grid">
+          {onShareAlbum && shareUnitId && Number(resolvedProject?.unitId) === Number(shareUnitId) ? (
+            <Button
+              className="detail-action-tile"
+              theme="borderless"
+              onClick={() => {
+                setActionSheetOpen(false);
+                onShareAlbum({ id: Number(projectId), title, unitId: Number(shareUnitId) });
+              }}
+              aria-label="分享当前相册"
+            >
+              <span className="detail-action-icon is-accent-teal" aria-hidden="true"><IconShare /></span>
+              <span className="detail-action-copy">
+                <span className="detail-action-title">分享相册</span>
+                <span className="detail-action-desc">部门或公开链接</span>
+              </span>
+            </Button>
+          ) : null}
           <Button
             className="detail-action-tile"
             theme="borderless"

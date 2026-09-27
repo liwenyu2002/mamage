@@ -160,6 +160,18 @@ export function IconDownload(props) {
   );
 }
 
+export function IconShare(props) {
+  return (
+    <IconBase {...props}>
+      <circle cx="18" cy="5" r="3" />
+      <circle cx="6" cy="12" r="3" />
+      <circle cx="18" cy="19" r="3" />
+      <path d="m8.7 10.7 6.6-4.4" />
+      <path d="m8.7 13.3 6.6 4.4" />
+    </IconBase>
+  );
+}
+
 // 调色：竖排滑杆
 export function IconSliders(props) {
   return (
