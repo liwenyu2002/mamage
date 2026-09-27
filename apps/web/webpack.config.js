@@ -2,6 +2,7 @@
 const path = require('path');
 const fs = require('fs');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
+const MiniCssExtractPlugin = require('mini-css-extract-plugin');
 
 // 轻量 .env 加载（无 dotenv 依赖）：让构建 templateParameters(MAMAGE_*) 可靠地从项目根 .env 读取，
 // 否则标准 `npm run build`（不在 shell 里手动 export）会让这些变量全部落到默认空值——
@@ -58,7 +59,7 @@ class CopyPublicAssetsPlugin {
   }
 }
 
-module.exports = {
+module.exports = (_env, argv) => ({
   entry: './src/index.jsx',
   output: {
     path: path.resolve(__dirname, 'dist'),
@@ -128,11 +129,15 @@ module.exports = {
       },
       {
         test: /\.css$/,
-        use: ['style-loader', 'css-loader'],
+        use: [argv.mode === 'production' ? MiniCssExtractPlugin.loader : 'style-loader', 'css-loader'],
       },
     ],
   },
   plugins: [
+    ...(argv.mode === 'production' ? [new MiniCssExtractPlugin({
+      filename: 'bundle.[contenthash].css',
+      chunkFilename: 'bundle.[name].[contenthash].css',
+    })] : []),
     new HtmlWebpackPlugin({
       template: './public/index.html',
       // Inject runtime config values into generated HTML.
@@ -184,4 +189,4 @@ module.exports = {
       },
     ],
   },
-};
+});

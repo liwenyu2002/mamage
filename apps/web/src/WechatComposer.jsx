@@ -25,7 +25,6 @@ import PhotoPickerModal from './wechat/PhotoPickerModal';
 import AIImageFillModal from './wechat/AIImageFillModal';
 import { autoTagThemeColors, detectThemePrimary } from './wechat/themeColor';
 import { beginDrag } from './wechat/pointerDrag';
-import { makeQrSvg } from './wechat/qr';
 import './wechat/composer.css';
 import './wechat/canvas.css';
 
@@ -1008,6 +1007,7 @@ function WechatComposer() {
       if (!path) throw new Error('生成预览失败');
       // 绝对 URL 用当前站点 origin 拼（生产 = mamage.wenyuli.site，手机可直达；本地 dev 手机不可达但流程可测）
       const url = `${window.location.origin}${path}`;
+      const { makeQrSvg } = await import(/* webpackChunkName: "wechat-preview-qr" */ './wechat/qr');
       setPreviewInfo({ url, qrSvg: makeQrSvg(url, { cellSize: 6, margin: 12 }) });
     } catch (e) {
       console.error('[WechatComposer] mobile preview failed', e);

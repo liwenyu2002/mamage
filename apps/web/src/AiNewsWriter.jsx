@@ -9,7 +9,6 @@ import DOMPurify from 'dompurify';
 import { toPng } from 'html-to-image';
 import WechatPreviewEditor from './wechat/WechatPreviewEditor';
 import { copyWechatRichTextLegacy, downloadImagePack } from './wechat/wechatExport';
-import { exportNewsDocx } from './utils/newsWordExport';
 
 // 渠道状态中文标签（ai_jobs.status 取值集：pending/running/succeeded/failed/cancelled）
 const CHANNEL_STATUS_LABEL = {
@@ -1246,6 +1245,7 @@ const AiNewsWriter = ({ initialChannelKey = null }) => {
 
   const handleExportWord = async () => {
     try {
+      const { exportNewsDocx } = await import(/* webpackChunkName: "news-word-export" */ './utils/newsWordExport');
       await exportNewsDocx({
         title: activeContent.title,
         subtitle: activeContent.subtitle,
