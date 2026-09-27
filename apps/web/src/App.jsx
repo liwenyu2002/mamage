@@ -868,12 +868,16 @@ function App() {
         .filter((s) => s && s !== resolvedCover)
         .slice(0, 6);
       const count = project?.photoCount ?? (Array.isArray(project?.photoIds) ? project.photoIds.length : undefined) ?? project?.count ?? normalizedImages.length;
+      const shareLineage = Array.isArray(project?.meta?.shareLineage) ? project.meta.shareLineage : [];
+      const lastShare = shareLineage[shareLineage.length - 1];
+      const originLabel = [lastShare?.organizationName, lastShare?.unitName].filter(Boolean).join(' / ');
 
       return {
         id,
         title,
         subtitle,
         description,
+        originLabel,
         date,
         startDate,
         createdAt,
@@ -906,6 +910,7 @@ function App() {
       title: currentProject.title,
       subtitle: currentProject.subtitle,
       description: currentProject.description,
+      originLabel: currentProject.originLabel,
       count: currentProject.count,
       createdText: formatHeaderDate(currentProject.createdAt),
       updatedText: formatHeaderDate(currentProject.updatedAt),
@@ -929,6 +934,7 @@ function App() {
     ? (projectHeaderReady ? (projectHeader?.title || '未命名相册') : '正在加载相册')
     : 'MaMage 图库';
   const projectHeaderDescription = String(projectHeader?.description || projectHeader?.subtitle || '').trim();
+  const projectHeaderOrigin = String(projectHeader?.originLabel || '').trim();
   const projectHeaderDescriptionText = currentProjectId
     ? (projectHeaderReady ? (projectHeaderDescription || '暂无描述') : '正在同步照片信息')
     : '';
@@ -1268,6 +1274,7 @@ function App() {
                     </div>
                   ) : null}
                   <div className="mamage-project-info-desc">描述：{projectHeaderDescriptionText}</div>
+                  {projectHeaderOrigin ? <div className="mamage-project-info-desc">来自：{projectHeaderOrigin}</div> : null}
                 </div>
               ) : null
             ) : null}

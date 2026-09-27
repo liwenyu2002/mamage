@@ -77,6 +77,19 @@
   width: 100%;
 }
 
+.detail-copy-origin {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 0 0 10px;
+  padding: 0 4px;
+  color: #111;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
 .detail-gallery.is-preparing {
   min-height: clamp(280px, 52vh, 760px);
 }

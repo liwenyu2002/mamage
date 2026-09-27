@@ -300,10 +300,12 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
         {tab === 'received' && <div className="workspace-section">
           {!received.length ? <div className="workspace-empty">暂无收到的分享</div> : received.map((share) => {
             const copy = parseCopyResult(share.copyResult);
+            const origin = [share.sourceOrganizationName, share.sourceUnitName].filter(Boolean).join(' / ');
             return <div className="workspace-row" key={share.id}>
               <div className="workspace-row-main">
                 <strong>{share.albumName || (share.shareType === 'collection' ? '照片集合' : '相册')}</strong>
-                <span>{share.sourceUnitName} · {statusLabel(share)} · {expiryLabel(share.expiresAt)}</span>
+                {origin ? <span className="workspace-share-origin">来自 {origin}</span> : null}
+                <span>{share.sharedByName ? `${share.sharedByName} 分享 · ` : ''}{statusLabel(share)} · {expiryLabel(share.expiresAt)}</span>
               </div>
               {copy?.projectId ? <button type="button" onClick={() => { onOpenProject(copy.projectId); onClose(); }}>打开副本</button>
                 : share.mode === 'copy' && share.copyStatus === 'failed'
@@ -315,6 +317,11 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
             <div className="workspace-detail-head">
               <strong>{detail.albumName || '共享照片'}</strong>
               <button type="button" onClick={() => setDetail(null)} aria-label="关闭分享预览">×</button>
+            </div>
+            <div className="workspace-share-context">
+              来自 {[detail.sourceOrganizationName, detail.sourceUnitName].filter(Boolean).join(' / ')}
+              {detail.sharedByName ? ` · ${detail.sharedByName} 分享` : ''}
+              {detail.createdAt ? ` · ${shortDate(detail.createdAt)}` : ''}
             </div>
             {detail.mode === 'collaborate' && detail.projectId &&
               <button type="button" onClick={() => { onOpenProject(detail.projectId); onClose(); }}>打开相册编辑</button>}

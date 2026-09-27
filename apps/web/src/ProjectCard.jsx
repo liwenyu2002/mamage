@@ -69,6 +69,7 @@ function ProjectCard({
   startDate,
   createdAt,
   description,
+  originLabel,
   count,
   images = [],
   cover = null,
@@ -317,6 +318,7 @@ function ProjectCard({
             <CardText strong className="project-card__mobile-title">
               {`《${title}》`}
             </CardText>
+            {originLabel ? <span className="project-card__origin" title={`来自 ${originLabel}`}>来自 {originLabel}</span> : null}
             <CardText size="small" className="project-card__mobile-description">
               {descText}
             </CardText>
@@ -382,6 +384,7 @@ function ProjectCard({
                   {subtitle}
                 </span>
               )}
+              {originLabel ? <span className="project-card__origin" title={`来自 ${originLabel}`}>来自 {originLabel}</span> : null}
             </div>
             <div className="project-card__meta-down">
               <CardText size="small" className="project-card__description">

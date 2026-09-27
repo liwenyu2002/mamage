@@ -227,6 +227,18 @@
   width: 100%;
 }
 
+.project-card__origin {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  color: #111;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .project-card__meta-top {
   width: 100%;
   display: flex;

@@ -2890,6 +2890,9 @@ function ProjectDetail({
   const title = resolvedProject?.title ?? resolvedProject?.projectName ?? resolvedProject?.name ?? '未命名项目';
   const subtitle = resolvedProject?.subtitle ?? resolvedProject?.tagline ?? resolvedProject?.category ?? '';
   const description = resolvedProject?.description ?? resolvedProject?.intro ?? resolvedProject?.description ?? '';
+  const shareLineage = Array.isArray(resolvedProject?.meta?.shareLineage) ? resolvedProject.meta.shareLineage : [];
+  const latestShare = shareLineage[shareLineage.length - 1];
+  const originLabel = [latestShare?.organizationName, latestShare?.unitName].filter(Boolean).join(' / ');
   // tags: try multiple common field names and normalize to array of strings
   const rawTags = resolvedProject?.tags || resolvedProject?.labels || resolvedProject?.projectTags || resolvedProject?.tagList || null;
   const tags = React.useMemo(() => {
@@ -3097,13 +3100,14 @@ function ProjectDetail({
       title,
       subtitle,
       description,
+      originLabel,
       count,
       createdText,
       updatedText,
       tags,
       coverSrc: coverSrc ? resolveAssetUrl(coverSrc) : '',
     });
-  }, [onProjectHeaderChange, projectId, title, subtitle, description, count, createdText, updatedText, tags, coverSrc]);
+  }, [onProjectHeaderChange, projectId, title, subtitle, description, originLabel, count, createdText, updatedText, tags, coverSrc]);
   React.useEffect(() => () => {
     if (typeof onProjectHeaderChange === 'function') onProjectHeaderChange(null);
   }, [onProjectHeaderChange]);
@@ -5389,6 +5393,13 @@ function ProjectDetail({
           </div>
         ) : null}
       </div>
+
+      {originLabel ? (
+        <div className="detail-copy-origin" aria-label="相册来源">
+          <span>来自 {originLabel}</span>
+          {latestShare.sharedByName ? <span>分享人 {latestShare.sharedByName}</span> : null}
+        </div>
+      ) : null}
 
       <div
         className={`detail-gallery ${galleryMode === 'masonry' ? 'detail-gallery--masonry' : 'detail-gallery--grid'} ${useTimelineGallery ? 'detail-gallery--timeline' : ''} ${isGalleryPreparing ? 'is-preparing' : ''}`}

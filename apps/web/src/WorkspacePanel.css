@@ -87,6 +87,19 @@
   color: #26333b;
 }
 
+.workspace-row-main .workspace-share-origin {
+  color: #111;
+  font-weight: 650;
+}
+
+.workspace-share-context {
+  margin-bottom: 10px;
+  color: #111;
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
 .workspace-row button,
 .workspace-detail-head button,
 .workspace-share-detail > button,
