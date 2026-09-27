@@ -25,6 +25,25 @@
   font-size: 12px;
 }
 
+.workspace-dialog.is-album-share .mamage-modal-header {
+  padding-bottom: 10px;
+}
+
+.workspace-dialog.is-album-share .mamage-modal-body {
+  padding-bottom: 20px;
+}
+
+.workspace-dialog.is-album-share .mamage-modal-close {
+  width: 34px;
+  height: 34px;
+}
+
+.workspace-dialog.is-album-share .workspace-album-summary {
+  gap: 5px 12px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+
 .workspace-album-summary span:first-child {
   grid-column: 1 / -1;
   color: #29333a;
@@ -52,6 +71,59 @@
   white-space: nowrap;
 }
 
+.workspace-album-tabs {
+  margin-top: 16px;
+}
+
+.workspace-album-form,
+.workspace-album-public-form {
+  padding-top: 22px;
+  animation: workspace-album-content-in 180ms ease both;
+}
+
+.workspace-album-public-form {
+  padding-bottom: 20px;
+  border-bottom: 1px solid rgba(25, 35, 40, 0.09);
+}
+
+.workspace-album-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.workspace-album-mode {
+  margin-top: 20px;
+}
+
+.workspace-album-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.workspace-album-actions .mamage-button {
+  min-width: 168px;
+  min-height: 44px;
+}
+
+.workspace-album-actions .mamage-button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.workspace-album-actions p {
+  margin: 0 0 9px;
+  font-size: 12px;
+}
+
+@keyframes workspace-album-content-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 .workspace-tabs {
   display: flex;
   gap: 4px;
@@ -76,8 +148,8 @@
   flex: 0 0 auto;
   min-height: 38px;
   padding: 7px 12px;
-  border: 0;
-  border-radius: 7px;
+  border: 2px solid transparent;
+  border-radius: 9px;
   background: transparent;
   color: #111;
   font: inherit;
@@ -88,9 +160,16 @@
 }
 
 .workspace-tabs button.is-active {
-  background: rgba(255, 255, 255, 0.72);
-  box-shadow: 0 2px 9px rgba(15, 23, 28, 0.09), var(--liquid-glass-edge, inset 0 1px 0 rgba(255, 255, 255, 0.6));
-  font-weight: 800;
+  border-color: var(--mamage-selected-border);
+  background: var(--mamage-selected-bg);
+  box-shadow: var(--mamage-selected-shadow);
+  color: var(--mamage-selected-color);
+  font-weight: 700;
+}
+
+.workspace-tabs button.is-active:hover,
+.workspace-mode-list label.is-selected:hover {
+  box-shadow: var(--mamage-selected-shadow-hover);
 }
 
 .workspace-tabs button:focus-visible,
@@ -381,14 +460,21 @@
   min-width: 0;
   min-height: 40px;
   padding: 7px;
-  border-radius: 7px;
+  border: 2px solid transparent;
+  border-radius: 9px;
   cursor: pointer;
   text-align: center;
 }
 
 .workspace-mode-list label.is-selected {
-  background: rgba(255, 255, 255, 0.78);
-  box-shadow: 0 2px 8px rgba(17, 29, 37, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.66);
+  border-color: var(--mamage-selected-border);
+  background: var(--mamage-selected-bg);
+  box-shadow: var(--mamage-selected-shadow);
+}
+
+.workspace-mode-list label.is-selected strong {
+  color: var(--mamage-selected-color);
+  font-weight: 700;
 }
 
 .workspace-mode-list input {
@@ -510,6 +596,24 @@
 }
 
 @media (max-width: 700px) {
+  .workspace-dialog.is-album-share .mamage-modal-body {
+    padding: 0 16px 16px;
+  }
+
+  .workspace-dialog.is-album-share .mamage-modal-header {
+    padding: 16px 16px 8px;
+  }
+
+  .workspace-album-fields,
+  .workspace-album-actions {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 15px;
+  }
+
+  .workspace-album-actions .mamage-button {
+    width: 100%;
+  }
+
   .workspace-album-summary {
     gap: 5px 8px;
   }
@@ -582,4 +686,9 @@
     grid-column: 1 / -1;
     width: 100%;
   }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-album-form,
+  .workspace-album-public-form { animation-duration: .01ms; }
 }

@@ -1,6 +1,7 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { createPortal } from 'react-dom';
+import { IconChevronRight } from './icons';
 import './ui.css';
 
 function cx(...parts) {
@@ -324,6 +325,140 @@ Select.Option = function Option({ children, value, ...rest }) {
   return <option {...rest} value={value}>{children}</option>;
 };
 
+function GlassSelect({ label, value, options = [], onChange, placeholder = '请选择', disabled = false,
+  upward = false, className = '' }) {
+  const [expanded, setExpanded] = React.useState(false);
+  const [menuMounted, setMenuMounted] = React.useState(false);
+  const [position, setPosition] = React.useState(null);
+  const triggerRef = React.useRef(null);
+  const menuRef = React.useRef(null);
+  const closeTimer = React.useRef(null);
+  const menuId = React.useId();
+  const selected = options.find((item) => String(item.value) === String(value));
+
+  const closeMenu = React.useCallback(() => {
+    setExpanded(false);
+    clearTimeout(closeTimer.current);
+    closeTimer.current = window.setTimeout(() => setMenuMounted(false), 160);
+  }, []);
+
+  const openMenu = () => {
+    if (disabled || !triggerRef.current) return;
+    clearTimeout(closeTimer.current);
+    const rect = triggerRef.current.getBoundingClientRect();
+    const desiredHeight = Math.min(240, options.length * 39 + 16);
+    const below = window.innerHeight - rect.bottom - 12;
+    const above = rect.top - 12;
+    const placeAbove = upward ? above >= Math.min(desiredHeight, below) : below < desiredHeight && above > below;
+    const space = placeAbove ? above : below;
+    const width = Math.min(rect.width, window.innerWidth - 16);
+    const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
+    const layer = triggerRef.current.closest('.mamage-modal-mask, .mamage-sidesheet-mask');
+    const layerZ = layer ? Number.parseInt(getComputedStyle(layer).zIndex, 10) : 1000;
+    setPosition({
+      left, width,
+      top: placeAbove ? undefined : rect.bottom + 6,
+      bottom: placeAbove ? window.innerHeight - rect.top + 6 : undefined,
+      maxHeight: Math.max(72, Math.min(240, space - 4)),
+      zIndex: (Number.isFinite(layerZ) ? layerZ : 1000) + 2,
+      '--mamage-menu-offset': placeAbove ? '6px' : '-6px',
+    });
+    setMenuMounted(true);
+    setExpanded(true);
+  };
+
+  React.useEffect(() => {
+    if (!expanded) return undefined;
+    const onPointerDown = (event) => {
+      if (triggerRef.current?.contains(event.target) || menuRef.current?.contains(event.target)) return;
+      closeMenu();
+    };
+    const onKeyDown = (event) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      closeMenu();
+      triggerRef.current?.focus();
+    };
+    const onScroll = (event) => { if (!menuRef.current?.contains(event.target)) closeMenu(); };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown, true);
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', closeMenu);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown, true);
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', closeMenu);
+    };
+  }, [expanded, closeMenu]);
+
+  React.useEffect(() => () => clearTimeout(closeTimer.current), []);
+
+  const onMenuKeyDown = (event) => {
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const items = [...menuRef.current.querySelectorAll('[role="option"]:not(:disabled)')];
+    if (!items.length) return;
+    const current = items.indexOf(document.activeElement);
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1
+      : (current + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+    items[next]?.focus();
+  };
+
+  return <div className={cx('mamage-glass-select', className)}>
+    {label ? <span className="mamage-field-label">{label}</span> : null}
+    <button ref={triggerRef} type="button" className="mamage-glass-select-trigger mamage-select-selection"
+      disabled={disabled} aria-label={label || placeholder} aria-haspopup="listbox" aria-controls={menuId}
+      aria-expanded={expanded} onClick={() => (expanded ? closeMenu() : openMenu())}
+      onKeyDown={(event) => {
+        if (['ArrowDown', 'ArrowUp'].includes(event.key)) {
+          event.preventDefault();
+          if (!expanded) openMenu();
+          requestAnimationFrame(() => menuRef.current?.querySelector('[role="option"]:not(:disabled)')?.focus());
+        }
+      }}>
+      <span title={selected?.label || placeholder}>{selected?.label || placeholder}</span>
+      <IconChevronRight />
+    </button>
+    {menuMounted && position && createPortal(<div ref={menuRef} id={menuId} role="listbox"
+      aria-label={label || placeholder} className={cx('mamage-glass-select-menu', 'mamage-popover-content', expanded ? 'is-open' : 'is-closing')}
+      style={position} onKeyDown={onMenuKeyDown}>
+      {options.map((item) => <button type="button" role="option" key={String(item.value)}
+        disabled={item.disabled} aria-selected={String(item.value) === String(value)}
+        onClick={() => { onChange?.(item.value, item); closeMenu(); triggerRef.current?.focus(); }}>
+        <span>{item.label}</span><span aria-hidden="true">{String(item.value) === String(value) ? '✓' : ''}</span>
+      </button>)}
+    </div>, document.body)}
+  </div>;
+}
+
+function SegmentedControl({ options = [], value, onChange, label, kind = 'choice', className = '' }) {
+  const selectedIndex = Math.max(0, options.findIndex((item) => item.value === value));
+  const isTabs = kind === 'tabs';
+
+  const onKeyDown = (event) => {
+    if (!isTabs || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key) || !options.length) return;
+    event.preventDefault();
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? options.length - 1
+      : (selectedIndex + (event.key === 'ArrowRight' ? 1 : -1) + options.length) % options.length;
+    onChange?.(options[next].value);
+    event.currentTarget.querySelectorAll('[role="tab"]')[next]?.focus();
+  };
+
+  return <div className={cx('mamage-segmented', isTabs && 'is-tabs', className)}
+    role={isTabs ? 'tablist' : 'group'} aria-label={label}
+    style={{ '--mamage-segment-count': Math.max(1, options.length) }}
+    onKeyDown={onKeyDown}>
+    {options.map((item) => <button type="button" key={String(item.value)}
+      role={isTabs ? 'tab' : undefined}
+      aria-selected={isTabs ? item.value === value : undefined}
+      aria-pressed={isTabs ? undefined : item.value === value}
+      tabIndex={isTabs && item.value !== value ? -1 : 0}
+      onClick={() => onChange?.(item.value)}>{item.label}</button>)}
+  </div>;
+}
+
 function Card({ title, children, className = '', bordered, ...rest }) {
   return (
     <section {...rest} className={cx('mamage-card', bordered && 'mamage-card-bordered', className)}>
@@ -518,6 +653,28 @@ function Modal({
   return createPortal(node, document.body);
 }
 
+function MotionModal({ visible, onCancel, className = '', ...rest }) {
+  const [rendered, setRendered] = React.useState(Boolean(visible));
+  const [leaving, setLeaving] = React.useState(false);
+
+  React.useEffect(() => {
+    if (visible) {
+      setRendered(true);
+      setLeaving(false);
+      return undefined;
+    }
+    if (!rendered) return undefined;
+    setLeaving(true);
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const timer = window.setTimeout(() => setRendered(false), reducedMotion ? 0 : 200);
+    return () => window.clearTimeout(timer);
+  }, [visible, rendered]);
+
+  return <Modal {...rest} visible={rendered} onCancel={() => {
+    if (visible && !leaving) onCancel?.();
+  }} className={cx('mamage-motion-modal', leaving && 'is-leaving', className)} />;
+}
+
 Modal.confirm = function confirm({ title = '确认操作', content, okText = '确定', cancelText = '取消', onOk } = {}) {
   if (typeof document === 'undefined') return;
   const host = document.createElement('div');
@@ -645,11 +802,14 @@ export {
   DateTimePicker,
   Divider,
   Empty,
+  GlassSelect,
   Input,
   Layout,
   List,
   Modal,
+  MotionModal,
   Select,
+  SegmentedControl,
   HexLoader,
   Spin,
   Tabs,

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Modal, Toast } from './ui';
+import { Button, GlassSelect, Modal, MotionModal, SegmentedControl, Toast } from './ui';
 import { IconChevronRight, IconShare } from './ui/icons';
 import {
   listWorkspaceAlbums,
@@ -85,6 +85,17 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
   const [pendingCode, setPendingCode] = React.useState('');
   const [pendingPhotos, setPendingPhotos] = React.useState([]);
   const [pendingIds, setPendingIds] = React.useState([]);
+  const [closing, setClosing] = React.useState(false);
+  const closeTimer = React.useRef(null);
+
+  React.useEffect(() => () => window.clearTimeout(closeTimer.current), []);
+
+  const handleCancel = () => {
+    if (!albumShareProjectId) return onClose();
+    if (closing) return;
+    setClosing(true);
+    closeTimer.current = window.setTimeout(onClose, 220);
+  };
 
   const refreshLists = React.useCallback(async () => {
     const [inbox, outbox, publicLinks] = await Promise.all([
@@ -98,7 +109,8 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
   React.useEffect(() => {
     if (!visible || !activeUnitId) return undefined;
     let live = true;
-    setTab(albumShareProjectId || initialPhotoIds.length || initialProjectId ? 'create' : 'received');
+    setTab(albumShareProjectId ? (canShare ? 'create' : 'sent')
+      : (initialPhotoIds.length || initialProjectId ? 'create' : 'received'));
     setProjectId(albumShareProjectId ? String(albumShareProjectId) : (initialProjectId ? String(initialProjectId) : ''));
     setDetail(null);
     Promise.all([
@@ -111,7 +123,7 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
       !albumShareProjectId && workspaceInfo?.collegeAdmin ? listFaceGrants().then((rows) => { if (live) setFaceGrants(rows || []); }) : null,
     ]).catch((err) => { if (live) Toast.error(err.message || '工作空间加载失败'); });
     return () => { live = false; };
-  }, [visible, activeUnitId, initialProjectId, initialPhotoIds.length, albumShareProjectId, canManage,
+  }, [visible, activeUnitId, initialProjectId, initialPhotoIds.length, albumShareProjectId, canManage, canShare,
     workspaceInfo?.collegeAdmin, refreshLists]);
 
   const visibleSent = albumShareProjectId
@@ -277,8 +289,10 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
     finally { setBusy(false); }
   };
 
+  const Dialog = albumShareProjectId ? MotionModal : Modal;
+
   return (
-    <Modal visible={visible} onCancel={onClose} title={albumShareProjectId ? '分享相册' : (activeUnit?.name || '工作空间')}
+    <Dialog visible={visible && !closing} onCancel={handleCancel} title={albumShareProjectId ? '分享相册' : (activeUnit?.name || '工作空间')}
       className={`workspace-dialog${albumShareProjectId ? ' is-album-share' : ''}`}
       width={albumShareProjectId ? 700 : 920} bodyStyle={{ maxHeight: 'min(76vh, 760px)', overflowY: 'auto' }} footer={null}>
       {!activeUnitId ? <div className="workspace-empty">历史相册暂不支持部门分享，请先切换到一个部门。</div> : <>
@@ -289,10 +303,13 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
             <span>{activeUnit?.name}</span>
           </div>
         ) : null}
-        <div className="workspace-tabs" role="tablist" aria-label={albumShareProjectId ? '相册分享方式' : '工作空间'}>
-          {(albumShareProjectId ? [
+        {albumShareProjectId ? <SegmentedControl className="workspace-album-tabs" kind="tabs" label="相册分享方式"
+          value={tab} onChange={(next) => { setTab(next); setDetail(null); }}
+          options={(canShare ? [
             ['create', '部门分享'], ['public', '公开链接'], ['sent', '部门记录'],
-          ] : [
+          ] : [['sent', '部门记录']]).map(([value, label]) => ({ value, label }))} />
+          : <div className="workspace-tabs" role="tablist" aria-label="工作空间">
+          {([
             ['received', '与我共享'], ['sent', '已发分享'],
             ...(canShare ? [['create', '创建分享']] : []),
             ...(canShare ? [['public', '公开链接']] : []),
@@ -303,7 +320,7 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
               {label}
             </button>
           ))}
-        </div>
+        </div>}
 
         {tab === 'received' && <div className="workspace-section">
           {!received.length ? <div className="workspace-empty">暂无收到的分享</div> : received.map((share) => {
@@ -365,7 +382,38 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
             </div>)}
         </div>}
 
-        {tab === 'create' && canShare && <div className="workspace-form">
+        {tab === 'create' && canShare && (albumShareProjectId ? <div className="workspace-album-form">
+          <div className="workspace-album-fields">
+            <GlassSelect label="接收部门" value={targetUnitId} placeholder="选择部门"
+              options={(workspaceInfo?.shareTargets || [])
+                .filter((unit) => Number(unit.id) !== Number(activeUnitId))
+                .map((unit) => ({ value: String(unit.id), label: unit.name }))}
+              onChange={(next) => { setTargetUnitId(String(next)); setTargetUserId(''); }} />
+            <GlassSelect label="接收人" value={targetUserId} disabled={!targetUnitId}
+              options={targetUnitId ? [
+                { value: '', label: '部门所有成员' },
+                ...recipients.map((person) => ({ value: String(person.id), label: person.name || person.email })),
+              ] : [{ value: '', label: '先选择部门' }]}
+              onChange={(next) => setTargetUserId(String(next))} />
+          </div>
+          <div className="workspace-album-mode">
+            <span className="mamage-field-label">分享方式</span>
+            <SegmentedControl label="分享方式" options={MODES} value={mode} onChange={(next) => {
+              setMode(next);
+              if (next === 'collaborate' && expiry === 'permanent') setExpiry('30');
+            }} />
+            <p className="workspace-mode-help" key={mode}>{MODES.find((option) => option.value === mode)?.detail}</p>
+          </div>
+          <div className="workspace-album-actions">
+            <GlassSelect label="有效期" value={expiry} upward
+              options={[
+                { value: '7', label: '7 天' }, { value: '30', label: '30 天' }, { value: '90', label: '90 天' },
+                ...(mode === 'collaborate' ? [] : [{ value: 'permanent', label: '永久' }]),
+              ]} onChange={(next) => setExpiry(String(next))} />
+            <Button type="primary" theme="neu" icon={<IconShare />} loading={busy}
+              disabled={!targetUnitId} onClick={submitShare}>分享给部门</Button>
+          </div>
+        </div> : <div className="workspace-form">
           {!albumShareProjectId ? <label className="workspace-field"><span className="workspace-field-label">分享素材</span>
             {initialPhotoIds.length ? <span className="workspace-selected-count">{initialPhotoIds.length} 项选中素材</span> :
               <WorkspaceSelect value={projectId} onChange={(event) => setProjectId(event.target.value)}>
@@ -408,10 +456,26 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
               <IconShare />{busy ? '正在处理' : '分享给部门'}
             </button>
           </div>
-        </div>}
+        </div>)}
 
         {tab === 'public' && canShare && <div className="workspace-section">
-          <div className={`workspace-public-create${albumShareProjectId ? ' is-album-share' : ''}`}>
+          {albumShareProjectId ? <div className="workspace-album-public-form">
+            <div className="workspace-album-fields">
+              <GlassSelect label="新增照片" value={publicSync} disabled={!canManage}
+                options={[
+                  { value: 'approval', label: '新增照片需负责人确认' },
+                  ...(canManage ? [{ value: 'automatic', label: '新增照片自动同步' }] : []),
+                ]} onChange={(next) => setPublicSync(String(next))} />
+              <GlassSelect label="有效期" value={publicExpiry}
+                options={[{ value: '7', label: '7 天' }, { value: '30', label: '30 天' }, { value: '90', label: '90 天' }]}
+                onChange={(next) => setPublicExpiry(String(next))} />
+            </div>
+            <div className="workspace-album-actions">
+              <p>链接可查看和下载照片。</p>
+              <Button type="primary" theme="neu" icon={<IconShare />} loading={busy}
+                onClick={submitPublicShare}>创建链接</Button>
+            </div>
+          </div> : <div className="workspace-public-create">
             {!albumShareProjectId ? <label className="workspace-field"><span className="workspace-field-label">相册</span><WorkspaceSelect value={projectId} onChange={(event) => setProjectId(event.target.value)} aria-label="选择公开分享相册">
               <option value="">选择相册</option>
               {projects.map((project) => <option key={project.id} value={project.id}>{project.name || project.title}</option>)}
@@ -425,7 +489,7 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
               <option value="7">7 天</option><option value="30">30 天</option><option value="90">90 天</option>
             </WorkspaceSelect></label>
             <button type="button" disabled={busy || !(albumShareProjectId || projectId)} onClick={submitPublicShare}>创建链接</button>
-          </div>
+          </div>}
           {visiblePublicShares.map((share) => <div className="workspace-row" key={share.code}>
             <div className="workspace-row-main">
               <strong>{share.albumName || share.title || '照片集合'}</strong>
@@ -503,6 +567,6 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
           </div>)}
         </div>}
       </>}
-    </Modal>
+    </Dialog>
   );
 }

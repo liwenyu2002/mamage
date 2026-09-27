@@ -19,6 +19,7 @@ const LENS_SELECTORS = [
   '.mamage-modal-content',
   '.mamage-popover-content',
   '.mamage-sidesheet-content',
+  '.mamage-button-primary:not(.mamage-button-neu)',
   '.detail-bottom-nav',
   '.detail-bottom-upload',
   '.detail-actions-sheet',
