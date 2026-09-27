@@ -489,16 +489,12 @@
   user-select: none;
 }
 
-.detail-timeline-section-selectall input {
-  box-sizing: border-box;
-  width: 14px;
-  height: 14px;
-  margin: 0;
-  accent-color: #050816;
-  cursor: pointer;
+.detail-timeline-section-selectall .mamage-photo-checkmark {
+  --mamage-photo-check-size: 18px;
+  overflow: visible;
 }
 
-.detail-timeline-section-selectall span {
+.detail-timeline-section-selectall span:last-child {
   white-space: nowrap;
 }
 
@@ -587,6 +583,19 @@
   position: relative;
   overflow: visible;
   transition: transform 0.16s ease;
+}
+
+.detail-photo-select {
+  position: absolute;
+  z-index: 4;
+  top: 6px;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  cursor: pointer;
+  user-select: none;
 }
 
 .detail-video-thumb {
@@ -2007,9 +2016,8 @@
     font-size: 10px;
   }
 
-  .detail-timeline-section-selectall input {
-    width: 13px;
-    height: 13px;
+  .detail-timeline-section-selectall .mamage-photo-checkmark {
+    --mamage-photo-check-size: 16px;
   }
 
   .detail-timeline-grid {
@@ -5194,21 +5202,7 @@ body.mamage-viewer-open [data-transfer-station-root="1"] {
   position: absolute;
   top: 6px;
   right: 6px;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.85);
-  color: transparent;
-  font-size: 12px;
-  line-height: 20px;
-  text-align: center;
-  border: 1px solid rgba(0, 0, 0, 0.18);
-}
-
-.viewer-rescue-thumb-check.is-on {
-  background: #111;
-  color: #fff;
-  border-color: #111;
+  --mamage-photo-check-size: 20px;
 }
 
 .viewer-rescue-actions {
@@ -5256,21 +5250,15 @@ body.mamage-viewer-open [data-transfer-station-root="1"] {
 
 .similarity-select-mark {
   position: absolute;
-  right: 12px;
-  top: 12px;
-  width: 28px;
-  height: 28px;
-  border: 1px solid rgba(255, 255, 255, 0.72);
-  border-radius: 999px;
-  color: #fff;
-  background: rgba(0, 0, 0, 0.42);
+  right: 8px;
+  top: 8px;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
   cursor: pointer;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-}
-
-.similarity-thumb.is-selected .similarity-select-mark {
-  background: rgba(220, 38, 38, 0.9);
+  user-select: none;
 }
 
 /* 底部标题行：标题 + 垃圾桶并排，不与图片点击区重叠 */

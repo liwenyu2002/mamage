@@ -5004,9 +5004,13 @@ function ProjectDetail({
             );
           })()}
           {deleteMode && (
-            <div style={{ position: 'absolute', right: 8, top: 8, width: 32, height: 32, borderRadius: 16, background: selectedMap[String(overallIndex)] ? '#ff5252' : 'rgba(0,0,0,0.45)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); toggleSelect(overallIndex); }}>
-              {selectedMap[String(overallIndex)] ? '✓' : ''}
-            </div>
+            <label className="detail-photo-select" onClick={(event) => event.stopPropagation()}>
+              <input type="checkbox" className="mamage-photo-check-input"
+                checked={!!selectedMap[String(overallIndex)]}
+                onChange={() => toggleSelect(overallIndex)}
+                aria-label={`${selectedMap[String(overallIndex)] ? '取消选择' : '选择'}第 ${overallIndex + 1} 个${isVideo ? '视频' : '照片'}`} />
+              <span className="mamage-photo-checkmark" aria-hidden="true" />
+            </label>
           )}
           {!isVideo && (hoveredPhotoIdx === overallIndex || semanticState.pending || semanticState.failed) && !deleteMode && (
             <div className={`detail-tag-overlay${semanticState.pending ? ' is-analysis-pending' : ''}${semanticState.failed ? ' is-analysis-failed' : ''}`}>
@@ -5544,11 +5548,13 @@ function ProjectDetail({
                           >
                             <input
                               type="checkbox"
+                              className="mamage-photo-check-input"
                               checked={sectionAllSelected}
                               ref={(node) => { if (node) node.indeterminate = sectionPartiallySelected; }}
                               onChange={() => toggleSelectTimelineSection(group.id)}
                               aria-label={`${sectionAllSelected ? '取消全选' : '全选'}${group.name}`}
                             />
+                            <span className="mamage-photo-checkmark" aria-hidden="true" />
                             <span>全选</span>
                           </label>
                         ) : null}
@@ -5920,7 +5926,12 @@ function ProjectDetail({
                               <div className="similarity-thumb-empty" />
                             )}
                             {canDeletePhotos && simDeleteMode && (
-                              <button type="button" className="similarity-select-mark" onClick={(e) => { e.stopPropagation(); toggleSimSelect(String(id)); }}>{selected ? '✓' : ''}</button>
+                              <label className="similarity-select-mark" onClick={(event) => event.stopPropagation()}>
+                                <input type="checkbox" className="mamage-photo-check-input" checked={selected}
+                                  onChange={() => toggleSimSelect(String(id))}
+                                  aria-label={`${selected ? '取消选择' : '选择'}${titleText}`} />
+                                <span className="mamage-photo-checkmark" aria-hidden="true" />
+                              </label>
                             )}
                             <div className="similarity-thumb-foot">
                               <div className="similarity-thumb-title">{titleText}</div>
@@ -7159,11 +7170,12 @@ function ProjectDetail({
                               key={id}
                               type="button"
                               className={`viewer-rescue-thumb${picked ? ' is-picked' : ''}`}
+                              aria-pressed={picked}
                               onClick={() => toggleViewerRescuePick(id)}
                               title={picked ? '点击取消选择' : '点击选择'}
                             >
                               {thumb ? <img src={thumb} alt={`#${id}`} loading="lazy" /> : <span className="viewer-rescue-thumb-fallback">#{id}</span>}
-                              <span className={`viewer-rescue-thumb-check${picked ? ' is-on' : ''}`} aria-hidden>✓</span>
+                              <span className={`mamage-photo-checkmark viewer-rescue-thumb-check${picked ? ' is-on' : ''}`} aria-hidden="true" />
                             </button>
                           );
                         })}

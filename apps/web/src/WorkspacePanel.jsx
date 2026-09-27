@@ -306,13 +306,13 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
         {albumShareProjectId ? <SegmentedControl className="workspace-album-tabs" kind="tabs" label="相册分享方式"
           value={tab} onChange={(next) => { setTab(next); setDetail(null); }}
           options={(canShare ? [
-            ['create', '部门分享'], ['public', '公开链接'], ['sent', '部门记录'],
+            ['create', '部门分享'], ['public', '公开分享'], ['sent', '部门记录'],
           ] : [['sent', '部门记录']]).map(([value, label]) => ({ value, label }))} />
           : <div className="workspace-tabs" role="tablist" aria-label="工作空间">
           {([
             ['received', '与我共享'], ['sent', '已发分享'],
             ...(canShare ? [['create', '创建分享']] : []),
-            ...(canShare ? [['public', '公开链接']] : []),
+            ...(canShare ? [['public', '公开分享']] : []),
             ...(canManage ? [['members', '成员']] : []),
           ]).map(([key, label]) => (
             <button type="button" role="tab" aria-selected={tab === key} key={key}
@@ -471,9 +471,9 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
                 onChange={(next) => setPublicExpiry(String(next))} />
             </div>
             <div className="workspace-album-actions">
-              <p>链接可查看和下载照片。</p>
+              <p>生成外链；持链接者可在有效期内查看、逐张下载。</p>
               <Button type="primary" theme="neu" icon={<IconShare />} loading={busy}
-                onClick={submitPublicShare}>创建链接</Button>
+                onClick={submitPublicShare}>创建外链</Button>
             </div>
           </div> : <div className="workspace-public-create">
             {!albumShareProjectId ? <label className="workspace-field"><span className="workspace-field-label">相册</span><WorkspaceSelect value={projectId} onChange={(event) => setProjectId(event.target.value)} aria-label="选择公开分享相册">
@@ -488,7 +488,7 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
             <label className="workspace-field"><span className="workspace-field-label">有效期</span><WorkspaceSelect value={publicExpiry} onChange={(event) => setPublicExpiry(event.target.value)} aria-label="公开链接有效期">
               <option value="7">7 天</option><option value="30">30 天</option><option value="90">90 天</option>
             </WorkspaceSelect></label>
-            <button type="button" disabled={busy || !(albumShareProjectId || projectId)} onClick={submitPublicShare}>创建链接</button>
+            <button type="button" disabled={busy || !(albumShareProjectId || projectId)} onClick={submitPublicShare}>创建外链</button>
           </div>}
           {visiblePublicShares.map((share) => <div className="workspace-row" key={share.code}>
             <div className="workspace-row-main">
@@ -519,9 +519,11 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
             <div className="workspace-photo-grid">
               {pendingPhotos.map((photo) => <label className="workspace-pending-photo" key={photo.id}>
                 <img src={photo.thumbUrl} alt={photo.title || '待确认照片'} loading="lazy" />
-                <span><input type="checkbox" checked={pendingIds.includes(photo.id)} onChange={(event) =>
+                <span className="workspace-pending-photo-caption"><input type="checkbox" className="mamage-photo-check-input"
+                  checked={pendingIds.includes(photo.id)} onChange={(event) =>
                   setPendingIds((ids) => event.target.checked ? [...ids, photo.id] : ids.filter((id) => id !== photo.id))} />
-                  {photo.title || '照片'}</span>
+                  <span className="mamage-photo-checkmark" aria-hidden="true" />
+                  <span className="workspace-pending-photo-title">{photo.title || '照片'}</span></span>
               </label>)}
             </div>
             <button type="button" disabled={busy || !pendingIds.length} onClick={approvePending}>确认选中照片</button>

@@ -584,15 +584,23 @@
   border-radius: 4px;
 }
 
-.workspace-pending-photo span {
+.workspace-pending-photo-caption {
   display: flex;
-  gap: 4px;
+  gap: 8px;
   align-items: center;
-  overflow: hidden;
   padding-top: 5px;
   font-size: 12px;
+}
+
+.workspace-pending-photo-title {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.workspace-pending-photo-caption .mamage-photo-checkmark {
+  --mamage-photo-check-size: 20px;
 }
 
 @media (max-width: 700px) {

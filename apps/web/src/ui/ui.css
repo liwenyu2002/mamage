@@ -904,6 +904,69 @@
   --mamage-selected-shadow-hover: inset 2px 2px 5px #bcbcbc, inset -2px -2px 5px #fff, 2px 2px 5px #bcbcbc, -2px -2px 5px #fff;
 }
 
+.mamage-photo-check-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+  clip-path: inset(50%);
+}
+
+.mamage-photo-checkmark {
+  --mamage-photo-check-size: 26px;
+  position: relative;
+  display: block;
+  flex: 0 0 auto;
+  width: var(--mamage-photo-check-size);
+  height: var(--mamage-photo-check-size);
+  border-radius: calc(var(--mamage-photo-check-size) * .27);
+  background: #e8e8e8;
+  box-shadow: 3px 3px 5px #c5c5c5, -3px -3px 5px #fff;
+  transition: box-shadow .5s ease;
+}
+
+.mamage-photo-checkmark::after {
+  content: '';
+  position: absolute;
+  left: 40%;
+  top: calc(28% - 1px);
+  width: 22%;
+  height: 43%;
+  border: solid #767676;
+  border-width: 0 2px 2px 0;
+  opacity: 0;
+  transform: rotate(45deg);
+  transition: opacity .18s ease;
+}
+
+.mamage-photo-check-input:checked + .mamage-photo-checkmark,
+.mamage-photo-check-input:indeterminate + .mamage-photo-checkmark,
+.mamage-photo-checkmark.is-on {
+  box-shadow: inset 3px 3px 5px #c5c5c5, inset -3px -3px 5px #fff;
+}
+
+.mamage-photo-check-input:checked + .mamage-photo-checkmark::after,
+.mamage-photo-checkmark.is-on::after {
+  opacity: 1;
+}
+
+.mamage-photo-check-input:indeterminate + .mamage-photo-checkmark::after {
+  left: 27%;
+  top: calc(50% - 1px);
+  width: 46%;
+  height: 2px;
+  border: 0;
+  background: #767676;
+  opacity: 1;
+  transform: none;
+}
+
+.mamage-photo-check-input:focus-visible + .mamage-photo-checkmark {
+  outline: 2px solid #333;
+  outline-offset: 3px;
+}
+
 .mamage-field-label {
   display: block;
   margin-bottom: 8px;
@@ -1043,6 +1106,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .mamage-photo-checkmark,
+  .mamage-photo-checkmark::after { transition-duration: .01ms; }
   .mamage-button-primary.mamage-button-neu { transition-duration: .01ms; }
   .mamage-button-primary.mamage-button-neu:not(.mamage-button-disabled):active { transform: none; }
   .mamage-button-primary,
