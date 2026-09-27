@@ -66,13 +66,7 @@ export async function login(email, password) {
   });
   if (!r.ok) throw new Error((r.data && (r.data.message || r.data.error)) || '登录失败');
   if (r.data && r.data.token) setToken(r.data.token);
-  // Backend login response should include: { id, token, username, role, permissions }
-  // Return the full data (no need to call me() again if login response is complete)
-  if (r.data && r.data.permissions) {
-    setPermissions(Array.isArray(r.data.permissions) ? r.data.permissions : []);
-    return r.data;
-  }
-  // Fallback: fetch user if login response doesn't include permissions
+  // The active workspace changes effective permissions, so use the fresh /me view.
   return await me();
 }
 

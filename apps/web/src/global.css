@@ -932,6 +932,32 @@ textarea {
     background: rgba(0, 0, 0, 0.06);
 }
 
+.mamage-user-menu-panel:has(.mamage-workspace-control) {
+    width: min(240px, calc(100vw - 24px));
+}
+
+.mamage-workspace-control {
+    display: grid;
+    gap: 5px;
+    padding: 6px 8px 9px;
+    color: var(--lg-text);
+    font-size: 12px;
+    font-weight: 650;
+}
+
+.mamage-workspace-control select {
+    width: 100%;
+    min-width: 0;
+    height: 34px;
+    padding: 0 8px;
+    border: 1px solid rgba(0, 0, 0, 0.12);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.62);
+    color: #000;
+    font: inherit;
+    font-size: 13px;
+}
+
 .mamage-menu-trigger {
     appearance: none;
     -webkit-appearance: none;

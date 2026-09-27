@@ -10,6 +10,7 @@ import {
 } from './services/networkService';
 import { fetchProjectList, createProject } from './services/projectService';
 import { searchPhotos } from './services/photoQueryService';
+import { fetchWorkspaces, setActiveWorkspace } from './services/workspaceService';
 import { resolveAssetUrl, rewriteMediaUrlsDeep } from './services/request';
 import IfCan from './permissions/IfCan';
 import { LiquidGlassDefs } from './liquidGlass';
@@ -34,6 +35,7 @@ const AccountPage = lazyWithPreload(() => import(/* webpackChunkName: "account-p
 const AiNewsWriter = lazyWithPreload(() => import(/* webpackChunkName: "ai-news-writer" */ './AiNewsWriter.jsx'));
 const WechatComposer = lazyWithPreload(() => import(/* webpackChunkName: "wechat-composer" */ './WechatComposer.jsx'));
 const VideoEditor = lazyWithPreload(() => import(/* webpackChunkName: "video-editor" */ './VideoEditor.jsx'));
+const WorkspacePanel = lazyWithPreload(() => import(/* webpackChunkName: "workspace-panel" */ './WorkspacePanel.jsx'));
 
 const PROJECT_PAGE_SIZE = 24;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -212,6 +214,10 @@ function App() {
   const [showCreateModal, setShowCreateModal] = React.useState(false);
   const [functionPage, setFunctionPage] = React.useState(null);
   const [currentUser, setCurrentUser] = React.useState(null);
+  const [workspaceInfo, setWorkspaceInfo] = React.useState(null);
+  const [workspaceSwitching, setWorkspaceSwitching] = React.useState(false);
+  const [workspacePanelOpen, setWorkspacePanelOpen] = React.useState(false);
+  const [workspacePanelPhotoIds, setWorkspacePanelPhotoIds] = React.useState([]);
   const [authLoading, setAuthLoading] = React.useState(() => {
     try {
       return Boolean(authService.getToken && authService.getToken());
@@ -277,6 +283,7 @@ function App() {
       if (!el || !el.open) return;
       const summary = el.querySelector('summary');
       if (summary && summary.contains(e.target)) return; // 原生 toggle 自己处理
+      if (e.target.closest && e.target.closest('.mamage-workspace-control')) return;
       el.open = false;
     };
     const onKey = (e) => {
@@ -447,6 +454,32 @@ function App() {
       window.removeEventListener('resize', onResize);
       window.removeEventListener('orientationchange', onResize);
     };
+  }, []);
+
+  React.useEffect(() => {
+    if (!currentUser || isDemoPath) {
+      setWorkspaceInfo(null);
+      return undefined;
+    }
+    let cancelled = false;
+    fetchWorkspaces().then((info) => {
+      if (!cancelled) setWorkspaceInfo(info && info.enabled ? info : null);
+    }).catch(() => {
+      if (!cancelled) setWorkspaceInfo(null);
+    });
+    return () => { cancelled = true; };
+  }, [currentUser, isDemoPath]);
+
+  const handleWorkspaceChange = React.useCallback(async (event) => {
+    const raw = event.target.value;
+    setWorkspaceSwitching(true);
+    try {
+      await setActiveWorkspace(raw === 'legacy' ? null : Number(raw));
+      window.location.assign('/');
+    } catch (error) {
+      Toast.error(error?.message || '切换工作空间失败');
+      setWorkspaceSwitching(false);
+    }
   }, []);
 
   React.useEffect(() => {
@@ -1305,9 +1338,34 @@ function App() {
               >
                 <summary className="mamage-user-chip">
                   <span className="mamage-avatar" aria-hidden="true">{userInitial}</span>
-                  <span className="mamage-user-email">{userLabel}</span>
+                  <span className="mamage-user-email">
+                    {workspaceInfo ? (workspaceInfo.units.find((unit) => Number(unit.id) === Number(workspaceInfo.activeUnitId))?.name || '历史相册') : userLabel}
+                  </span>
                 </summary>
                 <div className="mamage-user-menu-panel">
+                  {workspaceInfo ? (
+                    <label className="mamage-workspace-control">
+                      <span>当前工作空间</span>
+                      <select
+                        value={workspaceInfo.activeUnitId || 'legacy'}
+                        onChange={handleWorkspaceChange}
+                        disabled={workspaceSwitching}
+                        aria-label="切换工作空间"
+                      >
+                        <option value="legacy">历史相册</option>
+                        {workspaceInfo.units.map((unit) => (
+                          <option key={unit.id} value={unit.id}>{unit.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : null}
+                  {workspaceInfo?.activeUnitId ? (
+                    <button type="button" onClick={() => {
+                      if (userMenuRef.current) userMenuRef.current.open = false;
+                      setWorkspacePanelPhotoIds([]);
+                      setWorkspacePanelOpen(true);
+                    }}>工作空间与分享</button>
+                  ) : null}
                   <button type="button" onClick={handleNavigateAccount}>账户信息</button>
                   <button type="button" onClick={handleSwitchNetworkEntry}>{isLanOrigin() ? '公网入口' : '内网入口'}</button>
                   <button type="button" onClick={handleLogout}>退出账号</button>
@@ -1852,7 +1910,20 @@ function App() {
       ) : null}
       {mountTransferStation ? (
         <LazySilent>
-          <TransferStation />
+          <TransferStation onInternalShare={(photoIds) => {
+            if (!workspaceInfo?.activeUnitId) return Toast.warning('请先切换到部门工作空间');
+            setWorkspacePanelPhotoIds(photoIds);
+            setWorkspacePanelOpen(true);
+          }} />
+        </LazySilent>
+      ) : null}
+      {workspacePanelOpen ? (
+        <LazySilent>
+          <WorkspacePanel visible={workspacePanelOpen} workspaceInfo={workspaceInfo}
+            initialProjectId={workspacePanelPhotoIds.length ? null : currentProjectId}
+            initialPhotoIds={workspacePanelPhotoIds}
+            onOpenProject={handleSelectProject}
+            onClose={() => setWorkspacePanelOpen(false)} />
         </LazySilent>
       ) : null}
       {showCreateModal ? (

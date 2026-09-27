@@ -52,7 +52,7 @@ function getMediaLabel(item) {
   return getMediaKind(item) === 'video' ? '视频' : '照片';
 }
 
-export default function TransferStation() {
+export default function TransferStation({ onInternalShare }) {
   const detectMobile = React.useCallback(() => {
     if (typeof window === 'undefined') return false;
     const width = window.innerWidth || 0;
@@ -533,6 +533,16 @@ export default function TransferStation() {
       setBusy('');
     }
   }, []);
+
+  const startInternalShare = () => {
+    const ids = getAll().map((item) => Number(item.id)).filter((id) => Number.isSafeInteger(id) && id > 0);
+    if (!ids.length) return Toast.warning('中转站内没有可分享的照片');
+    if (typeof onInternalShare !== 'function') return;
+    setExpanded(false);
+    setShareOptionsOpen(false);
+    setOpen(false);
+    onInternalShare(ids);
+  };
 
   const getPhotoUrl = React.useCallback((p) => {
     const raw = p?.url || p?.original || p?.fullUrl || p?.src || p?.thumbSrc || '';
@@ -1141,7 +1151,14 @@ export default function TransferStation() {
           <div style={{ fontSize: 13, color: '#0f172a', fontWeight: 700 }}>已存入 ({count})</div>
           <div style={{ fontSize: 11, color: '#64748b' }}>{stationMediaSummary}</div>
         </div>
-        <div style={{ fontSize: 12, color: '#64748b', cursor: 'pointer' }} onClick={() => setExpanded(false)}>关闭</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {onInternalShare && <button type="button" onClick={startInternalShare}
+            style={{ border: 0, background: 'transparent', color: '#111', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+            内部分享
+          </button>}
+          <button type="button" style={{ border: 0, background: 'transparent', color: '#26333b', fontSize: 12, cursor: 'pointer' }}
+            onClick={() => setExpanded(false)}>关闭</button>
+        </div>
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
