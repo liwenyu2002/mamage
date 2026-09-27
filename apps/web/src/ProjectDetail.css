@@ -6259,17 +6259,12 @@ body.mamage-viewer-open [data-transfer-station-root="1"] {
   }
 }
 
-/* ==== 环节"泳池刻度线"轨道（相册页 + 分享页共用,ShareView 也 import 本文件）==== */
-/* 轨道画在"分组外层容器"上(相册=.detail-gallery--timeline / 分享=.detail-timeline-gallery),
-   一条线贯穿全部环节不截断；每个环节标题处的主刻度由该环节自己的 ::after 从轨道"长出"。
-   整条轨道仅占容器 padding-left 的 16px(手机 12px)。 */
-.detail-gallery--timeline,
+/* 只在分组旁保留一条刻度线；外层相册容器不再重复绘制。 */
 .detail-timeline-gallery {
   position: relative;
   padding-left: 16px;
 }
 
-.detail-gallery--timeline::before,
 .detail-timeline-gallery::before {
   content: '';
   position: absolute;
@@ -6306,7 +6301,6 @@ body.mamage-viewer-open [data-transfer-station-root="1"] {
 }
 
 @media (max-width: 480px) {
-  .detail-gallery--timeline,
   .detail-timeline-gallery {
     padding-left: 12px;
   }

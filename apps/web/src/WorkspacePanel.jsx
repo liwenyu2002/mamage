@@ -1,5 +1,6 @@
 import React from 'react';
 import { Modal, Toast } from './ui';
+import { IconChevronRight, IconShare } from './ui/icons';
 import {
   listWorkspaceAlbums,
   listReceivedShares, listSentShares, getInternalShare, createInternalShare,
@@ -17,6 +18,13 @@ const MODES = [
   { value: 'copy', label: '可复制', detail: '生成独立副本，之后不随源相册变化' },
   { value: 'collaborate', label: '共同编辑', detail: '可继续上传和修改，最长 90 天' },
 ];
+
+function WorkspaceSelect({ children, disabled, ...props }) {
+  return <span className={`workspace-select${disabled ? ' is-disabled' : ''}`}>
+    <select {...props} disabled={disabled}>{children}</select>
+    <IconChevronRight className="workspace-select-chevron" />
+  </span>;
+}
 
 function parseCopyResult(value) {
   if (!value) return null;
@@ -305,7 +313,11 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
               <div className="workspace-row-main">
                 <strong>{share.albumName || (share.shareType === 'collection' ? '照片集合' : '相册')}</strong>
                 {origin ? <span className="workspace-share-origin">来自 {origin}</span> : null}
-                <span>{share.sharedByName ? `${share.sharedByName} 分享 · ` : ''}{statusLabel(share)} · {expiryLabel(share.expiresAt)}</span>
+                <span className="workspace-row-meta">
+                  {share.sharedByName ? <span>{share.sharedByName} 分享</span> : null}
+                  <span className={`workspace-status${share.copyStatus === 'failed' ? ' is-error' : ''}`}>{statusLabel(share)}</span>
+                  <span>{expiryLabel(share.expiresAt)}</span>
+                </span>
               </div>
               {copy?.projectId ? <button type="button" onClick={() => { onOpenProject(copy.projectId); onClose(); }}>打开副本</button>
                 : share.mode === 'copy' && share.copyStatus === 'failed'
@@ -343,68 +355,75 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
             <div className="workspace-row" key={share.id}>
               <div className="workspace-row-main">
                 <strong>{share.albumName || '照片集合'}</strong>
-                <span>发给 {share.targetUserName || share.targetUnitName} · {statusLabel(share)} · {expiryLabel(share.expiresAt)}</span>
+                <span className="workspace-row-meta">
+                  <span>发给 {share.targetUserName || share.targetUnitName}</span>
+                  <span className={`workspace-status${share.copyStatus === 'failed' ? ' is-error' : ''}`}>{statusLabel(share)}</span>
+                  <span>{expiryLabel(share.expiresAt)}</span>
+                </span>
               </div>
               {!share.revokedAt && <button type="button" disabled={busy} onClick={() => revoke(share)}>撤销</button>}
             </div>)}
         </div>}
 
         {tab === 'create' && canShare && <div className="workspace-form">
-          {!albumShareProjectId ? <label>素材
-            {initialPhotoIds.length ? <span>{initialPhotoIds.length} 项选中素材</span> :
-              <select value={projectId} onChange={(event) => setProjectId(event.target.value)}>
+          {!albumShareProjectId ? <label className="workspace-field"><span className="workspace-field-label">分享素材</span>
+            {initialPhotoIds.length ? <span className="workspace-selected-count">{initialPhotoIds.length} 项选中素材</span> :
+              <WorkspaceSelect value={projectId} onChange={(event) => setProjectId(event.target.value)}>
                 <option value="">选择相册</option>
                 {projects.map((project) => <option key={project.id} value={project.id}>{project.name || project.title}</option>)}
-              </select>}
+              </WorkspaceSelect>}
           </label> : null}
-          <label>接收部门
-            <select value={targetUnitId} onChange={(event) => { setTargetUnitId(event.target.value); setTargetUserId(''); }}>
+          <label className="workspace-field"><span className="workspace-field-label">接收部门</span>
+            <WorkspaceSelect value={targetUnitId} onChange={(event) => { setTargetUnitId(event.target.value); setTargetUserId(''); }}>
               <option value="">选择部门</option>
               {(workspaceInfo?.shareTargets || []).filter((unit) => Number(unit.id) !== Number(activeUnitId))
                 .map((unit) => <option key={unit.id} value={unit.id}>{unit.name}</option>)}
-            </select>
+            </WorkspaceSelect>
           </label>
-          <label>接收人
-            <select value={targetUserId} disabled={!targetUnitId} onChange={(event) => setTargetUserId(event.target.value)}>
+          <label className="workspace-field"><span className="workspace-field-label">接收人</span>
+            <WorkspaceSelect value={targetUserId} disabled={!targetUnitId} onChange={(event) => setTargetUserId(event.target.value)}>
               <option value="">部门所有成员</option>
               {recipients.map((person) => <option key={person.id} value={person.id}>{person.name || person.email}</option>)}
-            </select>
+            </WorkspaceSelect>
           </label>
-          <div className="workspace-form-wide">
+          <div className="workspace-mode-field">
             <span className="workspace-field-label">分享方式</span>
-            <div className="workspace-mode-list">
+            <div className="workspace-mode-list" role="radiogroup" aria-label="分享方式">
               {MODES.map((option) => <label key={option.value} className={mode === option.value ? 'is-selected' : ''}>
                 <input type="radio" name="workspace-share-mode" value={option.value} checked={mode === option.value}
                   onChange={() => { setMode(option.value); if (expiry === 'permanent' && option.value === 'collaborate') setExpiry('30'); }} />
-                <strong>{option.label}</strong><span>{option.detail}</span>
+                <strong>{option.label}</strong>
               </label>)}
             </div>
+            <p className="workspace-mode-help">{MODES.find((option) => option.value === mode)?.detail}</p>
           </div>
-          <label>有效期
-            <select value={expiry} onChange={(event) => setExpiry(event.target.value)}>
+          <label className="workspace-field"><span className="workspace-field-label">有效期</span>
+            <WorkspaceSelect value={expiry} onChange={(event) => setExpiry(event.target.value)}>
               <option value="7">7 天</option><option value="30">30 天</option><option value="90">90 天</option>
               {mode !== 'collaborate' && <option value="permanent">永久</option>}
-            </select>
+            </WorkspaceSelect>
           </label>
           <div className="workspace-form-actions">
-            <button type="button" disabled={busy} onClick={submitShare}>{busy ? '正在处理' : '创建分享'}</button>
+            <button type="button" disabled={busy || !targetUnitId} onClick={submitShare}>
+              <IconShare />{busy ? '正在处理' : '分享给部门'}
+            </button>
           </div>
         </div>}
 
         {tab === 'public' && canShare && <div className="workspace-section">
           <div className={`workspace-public-create${albumShareProjectId ? ' is-album-share' : ''}`}>
-            {!albumShareProjectId ? <select value={projectId} onChange={(event) => setProjectId(event.target.value)} aria-label="选择公开分享相册">
+            {!albumShareProjectId ? <label className="workspace-field"><span className="workspace-field-label">相册</span><WorkspaceSelect value={projectId} onChange={(event) => setProjectId(event.target.value)} aria-label="选择公开分享相册">
               <option value="">选择相册</option>
               {projects.map((project) => <option key={project.id} value={project.id}>{project.name || project.title}</option>)}
-            </select> : null}
-            <select value={publicSync} disabled={!canManage}
+            </WorkspaceSelect></label> : null}
+            <label className="workspace-field"><span className="workspace-field-label">新增照片</span><WorkspaceSelect value={publicSync} disabled={!canManage}
               onChange={(event) => setPublicSync(event.target.value)} aria-label="新增照片同步方式">
               <option value="approval">新增照片需负责人确认</option>
               {canManage && <option value="automatic">新增照片自动同步</option>}
-            </select>
-            <select value={publicExpiry} onChange={(event) => setPublicExpiry(event.target.value)} aria-label="公开链接有效期">
+            </WorkspaceSelect></label>
+            <label className="workspace-field"><span className="workspace-field-label">有效期</span><WorkspaceSelect value={publicExpiry} onChange={(event) => setPublicExpiry(event.target.value)} aria-label="公开链接有效期">
               <option value="7">7 天</option><option value="30">30 天</option><option value="90">90 天</option>
-            </select>
+            </WorkspaceSelect></label>
             <button type="button" disabled={busy || !(albumShareProjectId || projectId)} onClick={submitPublicShare}>创建链接</button>
           </div>
           {visiblePublicShares.map((share) => <div className="workspace-row" key={share.code}>
@@ -455,14 +474,14 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
           <div className="workspace-member-add">
             <input value={candidateQuery} onChange={(event) => { setCandidateQuery(event.target.value); setCandidateId(''); }}
               placeholder="搜索姓名或邮箱" aria-label="搜索学院成员" />
-            <select value={candidateId} onChange={(event) => setCandidateId(event.target.value)} aria-label="选择成员">
+            <WorkspaceSelect value={candidateId} onChange={(event) => setCandidateId(event.target.value)} aria-label="选择成员">
               <option value="">选择用户</option>
               {candidates.map((person) => <option key={person.id} value={person.id}>{person.name} · {person.email}</option>)}
-            </select>
-            <select value={candidateRole} onChange={(event) => setCandidateRole(event.target.value)} aria-label="部门角色">
+            </WorkspaceSelect>
+            <WorkspaceSelect value={candidateRole} onChange={(event) => setCandidateRole(event.target.value)} aria-label="部门角色">
               <option value="member">成员</option><option value="editor">编辑</option>
               {workspaceInfo?.collegeAdmin && <option value="manager">负责人</option>}
-            </select>
+            </WorkspaceSelect>
             <button type="button" disabled={busy || !candidateId} onClick={addMember}>添加</button>
             {workspaceInfo?.collegeAdmin && candidateId && <button type="button" disabled={busy}
               onClick={() => changeFaceGrant(candidateId, true)}>授权人脸检索</button>}
