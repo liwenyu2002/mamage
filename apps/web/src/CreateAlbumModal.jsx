@@ -1,5 +1,7 @@
 ﻿import React from 'react';
-import { Modal, Input, TextArea, DatePicker, DateTimePicker, Toast } from './ui';
+import { MotionModal, DateTimePicker, Toast } from './ui';
+import { IconClose, IconPlus } from './ui/icons';
+import AlbumDetailsFields from './AlbumDetailsFields';
 import { sectionTimeToInputValue, inputValueToSectionTime } from './utils/sectionTime';
 import './CreateAlbumModal.css';
 import { getUploadFileLimitError, FRONTEND_MAX_VIDEO_UPLOAD_TEXT, uploadPhotoFiles, isBrowserUndisplayableImage, isNeverBrowserPreviewable, undisplayableFormatLabel } from './services/photoService';
@@ -18,21 +20,6 @@ import {
 const MOBILE_MEDIA_ACCEPT = 'image/*,video/*';
 const DESKTOP_MEDIA_ACCEPT = 'image/*,video/*,.avif,.heic,.heif,.tif,.tiff,.dng,.cr2,.cr3,.crw,.nef,.nrw,.arw,.sr2,.srf,.raf,.orf,.rw2,.raw,.pef,.srw,.x3f,.rwl,.3fr,.fff,.iiq,.mrw,.dcr,.kdc,.mos,.erf';
 
-function TagChip({ tag, onRemove }) {
-  // 删除按钮常驻显示：hover-only 在触屏设备上无法触发
-  return (
-    <div className="cam-tag">
-      <span className="cam-tag-text">{tag}</span>
-      <button
-        type="button"
-        className="cam-tag-remove"
-        aria-label={`删除标签 ${tag}`}
-        onClick={(e) => { e.stopPropagation(); onRemove(tag); }}
-      >×</button>
-    </div>
-  );
-}
-
 function isVideoFile(file) {
   const mime = String(file && file.type || '').toLowerCase();
   if (mime.startsWith('video/')) return true;
@@ -43,7 +30,6 @@ function isVideoFile(file) {
 export default function CreateAlbumModal({ visible, onClose, onCreated, createProject }) {
   const [name, setName] = React.useState('');
   const [description, setDescription] = React.useState('');
-  const [tagInput, setTagInput] = React.useState('');
   const [tags, setTags] = React.useState([]);
   const [startDate, setStartDate] = React.useState(null);
   const [timelineEnabled, setTimelineEnabled] = React.useState(false);
@@ -63,13 +49,15 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
   const filePickerRef = React.useRef(null);
   const pendingSectionKeyRef = React.useRef('');
   const [uploadProgress, setUploadProgress] = React.useState(null);
+  const [draggingOverGroup, setDraggingOverGroup] = React.useState(null);
   const sectionKeyRef = React.useRef(2);
 
   React.useEffect(() => {
-    if (!visible) {
+    if (visible) return undefined;
+    const reducedMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const timer = window.setTimeout(() => {
       setName('');
       setDescription('');
-      setTagInput('');
       setTags([]);
       setStartDate(null);
       setTimelineEnabled(false);
@@ -81,23 +69,15 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
       setStagingPreviews([]);
       setStagingSectionKeys([]);
       setUploadProgress(null);
-    }
+      setDraggingOverGroup(null);
+    }, reducedMotion ? 0 : 220);
+    return () => window.clearTimeout(timer);
   }, [visible]);
 
   React.useEffect(() => {
     if (!visible) return;
     setUserPermissions(getPermissions());
   }, [visible]);
-
-  const addTag = React.useCallback((t) => {
-    const val = (t || '').trim();
-    if (!val) return;
-    if (tags.includes(val)) return;
-    if (tags.length >= 20) return Toast.warning('标签数量达到上限');
-    setTags((s) => [...s, val]);
-  }, [tags]);
-
-  const removeTag = React.useCallback((t) => setTags((s) => s.filter((x) => x !== t)), []);
 
   const normalizedTimelineSections = React.useMemo(() => timelineSections
     .map((section, idx) => ({
@@ -202,15 +182,6 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
       return next;
     });
   }, [dragSectionIdx]);
-
-  const onTagKeyDown = React.useCallback((e) => {
-    if (e.key === 'Enter' || e.key === ',') {
-      e.preventDefault();
-      const v = tagInput.trim();
-      if (v) addTag(v);
-      setTagInput('');
-    }
-  }, [tagInput, addTag]);
 
   const handleFilesSelected = React.useCallback((files, sectionKey = '') => {
     const incoming = Array.from(files || []);
@@ -432,8 +403,10 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
   }, [name, description, tags, startDate, timelineEnabled, normalizedTimelineSections, stagingSectionKeys, createProject, onCreated, onClose, stagingFiles, userPermissions]);
 
   return (
-    <Modal
+    <MotionModal
       title="新建相册"
+      className="album-form-modal cam-modal"
+      width={680}
       visible={visible}
       onCancel={submitting ? () => Toast.warning('正在创建或上传，请等待完成') : onClose}
       onOk={handleSubmit}
@@ -443,20 +416,28 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
       closable={!submitting}
     >
       <div className="cam-form">
-        <Input value={name} onChange={(v) => setName(v)} placeholder="相册名称（必填）" />
-        <TextArea value={description} onChange={(v) => setDescription(v)} rows={3} placeholder="相册描述（可选）" />
+        <AlbumDetailsFields
+          title={name}
+          onTitleChange={setName}
+          description={description}
+          onDescriptionChange={setDescription}
+          eventDate={startDate}
+          onEventDateChange={(value) => setStartDate(value || '')}
+          tags={tags}
+          onTagsChange={setTags}
+          showTags={userPermissions.includes('projects.create')}
+          disabled={submitting}
+        />
 
-        <div className={`cam-timeline-panel${timelineEnabled ? ' is-enabled' : ''}`}>
+        <section className={`cam-timeline-panel${timelineEnabled ? ' is-enabled' : ''}`}>
           <label className="cam-timeline-toggle">
             <input
               type="checkbox"
               checked={timelineEnabled}
               onChange={(e) => setTimelineEnabled(e.target.checked)}
             />
-            <span>
-              <strong>添加时间轴</strong>
-              <em>用于按活动环节上传和浏览媒体</em>
-            </span>
+            <span className="cam-timeline-switch" aria-hidden="true" />
+            <span className="cam-timeline-toggle-copy"><strong>添加时间轴</strong><em>按活动环节整理照片和视频</em></span>
           </label>
 
           {timelineEnabled ? (
@@ -482,8 +463,8 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
                     >⠿</span>
                   ) : (
                     <span className="cam-timeline-move">
-                      <button type="button" className="cam-icon-button" disabled={idx === 0} onClick={() => moveTimelineSection(idx, -1)} aria-label="上移">↑</button>
-                      <button type="button" className="cam-icon-button" disabled={idx === timelineSections.length - 1} onClick={() => moveTimelineSection(idx, 1)} aria-label="下移">↓</button>
+                      <button type="button" className="cam-icon-button" disabled={idx === 0} onClick={() => moveTimelineSection(idx, -1)} aria-label="上移环节" title="上移环节">↑</button>
+                      <button type="button" className="cam-icon-button" disabled={idx === timelineSections.length - 1} onClick={() => moveTimelineSection(idx, 1)} aria-label="下移环节" title="下移环节">↓</button>
                     </span>
                   )}
                   <input
@@ -500,18 +481,18 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
                     clearable
                     title="环节时间（可选）"
                   />
-                  <button type="button" className="cam-icon-button" onClick={() => removeTimelineSection(section.key)} aria-label="删除环节">
-                    ×
+                  <button type="button" className="cam-icon-button" onClick={() => removeTimelineSection(section.key)} aria-label="删除环节" title="删除环节">
+                    <IconClose />
                   </button>
                 </div>
               ))}
-              <button type="button" className="cam-add-section" onClick={addTimelineSection}>添加环节</button>
+              <button type="button" className="cam-add-section" onClick={addTimelineSection}><IconPlus /> 添加环节</button>
             </div>
           ) : null}
-        </div>
+        </section>
 
-        <div className="cam-upload-block">
-          <div className="cam-section-label">添加照片/视频（可选，不限数量）</div>
+        <section className="cam-upload-block">
+          <div className="cam-section-heading"><strong>照片与视频</strong><span>{stagingFiles.length ? `已选 ${stagingFiles.length} 个` : '可选'}</span></div>
           <input
             ref={filePickerRef}
             type="file"
@@ -529,13 +510,16 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
             {stagedUploadGroups.map((group) => (
               <section
                 key={group.key || '__all__'}
-                className="cam-upload-group"
+                className={`cam-upload-group${draggingOverGroup === group.key ? ' is-drag-over' : ''}`}
                 onDragOver={(e) => {
                   e.preventDefault();
                   if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+                  setDraggingOverGroup(group.key);
                 }}
+                onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDraggingOverGroup(null); }}
                 onDrop={(e) => {
                   e.preventDefault();
+                  setDraggingOverGroup(null);
                   if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
                     handleFilesSelected(e.dataTransfer.files, group.key);
                   }
@@ -662,22 +646,8 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
               </div>
             </div>
           ) : null}
-        </div>
-
-        {userPermissions.includes('projects.create') ? (
-          <div>
-            <div style={{ marginBottom: 6 }}>相册标签（按回车添加）</div>
-            <div className="cam-tags-row">
-              {tags.map((t) => <TagChip key={t} tag={t} onRemove={removeTag} />)}
-              <input className="cam-tag-input" value={tagInput} onChange={(e) => setTagInput(e.target.value)} onKeyDown={onTagKeyDown} placeholder="输入标签并回车" />
-            </div>
-          </div>
-        ) : null}
-
-        <div style={{ marginTop: 12 }}>
-          <DateTimePicker dateOnly value={startDate} onChange={(v) => setStartDate(v || '')} placeholder="活动日期（可选）" style={{ width: '100%' }} clearable />
-        </div>
+        </section>
       </div>
-    </Modal>
+    </MotionModal>
   );
 }

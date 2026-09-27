@@ -1,6 +1,7 @@
 ﻿// src/ProjectDetail.jsx
 import React from 'react';
-import { Typography, Button, Tag, Spin, Empty, Modal, Input, DatePicker, DateTimePicker, TextArea, Toast, HexLoader } from './ui';
+import { Typography, Button, Tag, Spin, Empty, Modal, MotionModal, Input, DatePicker, DateTimePicker, TextArea, Toast, HexLoader } from './ui';
+import AlbumDetailsFields from './AlbumDetailsFields';
 import {
   IconAIStrokedLevel1,
   IconClose,
@@ -650,7 +651,7 @@ function ProjectDetail({
   const [editDescription, setEditDescription] = React.useState('');
   const [editEventDate, setEditEventDate] = React.useState(null); // Date object or null
   const [editTags, setEditTags] = React.useState([]);
-  const [editTagInput, setEditTagInput] = React.useState('');
+  const [editSaving, setEditSaving] = React.useState(false);
   const [userPermissions, setUserPermissions] = React.useState(() => getPermissions());
   const [deletingProject, setDeletingProject] = React.useState(false);
 
@@ -2098,7 +2099,8 @@ function ProjectDetail({
     const p = project || {};
     setEditTitle(p.title || p.projectName || '');
     setEditDescription(p.description || '');
-    setEditEventDate(p.date ? (p.date.slice && typeof p.date === 'string' ? new Date(p.date) : (p.date instanceof Date ? p.date : new Date(p.date))) : null);
+    const date = p.eventDate || p.date;
+    setEditEventDate(date ? (date instanceof Date ? date : new Date(date)) : null);
     // populate tags for admin
     const incomingTags = p.tags || p.labels || p.tagList || p.projectTags || [];
     const normalized = Array.isArray(incomingTags) ? incomingTags.map((t) => (typeof t === 'string' ? t : String(t))).filter(Boolean) : (typeof incomingTags === 'string' ? incomingTags.split(/[;,\n]/).map(s => s.trim()).filter(Boolean) : []);
@@ -2108,6 +2110,8 @@ function ProjectDetail({
 
   const saveEdit = React.useCallback(async () => {
     if (!projectId) return;
+    if (!editTitle.trim()) return Toast.warning('相册名称为必填项');
+    setEditSaving(true);
     try {
       // normalize eventDate to YYYY-MM-DD string or null
       let eventDatePayload = null;
@@ -2122,7 +2126,7 @@ function ProjectDetail({
         }
       }
 
-      const payload = { projectName: editTitle, description: editDescription, eventDate: eventDatePayload || null };
+      const payload = { projectName: editTitle.trim(), description: editDescription.trim(), eventDate: eventDatePayload || null };
       // only include tags when current user has permission
       if (canUpdateProject || canEditTags) {
         payload.tags = editTags && editTags.length ? editTags : [];
@@ -2155,8 +2159,10 @@ function ProjectDetail({
       } else {
         Toast.error('保存失败');
       }
+    } finally {
+      setEditSaving(false);
     }
-  }, [projectId, editTitle, editDescription, editEventDate, readOnly]);
+  }, [projectId, editTitle, editDescription, editEventDate, editTags, userPermissions, readOnly]);
 
   // ===== 时间线环节编辑 =====
   const refreshProjectDetail = React.useCallback(async () => {
@@ -5637,61 +5643,41 @@ function ProjectDetail({
         ) : null}
 
         {/* 编辑弹窗 */}
-        <Modal
-          title="修改项目信息"
-          className="detail-edit-modal"
+        <MotionModal
+          title="编辑相册"
+          className="album-form-modal detail-edit-modal"
           visible={editVisible}
           onOk={saveEdit}
-          onCancel={() => setEditVisible(false)}
+          onCancel={() => { if (!editSaving) setEditVisible(false); }}
           okText="保存"
           cancelText="取消"
-          width={isMobile ? 'calc(100vw - 16px)' : undefined}
-          bodyStyle={isMobile ? { maxHeight: '70vh', overflowY: 'auto', padding: '12px' } : undefined}
+          okButtonProps={{ loading: editSaving }}
+          closable={!editSaving}
+          maskClosable={!editSaving}
+          width={560}
         >
-          <div className="detail-edit-modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <Input value={editTitle} onChange={(v) => setEditTitle(v)} placeholder="项目标题" />
-            <TextArea value={editDescription} onChange={(v) => setEditDescription(v)} rows={4} placeholder="项目描述" />
-            {(canUpdateProject || canEditTags) ? (
-              <div>
-                <div style={{ marginBottom: 6 }}>项目标签（按回车添加）</div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                  {(editTags || []).map((t, i) => (
-                    <Tag key={t + i} size="small" type="light" onClick={() => { /* no-op */ }}>{t}
-                      <button style={{ marginLeft: 6, border: 'none', background: 'transparent', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); setEditTags((s) => s.filter(x => x !== t)); }}>×</button>
-                    </Tag>
-                  ))}
-                  <input className="detail-edit-tag-input" value={editTagInput} onChange={(e) => setEditTagInput(e.target.value)} onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ',') {
-                      e.preventDefault();
-                      const v = (editTagInput || '').trim();
-                      if (v && !(editTags || []).includes(v)) setEditTags((s) => [...(s || []), v]);
-                      setEditTagInput('');
-                    }
-                  }} placeholder="输入标签并回车" style={{ minWidth: 160, padding: '6px 8px' }} />
-                </div>
+          <div className="detail-edit-modal-body">
+            <AlbumDetailsFields
+              title={editTitle}
+              onTitleChange={setEditTitle}
+              description={editDescription}
+              onDescriptionChange={setEditDescription}
+              eventDate={editEventDate instanceof Date && !Number.isNaN(editEventDate.getTime())
+                ? `${editEventDate.getFullYear()}-${String(editEventDate.getMonth() + 1).padStart(2, '0')}-${String(editEventDate.getDate()).padStart(2, '0')}`
+                : ''}
+              onEventDateChange={(value) => setEditEventDate(value ? new Date(`${value}T00:00:00`) : null)}
+              tags={editTags}
+              onTagsChange={setEditTags}
+              showTags={canUpdateProject || canEditTags}
+              disabled={editSaving}
+            />
+            {canDeleteProject ? (
+              <div className="detail-edit-danger-zone">
+                <Button className="detail-edit-delete-btn" type="danger" onClick={handleDeleteProject} loading={deletingProject} disabled={deletingProject || editSaving}>删除相册</Button>
               </div>
             ) : null}
-            <DateTimePicker
-              dateOnly
-              value={(() => {
-                if (!editEventDate) return '';
-                if (editEventDate instanceof Date && !Number.isNaN(editEventDate.getTime())) {
-                  return `${editEventDate.getFullYear()}-${String(editEventDate.getMonth() + 1).padStart(2, '0')}-${String(editEventDate.getDate()).padStart(2, '0')}`;
-                }
-                return String(editEventDate).slice(0, 10);
-              })()}
-              onChange={(v) => setEditEventDate(v ? new Date(`${v}T00:00:00`) : null)}
-              placeholder="活动日期（可选）"
-              style={{ width: '100%' }}
-              clearable
-            />
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 6 }}>
-              {canDeleteProject ? (
-                <Button className="detail-edit-delete-btn" type="danger" onClick={handleDeleteProject} loading={deletingProject} disabled={deletingProject}>删除项目</Button>
-              ) : null}
-            </div>
           </div>
-        </Modal>
+        </MotionModal>
 
         {/* 时间线环节编辑弹窗（操作即时生效） */}
         <Modal

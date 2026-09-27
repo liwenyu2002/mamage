@@ -6599,3 +6599,31 @@ body.mamage-viewer-open [data-transfer-station-root="1"] {
     grid-template-columns: 80px minmax(0, 1fr);
   }
 }
+
+.detail-edit-modal.album-form-modal .mamage-modal-content {
+  border-radius: 22px !important;
+}
+
+.detail-edit-modal-body {
+  display: grid;
+  gap: 22px;
+  padding-top: 8px;
+}
+
+.detail-edit-danger-zone {
+  display: flex;
+  justify-content: flex-start;
+  padding-top: 18px;
+  border-top: 1px solid rgba(30, 40, 45, 0.1);
+}
+
+.detail-edit-danger-zone .detail-edit-delete-btn {
+  min-height: 38px;
+  border-radius: 9px;
+  font-size: 12px;
+}
+
+@media (max-width: 640px) {
+  .detail-edit-modal-body { gap: 18px; }
+  .detail-edit-danger-zone .detail-edit-delete-btn { width: 100%; }
+}

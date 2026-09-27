@@ -1,0 +1,196 @@
+.album-form-modal.mamage-modal {
+  max-height: calc(100dvh - 28px);
+}
+
+.album-form-modal .mamage-modal-content {
+  border-radius: 22px;
+}
+
+.album-form-modal .mamage-modal-header {
+  padding: 19px 22px 12px;
+}
+
+.album-form-modal .mamage-modal-title {
+  font-size: 20px;
+}
+
+.album-form-modal .mamage-modal-body {
+  padding: 0 22px 18px;
+}
+
+.album-form-modal .mamage-modal-footer {
+  padding: 14px 22px 18px;
+  border-top: 1px solid rgba(30, 40, 45, 0.1);
+}
+
+.album-form-modal .mamage-modal-footer .mamage-button {
+  min-width: 96px;
+  min-height: 42px;
+}
+
+.album-details-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  gap: 14px 16px;
+}
+
+.album-details-fields > .album-field:nth-child(-n + 2),
+.album-details-fields > .album-field:last-child:nth-child(3) {
+  grid-column: 1 / -1;
+}
+
+.album-field {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.album-field-label {
+  color: #111;
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.3;
+}
+
+.album-field-required {
+  color: #b33b30;
+}
+
+.album-field-optional {
+  margin-left: 5px;
+  color: #535d61;
+  font-weight: 550;
+}
+
+.album-field > .mamage-input-wrapper,
+.album-field > .mamage-textarea-wrapper,
+.album-field > .mamage-dtp-trigger {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  border-radius: 10px;
+}
+
+.album-field > .mamage-input-wrapper,
+.album-field > .mamage-textarea-wrapper {
+  background: rgba(255, 255, 255, 0.44);
+}
+
+.album-field > .mamage-textarea-wrapper {
+  resize: vertical;
+  min-height: 72px;
+}
+
+.album-tag-editor {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  min-height: 44px;
+  padding: 6px 8px;
+  box-sizing: border-box;
+  border: 1px solid var(--liquid-glass-border, rgba(255, 255, 255, 0.52));
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.44);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.66);
+  transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+
+.album-tag-editor:focus-within {
+  border-color: rgba(28, 41, 48, 0.48);
+  background: rgba(255, 255, 255, 0.58);
+  box-shadow: 0 0 0 3px rgba(23, 37, 44, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.album-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  min-height: 27px;
+  padding: 2px 5px 2px 9px;
+  box-sizing: border-box;
+  border: 1px solid rgba(32, 44, 48, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.65);
+  color: #111;
+  font-size: 12px;
+  font-weight: 700;
+  animation: album-tag-in 160ms ease-out both;
+}
+
+.album-tag > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.album-tag button,
+.album-tag-add {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #30383b;
+  cursor: pointer;
+}
+
+.album-tag button:hover,
+.album-tag-add:hover {
+  background: rgba(0, 0, 0, 0.09);
+}
+
+.album-tag button svg,
+.album-tag-add svg {
+  width: 14px;
+  height: 14px;
+}
+
+.album-tag-editor input {
+  flex: 1 1 120px;
+  min-width: 90px;
+  min-height: 28px;
+  padding: 2px 4px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #111;
+  font: inherit;
+  font-size: 13px;
+}
+
+@keyframes album-tag-in {
+  from { opacity: 0; transform: scale(0.94); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@media (max-width: 640px) {
+  .album-details-fields { grid-template-columns: 1fr; }
+  .album-details-fields > .album-field { grid-column: 1 / -1; }
+
+  .album-form-modal.mamage-modal {
+    width: calc(100vw - 16px) !important;
+    max-height: calc(100dvh - 16px);
+  }
+
+  .album-form-modal .mamage-modal-header {
+    padding: 15px 16px 10px;
+  }
+
+  .album-form-modal .mamage-modal-body {
+    padding: 0 16px 16px;
+  }
+
+  .album-form-modal .mamage-modal-footer {
+    padding: 12px 16px 14px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .album-tag { animation: none; }
+}
