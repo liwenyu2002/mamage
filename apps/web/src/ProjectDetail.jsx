@@ -33,6 +33,7 @@ import { fetchRandomByProject, searchPhotos, getPhotoById, updatePhoto, assignPh
 import { resolveAssetUrl, BASE_URL } from './services/request';
 import { getDirectMediaUrl } from './services/directStorage';
 import FindMeModal from './FindMeModal';
+import ExternalImportModal from './ExternalImportModal';
 import IfCan from './permissions/IfCan';
 import PermButton from './permissions/PermButton';
 import { canAny, getPermissions } from './permissions/permissionStore';
@@ -644,6 +645,7 @@ function ProjectDetail({
   const [selectedUploadSectionId, setSelectedUploadSectionId] = React.useState('');
   const [uploading, setUploading] = React.useState(false);
   const [uploadProgress, setUploadProgress] = React.useState(null);
+  const [externalImportVisible, setExternalImportVisible] = React.useState(false);
 
   // edit modal
   const [editVisible, setEditVisible] = React.useState(false);
@@ -5265,6 +5267,23 @@ function ProjectDetail({
               </span>
             </Button>
           ) : null}
+          {canUploadPhotos ? (
+            <Button
+              className="detail-action-tile"
+              theme="borderless"
+              onClick={() => {
+                setActionSheetOpen(false);
+                setExternalImportVisible(true);
+              }}
+              aria-label="从外部链接转存照片"
+            >
+              <span className="detail-action-icon is-accent-teal" aria-hidden="true"><IconDownload /></span>
+              <span className="detail-action-copy">
+                <span className="detail-action-title">链接转存</span>
+                <span className="detail-action-desc">PhotoPlus 相册试用</span>
+              </span>
+            </Button>
+          ) : null}
           <Button
             className="detail-action-tile"
             theme="borderless"
@@ -5948,6 +5967,14 @@ function ProjectDetail({
             )}
           </div>
         </Modal>
+
+        <ExternalImportModal
+          visible={externalImportVisible}
+          onClose={() => setExternalImportVisible(false)}
+          projectId={projectId}
+          sections={uploadTimelineEnabled ? uploadTimelineSections : []}
+          onImported={reloadGalleryFromServer}
+        />
 
         <Modal
           title={uploading ? getUploadProgressTitle(uploadProgress) : `准备上传 (${stagingFiles.length})`}
