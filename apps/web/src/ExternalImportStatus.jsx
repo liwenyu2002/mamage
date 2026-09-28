@@ -23,7 +23,7 @@ const ISSUE_LABELS = {
   SCAN_FAILED: '解析失败', WORKER_INTERRUPTED: '服务中断，稍后重试',
 };
 
-function ExternalImportStatus({ projectId, loading, initialPhotoCursor, refreshKey, onPhotos, onSections }) {
+function ExternalImportStatus({ projectId, loading, initialPhotoCursor, refreshKey, onPhotos, onSections, onSourceTitle }) {
   const [jobId, setJobId] = React.useState(null);
   const [job, setJob] = React.useState(null);
   const [sources, setSources] = React.useState([]);
@@ -77,6 +77,9 @@ function ExternalImportStatus({ projectId, loading, initialPhotoCursor, refreshK
         const next = await getExternalImport(jobId);
         if (!alive || Number(next.projectId) !== Number(projectId)) return;
         setJob(next);
+        if (next.sourceTitle && (Number(next.reportedTotal) > 0 || next.scanStatus === 'completed')) {
+          onSourceTitle?.(next.sourceTitle);
+        }
         setError('');
         if (!updatesBusy.current) {
           updatesBusy.current = true;
@@ -103,7 +106,7 @@ function ExternalImportStatus({ projectId, loading, initialPhotoCursor, refreshK
     };
     poll();
     return () => { alive = false; window.clearTimeout(timer); };
-  }, [jobId, projectId, loading, onPhotos, onSections]);
+  }, [jobId, projectId, loading, onPhotos, onSections, onSourceTitle]);
 
   const handleAction = async (action) => {
     if (!job || busy) return;

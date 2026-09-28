@@ -863,6 +863,17 @@ function ProjectDetail({
     setImages(normalized.map((meta) => meta.thumbSrc || resolveAssetUrl(getPhotoThumbCandidate(meta))).filter(Boolean));
   }, []);
 
+  const applyImportedSourceTitle = React.useCallback((sourceTitle) => {
+    setProject((prev) => {
+      const pendingTitle = prev?.meta?._pendingExternalImportTitle;
+      const currentTitle = prev?.title ?? prev?.projectName ?? prev?.name;
+      if (!pendingTitle || currentTitle !== pendingTitle || !sourceTitle) return prev;
+      const meta = { ...prev.meta };
+      delete meta._pendingExternalImportTitle;
+      return { ...prev, title: sourceTitle, projectName: sourceTitle, name: sourceTitle, meta };
+    });
+  }, []);
+
   React.useEffect(() => {
     if (initialProject) {
       setProject((prev) => {
@@ -5474,6 +5485,7 @@ function ProjectDetail({
           refreshKey={externalImportRefreshKey}
           onPhotos={appendImportedPhotos}
           onSections={mergeImportedSections}
+          onSourceTitle={applyImportedSourceTitle}
         />
       ) : null}
 
