@@ -239,6 +239,79 @@
   white-space: nowrap;
 }
 
+.project-card__import {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 5px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.48);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 1px 4px rgba(22, 31, 39, 0.06);
+  color: #111;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.project-card__import-dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border-radius: 50%;
+  background: #1b5750;
+}
+
+.project-card__import.is-running .project-card__import-dot {
+  animation: project-import-pulse 1.8s ease-in-out infinite;
+}
+
+.project-card__import.is-paused .project-card__import-dot,
+.project-card__import.is-cancelled .project-card__import-dot {
+  background: #94651b;
+}
+
+.project-card__import.is-completed_with_errors .project-card__import-dot {
+  background: #b14242;
+}
+
+.project-card__import-label,
+.project-card__import-count {
+  white-space: nowrap;
+}
+
+.project-card__import-count {
+  font-weight: 600;
+}
+
+.project-card__import-track {
+  flex: 0 0 100%;
+  height: 2px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: rgba(27, 87, 80, 0.14);
+}
+
+.project-card__import-track > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #1b5750;
+  transition: width 350ms ease;
+}
+
+@keyframes project-import-pulse {
+  50% { opacity: 0.45; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .project-card__import-dot { animation: none !important; }
+  .project-card__import-track > span { transition: none; }
+}
+
 .project-card__meta-top {
   width: 100%;
   display: flex;

@@ -61,6 +61,35 @@ function CardText({ children, className = '', strong = false, size = '' }) {
   );
 }
 
+function ImportStatusBadge({ summary }) {
+  if (!summary || summary.status === 'completed') return null;
+  const { status, scanStatus } = summary;
+  const done = Number(summary.doneCount) || 0;
+  const discovered = Number(summary.discoveredCount) || 0;
+  const total = Math.max(Number(summary.selectedCount) || 0, Number(summary.reportedTotal) || 0, discovered);
+  const active = status === 'queued' || status === 'running';
+  const label = status === 'queued' ? '等待转存'
+    : status === 'running' ? (scanStatus === 'completed' ? '正在转存' : '正在解析')
+      : status === 'paused' ? '转存已暂停'
+        : status === 'completed_with_errors' ? (done ? '部分照片未转存' : '转存失败')
+          : status === 'cancelled' ? '转存已停止' : null;
+  if (!label) return null;
+  const detail = status === 'running' && scanStatus !== 'completed'
+    ? (discovered ? `已发现 ${discovered} 张` : '')
+    : total ? `${done}/${total} 张` : (done ? `已转存 ${done} 张` : '');
+  const showProgress = active && total > 0 && (scanStatus === 'completed' || Number(summary.reportedTotal) > 0);
+  return (
+    <div className={`project-card__import is-${status}`} aria-label={`${label}${detail ? `，${detail}` : ''}`}>
+      <span className="project-card__import-dot" aria-hidden="true" />
+      <span className="project-card__import-label">{label}</span>
+      {detail ? <span className="project-card__import-count">{detail}</span> : null}
+      {showProgress ? <span className="project-card__import-track" aria-hidden="true">
+        <span style={{ width: `${Math.min(100, Math.round((done / total) * 100))}%` }} />
+      </span> : null}
+    </div>
+  );
+}
+
 function ProjectCard({
   id,
   title,
@@ -74,6 +103,7 @@ function ProjectCard({
   images = [],
   cover = null,
   thumbnails = [],
+  importStatus,
   onClick,
   onHoverIntent,
 }) {
@@ -318,6 +348,7 @@ function ProjectCard({
             <CardText strong className="project-card__mobile-title">
               {`《${title}》`}
             </CardText>
+            <ImportStatusBadge summary={importStatus} />
             {originLabel ? <span className="project-card__origin" title={`来自 ${originLabel}`}>来自 {originLabel}</span> : null}
             <CardText size="small" className="project-card__mobile-description">
               {descText}
@@ -378,6 +409,8 @@ function ProjectCard({
               <CardText strong className="project-card__title">
                 {`《${title}》`}
               </CardText>
+
+              <ImportStatusBadge summary={importStatus} />
 
               {subtitle && (
                 <span className="project-card__tag">

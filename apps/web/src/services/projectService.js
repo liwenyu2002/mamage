@@ -32,6 +32,14 @@ async function fetchProjectList({ page = 1, pageSize = 24, keyword = '', demo = 
   };
 }
 
+async function fetchProjectImportStatuses(ids, { demo = false } = {}) {
+  return request('/api/projects/import-status', {
+    method: 'GET',
+    data: { ids: ids.join(','), demo: demo ? 1 : undefined },
+    timeoutMs: 10000,
+  });
+}
+
 async function getProjectById(id, { demo = false, includeFaces = true, timeoutMs } = {}) {
   return request(`/api/projects/${id}`, {
     method: 'GET',
@@ -136,6 +144,6 @@ async function reorderTimelineSections(projectId, sectionIds) {
 }
 
 export {
-  fetchLatestProjects, fetchProjectList, getProjectById, updateProject, createProject, deleteProject,
+  fetchLatestProjects, fetchProjectList, fetchProjectImportStatuses, getProjectById, updateProject, createProject, deleteProject,
   createTimelineSection, updateTimelineSection, deleteTimelineSection, reorderTimelineSections,
 };

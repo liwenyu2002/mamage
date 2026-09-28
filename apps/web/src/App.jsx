@@ -8,7 +8,7 @@ import {
   fetchManualLanEntry, isLanOrigin, buildLanEntryUrl, publicStayUrl,
   setEntryPref, checkLanEntryOffer, dismissLanEntryOffer,
 } from './services/networkService';
-import { fetchProjectList, createProject } from './services/projectService';
+import { fetchProjectList, fetchProjectImportStatuses, createProject } from './services/projectService';
 import { searchPhotos } from './services/photoQueryService';
 import { fetchWorkspaces, setActiveWorkspace } from './services/workspaceService';
 import { resolveAssetUrl, rewriteMediaUrlsDeep } from './services/request';
@@ -200,6 +200,7 @@ function App() {
     setLanEntryOffer(null);
   }, []);
   const [projects, setProjects] = React.useState([]);
+  const [projectImportStatuses, setProjectImportStatuses] = React.useState({});
   const [projectPage, setProjectPage] = React.useState(1);
   const [projectHasMore, setProjectHasMore] = React.useState(false);
   const [projectTotal, setProjectTotal] = React.useState(0);
@@ -893,6 +894,46 @@ function App() {
     return result;
   }, [projects]);
 
+  const visibleProjectIds = normalizedProjects.map((project) => project.id).join(',');
+  React.useEffect(() => {
+    if (selectedNav !== 'projects' || currentProjectId || (!currentUser && !isDemoPath) || !visibleProjectIds) return undefined;
+    const ids = visibleProjectIds.split(',');
+    let disposed = false;
+    let inFlight = false;
+    let timer;
+    const schedule = () => {
+      window.clearTimeout(timer);
+      if (!disposed) timer = window.setTimeout(refresh, 15000);
+    };
+    const refresh = async () => {
+      if (disposed || inFlight) return;
+      if (document.hidden) { schedule(); return; }
+      inFlight = true;
+      try {
+        const response = await fetchProjectImportStatuses(ids, { demo: isDemoPath });
+        if (!disposed) setProjectImportStatuses(response?.statuses || {});
+      } catch (err) {
+        // Album cards stay usable if the optional status request fails.
+      } finally {
+        inFlight = false;
+        schedule();
+      }
+    };
+    const onVisibility = () => {
+      if (!document.hidden && !inFlight) {
+        window.clearTimeout(timer);
+        refresh();
+      }
+    };
+    refresh();
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      disposed = true;
+      window.clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [visibleProjectIds, selectedNav, currentProjectId, currentUser, isDemoPath]);
+
   const currentProject = React.useMemo(() => {
     if (!currentProjectId) return null;
     const sid = String(currentProjectId);
@@ -1500,6 +1541,7 @@ function App() {
                           <ProjectCard
                             key={project.id}
                             {...project}
+                            importStatus={projectImportStatuses[project.id]}
                             onClick={() => handleSelectProject(project.id)}
                           />
                         ))}
@@ -1747,6 +1789,7 @@ function App() {
                         <ProjectCard
                           key={project.id}
                           {...project}
+                          importStatus={projectImportStatuses[project.id]}
                           onHoverIntent={preloadProjectDetail}
                           onClick={() => handleSelectProject(project.id)}
                         />
