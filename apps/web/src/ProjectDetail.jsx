@@ -34,6 +34,7 @@ import { resolveAssetUrl, BASE_URL } from './services/request';
 import { getDirectMediaUrl } from './services/directStorage';
 import FindMeModal from './FindMeModal';
 import ExternalImportModal from './ExternalImportModal';
+import ExternalImportStatus from './ExternalImportStatus';
 import IfCan from './permissions/IfCan';
 import PermButton from './permissions/PermButton';
 import { canAny, getPermissions } from './permissions/permissionStore';
@@ -646,6 +647,7 @@ function ProjectDetail({
   const [uploading, setUploading] = React.useState(false);
   const [uploadProgress, setUploadProgress] = React.useState(null);
   const [externalImportVisible, setExternalImportVisible] = React.useState(false);
+  const [externalImportRefreshKey, setExternalImportRefreshKey] = React.useState(0);
 
   // edit modal
   const [editVisible, setEditVisible] = React.useState(false);
@@ -1435,6 +1437,40 @@ function ProjectDetail({
     setImages(built.images);
     setPhotoMetas(built.metas);
   }, [projectId, buildImagesAndMetas, readOnly]);
+
+  const importedPhotoCursor = React.useMemo(() => photoMetas.reduce((max, photo) => {
+    const id = Number(photo?.id);
+    return Number.isSafeInteger(id) ? Math.max(max, id) : max;
+  }, 0), [photoMetas]);
+
+  const appendImportedPhotos = React.useCallback((photos) => {
+    if (!photos?.length) return;
+    const current = photoMetasRef.current || [];
+    const ids = new Set(current.map((photo) => String(photo?.id)));
+    const fresh = photos.filter((photo) => !ids.has(String(photo.id)));
+    if (!fresh.length) return;
+    const built = buildImagesAndMetas({ images: fresh });
+    applyGalleryMetas([...current, ...built.metas]);
+    setProject((prev) => prev ? {
+      ...prev,
+      photos: [...(prev.photos || []), ...fresh],
+      photoCount: current.length + fresh.length,
+    } : prev);
+  }, [applyGalleryMetas, buildImagesAndMetas]);
+
+  const mergeImportedSections = React.useCallback((sections) => {
+    if (!sections?.length) return;
+    setProject((prev) => {
+      if (!prev) return prev;
+      const current = prev.timelineSections || [];
+      if (current.length === sections.length && current.every((section, index) =>
+        Number(section.id) === Number(sections[index].id)
+        && section.name === sections[index].name
+        && section.sectionTime === sections[index].sectionTime)) return prev;
+      return { ...prev, timelineSections: sections, timelineEnabled: true,
+        meta: { ...(prev.meta || {}), timelineEnabled: true } };
+    });
+  }, []);
 
   const clearAnalysisPollTimer = React.useCallback((photoId) => {
     const key = String(photoId || '').trim();
@@ -5280,7 +5316,7 @@ function ProjectDetail({
               <span className="detail-action-icon is-accent-teal" aria-hidden="true"><IconDownload /></span>
               <span className="detail-action-copy">
                 <span className="detail-action-title">链接转存</span>
-                <span className="detail-action-desc">PhotoPlus 相册试用</span>
+                <span className="detail-action-desc">从外部相册导入</span>
               </span>
             </Button>
           ) : null}
@@ -5428,6 +5464,17 @@ function ProjectDetail({
           <span>来自 {originLabel}</span>
           {latestShare.sharedByName ? <span>分享人 {latestShare.sharedByName}</span> : null}
         </div>
+      ) : null}
+
+      {!readOnly ? (
+        <ExternalImportStatus
+          projectId={projectId}
+          loading={loading}
+          initialPhotoCursor={importedPhotoCursor}
+          refreshKey={externalImportRefreshKey}
+          onPhotos={appendImportedPhotos}
+          onSections={mergeImportedSections}
+        />
       ) : null}
 
       <div
@@ -5972,8 +6019,7 @@ function ProjectDetail({
           visible={externalImportVisible}
           onClose={() => setExternalImportVisible(false)}
           projectId={projectId}
-          sections={uploadTimelineEnabled ? uploadTimelineSections : []}
-          onImported={reloadGalleryFromServer}
+          onStarted={() => setExternalImportRefreshKey((value) => value + 1)}
         />
 
         <Modal
