@@ -1960,9 +1960,10 @@ function App() {
             visible={showCreateModal}
             onClose={() => setShowCreateModal(false)}
             createProject={createProject}
-            onCreated={() => {
+            onCreated={(project, options) => {
               setShowCreateModal(false);
               loadProjects(projectQuery, 1, PROJECT_PAGE_SIZE);
+              if (options?.openAlbum && project?.id) handleSelectProject(project.id);
             }}
           />
         </LazySilent>

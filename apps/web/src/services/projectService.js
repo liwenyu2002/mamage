@@ -68,6 +68,7 @@ async function createProject(data) {
   if (data?.tags !== undefined) payload.tags = data.tags;
   if (data?.timelineEnabled !== undefined) payload.timelineEnabled = data.timelineEnabled;
   if (data?.timelineSections !== undefined) payload.timelineSections = data.timelineSections;
+  if (data?.externalImportUrl) payload.externalImportUrl = data.externalImportUrl;
   // forward other meta if provided
   if (data?.meta) payload.meta = data.meta;
 

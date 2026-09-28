@@ -1,5 +1,5 @@
 ﻿import React from 'react';
-import { MotionModal, DateTimePicker, Toast } from './ui';
+import { MotionModal, DateTimePicker, Input, Toast } from './ui';
 import { IconClose, IconPlus } from './ui/icons';
 import AlbumDetailsFields from './AlbumDetailsFields';
 import { sectionTimeToInputValue, inputValueToSectionTime } from './utils/sectionTime';
@@ -32,6 +32,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
   const [description, setDescription] = React.useState('');
   const [tags, setTags] = React.useState([]);
   const [startDate, setStartDate] = React.useState(null);
+  const [externalImportUrl, setExternalImportUrl] = React.useState('');
   const [timelineEnabled, setTimelineEnabled] = React.useState(false);
   const [timelineSections, setTimelineSections] = React.useState(() => [{ key: 1, name: '', sectionTime: '' }]);
   const [submitting, setSubmitting] = React.useState(false);
@@ -60,6 +61,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
       setDescription('');
       setTags([]);
       setStartDate(null);
+      setExternalImportUrl('');
       setTimelineEnabled(false);
       setTimelineSections([{ key: 1, name: '', sectionTime: '' }]);
       sectionKeyRef.current = 2;
@@ -276,9 +278,18 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
   }, [uploadProgress]);
 
   const handleSubmit = React.useCallback(async () => {
+    if (submitting) return;
     if (!name.trim()) return Toast.warning('相册名称为必填项');
     if (timelineEnabled && normalizedTimelineSections.length === 0) {
       return Toast.warning('开启时间轴后至少需要填写一个环节名称');
+    }
+    const importUrl = externalImportUrl.trim();
+    if (importUrl) {
+      try {
+        if (new URL(importUrl).protocol !== 'https:') throw new Error('HTTPS required');
+      } catch (_) {
+        return Toast.warning('请填写公开的 HTTPS 相册链接');
+      }
     }
     setSubmitting(true);
     try {
@@ -293,6 +304,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
         ...(userPermissions.includes('projects.create') && tags && tags.length ? { tags } : {}),
         timelineEnabled,
         timelineSections: timelineEnabled ? payloadSections : [],
+        ...(importUrl ? { externalImportUrl: importUrl } : {}),
         eventDate: startDate
           ? (startDate instanceof Date
             ? `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`
@@ -307,7 +319,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
         result = await onCreated(payload);
       }
 
-      Toast.success('已创建相册');
+      Toast.success(importUrl ? '相册已创建，正在后台转存' : '已创建相册');
 
       try {
         const filesToUpload = (stagingFiles && stagingFiles.length) ? stagingFiles : [];
@@ -316,7 +328,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
 
         if (filesToUpload.length === 0) {
           if (typeof onCreated === 'function') {
-            try { await onCreated(result); } catch (e) { /* ignore */ }
+            try { await onCreated(result, { openAlbum: Boolean(importUrl) }); } catch (e) { /* ignore */ }
           }
         }
 
@@ -379,12 +391,12 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
             try {
               const full = await getProjectById(projectId);
               if (typeof onCreated === 'function') {
-                try { await onCreated(full); } catch (e) { /* ignore caller errors */ }
+                try { await onCreated(full, { openAlbum: Boolean(importUrl) }); } catch (e) { /* ignore caller errors */ }
               }
             } catch (e) {
               console.warn('Failed to reload project after uploads', e);
               if (typeof onCreated === 'function') {
-                try { await onCreated(result); } catch (err) { /* ignore */ }
+                try { await onCreated(result, { openAlbum: Boolean(importUrl) }); } catch (err) { /* ignore */ }
               }
             }
           }
@@ -396,11 +408,13 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
       if (onClose) onClose();
     } catch (e) {
       console.error('create project failed', e);
-      Toast.error('创建失败');
+      let message = '创建失败';
+      try { message = JSON.parse(e?.body || '{}').message || message; } catch (_) { /* ignore */ }
+      Toast.error(message);
     } finally {
       setSubmitting(false);
     }
-  }, [name, description, tags, startDate, timelineEnabled, normalizedTimelineSections, stagingSectionKeys, createProject, onCreated, onClose, stagingFiles, userPermissions]);
+  }, [submitting, name, description, tags, startDate, externalImportUrl, timelineEnabled, normalizedTimelineSections, stagingSectionKeys, createProject, onCreated, onClose, stagingFiles, userPermissions]);
 
   return (
     <MotionModal
@@ -412,7 +426,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
       onOk={handleSubmit}
       okButtonProps={{ loading: submitting }}
       cancelText="取消"
-      okText="创建"
+      okText={externalImportUrl.trim() ? '创建并转存' : '创建'}
       closable={!submitting}
     >
       <div className="cam-form">
@@ -490,6 +504,26 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
             </div>
           ) : null}
         </section>
+
+        {userPermissions.includes('upload.photo') ? (
+          <section className="cam-link-import">
+            <label className="album-field-label" htmlFor="cam-external-import-url">
+              链接转存 <span className="album-field-optional">可选</span>
+            </label>
+            <Input
+              id="cam-external-import-url"
+              className="cam-link-import-input"
+              type="url"
+              inputMode="url"
+              autoComplete="url"
+              placeholder="https://"
+              value={externalImportUrl}
+              onChange={setExternalImportUrl}
+              disabled={submitting}
+            />
+            {externalImportUrl.trim() ? <span className="cam-link-import-note">请仅转存已获授权的照片。</span> : null}
+          </section>
+        ) : null}
 
         <section className="cam-upload-block">
           <div className="cam-section-heading"><strong>照片与视频</strong><span>{stagingFiles.length ? `已选 ${stagingFiles.length} 个` : '可选'}</span></div>
