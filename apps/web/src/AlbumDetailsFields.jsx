@@ -14,6 +14,8 @@ export default function AlbumDetailsFields({
   onTagsChange,
   showTags = true,
   disabled = false,
+  titleOptional = false,
+  titlePlaceholder = '输入相册名称',
 }) {
   const [tagInput, setTagInput] = React.useState('');
   const titleId = React.useId();
@@ -38,8 +40,8 @@ export default function AlbumDetailsFields({
   return (
     <div className="album-details-fields">
       <div className="album-field">
-        <label className="album-field-label" htmlFor={titleId}>相册名称 <span className="album-field-required">*</span></label>
-        <Input id={titleId} value={title} onChange={onTitleChange} disabled={disabled} placeholder="输入相册名称" autoComplete="off" />
+        <label className="album-field-label" htmlFor={titleId}>相册名称 <span className={titleOptional ? 'album-field-optional' : 'album-field-required'}>{titleOptional ? '将从链接识别' : '*'}</span></label>
+        <Input id={titleId} value={title} onChange={onTitleChange} disabled={disabled} placeholder={titlePlaceholder} autoComplete="off" />
       </div>
       <div className="album-field">
         <label className="album-field-label" htmlFor={descriptionId}>相册描述 <span className="album-field-optional">可选</span></label>

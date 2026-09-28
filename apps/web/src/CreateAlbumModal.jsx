@@ -279,11 +279,11 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
 
   const handleSubmit = React.useCallback(async () => {
     if (submitting) return;
-    if (!name.trim()) return Toast.warning('相册名称为必填项');
+    const importUrl = externalImportUrl.trim();
+    if (!name.trim() && !importUrl) return Toast.warning('相册名称为必填项');
     if (timelineEnabled && normalizedTimelineSections.length === 0) {
       return Toast.warning('开启时间轴后至少需要填写一个环节名称');
     }
-    const importUrl = externalImportUrl.trim();
     if (importUrl) {
       try {
         if (new URL(importUrl).protocol !== 'https:') throw new Error('HTTPS required');
@@ -433,6 +433,8 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
         <AlbumDetailsFields
           title={name}
           onTitleChange={setName}
+          titleOptional={Boolean(externalImportUrl.trim())}
+          titlePlaceholder={externalImportUrl.trim() ? '从链接自动识别相册名' : '输入相册名称'}
           description={description}
           onDescriptionChange={setDescription}
           eventDate={startDate}
