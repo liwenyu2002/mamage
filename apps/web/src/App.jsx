@@ -5,7 +5,7 @@ import ProjectCard from './ProjectCard';
 import * as authService from './services/authService';
 import PrivacyPage from './PrivacyPage';
 import {
-  fetchLanEntry, isLanOrigin, buildLanEntryUrl, publicStayUrl,
+  fetchManualLanEntry, isLanOrigin, buildLanEntryUrl, publicStayUrl,
   setEntryPref, checkLanEntryOffer, dismissLanEntryOffer,
 } from './services/networkService';
 import { fetchProjectList, createProject } from './services/projectService';
@@ -1031,7 +1031,7 @@ function App() {
       return;
     }
     Toast.info('正在获取内网地址…');
-    const info = await fetchLanEntry();
+    const info = await fetchManualLanEntry();
     if (!info) {
       Toast.warning('暂未取到内网地址，请稍后再试');
       return;
@@ -1039,7 +1039,7 @@ function App() {
     setEntryPref('auto'); // 手动去内网 = 下次访问公网继续自动跳
     const path = (window.location.pathname || '/') + (window.location.search || '');
     const url = buildLanEntryUrl(info, authService.getToken() || '', path);
-    try { window.open(url, '_blank', 'noopener'); } catch (e) { window.location.href = url; }
+    window.location.assign(url);
   }, []);
 
   const handleLogout = React.useCallback(async () => {

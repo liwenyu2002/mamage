@@ -22,6 +22,22 @@ export async function fetchLanEntry() {
   }
 }
 
+export async function fetchManualLanEntry() {
+  try {
+    const token = authService.getToken();
+    if (!token) return null;
+    const r = await fetch('/api/network/lan/manual', {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: 'no-store',
+    });
+    if (!r.ok) return null;
+    const d = await r.json().catch(() => null);
+    return d && d.ok && d.lanIp ? d : null;
+  } catch (e) {
+    return null;
+  }
+}
+
 export function isLanOrigin() {
   try {
     const h = String(window.location.hostname || '');
