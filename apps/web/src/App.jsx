@@ -695,7 +695,10 @@ function App() {
                   if (data.project) {
                     setShareInitialProject(Object.assign({}, data.project, meta));
                   } else if (Array.isArray(data.photos) || Array.isArray(data.list) || Array.isArray(data.images)) {
-                    setShareInitialProject(Object.assign({ title: data.title || '分享', images: data.photos || data.list || data.images }, meta));
+                    setShareInitialProject(Object.assign({}, data, {
+                      title: data.title || data.projectName || '照片分享',
+                      photos: data.photos || data.list || data.images,
+                    }, meta));
                   } else if (Array.isArray(data)) {
                     setShareInitialProject(Object.assign({ title: '分享', images: data }, meta));
                   } else if (data.items) {
@@ -726,12 +729,23 @@ function App() {
                   message: data.message || (data.error === 'EXPIRED' ? '分享链接已过期' : (data.error === 'REVOKED' ? '分享链接已被撤销' : null)),
                 };
 
-                setShareInitialProject(meta);
+                setShareInitialProject(Object.assign({}, data, meta));
                 setShareMode(true);
                 return;
               }
+              setShareInitialProject({
+                shareCode: code,
+                error: 'LOAD_FAILED',
+                message: '分享内容暂时无法加载，请稍后重试。',
+              });
+              setShareMode(true);
             } catch (e) {
-              // ignore fetch errors 鈥?fall back to normal app
+              setShareInitialProject({
+                shareCode: code,
+                error: 'LOAD_FAILED',
+                message: '网络连接失败，请检查网络后重试。',
+              });
+              setShareMode(true);
             }
           })();
         }

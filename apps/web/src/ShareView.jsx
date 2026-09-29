@@ -1,17 +1,16 @@
 import React from 'react';
-import { Typography, Button, Card } from './ui';
 import FindMeModal from './FindMeModal';
-import { resolveAssetUrl } from './services/request';
-import './ProjectDetail.css';
-
-const { Text } = Typography;
+import { resolveAssetUrl, rewriteMediaUrlsDeep } from './services/request';
+import {
+  IconChevronLeft, IconChevronRight, IconClose, IconDownload,
+  IconFaceScan, IconGridView, IconMasonryView,
+} from './ui/icons';
+import './ShareView.css';
 
 function formatDate(v) {
-  try {
-    return new Date(v).toLocaleString();
-  } catch (e) {
-    return String(v || '');
-  }
+  const date = new Date(v);
+  if (Number.isNaN(date.getTime())) return String(v || '');
+  return new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' }).format(date);
 }
 
 function normalizeShareTimelineSections(input) {
@@ -58,27 +57,62 @@ function getSharePhotoSectionLabel(photo, sections) {
 }
 
 export default function ShareView({ share = {}, onBack }) {
-  const [viewMode, setViewMode] = React.useState('grid'); // grid | masonry
+  const [viewMode, setViewMode] = React.useState('grid');
+  const shareCode = share.shareCode || share.code || '';
+  const [photos, setPhotos] = React.useState(() => (
+    Array.isArray(share.photos) ? share.photos : (Array.isArray(share.images) ? share.images : [])
+  ));
+  const pageSize = Number(share.limit) || 100;
+  const [hasMore, setHasMore] = React.useState(() => Boolean(shareCode && photos.length >= pageSize));
+  const [moreLoading, setMoreLoading] = React.useState(false);
+  const [moreError, setMoreError] = React.useState('');
 
-  const createdBy = share.createdBy || null;
   const creatorName = share.creatorName
     || share.sharedBy
     || share.owner
     || share.creator
     || share.shareBy
     || (share.photos && share.photos[0] && share.photos[0].photographerName)
-    || '匿名';
-  const createdAt = share.createdAt || share.created || '';
+    || '分享者';
   const expiresAtField = typeof share.expiresAt !== 'undefined' ? share.expiresAt : null;
   const remainingSecondsField = typeof share.remainingSeconds === 'number' ? share.remainingSeconds : null;
-  const isExpired = !!(share && (
-    share.error === 'EXPIRED'
+  const fallbackExpiry = React.useRef(remainingSecondsField === null ? null : Date.now() + remainingSecondsField * 1000);
+  const [nowMs, setNowMs] = React.useState(Date.now);
+  React.useEffect(() => {
+    const timer = window.setInterval(() => setNowMs(Date.now()), 60000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const expirationTime = expiresAtField ? new Date(expiresAtField).getTime() : fallbackExpiry.current;
+  const remainingSec = Number.isFinite(expirationTime)
+    ? Math.max(0, Math.floor((expirationTime - nowMs) / 1000)) : null;
+  const isUnavailable = !!(share && (
+    share.error
     || (typeof share.message === 'string' && /过期/.test(share.message))
-    || remainingSecondsField === 0
+    || remainingSec === 0
   ));
-  const title = share.title || (share.project && (share.project.title || share.project.name)) || '分享内容';
+  const unavailableTitle = share.error === 'LOAD_FAILED' ? '暂时无法打开分享'
+    : share.error === 'NOT_FOUND' ? '分享链接不存在' : '分享链接已失效';
+  const title = share.title || share.projectName
+    || (share.project && (share.project.title || share.project.name)) || '照片分享';
 
-  const photos = Array.isArray(share.photos) ? share.photos : (Array.isArray(share.images) ? share.images : []);
+  const loadMore = async () => {
+    if (!shareCode || !hasMore || moreLoading) return;
+    setMoreLoading(true);
+    setMoreError('');
+    try {
+      const response = await fetch(`/api/share/${encodeURIComponent(shareCode)}?limit=${pageSize}&offset=${photos.length}`);
+      if (!response.ok) throw new Error('加载失败，请重试');
+      const data = rewriteMediaUrlsDeep(await response.json());
+      const next = Array.isArray(data.photos) ? data.photos : [];
+      setPhotos((current) => current.concat(next));
+      setHasMore(next.length >= pageSize);
+    } catch (err) {
+      setMoreError(err?.message || '加载失败，请重试');
+    } finally {
+      setMoreLoading(false);
+    }
+  };
+
   const timelineSections = React.useMemo(() => normalizeShareTimelineSections(share.timelineSections || share.timeline_sections), [share]);
   const timelineGroups = React.useMemo(() => {
     const hasPhotoSection = photos.some((photo) => getSharePhotoSectionId(photo) || getSharePhotoSectionLabel(photo, timelineSections));
@@ -106,52 +140,6 @@ export default function ShareView({ share = {}, onBack }) {
       ...(ungrouped.items.length ? [ungrouped] : []),
     ];
   }, [photos, timelineSections]);
-
-  const galleryRef = React.useRef(null);
-  const [colCount, setColCount] = React.useState(() => {
-    try {
-      if (typeof window === 'undefined') return 2;
-      return window.innerWidth <= 768 ? 2 : Math.max(2, Math.floor(window.innerWidth / 260));
-    } catch (e) {
-      return 2;
-    }
-  });
-  const [isMobileLayout, setIsMobileLayout] = React.useState(() => {
-    try {
-      return typeof window !== 'undefined' ? window.innerWidth <= 768 : false;
-    } catch (e) {
-      return false;
-    }
-  });
-
-  React.useEffect(() => {
-    function updateCols() {
-      try {
-        const w = galleryRef.current ? galleryRef.current.clientWidth : window.innerWidth;
-        const viewportWidth = window.innerWidth || w;
-        const mobileLayout = viewportWidth <= 768;
-        setIsMobileLayout(mobileLayout);
-        setColCount(mobileLayout ? 2 : Math.max(2, Math.floor(w / 260)));
-      } catch (e) {
-        const mobileLayout = typeof window !== 'undefined' ? window.innerWidth <= 768 : false;
-        setIsMobileLayout(mobileLayout);
-        setColCount(mobileLayout ? 2 : 3);
-      }
-    }
-
-    updateCols();
-    if (typeof ResizeObserver !== 'undefined' && galleryRef.current) {
-      const ro = new ResizeObserver(updateCols);
-      ro.observe(galleryRef.current);
-      window.addEventListener('resize', updateCols);
-      return () => {
-        try { ro.disconnect(); } catch (e) { }
-        window.removeEventListener('resize', updateCols);
-      };
-    }
-    window.addEventListener('resize', updateCols);
-    return () => window.removeEventListener('resize', updateCols);
-  }, []);
 
   const thumbFor = (p) => {
     if (!p) return null;
@@ -191,8 +179,6 @@ export default function ShareView({ share = {}, onBack }) {
     return resolveAssetUrl(p.playbackUrl || p.playback_url || p.url || '') || null;
   };
 
-  const shareCode = share.shareCode || share.code || '';
-
   const [viewerVisible, setViewerVisible] = React.useState(false);
   const [viewerIndex, setViewerIndex] = React.useState(0);
   const [viewerShowOriginalMap, setViewerShowOriginalMap] = React.useState({});
@@ -205,6 +191,7 @@ export default function ShareView({ share = {}, onBack }) {
   // 沉浸式查看器的手机交互：滑动翻页 + 轻点切换顶/底栏
   const [svChrome, setSvChrome] = React.useState(true);
   const svTouchRef = React.useRef(null);
+  const svSwipedRef = React.useRef(false);
   const svTouchStart = (e) => {
     const t = e.touches && e.touches[0];
     if (t) svTouchRef.current = { x: t.clientX, y: t.clientY };
@@ -217,6 +204,8 @@ export default function ShareView({ share = {}, onBack }) {
     const dx = t.clientX - s.x;
     const dy = t.clientY - s.y;
     if (Math.abs(dx) > 56 && Math.abs(dx) > Math.abs(dy) * 1.4) {
+      svSwipedRef.current = true;
+      window.setTimeout(() => { svSwipedRef.current = false; }, 400);
       if (dx < 0) viewerNext(); else viewerPrev();
     }
   };
@@ -279,170 +268,130 @@ export default function ShareView({ share = {}, onBack }) {
     return () => document.removeEventListener('keydown', onKey);
   }, [viewerVisible, photos.length]);
 
-  const [remainingSec, setRemainingSec] = React.useState(() => {
-    if (typeof remainingSecondsField === 'number') return remainingSecondsField;
-    if (expiresAtField) {
-      const diff = Math.floor((new Date(expiresAtField).getTime() - Date.now()) / 1000);
-      return Number.isNaN(diff) ? null : Math.max(0, diff);
-    }
-    return null;
-  });
-
   React.useEffect(() => {
-    if (remainingSec === null) return undefined;
-    const t = setInterval(() => setRemainingSec((s) => (s > 0 ? s - 1 : 0)), 1000);
-    return () => clearInterval(t);
-  }, [remainingSec]);
+    if (!viewerVisible) return undefined;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previous; };
+  }, [viewerVisible]);
 
-  const fmtRemaining = (s) => {
-    if (s === null || typeof s === 'undefined') return null;
-    if (s <= 0) return '已过期';
-    const days = Math.floor(s / 86400);
-    const r1 = s % 86400;
-    const hrs = Math.floor(r1 / 3600);
-    const r2 = r1 % 3600;
-    const mins = Math.floor(r2 / 60);
-    const secs = r2 % 60;
-    return `${days ? `${days}天 ` : ''}${hrs ? `${hrs}小时 ` : ''}${mins ? `${mins}分 ` : ''}${secs}秒`;
-  };
+  const expiryHint = remainingSec !== null && remainingSec <= 7 * 86400
+    ? remainingSec >= 86400 ? `剩余 ${Math.ceil(remainingSec / 86400)} 天`
+      : remainingSec >= 3600 ? `剩余 ${Math.ceil(remainingSec / 3600)} 小时`
+        : '即将过期'
+    : '';
 
-  // 手机端极限缩边距/缝隙，最大化照片可视面积
-  const pagePadding = isMobileLayout ? 3 : 24;
-  const galleryGap = isMobileLayout ? 2 : 12;
-  const gridColumns = isMobileLayout ? 'repeat(3, minmax(0, 1fr))' : 'repeat(auto-fill, minmax(220px, 1fr))';
-  const renderPhotoCard = (p, idx, masonry = false) => {
-    const sectionLabel = getSharePhotoSectionLabel(p, timelineSections);
+  const renderPhotoCard = (p, idx, masonry = false, grouped = false) => {
+    const sectionLabel = grouped ? '' : getSharePhotoSectionLabel(p, timelineSections);
     const isVideo = isVideoPhoto(p);
     const poster = isVideo ? posterFor(p) : null;
+    const image = isVideo ? poster : thumbFor(p);
     return (
-      <div key={idx} style={{ position: 'relative', ...(masonry ? { display: 'inline-block', width: '100%', marginBottom: galleryGap, overflow: 'hidden', background: '#f6f6f6', WebkitColumnBreakInside: 'avoid', breakInside: 'avoid' } : {}) }}>
-        <div
-          className="detail-photo"
-          style={{ cursor: 'pointer', aspectRatio: masonry ? undefined : '1 / 1' }}
-          onClick={() => openViewer(idx)}
-        >
-          {isVideo && !poster ? (
-            <div style={{ width: '100%', height: masonry ? 160 : '100%', background: '#111726', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.75)', fontSize: 13, letterSpacing: '0.08em' }}>
-              VIDEO
-            </div>
-          ) : (
+      <button type="button" key={p?.id || idx}
+        className={`share-photo${masonry ? ' is-masonry' : ''}${photos.length === 1 ? ' is-single' : ''}`}
+        onClick={() => openViewer(idx)} aria-label={`查看第 ${idx + 1} 张${isVideo ? '视频' : '照片'}`}>
+        {image ? (
             <img
-              src={isVideo ? poster : thumbFor(p)}
-              alt={p && (p.title || p.description || `photo-${idx}`)}
-              style={masonry ? { width: '100%', display: 'block', height: 'auto' } : { width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+              src={image}
+              alt={p?.title || p?.description || ''}
+              loading={idx < 4 ? 'eager' : 'lazy'} decoding="async"
             />
-          )}
-          {isVideo ? (
-            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
-              <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'rgba(0,0,0,0.55)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, paddingLeft: 4 }}>▶</div>
-            </div>
-          ) : null}
-          {sectionLabel ? <div className="detail-photo-section-chip">{sectionLabel}</div> : null}
-        </div>
-      </div>
+          ) : <span className="share-photo-placeholder">{isVideo ? '视频暂无封面' : '照片暂不可用'}</span>}
+        {isVideo ? <span className="share-photo-play" aria-hidden="true">▶</span> : null}
+        {sectionLabel ? <span className="share-photo-section">{sectionLabel}</span> : null}
+      </button>
     );
   };
 
+  const renderGallery = (items, grouped = false) => (
+    <div className={`share-gallery-${viewMode}${photos.length === 1 ? ' is-single' : ''}`}>
+      {items.map(({ photo, idx }) => renderPhotoCard(photo, idx, viewMode === 'masonry', grouped))}
+    </div>
+  );
+
   return (
-    <div style={{ padding: pagePadding }}>
-      <div style={{ width: '100%', margin: 0 }}>
-        {typeof onBack === 'function' ? (
-          <div style={{ marginBottom: 10 }}>
-            <Button onClick={() => onBack()} aria-label="返回图库">← 返回图库</Button>
-          </div>
-        ) : null}
-        <Card title={title} bordered style={{ width: '100%' }}>
-          {!isExpired ? (
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <div>
-                <div style={{ fontSize: 14, color: '#333' }}>
-                  <strong>分享者：</strong>
-                  <span style={{ marginLeft: 8 }}>{creatorName}{createdBy ? ` (id:${createdBy})` : ''}</span>
-                </div>
-                <div style={{ fontSize: 12, color: '#666', marginTop: 6 }}>
-                  <strong>创建时间：</strong>
-                  <span style={{ marginLeft: 8 }}>{formatDate(createdAt)}</span>
-                </div>
-                <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
-                  <strong>过期：</strong>
-                  <span style={{ marginLeft: 8 }}>{expiresAtField ? formatDate(expiresAtField) : '永不过期'}</span>
-                  {remainingSec !== null ? (
-                    <span style={{ marginLeft: 12, color: '#d9363e' }}>(剩余：{fmtRemaining(remainingSec)})</span>
-                  ) : null}
-                </div>
-              </div>
-              <div />
-            </div>
-          ) : null}
+    <main className="share-page">
+      <div className="share-page-inner">
+        <nav className="share-nav" aria-label="公开分享导航">
+          {typeof onBack === 'function' ? (
+            <button type="button" className="share-back" onClick={onBack} aria-label="返回图库">
+              <IconChevronLeft aria-hidden="true" /><span>返回图库</span>
+            </button>
+          ) : <span className="share-nav-spacer" />}
+          <span className="share-brand">MaMage <span>公开分享</span></span>
+          {!isUnavailable && shareCode && photos.length > 0 ? (
+            <button type="button" className="share-findme" onClick={() => setFindMeOpen(true)}>
+              <IconFaceScan aria-hidden="true" /><span>拍照找我</span>
+            </button>
+          ) : <span className="share-nav-spacer" />}
+        </nav>
 
-          {!isExpired ? (
-            <div className="share-toolbar">
-              <div className="share-actions">
-                {/* 视图切换收成一个小图标钮：显示"点了会切到"的布局图标 */}
-                <Button
-                  className="share-view-toggle"
-                  title={viewMode === 'grid' ? '切换为瀑布流' : '切换为宫格'}
-                  aria-label={viewMode === 'grid' ? '切换为瀑布流' : '切换为宫格'}
-                  onClick={() => setViewMode(viewMode === 'grid' ? 'masonry' : 'grid')}
-                >
-                  {viewMode === 'grid' ? (
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-                      <rect x="1" y="1" width="6" height="9" rx="1" /><rect x="9" y="1" width="6" height="5" rx="1" />
-                      <rect x="1" y="12" width="6" height="3" rx="1" /><rect x="9" y="8" width="6" height="7" rx="1" />
-                    </svg>
-                  ) : (
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-                      <rect x="1" y="1" width="6" height="6" rx="1" /><rect x="9" y="1" width="6" height="6" rx="1" />
-                      <rect x="1" y="9" width="6" height="6" rx="1" /><rect x="9" y="9" width="6" height="6" rx="1" />
-                    </svg>
-                  )}
-                </Button>
-                {shareCode && photos.length > 0 ? (
-                  <Button onClick={() => setFindMeOpen(true)}>📸 拍照找我</Button>
-                ) : null}
-              </div>
-            </div>
-          ) : null}
-
-          {photos && photos.length ? (
-            timelineGroups.length ? (
-              <div className="detail-timeline-gallery">
-                {timelineGroups.map((group) => (
-                  <section className="detail-timeline-section" key={group.key || group.name}>
-                    <div className="detail-timeline-head">
-                      <div className="detail-timeline-title">
-                        <span>{group.name}</span>
-                        {group.sectionTime ? <em>{group.sectionTime}</em> : null}
-                      </div>
-                      <span className="detail-timeline-count">{group.items.length} 张</span>
-                    </div>
-                    {viewMode === 'grid' ? (
-                      <div className="detail-timeline-grid">
-                        {group.items.map(({ photo, idx }) => renderPhotoCard(photo, idx))}
-                      </div>
-                    ) : (
-                      <div style={{ columnCount: colCount || undefined, columnGap: galleryGap }}>
-                        {group.items.map(({ photo, idx }) => renderPhotoCard(photo, idx, true))}
-                      </div>
-                    )}
-                  </section>
-                ))}
-              </div>
-            ) : viewMode === 'grid' ? (
-              <div style={{ display: 'grid', gridTemplateColumns: gridColumns, gap: galleryGap }}>
-                {photos.map((p, idx) => renderPhotoCard(p, idx))}
+        <header className="share-heading">
+          <div className="share-heading-main">
+            <h1>{isUnavailable ? unavailableTitle : title}</h1>
+            {!isUnavailable && share.note ? <p className="share-note">{share.note}</p> : null}
+            {!isUnavailable ? (
+              <div className="share-byline">
+                <span>{creatorName} 分享</span>
+                {share.organizationName ? <span>{share.organizationName}</span> : null}
+                {share.createdAt ? <span>{formatDate(share.createdAt)} 创建</span> : null}
+                <span>{expiresAtField ? `有效至 ${formatDate(expiresAtField)}` : '长期有效'}</span>
+                {expiryHint ? <span className="share-expiry-hint">{expiryHint}</span> : null}
               </div>
             ) : (
-              <div ref={galleryRef} style={{ columnCount: colCount || undefined, columnGap: galleryGap }}>
-                {photos.map((p, idx) => renderPhotoCard(p, idx, true))}
+              <div className="share-unavailable">
+                <p className="share-unavailable-copy">{share.message || '此链接已过期或被撤销。'}</p>
+                {share.error === 'LOAD_FAILED' ? (
+                  <button type="button" onClick={() => window.location.reload()}>重新加载</button>
+                ) : null}
               </div>
-            )
-          ) : (
-            <div style={{ padding: 24 }}>
-              {share && share.message ? <Text style={{ color: '#d9363e' }}>{share.message}</Text> : <Text>未找到任何照片。</Text>}
+            )}
+          </div>
+        </header>
+
+        {!isUnavailable ? (
+          <section className="share-content" aria-label="分享的照片和视频">
+            <div className="share-gallery-toolbar">
+              <strong>作品 <span>{photos.length}{hasMore ? '+' : ''}</span></strong>
+              {photos.length > 1 ? (
+                <div className="share-layout-switch" role="group" aria-label="照片排列方式">
+                  <button type="button" className={viewMode === 'grid' ? 'is-active' : ''}
+                    onClick={() => setViewMode('grid')} aria-label="宫格视图" title="宫格视图" aria-pressed={viewMode === 'grid'}>
+                    <IconGridView aria-hidden="true" />
+                  </button>
+                  <button type="button" className={viewMode === 'masonry' ? 'is-active' : ''}
+                    onClick={() => setViewMode('masonry')} aria-label="瀑布流视图" title="瀑布流视图" aria-pressed={viewMode === 'masonry'}>
+                    <IconMasonryView aria-hidden="true" />
+                  </button>
+                </div>
+              ) : null}
             </div>
-          )}
-        </Card>
+            {photos.length ? (
+              timelineGroups.length ? (
+                <div className="share-sections">
+                  {timelineGroups.map((group) => (
+                    <section className="share-section" key={group.key || group.name}>
+                      <div className="share-section-heading">
+                        <h2>{group.name}</h2>
+                        {group.sectionTime ? <time>{group.sectionTime}</time> : null}
+                        <span>{group.items.length} 张</span>
+                      </div>
+                      {renderGallery(group.items, true)}
+                    </section>
+                  ))}
+                </div>
+              ) : renderGallery(photos.map((photo, idx) => ({ photo, idx })))
+            ) : <p className="share-empty">这个分享还没有照片。</p>}
+            {hasMore ? (
+              <div className="share-load-more">
+                {moreError ? <span role="alert">{moreError}</span> : null}
+                <button type="button" onClick={loadMore} disabled={moreLoading}>
+                  {moreLoading ? '正在加载…' : '加载更多照片'}
+                </button>
+              </div>
+            ) : null}
+          </section>
+        ) : null}
 
         {viewerVisible ? (() => {
           const p = photos[viewerIndex] || {};
@@ -459,8 +408,9 @@ export default function ShareView({ share = {}, onBack }) {
                 onTouchStart={svTouchStart}
                 onTouchEnd={svTouchEnd}
                 onClick={(e) => {
-                  // 点视频控件/按钮不拦截；其余区域按横向位置分区：左30%上一张/右30%下一张/中间切换顶底栏
+                  if (svSwipedRef.current) { svSwipedRef.current = false; return; }
                   if (e.target.tagName === 'VIDEO' || (e.target.closest && e.target.closest('button, a'))) return;
+                  if (e.target === e.currentTarget) { closeViewer(); return; }
                   const w = window.innerWidth || 1;
                   if (e.clientX < w * 0.3) { viewerPrev(); return; }
                   if (e.clientX > w * 0.7) { viewerNext(); return; }
@@ -492,7 +442,7 @@ export default function ShareView({ share = {}, onBack }) {
               </div>
 
               <div className={`sv-bar sv-bar-top${svChrome ? '' : ' sv-bar-hidden'}`}>
-                <button type="button" className="sv-btn" onClick={closeViewer} aria-label="关闭">✕</button>
+                <button type="button" className="sv-btn" onClick={closeViewer} aria-label="关闭"><IconClose aria-hidden="true" /></button>
                 <span className="sv-counter">{navPos + 1} / {navTotal}{seqPos >= 0 ? ' · 找我结果' : ''}</span>
                 {!isVid ? (
                   <button
@@ -510,12 +460,13 @@ export default function ShareView({ share = {}, onBack }) {
                   {p.title ? <div className="sv-title">{p.title}</div> : null}
                   {p.description ? <div className="sv-desc">{p.description}</div> : null}
                 </div>
-                <button type="button" className="sv-btn sv-btn-text" onClick={downloadCurrentViewerPhoto}>⬇ 下载</button>
+                <button type="button" className="sv-btn sv-btn-text" onClick={downloadCurrentViewerPhoto}>
+                  <IconDownload aria-hidden="true" />下载
+                </button>
               </div>
 
-              {/* 桌面侧边翻页箭头（触屏隐藏,用滑动） */}
-              <button type="button" className="sv-nav sv-nav-left" onClick={viewerPrev} disabled={navPos <= 0} aria-label="上一张">‹</button>
-              <button type="button" className="sv-nav sv-nav-right" onClick={viewerNext} disabled={navPos >= navTotal - 1} aria-label="下一张">›</button>
+              <button type="button" className="sv-nav sv-nav-left" onClick={viewerPrev} disabled={navPos <= 0} aria-label="上一张"><IconChevronLeft aria-hidden="true" /></button>
+              <button type="button" className="sv-nav sv-nav-right" onClick={viewerNext} disabled={navPos >= navTotal - 1} aria-label="下一张"><IconChevronRight aria-hidden="true" /></button>
             </div>
           );
         })() : null}
@@ -528,6 +479,6 @@ export default function ShareView({ share = {}, onBack }) {
           onPickPhoto={handleFindMePick}
         />
       </div>
-    </div>
+    </main>
   );
 }
