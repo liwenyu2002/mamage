@@ -33,6 +33,8 @@ import { fetchRandomByProject, searchPhotos, getPhotoById, updatePhoto, assignPh
 import { resolveAssetUrl, BASE_URL } from './services/request';
 import { getDirectMediaUrl } from './services/directStorage';
 import FindMeModal from './FindMeModal';
+import FacePersonMerge from './FacePersonMerge';
+import UploadProgressSummary from './UploadProgressSummary';
 import ExternalImportModal from './ExternalImportModal';
 import ExternalImportStatus from './ExternalImportStatus';
 import IfCan from './permissions/IfCan';
@@ -51,11 +53,8 @@ import { sectionTimeToInputValue, inputValueToSectionTime } from './utils/sectio
 import ViewerToneImage, { requestRenderedToneBlob } from './ProjectTonePreview';
 import {
   createInitialUploadProgress,
-  formatUploadBytes,
-  formatUploadRemainingTime,
   getUploadFileKey,
   getUploadPhaseLabel,
-  getUploadProgressTitle,
   reduceUploadProgress,
 } from './utils/uploadProgress';
 
@@ -730,6 +729,7 @@ function ProjectDetail({
   const [facePersonHeroPhoto, setFacePersonHeroPhoto] = React.useState(null);
   const [facePersonEditName, setFacePersonEditName] = React.useState('');
   const [facePersonSaving, setFacePersonSaving] = React.useState(false);
+  const [faceMergeVisible, setFaceMergeVisible] = React.useState(false);
   // 系统认错人了？——人物拆分（select=勾种子脸，preview=预览两组归属）
   const [faceSplitMode, setFaceSplitMode] = React.useState(null);
   const [faceSplitFaces, setFaceSplitFaces] = React.useState([]);
@@ -984,13 +984,6 @@ function ProjectDetail({
     stagingSectionIds,
     selectedUploadSectionId,
   ]);
-
-  const uploadProgressItems = React.useMemo(() => {
-    if (!uploadProgress || !uploadProgress.items) return [];
-    return (uploadProgress.order || [])
-      .map((key) => uploadProgress.items[key])
-      .filter(Boolean);
-  }, [uploadProgress]);
 
   const findStagedUploadIndex = React.useCallback((file) => {
     const key = getUploadFileKey(file);
@@ -1907,6 +1900,10 @@ function ProjectDetail({
       Toast.warning('上传功能已禁用');
       return;
     }
+    if (uploading) {
+      Toast.warning('正在上传，请等待完成');
+      return;
+    }
     const list = Array.from(files || []);
     if (!list.length) return;
     const acceptedList = [];
@@ -1959,7 +1956,7 @@ function ProjectDetail({
       return [...(prevFiles || []), ...fresh];
     });
     setUploadMode(true);
-    if (!uploading) setUploadProgress(null);
+    setUploadProgress(null);
   }, [DISABLE_UPLOAD_FEATURE, selectedUploadSectionId, uploadTimelineEnabled, uploadTimelineSections, uploading]);
 
   const removeStagingFile = React.useCallback((index) => {
@@ -3699,6 +3696,7 @@ function ProjectDetail({
     setFacePersonError('');
     setFacePersonEditName('');
     setFacePersonHeroPhoto(null);
+    setFaceMergeVisible(false);
     setFaceSplitMode(null);
     setFaceSplitFaces([]);
     setFaceSplitTotal(0);
@@ -3719,6 +3717,7 @@ function ProjectDetail({
     if (!face) return;
     const seedData = normalizeFacePerson({}, face);
     setFacePersonError('');
+    setFaceMergeVisible(false);
     setFacePersonVisible(true);
     setFacePersonData(seedData);
     setFacePersonEditName(seedData.personName || '');
@@ -3924,6 +3923,34 @@ function ProjectDetail({
     }
   }, [facePersonData, faceSplitMoveIds, faceSplitPreview, faceSplitNewName, resetFaceSplitState, projectId, pickFacePersonHeroPhoto]);
   // ---- 拆分流程结束 ----
+
+  const handleFacePersonsMerged = React.useCallback((result) => {
+    setFaceMergeVisible(false);
+    setFacePersonError('');
+
+    if (result?.profile) {
+      const normalized = normalizeFacePerson(result.profile, null);
+      setFacePersonData(normalized);
+      setFacePersonEditName(normalized.personName || '');
+      setFacePersonHeroPhoto(pickFacePersonHeroPhoto(normalized));
+    } else if (result?.targetPersonId) {
+      getFacePersonInfo({ personId: result.targetPersonId, projectId: projectId || undefined })
+        .then((data) => {
+          const normalized = normalizeFacePerson(data, null);
+          setFacePersonData(normalized);
+          setFacePersonEditName(normalized.personName || '');
+          setFacePersonHeroPhoto(pickFacePersonHeroPhoto(normalized));
+        })
+        .catch((error) => console.warn('refresh merged person failed', error));
+    }
+    refreshProjectDetail()
+      .catch((error) => console.warn('refresh album after person merge failed', error))
+      .finally(() => {
+        setViewerFaceMap({});
+        setViewerFaceErrorMap({});
+        viewerFaceFetchPromiseRef.current = {};
+      });
+  }, [pickFacePersonHeroPhoto, projectId, refreshProjectDetail]);
 
   const saveFacePersonName = React.useCallback(async () => {
     if (!facePersonData) return;
@@ -6035,7 +6062,7 @@ function ProjectDetail({
         />
 
         <Modal
-          title={uploading ? getUploadProgressTitle(uploadProgress) : `准备上传 (${stagingFiles.length})`}
+          title="上传照片与视频"
           visible={uploadMode}
           onOk={confirmUpload}
           onCancel={uploading ? () => Toast.warning('正在上传，请等待完成') : cancelUpload}
@@ -6064,6 +6091,7 @@ function ProjectDetail({
                       <button
                         key={section.key || sectionId}
                         type="button"
+                        disabled={uploading}
                         className={`detail-upload-timeline-node ${index % 2 ? 'is-lower' : 'is-upper'}${active ? ' is-active' : ''}`}
                         onClick={() => setSelectedUploadSectionId(sectionId)}
                         role="radio"
@@ -6083,7 +6111,7 @@ function ProjectDetail({
               </div>
             ) : null}
 
-            <button
+            {!uploading ? <button
               type="button"
               className={`detail-upload-dropzone${dragActive ? ' is-drag-active' : ''}`}
               onClick={() => {
@@ -6118,50 +6146,9 @@ function ProjectDetail({
                   ? (selectedUploadSection ? `为「${selectedUploadSection.name}」添加照片/视频` : '请选择环节后上传')
                   : (stagingFiles.length ? `继续添加（${stagingFiles.length} 个）` : '选择或拖入照片/视频')}
               </span>
-            </button>
+            </button> : null}
 
-            {uploadProgress ? (
-              <div className="detail-upload-progress-panel" aria-live="polite">
-                <div className="detail-upload-progress-head">
-                  <div>
-                    <strong>{getUploadProgressTitle(uploadProgress)}</strong>
-                    <span>
-                      {uploadProgress.completedFiles + uploadProgress.failedFiles} / {uploadProgress.totalFiles} 个
-                      {uploadProgress.activeFileName ? ` · ${getUploadPhaseLabel(uploadProgress.activePhase)}：${uploadProgress.activeFileName}` : ''}
-                    </span>
-                  </div>
-                  <b>{uploadProgress.percent || 0}%</b>
-                </div>
-                <div className="detail-upload-progress-track">
-                  <span style={{ width: `${uploadProgress.percent || 0}%` }} />
-                </div>
-                <div className="detail-upload-progress-meta">
-                  <span>{formatUploadBytes(uploadProgress.loadedBytes)} / {formatUploadBytes(uploadProgress.totalBytes)}</span>
-                  {uploadProgress.remainingSeconds !== null && uploadProgress.remainingSeconds !== undefined ? (
-                    <span>预计剩余 {formatUploadRemainingTime(uploadProgress.remainingSeconds)}</span>
-                  ) : null}
-                  {uploadProgress.failedFiles ? <span>{uploadProgress.failedFiles} 个失败</span> : null}
-                </div>
-                <div className="detail-upload-progress-list">
-                  {uploadProgressItems.map((item) => (
-                    <div
-                      key={item.key}
-                      className={`detail-upload-progress-file is-${item.status === 'rejected' || item.phase === 'failed' ? 'failed' : item.status === 'fulfilled' || item.phase === 'done' ? 'done' : 'active'}`}
-                    >
-                      <span className="detail-upload-progress-file-name">{item.name}</span>
-                      <span className="detail-upload-progress-file-phase">{getUploadPhaseLabel(item.phase, item.status)}</span>
-                      <span className="detail-upload-progress-file-bar"><i style={{ width: `${item.percent || 0}%` }} /></span>
-                      <span className="detail-upload-progress-file-percent">
-                        {item.percent || 0}%
-                        {item.remainingSeconds !== null && item.remainingSeconds !== undefined && item.status !== 'rejected' && item.phase !== 'failed' ? (
-                          <em>剩 {formatUploadRemainingTime(item.remainingSeconds)}</em>
-                        ) : null}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : null}
+            <UploadProgressSummary progress={uploadProgress} />
 
             <div className="detail-upload-section-groups">
               {stagedUploadGroups.map((group) => (
@@ -6174,6 +6161,7 @@ function ProjectDetail({
                   }}
                   onDrop={(e) => {
                     e.preventDefault();
+                    if (uploading) { Toast.warning('正在上传，请等待完成'); return; }
                     if (e.dataTransfer && e.dataTransfer.files) handleFilesSelected(e.dataTransfer.files, group.sectionId);
                     // 拖到明确环节=明确上传意图：空闲时暂存落定后自动开始，无需再点「确认上传」
                     if (!uploading) setAutoUploadTicket((t) => t + 1);
@@ -6190,6 +6178,9 @@ function ProjectDetail({
                     <div className="detail-upload-preview-grid">
                       {group.items.map((item) => {
                         const itemProgress = uploadProgress?.items?.[getUploadFileKey(item.file)] || null;
+                        const showItemStatus = itemProgress && itemProgress.phase !== 'queued';
+                        const itemFailed = itemProgress?.status === 'rejected' || itemProgress?.phase === 'failed';
+                        const itemDone = itemProgress?.status === 'fulfilled' || itemProgress?.phase === 'done';
                         const isPreviewVideo = isVideoMeta(item.file);
                         const isPreviewUndisplayable = !isPreviewVideo && isBrowserUndisplayableImage(item.file);
                         // 占位：视频 / 铁定显示不了(tiff/raw) / heic 试真预览但解码失败(非 Safari)
@@ -6199,7 +6190,7 @@ function ProjectDetail({
                         return (
                           <div
                             key={`${item.index}-${item.preview || item.file.name}`}
-                            className={`detail-upload-preview-item${isPreviewVideo ? ' is-video' : ''}${itemProgress ? ' has-upload-progress' : ''}${uploadTimelineEnabled && uploadTimelineSections.length ? ' has-section-select' : ''}`}
+                            className={`detail-upload-preview-item${isPreviewVideo ? ' is-video' : ''}${uploadTimelineEnabled && uploadTimelineSections.length ? ' has-section-select' : ''}`}
                           >
                             {isPreviewVideo ? (
                               <>
@@ -6236,17 +6227,10 @@ function ProjectDetail({
                             >
                               ×
                             </button>
-                            {itemProgress ? (
-                              <div className={`detail-upload-preview-progress${itemProgress.status === 'fulfilled' || itemProgress.phase === 'done' ? ' is-done' : itemProgress.status === 'rejected' || itemProgress.phase === 'failed' ? ' is-failed' : ''}`}>
-                                <span>{getUploadPhaseLabel(itemProgress.phase, itemProgress.status)}</span>
-                                <b>
-                                  {itemProgress.percent || 0}%
-                                  {itemProgress.remainingSeconds !== null && itemProgress.remainingSeconds !== undefined && itemProgress.status !== 'rejected' && itemProgress.phase !== 'failed' ? (
-                                    <em>剩 {formatUploadRemainingTime(itemProgress.remainingSeconds)}</em>
-                                  ) : null}
-                                </b>
-                                <i><em style={{ width: `${itemProgress.percent || 0}%` }} /></i>
-                              </div>
+                            {showItemStatus ? (
+                              <span className={`detail-upload-preview-status${itemDone ? ' is-done' : itemFailed ? ' is-failed' : ''}`}>
+                                {getUploadPhaseLabel(itemProgress.phase, itemProgress.status)}
+                              </span>
                             ) : null}
                             {uploadTimelineEnabled && uploadTimelineSections.length ? (
                               <select
@@ -6381,13 +6365,17 @@ function ProjectDetail({
                     </div>
                   </div>
 
-                  {!faceSplitMode && canSplitFacePerson && facePersonData.personId && relatedPhotos.length >= 2 ? (
-                    <div className="person-sheet-split-entry">
-                      <Button size="small" theme="light" type="warning" onClick={startFaceSplit} loading={faceSplitLoading}>
-                        系统认错人了？拆分这个人
-                      </Button>
-                      <Text type="tertiary" size="small">把混进来的另一张脸拆出去，单独成新人物</Text>
+                  {!faceSplitMode && !faceMergeVisible && canSplitFacePerson && facePersonData.personId ? (
+                    <div className="person-sheet-face-actions">
+                      <Button size="small" theme="light" onClick={() => setFaceMergeVisible(true)}>合并人物</Button>
+                      {relatedPhotos.length >= 2 ? (
+                        <Button size="small" theme="light" onClick={startFaceSplit} loading={faceSplitLoading}>拆分人物</Button>
+                      ) : null}
                     </div>
+                  ) : null}
+
+                  {faceMergeVisible && facePersonData.personId ? (
+                    <FacePersonMerge currentPerson={facePersonData} onCancel={() => setFaceMergeVisible(false)} onMerged={handleFacePersonsMerged} />
                   ) : null}
 
                   {faceSplitMode === 'select' ? (
@@ -6552,7 +6540,7 @@ function ProjectDetail({
                     );
                   })() : null}
 
-                  {!faceSplitMode && relatedPhotos.length > 0 ? (
+                  {!faceSplitMode && !faceMergeVisible && relatedPhotos.length > 0 ? (
                     <div className="person-sheet-grid">
                       {relatedPhotos.map((item, idx) => {
                         const thumb = item.thumbUrl || item.url || '';
@@ -6597,7 +6585,7 @@ function ProjectDetail({
                         );
                       })}
                     </div>
-                  ) : !faceSplitMode ? (
+                  ) : !faceSplitMode && !faceMergeVisible ? (
                     <Empty description="暂无关联照片" />
                   ) : null}
                 </div>

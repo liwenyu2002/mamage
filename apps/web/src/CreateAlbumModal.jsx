@@ -2,6 +2,7 @@
 import { MotionModal, DateTimePicker, Input, Toast } from './ui';
 import { IconClose, IconPlus } from './ui/icons';
 import AlbumDetailsFields from './AlbumDetailsFields';
+import UploadProgressSummary from './UploadProgressSummary';
 import { sectionTimeToInputValue, inputValueToSectionTime } from './utils/sectionTime';
 import './CreateAlbumModal.css';
 import { getUploadFileLimitError, FRONTEND_MAX_VIDEO_UPLOAD_TEXT, uploadPhotoFiles, isBrowserUndisplayableImage, isNeverBrowserPreviewable, undisplayableFormatLabel } from './services/photoService';
@@ -9,10 +10,6 @@ import { getProjectById } from './services/projectService';
 import { getPermissions } from './permissions/permissionStore';
 import {
   createInitialUploadProgress,
-  formatUploadBytes,
-  formatUploadRemainingTime,
-  getUploadPhaseLabel,
-  getUploadProgressTitle,
   reduceUploadProgress,
 } from './utils/uploadProgress';
 
@@ -186,6 +183,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
   }, [dragSectionIdx]);
 
   const handleFilesSelected = React.useCallback((files, sectionKey = '') => {
+    if (submitting) return;
     const incoming = Array.from(files || []);
     if (!incoming.length) return;
     const acceptedIncoming = [];
@@ -233,7 +231,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
       return combined;
     });
     setUploadProgress(null);
-  }, []);
+  }, [submitting]);
 
   const removeStagingFile = React.useCallback((index) => {
     setStagingFiles((prev) => {
@@ -269,13 +267,6 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
     pendingSectionKeyRef.current = String(sectionKey || '');
     filePickerRef.current?.click();
   }, []);
-
-  const uploadProgressItems = React.useMemo(() => {
-    if (!uploadProgress || !uploadProgress.items) return [];
-    return (uploadProgress.order || [])
-      .map((key) => uploadProgress.items[key])
-      .filter(Boolean);
-  }, [uploadProgress]);
 
   const handleSubmit = React.useCallback(async () => {
     if (submitting) return;
@@ -542,6 +533,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
               try { e.target.value = ''; } catch (err) {}
             }}
           />
+          <UploadProgressSummary progress={uploadProgress} />
           <div className="cam-upload-groups">
             {stagedUploadGroups.map((group) => (
               <section
@@ -640,48 +632,6 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
               </section>
             ))}
           </div>
-          {uploadProgress ? (
-            <div className="cam-upload-progress" aria-live="polite">
-              <div className="cam-upload-progress-head">
-                <div>
-                  <strong>{getUploadProgressTitle(uploadProgress)}</strong>
-                  <span>
-                    {uploadProgress.completedFiles + uploadProgress.failedFiles} / {uploadProgress.totalFiles} 个
-                    {uploadProgress.activeFileName ? ` · ${getUploadPhaseLabel(uploadProgress.activePhase)}：${uploadProgress.activeFileName}` : ''}
-                  </span>
-                </div>
-                <b>{uploadProgress.percent || 0}%</b>
-              </div>
-              <div className="cam-upload-progress-track">
-                <span style={{ width: `${uploadProgress.percent || 0}%` }} />
-              </div>
-              <div className="cam-upload-progress-meta">
-                <span>{formatUploadBytes(uploadProgress.loadedBytes)} / {formatUploadBytes(uploadProgress.totalBytes)}</span>
-                {uploadProgress.remainingSeconds !== null && uploadProgress.remainingSeconds !== undefined ? (
-                  <span>预计剩余 {formatUploadRemainingTime(uploadProgress.remainingSeconds)}</span>
-                ) : null}
-                {uploadProgress.failedFiles ? <span>{uploadProgress.failedFiles} 个失败</span> : null}
-              </div>
-              <div className="cam-upload-progress-list">
-                {uploadProgressItems.map((item) => (
-                  <div
-                    key={item.key}
-                    className={`cam-upload-progress-file is-${item.status === 'rejected' || item.phase === 'failed' ? 'failed' : item.status === 'fulfilled' || item.phase === 'done' ? 'done' : 'active'}`}
-                  >
-                    <span>{item.name}</span>
-                    <em>{getUploadPhaseLabel(item.phase, item.status)}</em>
-                    <i><b style={{ width: `${item.percent || 0}%` }} /></i>
-                    <strong>
-                      {item.percent || 0}%
-                      {item.remainingSeconds !== null && item.remainingSeconds !== undefined && item.status !== 'rejected' && item.phase !== 'failed' ? (
-                        <small>剩 {formatUploadRemainingTime(item.remainingSeconds)}</small>
-                      ) : null}
-                    </strong>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
         </section>
       </div>
     </MotionModal>
