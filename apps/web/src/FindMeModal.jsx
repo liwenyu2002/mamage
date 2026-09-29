@@ -23,6 +23,12 @@ const FIND_ME_MAX_SIDE = 1600;
 // 使用十进制 1,000,000 bytes，确保浏览器和移动端都能稳定显示为 1MB 以内。
 const FIND_ME_TARGET_BYTES = 1_000_000;
 
+function shouldUseNativeCameraPicker() {
+  if (typeof navigator === 'undefined') return false;
+  if (typeof navigator.userAgentData?.mobile === 'boolean') return navigator.userAgentData.mobile;
+  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+}
+
 function loadFindMeImage(file) {
   if (typeof createImageBitmap === 'function') {
     return createImageBitmap(file, { imageOrientation: 'from-image' }).catch(() => loadFindMeImageElement(file));
@@ -107,20 +113,127 @@ export default function FindMeModal({ visible, mode, projectId, shareCode, onClo
   const [compressionNotice, setCompressionNotice] = React.useState('');
   const [result, setResult] = React.useState(null); // {matches, scannedFaces}
   const [errText, setErrText] = React.useState('');
+  const [cameraOpen, setCameraOpen] = React.useState(false);
+  const [cameraStarting, setCameraStarting] = React.useState(false);
+  const [cameraReady, setCameraReady] = React.useState(false);
   const cameraRef = React.useRef(null);
   const pickerRef = React.useRef(null);
+  const videoRef = React.useRef(null);
+  const streamRef = React.useRef(null);
+  const cameraRequestRef = React.useRef(0);
   const compressionSeqRef = React.useRef(0);
 
+  const releaseCamera = React.useCallback(() => {
+    cameraRequestRef.current += 1;
+    if (videoRef.current) {
+      videoRef.current.pause();
+      videoRef.current.srcObject = null;
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+  }, []);
+
+  const closeCamera = React.useCallback(() => {
+    releaseCamera();
+    setCameraOpen(false);
+    setCameraStarting(false);
+    setCameraReady(false);
+  }, [releaseCamera]);
+
   const reset = React.useCallback(() => {
+    closeCamera();
     compressionSeqRef.current += 1;
     setFile(null); setResult(null); setErrText(''); setBusy(false); setCompressing(false); setCompressionNotice('');
     setPreview((old) => { if (old) URL.revokeObjectURL(old); return ''; });
-  }, []);
+  }, [closeCamera]);
 
-  React.useEffect(() => { if (!visible) reset(); }, [visible, reset]);
+  React.useEffect(() => {
+    if (!visible) reset();
+    return releaseCamera;
+  }, [visible, reset, releaseCamera]);
+
+  React.useEffect(() => {
+    if (!cameraOpen || !videoRef.current || !streamRef.current) return undefined;
+    const video = videoRef.current;
+    video.srcObject = streamRef.current;
+    video.play().catch(() => {
+      if (videoRef.current !== video || !streamRef.current) return;
+      closeCamera();
+      setErrText('无法启动摄像头预览，请检查浏览器的摄像头权限。');
+    });
+    return () => {
+      video.pause();
+      video.srcObject = null;
+    };
+  }, [cameraOpen, closeCamera]);
+
+  const startCamera = async () => {
+    if (shouldUseNativeCameraPicker()) {
+      cameraRef.current?.click();
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setErrText('当前页面无法使用摄像头，请通过 HTTPS 打开，或从相册选择照片。');
+      return;
+    }
+    closeCamera();
+    const requestId = ++cameraRequestRef.current;
+    setErrText('');
+    setCameraStarting(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 960 } },
+      });
+      if (requestId !== cameraRequestRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      streamRef.current = stream;
+      setCameraOpen(true);
+    } catch (error) {
+      if (requestId !== cameraRequestRef.current) return;
+      const name = error?.name || '';
+      setErrText(name === 'NotAllowedError' || name === 'PermissionDeniedError' || name === 'SecurityError'
+        ? '摄像头权限被拒绝，请在浏览器地址栏允许访问，或从相册选择照片。'
+        : name === 'NotFoundError' || name === 'DevicesNotFoundError'
+          ? '没有检测到可用摄像头，请从相册选择照片。'
+          : '摄像头启动失败，请检查是否被其他应用占用，或从相册选择照片。');
+    } finally {
+      if (requestId === cameraRequestRef.current) setCameraStarting(false);
+    }
+  };
+
+  const captureCamera = async () => {
+    const video = videoRef.current;
+    if (!video || !video.videoWidth || !video.videoHeight) return;
+    const requestId = cameraRequestRef.current;
+    setCameraReady(false);
+    try {
+      const scale = Math.min(1, FIND_ME_MAX_SIDE / Math.max(video.videoWidth, video.videoHeight));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+      canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+      const context = canvas.getContext('2d', { alpha: false });
+      if (!context) throw new Error('CAMERA_CANVAS_UNAVAILABLE');
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const blob = await canvasToJpegBlob(canvas, 0.9);
+      if (requestId !== cameraRequestRef.current) return;
+      const snapshot = new File([blob], 'find-me-camera.jpg', { type: 'image/jpeg', lastModified: Date.now() });
+      closeCamera();
+      await onFile(snapshot);
+    } catch (error) {
+      if (requestId !== cameraRequestRef.current) return;
+      setCameraReady(true);
+      setErrText('拍摄失败，请重试或从相册选择照片。');
+    }
+  };
 
   const onFile = async (f) => {
     if (!f) return;
+    closeCamera();
     const sequence = compressionSeqRef.current + 1;
     compressionSeqRef.current = sequence;
     setResult(null); setErrText('');
@@ -197,24 +310,37 @@ export default function FindMeModal({ visible, mode, projectId, shareCode, onClo
       <div className="findme-body">
         {/* 选图区 */}
         <div className="findme-pick">
-          <div className="findme-preview" onClick={() => pickerRef.current && pickerRef.current.click()}>
-            {preview ? (
+          <div className={`findme-preview${cameraOpen ? ' is-camera' : ''}`}
+            onClick={cameraOpen ? undefined : () => pickerRef.current?.click()}>
+            {cameraOpen ? (
+              <video ref={videoRef} autoPlay muted playsInline aria-label="摄像头实时预览"
+                onLoadedMetadata={(event) => setCameraReady(Boolean(event.currentTarget.videoWidth && event.currentTarget.videoHeight))} />
+            ) : preview ? (
               <img src={preview} alt="待匹配照片" />
             ) : (
               <div className="findme-preview-empty">
                 <span className="findme-preview-icon">🙂</span>
-                <span>上传或拍摄一张<b>单人</b>照片</span>
+                <span>{cameraStarting ? '正在打开摄像头…' : <>上传或拍摄一张<b>单人</b>照片</>}</span>
               </div>
             )}
           </div>
           <div className="findme-pick-actions">
-            <Button onClick={() => cameraRef.current && cameraRef.current.click()}>📷 拍照</Button>
-            <Button onClick={() => pickerRef.current && pickerRef.current.click()}>🖼 从相册选择</Button>
-            <Button type="primary" loading={busy || compressing} disabled={!file || busy || compressing} onClick={submit}>
-              {compressing ? '压缩中…' : (busy ? '识别匹配中…' : '开始找我')}
-            </Button>
+            {cameraOpen ? (
+              <>
+                <Button type="primary" disabled={!cameraReady} onClick={captureCamera}>拍摄照片</Button>
+                <Button onClick={closeCamera}>取消拍摄</Button>
+              </>
+            ) : (
+              <>
+                <Button disabled={cameraStarting} onClick={startCamera}>{cameraStarting ? '正在开启…' : '📷 拍照'}</Button>
+                <Button onClick={() => pickerRef.current?.click()}>🖼 从相册选择</Button>
+                <Button type="primary" loading={busy || compressing} disabled={!file || busy || compressing} onClick={submit}>
+                  {compressing ? '压缩中…' : (busy ? '识别匹配中…' : '开始找我')}
+                </Button>
+              </>
+            )}
           </div>
-          {/* capture=user 在手机上直接唤起前置摄像头；桌面浏览器会退化为文件选择 */}
+          {/* 移动端使用系统相机；桌面端使用 getUserMedia 实时取景。 */}
           <input ref={cameraRef} type="file" accept="image/*" capture="user" style={{ display: 'none' }} onChange={(e) => { onFile(e.target.files && e.target.files[0]); e.target.value = ''; }} />
           <input ref={pickerRef} type="file" accept="image/*,.heic,.heif" style={{ display: 'none' }} onChange={(e) => { onFile(e.target.files && e.target.files[0]); e.target.value = ''; }} />
           {compressionNotice ? <span style={{ fontSize: 12, color: compressing ? '#2563eb' : '#687386' }}>{compressionNotice}</span> : null}
