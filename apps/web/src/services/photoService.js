@@ -464,7 +464,7 @@ async function listFacePersons({ q = '', page = 1, pageSize = 20 } = {}) {
   });
 }
 
-async function mergeFacePersons({ targetPersonId, sourcePersonIds } = {}) {
+async function mergeFacePersons({ targetPersonId, sourcePersonIds, referenceFaceIds } = {}) {
   const target = Number(targetPersonId);
   const sources = Array.isArray(sourcePersonIds)
     ? sourcePersonIds.map((x) => Number(x)).filter((x) => Number.isFinite(x) && x > 0)
@@ -480,6 +480,7 @@ async function mergeFacePersons({ targetPersonId, sourcePersonIds } = {}) {
     data: {
       targetPersonId: target,
       sourcePersonIds: sources,
+      referenceFaceIds: referenceFaceIds || [],
     },
   });
 }
@@ -507,7 +508,7 @@ async function previewPersonSplit({ personId, seedFaceIds } = {}) {
   });
 }
 
-async function splitPerson({ personId, moveFaceIds, newPersonName } = {}) {
+async function splitPerson({ personId, moveFaceIds, seedFaceIds, newPersonName } = {}) {
   const pid = personId !== undefined && personId !== null ? String(personId).trim() : '';
   if (!pid) throw new Error('splitPerson: personId is required');
   const moves = Array.isArray(moveFaceIds)
@@ -518,6 +519,7 @@ async function splitPerson({ personId, moveFaceIds, newPersonName } = {}) {
     method: 'POST',
     data: {
       moveFaceIds: moves,
+      seedFaceIds: seedFaceIds || [],
       newPersonName: newPersonName || undefined,
     },
   });

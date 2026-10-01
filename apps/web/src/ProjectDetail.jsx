@@ -3875,6 +3875,7 @@ function ProjectDetail({
       const res = await splitPerson({
         personId: facePersonData.personId,
         moveFaceIds: Array.from(faceSplitMoveIds),
+        seedFaceIds: Array.from(faceSplitSeedIds).filter((id) => faceSplitMoveIds.has(String(id))),
         newPersonName: String(faceSplitNewName || '').trim(),
       });
       Toast.success(`已拆出 ${res?.movedFaces ?? faceSplitMoveIds.size} 张脸到新人物 #${res?.newPersonId || ''}`);
@@ -3921,7 +3922,7 @@ function ProjectDetail({
     } finally {
       setFaceSplitSubmitting(false);
     }
-  }, [facePersonData, faceSplitMoveIds, faceSplitPreview, faceSplitNewName, resetFaceSplitState, projectId, pickFacePersonHeroPhoto]);
+  }, [facePersonData, faceSplitMoveIds, faceSplitSeedIds, faceSplitPreview, faceSplitNewName, resetFaceSplitState, projectId, pickFacePersonHeroPhoto]);
   // ---- 拆分流程结束 ----
 
   const handleFacePersonsMerged = React.useCallback((result) => {

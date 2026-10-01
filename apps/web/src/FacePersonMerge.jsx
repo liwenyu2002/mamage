@@ -125,9 +125,12 @@ export default function FacePersonMerge({ currentPerson, onCancel, onMerged }) {
     setSubmitting(true);
     setSubmitError('');
     try {
-      const result = await mergeFacePersons({ targetPersonId, sourcePersonIds: [sourcePersonId] });
+      const result = await mergeFacePersons({ targetPersonId, sourcePersonIds: [sourcePersonId],
+        referenceFaceIds: [...currentSample.faces, ...selectedSample.faces]
+          .filter((face) => face.avatarDataUrl).map((face) => face.faceId),
+      });
       try { onMerged?.(result); } catch (error) { console.warn('refresh merged person failed', error); }
-      Toast.success(`已合并 ${result?.movedFaces ?? sourceCount} 张人脸`);
+      Toast.success(`已合并 ${result?.movedFaces ?? sourceCount} 张人脸，已记录纠正`);
     } catch (error) {
       setSubmitError(error?.userMessage || error?.message || '合并失败，请重试');
     } finally {

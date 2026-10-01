@@ -375,7 +375,9 @@ export default function FindMeModal({ visible, mode, projectId, shareCode, onClo
               </div>
             </>
           ) : (
-            <div className="findme-empty">没有找到与这张脸相似的照片（共比对 {result.scannedFaces} 张脸）。可以换一张更清晰的正脸照再试。</div>
+            <div className="findme-empty">{result.ambiguous
+              ? '这张照片暂时无法可靠区分人物，请换一张更清晰的正脸照。'
+              : `没有找到与这张脸相似的照片（共比对 ${result.scannedFaces} 张脸）。可以换一张更清晰的正脸照再试。`}</div>
           )
         ) : null}
       </div>
