@@ -21,6 +21,8 @@ const ISSUE_LABELS = {
   UNSUPPORTED_RAW: 'RAW 暂不支持，已跳过',
   SCAN_INCOMPLETE: '扫描未完成，稍后继续', TEMPLATE_INCOMPLETE: '网页结构未能完整解析',
   SCAN_FAILED: '解析失败', WORKER_INTERRUPTED: '服务中断，稍后重试',
+  SOURCE_LINK_CONTEXT_LOST: '来源访问参数丢失，请重新粘贴完整链接',
+  SOURCE_ORIGINAL_UNAVAILABLE: '来源未提供可用的无水印原图',
 };
 
 function ExternalImportStatus({ projectId, loading, initialPhotoCursor, refreshKey, onPhotos, onSections, onSourceTitle }) {
