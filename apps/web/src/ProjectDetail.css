@@ -2400,6 +2400,10 @@
 
 .viewer-face-box {
   position: absolute;
+  box-sizing: border-box;
+  padding: 0;
+  min-width: 0;
+  min-height: 0;
   border: 2px solid rgba(56, 189, 248, 0.95);
   background: rgba(12, 74, 110, 0.18);
   border-radius: 8px;

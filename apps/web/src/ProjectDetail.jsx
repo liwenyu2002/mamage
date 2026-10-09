@@ -50,6 +50,7 @@ import {
   renderPhotoAdjustmentsToCanvas,
 } from './utils/photoAdjustments';
 import { sectionTimeToInputValue, inputValueToSectionTime } from './utils/sectionTime';
+import { getFaceBoxStyle } from './utils/faceGeometry';
 import ViewerToneImage, { requestRenderedToneBlob } from './ProjectTonePreview';
 import {
   createInitialUploadProgress,
@@ -3598,37 +3599,7 @@ function ProjectDetail({
   }, []);
 
   const getViewerFaceBoxStyle = React.useCallback((face, photoId) => {
-    if (!face) return { display: 'none' };
-    let left = toFiniteNumber(face.left);
-    let top = toFiniteNumber(face.top);
-    let width = toFiniteNumber(face.width);
-    let height = toFiniteNumber(face.height);
-    if (left === null || top === null || width === null || height === null) return { display: 'none' };
-
-    if (face.unit !== 'ratio') {
-      const fallback = viewerImageNaturalMap && photoId ? viewerImageNaturalMap[photoId] : null;
-      const baseW = toFiniteNumber(face.imageWidth) || toFiniteNumber(fallback?.width);
-      const baseH = toFiniteNumber(face.imageHeight) || toFiniteNumber(fallback?.height);
-      if (baseW && baseH) {
-        left = left / baseW;
-        top = top / baseH;
-        width = width / baseW;
-        height = height / baseH;
-      } else if (!(Math.abs(left) <= 1.05 && Math.abs(top) <= 1.05 && Math.abs(width) <= 1.2 && Math.abs(height) <= 1.2)) {
-        return { display: 'none' };
-      }
-    }
-
-    const l = Math.max(0, Math.min(1, left));
-    const t = Math.max(0, Math.min(1, top));
-    const w = Math.max(0.03, Math.min(1 - l, width));
-    const h = Math.max(0.03, Math.min(1 - t, height));
-    return {
-      left: `${l * 100}%`,
-      top: `${t * 100}%`,
-      width: `${w * 100}%`,
-      height: `${h * 100}%`,
-    };
+    return getFaceBoxStyle(face, photoId ? viewerImageNaturalMap?.[photoId] : null);
   }, [viewerImageNaturalMap]);
 
   const pickFacePersonHeroPhoto = React.useCallback((data) => {
@@ -6522,7 +6493,7 @@ function ProjectDetail({
                           />
                         </div>
                         <div className="person-split-actions">
-                          <Text type="tertiary" size="small">确认后立即生效，两张脸将彻底分开</Text>
+                          <Text type="tertiary" size="small">确认后保存本次分组，拿不准的人脸可继续手动调整</Text>
                           <div className="person-split-actions-btns">
                             <Button size="small" theme="borderless" onClick={() => setFaceSplitMode('select')}>返回重选</Button>
                             <Button

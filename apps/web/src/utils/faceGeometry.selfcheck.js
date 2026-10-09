@@ -1,0 +1,22 @@
+const assert = require('assert/strict');
+const path = require('path');
+const Module = require('module');
+const { transformFileSync } = require('@babel/core');
+const filename = path.join(__dirname, 'faceGeometry.js');
+const { code } = transformFileSync(filename, { presets: [require.resolve('@babel/preset-env')], babelrc: false, configFile: false });
+const compiled = new Module(filename, module);
+compiled._compile(code, filename);
+const { getFaceBoxStyle } = compiled.exports;
+
+const tinyFace = { left: 0.4, top: 0.2, width: 0.01, height: 0.02, unit: 'ratio' };
+const box = getFaceBoxStyle(tinyFace);
+assert(Math.abs(parseFloat(box.width) - 1) < 1e-10, 'small faces must not be enlarged to three percent');
+assert(Math.abs(parseFloat(box.height) - 2) < 1e-10);
+assert(Math.abs(parseFloat(getFaceBoxStyle({ ...tinyFace, left: -0.01, width: 0.03 }).width) - 2) < 1e-10);
+assert.deepEqual(getFaceBoxStyle({ ...tinyFace, left: 1.1 }), { display: 'none' });
+assert.deepEqual(getFaceBoxStyle({ ...tinyFace, width: -0.1 }), { display: 'none' });
+assert.deepEqual(getFaceBoxStyle({ ...tinyFace, left: null }), { display: 'none' });
+const pixelBox = getFaceBoxStyle({ left: 400, top: 200, width: 10, height: 20, unit: 'pixel', imageWidth: 1000, imageHeight: 1000 });
+assert(Math.abs(parseFloat(pixelBox.width) - 1) < 1e-10);
+assert.deepEqual(getFaceBoxStyle({ left: 400, top: 200, width: 10, height: 20, unit: 'pixel' }), { display: 'none' });
+console.log('face geometry: small faces, pixel coordinates, clipping and invalid bounds passed');

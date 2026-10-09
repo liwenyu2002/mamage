@@ -298,6 +298,7 @@ export default function FindMeModal({ visible, mode, projectId, shareCode, onClo
   };
 
   const matches = (result && result.matches) || [];
+  const totalMatches = result?.totalMatches ?? matches.length;
 
   return (
     <Modal
@@ -353,11 +354,8 @@ export default function FindMeModal({ visible, mode, projectId, shareCode, onClo
           matches.length ? (
             <>
               <div className="findme-result-head">
-                {result.person
-                  ? (result.person.name
-                    ? `已在人物档案中找到你，你可能是「${result.person.name}」。为你找到 ${matches.length} 张照片：`
-                    : `已按人物档案识别到你，找到 ${matches.length} 张照片：`)
-                  : `找到 ${matches.length} 张可能有你的照片（按相似度排序）：`}
+                {result.person?.name ? `找到匹配的人物档案，你可能是「${result.person.name}」。` : ''}
+                {`找到 ${totalMatches} 张可能有你的照片${result.truncated ? `，先展示前 ${matches.length} 张` : ''}：`}
               </div>
               <div className="findme-grid">
                 {matches.map((m) => (
@@ -369,7 +367,6 @@ export default function FindMeModal({ visible, mode, projectId, shareCode, onClo
                     onClick={() => onPickPhoto && onPickPhoto(m, matches)}
                   >
                     <img src={m.thumbUrl || m.url} alt={m.title || `photo-${m.photoId}`} loading="lazy" />
-                    <span className="findme-sim">{Math.round(m.sim * 100)}%</span>
                   </button>
                 ))}
               </div>
