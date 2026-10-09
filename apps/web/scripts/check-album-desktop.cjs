@@ -82,8 +82,35 @@ async function main(){
   state.canOrganize=false;await page.goto(url,{waitUntil:'networkidle'});await page.locator('.album-desktop').waitFor();
   assert.equal(await page.getByRole('button',{name:'新建相册集',exact:true}).count(),0);
   await page.setViewportSize({width:390,height:844});await page.locator('.desktop-directory-trigger').click();await page.getByRole('dialog').waitFor();assert(await page.getByRole('dialog').getByRole('navigation',{name:'相册目录'}).count());
+  state.canOrganize=true;state.preferences={pins:[],recentItems:[],colors:{},dismissed:[]};
+  await page.goto(url,{waitUntil:'networkidle'});await page.locator('.album-desktop').waitFor();
+  const checkPersonalSections=async(pins,usage)=>{
+   assert.equal(await page.locator('[data-desktop-section="pins"]').count(),Number(pins));
+   assert.equal(await page.locator('[data-desktop-section="usage"]').count(),Number(usage));
+   assert.equal(await page.locator('.acp-sidebar').getByRole('button',{name:'我的置顶',exact:true}).count(),Number(pins));
+   assert.equal(await page.locator('.acp-sidebar').getByRole('button',{name:'最近使用',exact:true}).count(),Number(usage));
+  };
+  for(const width of [1440,390]){await page.setViewportSize({width,height:1000});await checkPersonalSections(false,false);await page.screenshot({path:`/tmp/mamage-desktop-empty-${width}.png`,fullPage:true});}
+  await page.locator('.desktop-directory-trigger').click();
+  const directory=page.getByRole('dialog');
+  assert.equal(await directory.getByRole('button',{name:'我的置顶',exact:true}).count(),0);
+  assert.equal(await directory.getByRole('button',{name:'最近使用',exact:true}).count(),0);
+  await directory.getByRole('button',{name:'关闭',exact:true}).click();
+  await page.setViewportSize({width:1440,height:1000});
+  await page.getByRole('button',{name:'管理我的置顶',exact:true}).click();
+  const pinDialog=page.getByRole('dialog');
+  await pinDialog.locator('label').filter({has:page.getByText('校园活动 1',{exact:true})}).click();
+  await checkPersonalSections(true,false);
+  await pinDialog.getByRole('button',{name:'取消置顶项目 1',exact:true}).click();
+  await checkPersonalSections(false,false);
+  await pinDialog.getByRole('button',{name:'关闭',exact:true}).click();
+  await page.locator('.desktop-album[data-album-id="12"] .project-card__open').click();
+  await page.waitForURL(/projectId=12/);await page.waitForTimeout(100);
+  await page.goto(url,{waitUntil:'networkidle'});await page.locator('.album-desktop').waitFor();await checkPersonalSections(false,true);
+  state.preferences={pins:['album:999','group:missing'],recentItems:[{id:999,visitedAt:Date.now()}],colors:{},dismissed:[]};
+  await page.reload({waitUntil:'networkidle'});await page.locator('.album-desktop').waitFor();await checkPersonalSections(false,false);
   assert.deepEqual(errors,[]);
-  console.log(JSON.stringify({productionApp:true,fixtureOnly:true,widths,sections:true,fanLimit:9,persistence:true,pin:true,personalColor:true,dropConfirmation:true,visit:true,errors}));
+  console.log(JSON.stringify({productionApp:true,fixtureOnly:true,widths,sections:true,fanLimit:9,persistence:true,pin:true,personalColor:true,dropConfirmation:true,visit:true,emptySectionsHidden:true,personalSectionsReappear:true,staleItemsHidden:true,errors}));
  }finally{await browser.close();await new Promise(resolve=>server.close(resolve));}
 }
 main().catch(error=>{console.error(error);server.close();process.exitCode=1});

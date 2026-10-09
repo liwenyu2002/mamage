@@ -284,7 +284,7 @@ function AlbumShortcut({ album, group, albums, onOpen, onSelect, sortDragProps, 
   </article>;
 }
 
-function AlbumDirectory({ groups, albums, selected, view, isDesktop, activeSection, onView, onJump, onSelect, onCreate, getGroupDropProps, dropTargetId, workspaceName, organizationName, canOrganize }) {
+function AlbumDirectory({ groups, albums, sections, selected, view, isDesktop, activeSection, onView, onJump, onSelect, onCreate, getGroupDropProps, dropTargetId, workspaceName, organizationName, canOrganize }) {
   return <nav className="acp-directory" aria-label="相册目录">
     <div className="acp-directory-brand"><img src="/favicon.svg" alt="" /><div><strong>{workspaceName}</strong><small>{organizationName}</small></div></div>
     <div className="acp-directory-links acp-directory-main-links">
@@ -296,7 +296,7 @@ function AlbumDirectory({ groups, albums, selected, view, isDesktop, activeSecti
         <span className="acp-directory-symbol"><IconSparkleAI /></span><span>我的桌面</span></button>
     </div>
     <div className="acp-directory-links acp-directory-sections" aria-label="我的桌面板块">
-      {DESKTOP_SECTIONS.map(({ id, name, Icon }) => <button key={id} className={isDesktop && activeSection === id ? 'is-selected' : ''}
+      {sections.map(({ id, name, Icon }) => <button key={id} className={isDesktop && activeSection === id ? 'is-selected' : ''}
         aria-current={isDesktop && activeSection === id ? 'location' : undefined} aria-controls={id === 'collections' ? id : `desktop-${id}`} onClick={() => onJump(id)}>
         <span className="acp-directory-symbol"><Icon /></span><span>{name}</span></button>)}
     </div>
@@ -741,7 +741,16 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
   </section>;
   const pinOptions = [...groups.map((group) => ({ key: `group:${group.id}`, name: group.name, type: group.kind === 'smart' ? '智能相册集' : '相册集' })),
     ...albums.map((album) => ({ key: `album:${album.id}`, name: album.name, type: '相册' }))];
-  const directory = <AlbumDirectory groups={groups} albums={albums} selected={selected} view={view} isDesktop={home} activeSection={activeSection}
+  const availablePins = new Set(pinOptions.map(item => item.key));
+  const visiblePins = pins.filter(key => availablePins.has(key));
+  const visibleRecentItems = recentItems.filter(item => availablePins.has(`album:${item.id}`));
+  const desktopSections = DESKTOP_SECTIONS.filter(({ id }) => (id !== 'pins' || visiblePins.length > 0) && (id !== 'usage' || visibleRecentItems.length > 0));
+  React.useEffect(() => {
+    if ((activeSection === 'pins' && !visiblePins.length) || (activeSection === 'usage' && !visibleRecentItems.length)) {
+      setActiveSection('desktop'); setJumpRequest(null);
+    }
+  }, [activeSection, visiblePins.length, visibleRecentItems.length]);
+  const directory = <AlbumDirectory groups={groups} albums={albums} sections={desktopSections} selected={selected} view={view} isDesktop={home} activeSection={activeSection}
     onView={selectView} onJump={jumpToSection} onSelect={selectGroup} workspaceName={workspaceName} organizationName={organizationName} canOrganize={canOrganize}
     onCreate={() => { setDirectoryOpen(false); setEditingGroup(null); setGroupName(''); setNewGroup(true); }} getGroupDropProps={getGroupDropProps} dropTargetId={dropTargetId} />;
   const suggestionPanel = suggestions.length > 0 && <section className="acp-suggestion-panel" aria-label="整理建议">
@@ -757,7 +766,7 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
       <main className="acp-main" ref={mainRef} id="desktop" data-desktop-section="desktop">
         <div className="acp-page-heading"><div><div className="acp-breadcrumb">{workspaceName} <span>/</span> {currentGroup ? <button onClick={() => selectGroup('all')}>相册</button> : '素材库'}</div>
           <h1>{currentGroup?.name || ({ all: '我的桌面', library: '全部相册', recent: '最近更新', unfiled: '未归类' }[view])}<span>{currentGroup ? groupAlbums(currentGroup, albums).length : albums.length} 个相册</span></h1></div>
-          <div className="acp-heading-actions"><button className="acp-icon desktop-directory-trigger" title="相册目录" aria-label="打开相册目录" onClick={()=>setDirectoryOpen(true)}><IconListView /></button><button className={`acp-icon${pins.length ? '' : ' is-needed'}`} title="管理我的置顶" aria-label="管理我的置顶" onClick={() => setPinsModal(true)}><IconStar /></button>
+          <div className="acp-heading-actions"><button className="acp-icon desktop-directory-trigger" title="相册目录" aria-label="打开相册目录" onClick={()=>setDirectoryOpen(true)}><IconListView /></button><button className={`acp-icon${visiblePins.length ? '' : ' is-needed'}`} title="管理我的置顶" aria-label="管理我的置顶" onClick={() => setPinsModal(true)}><IconStar /></button>
             {canOrganize && <Button type="primary" theme="neu" icon={<IconPlus />} onClick={() => { setEditingGroup(null); setGroupName(''); setNewGroup(true); }}>新建相册集</Button>}</div></div>
         <div className="acp-toolbar"><div className="acp-filters"><form className="acp-search" onSubmit={(event) => { event.preventDefault(); search(draftQuery); }}><IconSparkleAI />
             <input aria-label="搜索相册或相册集" placeholder="描述你想找的相册…" value={draftQuery} onChange={(event) => { setDraftQuery(event.target.value); if (!event.target.value) setQuery(''); }} />
@@ -769,18 +778,18 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
         <span className="desktop-save-status" role="status">{saveStatus === 'saving' ? '正在保存…' : saveStatus === 'error' ? '未保存' : ''}</span>
         <div className="acp-content" key={`${selected}-${view}`}>
           {home ? <>
-            <section className="acp-pins-section" id="desktop-pins" data-desktop-section="pins"><span className="acp-section-spotlight" aria-hidden="true" /><div className="acp-section-heading"><div className="acp-section-name"><h2>我的置顶</h2><span className="acp-personal-label">仅自己可见</span></div><button className="acp-text-button" onClick={() => setPinsModal(true)}>管理 <IconSliders /></button></div>
-              {pins.length ? <div {...getSortListProps('pins')} className="acp-shortcuts-grid acp-pins-grid">{pins.map((key) => {
+            {visiblePins.length > 0 && <section className="acp-pins-section" id="desktop-pins" data-desktop-section="pins"><span className="acp-section-spotlight" aria-hidden="true" /><div className="acp-section-heading"><div className="acp-section-name"><h2>我的置顶</h2><span className="acp-personal-label">仅自己可见</span></div><button className="acp-text-button" onClick={() => setPinsModal(true)}>管理 <IconSliders /></button></div>
+              <div {...getSortListProps('pins')} className="acp-shortcuts-grid acp-pins-grid">{visiblePins.map((key) => {
                 const [type, id] = key.split(':');
                 if (type === 'group') { const group = groups.find((item) => item.id === id); return group ? <AlbumShortcut key={key} group={group} albums={albums} onSelect={selectGroup}
                   sortDragProps={getSortDragProps('pins', key)} sortDropProps={getSortDropProps('pins', key, group)} dropTargetId={dropTargetId} /> : null; }
                 const album = albums.find((item) => String(item.id) === id);
                 return album ? <AlbumShortcut key={key} album={album} albums={albums} onOpen={setOpened}
                   sortDragProps={getSortDragProps('pins', key, album)} sortDropProps={getSortDropProps('pins', key)} /> : null;
-              })}</div> : <p className="acp-pins-empty">还没有置顶相册</p>}</section>
-            <section className="acp-continue-section" id="desktop-usage" data-desktop-section="usage"><span className="acp-section-spotlight" aria-hidden="true" /><div className="acp-section-heading"><h2>最近使用</h2><button className="acp-icon" title="调整最近使用顺序" aria-label="调整最近使用顺序" onClick={() => setOrderModal('recent')}><IconSliders /></button></div>
-              <div {...getSortListProps('recent')} className="acp-shortcuts-grid acp-continue-list">{recentItems.map((item) => { const album = albums.find((entry) => entry.id === item.id); return <AlbumShortcut key={item.id} album={album} albums={albums}
-                onOpen={setOpened} sortDragProps={getSortDragProps('recent', String(item.id), album)} sortDropProps={getSortDropProps('recent', String(item.id))} description={item.visitedAt ? new Date(item.visitedAt).toLocaleString('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}) : undefined} />; })}</div></section>
+              })}</div></section>}
+            {visibleRecentItems.length > 0 && <section className="acp-continue-section" id="desktop-usage" data-desktop-section="usage"><span className="acp-section-spotlight" aria-hidden="true" /><div className="acp-section-heading"><h2>最近使用</h2><button className="acp-icon" title="调整最近使用顺序" aria-label="调整最近使用顺序" onClick={() => setOrderModal('recent')}><IconSliders /></button></div>
+              <div {...getSortListProps('recent')} className="acp-shortcuts-grid acp-continue-list">{visibleRecentItems.map((item) => { const album = albums.find((entry) => String(entry.id) === String(item.id)); return <AlbumShortcut key={item.id} album={album} albums={albums}
+                onOpen={setOpened} sortDragProps={getSortDragProps('recent', String(item.id), album)} sortDropProps={getSortDropProps('recent', String(item.id))} description={item.visitedAt ? new Date(item.visitedAt).toLocaleString('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}) : undefined} />; })}</div></section>}
             <section className="acp-collections-section" id="collections" data-desktop-section="collections"><span className="acp-section-spotlight" aria-hidden="true" /><div className="acp-section-heading"><h2>相册集</h2><div className="acp-section-controls"><span className="acp-caption">{groups.length} 个</span>{canOrganize && <button className="acp-icon" title="调整相册集顺序" aria-label="调整相册集顺序" onClick={() => setOrderModal('collections')}><IconSliders /></button>}</div></div><div {...(canOrganize ? getSortListProps('collections') : {})} className="acp-all-collections">{groups.map(collection)}</div>{!groups.length && <p className="acp-empty">还没有相册集{canOrganize ? '，可以新建后将相册整理进来' : ''}</p>}</section>
             {section('最近更新', [...filtered].sort((a,b)=>(Date.parse(b.updatedAt || b.createdAt)||0)-(Date.parse(a.updatedAt || a.createdAt)||0)).slice(0, 6), 'recent')}
           </> : currentGroup ? <><div className="acp-group-caption"><button className="acp-text-button" onClick={() => selectGroup('all')}><IconChevronLeft /> 返回相册</button>{currentGroup.kind === 'smart'
