@@ -2,6 +2,7 @@
 import React from 'react';
 import { fetchRandomByProject } from './services/photoQueryService';
 import { resolveAssetUrl } from './services/request';
+import { IconGridView, IconListView, IconSimilarStack } from './ui/icons';
 import './ProjectCard.css';
 
 const FALLBACK_THUMB_CACHE = new Map();
@@ -52,14 +53,6 @@ const pickThumbSrc = (item) => {
   if (typeof item === 'string') return item;
   return item.thumbSrc || item.thumbUrl || item.thumbnail || item.thumb || item.coverUrl || item.url || item.fileUrl || item.imageUrl || null;
 };
-
-function CardText({ children, className = '', strong = false, size = '' }) {
-  return (
-    <span className={`${className}${strong ? ' is-strong' : ''}${size ? ` is-${size}` : ''}`}>
-      {children}
-    </span>
-  );
-}
 
 function ImportStatusBadge({ summary }) {
   if (!summary || summary.status === 'completed') return null;
@@ -125,6 +118,9 @@ function ProjectCard({
   const [coverOverride, setCoverOverride] = React.useState(null);
   const [loadedMap, setLoadedMap] = React.useState({});
   const [failedMap, setFailedMap] = React.useState({});
+  const [selectedPreview, setSelectedPreview] = React.useState(null);
+  const [hoverPreview, setHoverPreview] = React.useState(null);
+  const mediaId = React.useId();
   const markFailed = (src) => {
     if (!src) return;
     setFailedMap((prev) => (prev[src] ? prev : { ...prev, [src]: true }));
@@ -146,8 +142,9 @@ function ProjectCard({
 
   React.useEffect(() => {
     let canceled = false;
-    const availablePreviewCount = normalizedThumbnails.length + normalizedImages.length + (resolvedMain ? 1 : 0);
-    if (!id || !isVisible || availablePreviewCount >= 4) {
+    const availablePreviewCount = new Set([...normalizedThumbnails, ...normalizedImages, resolvedMain].filter(Boolean)).size;
+    const expectedPreviewCount = Number(count) > 0 ? Math.min(4, Number(count)) : 4;
+    if (!id || !isVisible || (count != null && Number(count) === 0) || availablePreviewCount >= expectedPreviewCount) {
       return undefined;
     }
 
@@ -194,7 +191,12 @@ function ProjectCard({
     return () => {
       canceled = true;
     };
-  }, [id, isVisible, normalizedThumbnails, normalizedImages, resolvedMain]);
+  }, [id, isVisible, count, normalizedThumbnails, normalizedImages, resolvedMain]);
+
+  React.useEffect(() => {
+    setSelectedPreview(null);
+    setHoverPreview(null);
+  }, [id]);
 
   React.useEffect(() => {
     if (isVisible) return undefined;
@@ -234,11 +236,11 @@ function ProjectCard({
 
   const byIdCover = pickByMaxId();
   const coverDisplayed = coverOverride
+    || resolvedMain
     || byIdCover
     || normalizedThumbnails[0]
     || fallbackThumbs[0]
-    || normalizedImages[0]
-    || resolvedMain;
+    || normalizedImages[0];
 
   const combined = [];
   const pushIfUnique = (s) => {
@@ -248,13 +250,12 @@ function ProjectCard({
   normalizedThumbnails.forEach(pushIfUnique);
   fallbackThumbs.forEach(pushIfUnique);
   normalizedImages.forEach(pushIfUnique);
-  const others = combined.slice(0, 3);
-
-  const mobileMain = coverDisplayed || resolvedMain || others[0] || null;
-  const mobileSmalls = [...others.slice(0, 2)];
-  if (mobileSmalls.length < 2 && mobileMain) {
-    while (mobileSmalls.length < 2) mobileSmalls.push(mobileMain);
-  }
+  pushIfUnique(resolvedMain);
+  const previewSources = (count != null && Number(count) === 0 ? [] : [coverDisplayed || resolvedMain, ...combined])
+    .filter((src) => src && !failedMap[src]).slice(0, 4);
+  const others = previewSources.slice(1);
+  const activeSource = [hoverPreview, selectedPreview].find((src) => previewSources.includes(src)) || previewSources[0];
+  const activeIndex = previewSources.indexOf(activeSource);
 
   const formatDay = (d) => {
     if (!d) return null;
@@ -287,164 +288,60 @@ function ProjectCard({
 
   const descText = (description && String(description).trim())
     ? truncateText(description, 40)
-    : '暂无描述';
+    : '';
 
-  const desktopCoverSrc = coverDisplayed || resolvedMain || '';
   const markLoaded = (src) => {
     if (!src) return;
     setLoadedMap((prev) => (prev[src] ? prev : { ...prev, [src]: true }));
   };
 
   return (
-    <div className="project-card" onClick={onClick} ref={cardRef}>
-      <div className="project-card__mobile-layout">
-        <div className="project-card__mobile-main">
-          {mobileMain && !failedMap[mobileMain] ? (
-            <img
-              src={mobileMain}
-              alt={title}
-              loading="lazy"
-              decoding="async"
-              className={`project-card__img ${loadedMap[mobileMain] ? 'is-ready' : ''}`}
-              onLoad={() => markLoaded(mobileMain)}
-              onError={() => markFailed(mobileMain)}
-            />
-          ) : (
-            <div className="project-card__cover-empty" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="5" width="18" height="14" rx="3" />
-                <circle cx="9" cy="10" r="1.6" />
-                <path d="M5.5 17.5 10 13l3 3 2.5-2.5 3 4" />
-              </svg>
-              <span>暂无照片</span>
-            </div>
-          )}
-        </div>
-        <div className="project-card__mobile-side">
-          <div className="project-card__mobile-small-row">
-            {mobileSmalls.map((src, idx) => (
-              <div className="project-card__mobile-small" key={`mobile-small-${idx}`}>
-                {!failedMap[src] ? (
-                  <img
-                    src={src}
-                    alt=""
-                    loading="lazy"
-                    decoding="async"
-                    className={`project-card__img ${loadedMap[src] ? 'is-ready' : ''}`}
-                    onLoad={() => markLoaded(src)}
-                    onError={() => markFailed(src)}
-                  />
-                ) : null}
-              </div>
-            ))}
-          </div>
-          <div className="project-card__mobile-info">
-            <div className="project-card__mobile-meta">
-              {dateText ? (
-                <span className="project-card__mobile-date">{dateLabel ? `${dateLabel} ${dateText}` : dateText}</span>
-              ) : null}
-              <span className="project-card__mobile-count">{count} 作品</span>
-            </div>
-            <CardText strong className="project-card__mobile-title">
-              {`《${title}》`}
-            </CardText>
-            <ImportStatusBadge summary={importStatus} />
-            {originLabel ? <span className="project-card__origin" title={`来自 ${originLabel}`}>来自 {originLabel}</span> : null}
-            <CardText size="small" className="project-card__mobile-description">
-              {descText}
-            </CardText>
-          </div>
-        </div>
+    <article className="project-card project-card--visual" ref={cardRef} aria-label={title}>
+      <button type="button" className="project-card__open" onClick={onClick} aria-label={`打开相册 ${title}`}>
+        <span className="project-card__cover-image" id={mediaId} data-active-preview={activeIndex}>
+          {previewSources.map((src) => <img key={src} src={src} alt="" loading="lazy" decoding="async" draggable={false}
+            className={`project-card__img${loadedMap[src] ? ' is-ready' : ''}${src === activeSource ? ' is-active' : ''}`}
+            onLoad={() => markLoaded(src)} onError={() => markFailed(src)} />)}
+          {!previewSources.length && <span className="project-card__cover-empty"><IconGridView /><span>暂无照片</span></span>}
+          <span className="project-card__count"><IconSimilarStack /><span>{count ?? previewSources.length} 作品</span></span>
+          {activeIndex > 0 && <span className="project-card__frame-index" aria-hidden="true">{String(activeIndex + 1).padStart(2, '0')} / {String(previewSources.length).padStart(2, '0')}</span>}
+        </span>
+      </button>
+      {others.length > 0 && <div className="project-card__thumb-grid" role="group" aria-label={`${title} 照片预览`}
+        onPointerLeave={() => setHoverPreview(null)} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setHoverPreview(null); }}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') { setHoverPreview(null); setSelectedPreview(null); return; }
+          if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+          event.preventDefault();
+          const buttons = [...event.currentTarget.querySelectorAll('button')];
+          const index = buttons.indexOf(document.activeElement);
+          const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1
+            : (index + (event.key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length;
+          buttons[next]?.focus({ preventScroll: true });
+        }}>
+        {others.map((src, index) => <button type="button" className="project-card__thumb" key={src} aria-controls={mediaId}
+          aria-label={`预览 ${title} 第 ${index + 2} 张`} aria-pressed={src === activeSource} title={`预览第 ${index + 2} 张照片`}
+          onPointerEnter={(event) => { if (event.pointerType === 'mouse') setHoverPreview(src); }}
+          onFocus={(event) => { if (event.currentTarget.matches(':focus-visible')) setHoverPreview(src); }}
+          onClick={(event) => { event.stopPropagation(); setHoverPreview(null); setSelectedPreview((old) => old === src ? null : src); }}>
+          <img src={src} alt="" loading="lazy" decoding="async" draggable={false}
+            className={`project-card__img${loadedMap[src] ? ' is-ready' : ''}`}
+            onLoad={() => markLoaded(src)} onError={() => markFailed(src)} />
+        </button>)}
+      </div>}
+      <div className="project-card__info">
+        <button type="button" className="project-card__copy" onClick={onClick} aria-label={`进入相册 ${title}`}>
+          <strong className="project-card__title" title={title}>{title}</strong>
+          <span className="project-card__detail">
+            {dateText && <span className="project-card__date" title={`${dateLabel} ${dateText}`}>{dateText}</span>}
+            {subtitle && <span className="project-card__tag" title={subtitle}><IconListView /><span>{subtitle}</span></span>}
+          </span>
+        </button>
+        <ImportStatusBadge summary={importStatus} />
+        {originLabel ? <span className="project-card__origin" title={`来自 ${originLabel}`}>来自 {originLabel}</span> : null}
+        {descText ? <span className="project-card__description" title={String(description)}>{descText}</span> : null}
       </div>
-
-      <div className="project-card__desktop-layout">
-        <div className="project-card__cover-image">
-          {desktopCoverSrc && !failedMap[desktopCoverSrc] ? (
-            <img
-              src={desktopCoverSrc}
-              alt={title}
-              loading="lazy"
-              decoding="async"
-              className={`project-card__img ${loadedMap[desktopCoverSrc] ? 'is-ready' : ''}`}
-              onLoad={() => markLoaded(desktopCoverSrc)}
-              onError={() => markFailed(desktopCoverSrc)}
-            />
-          ) : (
-            <div className="project-card__cover-empty" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="5" width="18" height="14" rx="3" />
-                <circle cx="9" cy="10" r="1.6" />
-                <path d="M5.5 17.5 10 13l3 3 2.5-2.5 3 4" />
-              </svg>
-              <span>暂无照片</span>
-            </div>
-          )}
-        </div>
-
-        <div className="project-card__meta-row">
-          <div className="project-card__meta-top">
-            <div className="project-card__meta-top-left">
-              {dateText && (
-                <div className="project-card__date-pill">
-                  {dateLabel ? (
-                    <>
-                      <span className={`project-card__date-label ${dateLabel === '开展于' ? 'start' : 'create'}`}>{dateLabel}</span>
-                      <span style={{ width: 6 }} />
-                      <span className="project-card__date-value">{dateText}</span>
-                    </>
-                  ) : (
-                    <span className="project-card__date-value">{dateText}</span>
-                  )}
-                </div>
-              )}
-            </div>
-            <div className="project-card__meta-top-right">
-              <CardText size="small" className="project-card__count">
-                {count} 作品
-              </CardText>
-            </div>
-          </div>
-          <div className="project-card__meta-left">
-            <div className="project-card__meta-middle">
-              <CardText strong className="project-card__title">
-                {`《${title}》`}
-              </CardText>
-
-              <ImportStatusBadge summary={importStatus} />
-
-              {subtitle && (
-                <span className="project-card__tag">
-                  {subtitle}
-                </span>
-              )}
-              {originLabel ? <span className="project-card__origin" title={`来自 ${originLabel}`}>来自 {originLabel}</span> : null}
-            </div>
-            <div className="project-card__meta-down">
-              <CardText size="small" className="project-card__description">
-                {descText}
-              </CardText>
-            </div>
-          </div>
-        </div>
-
-        <div className="project-card__spacer" />
-
-        <div className="project-card__thumb-grid">
-          {others.map((src, idx) => (
-            <div className="project-card__thumb" key={idx}>
-              <img
-                src={src}
-                alt=""
-                loading="lazy"
-                decoding="async"
-                className={`project-card__img ${loadedMap[src] ? 'is-ready' : ''}`}
-                onLoad={() => markLoaded(src)}
-              />
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
+    </article>
   );
 }
 
