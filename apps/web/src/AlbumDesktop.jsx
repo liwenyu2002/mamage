@@ -433,14 +433,15 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
   }, [notice]);
 
   const searchPlan = albumSearch(query);
+  const isLibraryView = selected === 'all' && view === 'library';
   const enrichedAlbums = React.useMemo(()=>albums.map(album=>{const preview=projectPreviews.find(p=>Number(p.id)===Number(album.id));return preview ? {...album,...preview,name:album.name,image:preview.coverSrc || album.image,groups:album.groups} : album}),[albums,projectPreviews]);
   const filtered = enrichedAlbums.filter((album) => (year === 'all' || album.year === year)
     && (!query || ((!searchPlan.year || album.year === searchPlan.year) && (!searchPlan.group || album.groups.includes(searchPlan.group))
       && (!searchPlan.text || album.name.includes(searchPlan.text))
       && (!searchPlan.literal || `${album.name} ${album.groups.map((id) => groups.find((group) => group.id === id)?.name).join(' ')}`.includes(searchPlan.literal))))
     && (view !== 'unfiled' || !album.groups.length)
-    && (!dateFilter?.from || String(album.eventDate || album.createdAt).slice(0,10) >= dateFilter.from)
-    && (!dateFilter?.to || String(album.eventDate || album.createdAt).slice(0,10) <= dateFilter.to))
+    && (!isLibraryView || !dateFilter?.from || String(album.eventDate || album.createdAt).slice(0,10) >= dateFilter.from)
+    && (!isLibraryView || !dateFilter?.to || String(album.eventDate || album.createdAt).slice(0,10) <= dateFilter.to))
     .sort((a,b)=>{const key=sort?.key==='eventDate' ? 'eventDate' : 'createdAt';return ((Date.parse(a[key] || a.createdAt)||0)-(Date.parse(b[key] || b.createdAt)||0))*(sort?.order==='asc' ? 1:-1)});
   const currentGroup = groups.find((group) => group.id === selected);
   const home = !currentGroup && view === 'all' && !query && year === 'all';
@@ -773,7 +774,7 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
             {draftQuery && <button className="acp-icon" type="button" title="清空搜索" onClick={() => { setDraftQuery(''); setQuery(''); }}><IconClose /></button>}
             <button className="acp-icon" type="submit" title="搜索" aria-label="搜索"><IconSearch /></button></form>
             <GlassSelect label="年份" value={year} onChange={setYear} options={[{ value: 'all', label: '全部年份' }, ...Array.from(new Set(albums.map(a=>a.year))).sort().reverse().map(value=>({value,label:`${value} 年`}))]} /></div></div>
-        {toolbar}
+        {isLibraryView && toolbar}
         {saveError && <div className="desktop-save-error" role="alert">{saveError}<Button onClick={onReload}>重新加载</Button></div>}
         <span className="desktop-save-status" role="status">{saveStatus === 'saving' ? '正在保存…' : saveStatus === 'error' ? '未保存' : ''}</span>
         <div className="acp-content" key={`${selected}-${view}`}>

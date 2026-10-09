@@ -49,11 +49,25 @@ async function main(){
   await page.goto(url,{waitUntil:'networkidle'});
   await page.locator('.album-desktop').waitFor();
   for(const text of ['我的置顶','最近使用','相册集','最近更新'])assert(await page.locator('.acp-main h2').getByText(text,{exact:true}).count());
+  assert.equal(await page.locator('.album-desktop .project-toolbar').count(),0,'desktop must not show library sorting');
   await page.waitForTimeout(450);assert.equal(calls.length,0,'mount must not write shared data');
   await page.screenshot({path:'/tmp/mamage-desktop-desktop.png',fullPage:true});
   const widths=[1440,1180,1024,820,768,600,390,320];
   for(const width of widths){await page.setViewportSize({width,height:1000});await page.waitForTimeout(80);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,`overflow at ${width}`);if(width===390)await page.screenshot({path:'/tmp/mamage-desktop-mobile.png',fullPage:true});}
   await page.setViewportSize({width:1440,height:1000});
+  await page.locator('.acp-sidebar').getByRole('button',{name:/^全部相册/}).click();
+  const toolbar=page.locator('.album-desktop .project-toolbar');await toolbar.waitFor();
+  await toolbar.getByRole('button',{name:/排序/}).click();await page.getByRole('menuitemradio',{name:'最早创建的相册',exact:true}).click();
+  assert.match(await toolbar.getByRole('button',{name:/排序/}).textContent(),/最早创建/);
+  await toolbar.getByRole('button',{name:/时间/}).click();
+  await page.locator('input[aria-label="开始日期"]').fill('2027-01-01');
+  assert.equal(await page.locator('.desktop-album').count(),0,'library date range must filter albums');
+  await page.locator('.acp-sidebar').getByRole('button',{name:'我的桌面',exact:true}).click();
+  assert.equal(await page.locator('.album-desktop .project-toolbar').count(),0);
+  assert.equal(await page.locator('[data-desktop-section="updates"] .desktop-album').count(),6,'library date range must not filter desktop updates');
+  await page.locator('.acp-sidebar').getByRole('button',{name:/^全部相册/}).click();
+  await toolbar.locator('.lg-popover-clear').click();
+  await page.locator('.acp-sidebar').getByRole('button',{name:'我的桌面',exact:true}).click();
   const group=page.locator('.acp-all-collections > .acp-collection').first();
   assert.equal(await group.locator('.acp-fan-cover').count(),9);
   await group.locator('.acp-fan-stage').hover();await page.waitForTimeout(300);assert((await group.getAttribute('class')).includes('is-expanded'));
@@ -110,7 +124,7 @@ async function main(){
   state.preferences={pins:['album:999','group:missing'],recentItems:[{id:999,visitedAt:Date.now()}],colors:{},dismissed:[]};
   await page.reload({waitUntil:'networkidle'});await page.locator('.album-desktop').waitFor();await checkPersonalSections(false,false);
   assert.deepEqual(errors,[]);
-  console.log(JSON.stringify({productionApp:true,fixtureOnly:true,widths,sections:true,fanLimit:9,persistence:true,pin:true,personalColor:true,dropConfirmation:true,visit:true,emptySectionsHidden:true,personalSectionsReappear:true,staleItemsHidden:true,errors}));
+  console.log(JSON.stringify({productionApp:true,fixtureOnly:true,widths,sections:true,fanLimit:9,persistence:true,pin:true,personalColor:true,dropConfirmation:true,visit:true,emptySectionsHidden:true,personalSectionsReappear:true,staleItemsHidden:true,libraryOnlySorting:true,libraryOnlyDateRange:true,errors}));
  }finally{await browser.close();await new Promise(resolve=>server.close(resolve));}
 }
 main().catch(error=>{console.error(error);server.close();process.exitCode=1});
