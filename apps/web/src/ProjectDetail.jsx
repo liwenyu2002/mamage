@@ -2,6 +2,7 @@
 import React from 'react';
 import { Typography, Button, Tag, Spin, Empty, Modal, MotionModal, Input, DatePicker, DateTimePicker, TextArea, Toast, HexLoader } from './ui';
 import AlbumDetailsFields from './AlbumDetailsFields';
+import AlbumActionBar from './AlbumActionBar';
 import {
   IconAIStrokedLevel1,
   IconClose,
@@ -5186,71 +5187,34 @@ function ProjectDetail({
         </div>
       ) : null}
 
-      <nav className={`detail-bottom-nav${dragActive ? ' is-drag-active' : ''}`} aria-label="相册底部操作">
-        <button
-          type="button"
-          className={`detail-bottom-nav-item detail-bottom-nav-item--select${deleteMode ? ' is-active' : ''}`}
-          onClick={toggleDeleteMode}
-          aria-pressed={deleteMode}
-        >
-          <span className="detail-bottom-nav-icon detail-bottom-nav-icon--select" aria-hidden="true">{deleteMode ? '✓' : ''}</span>
-          <span>{deleteMode ? (selectedCount ? `已选 ${selectedCount}` : '完成') : '选择'}</span>
-        </button>
-
-        {canUploadPhotos ? (
-          <button
-            type="button"
-            className={`detail-bottom-upload${dragActive ? ' is-drag-active' : ''}${uploadHover ? ' is-hovered' : ''}`}
-            onClick={openUploadPicker}
-            onMouseEnter={() => setUploadHover(true)}
-            onMouseLeave={() => setUploadHover(false)}
-            onDragOver={(e) => {
+      <AlbumActionBar selecting={deleteMode} selectedCount={selectedCount} onSelect={toggleDeleteMode}
+        onFunctions={() => setActionSheetOpen(true)} functionsOpen={actionSheetOpen}
+        dragActive={dragActive} hovered={uploadHover} primaryDisabled={!canUploadPhotos}
+        primaryLabel={!canUploadPhotos ? '上传不可用' : stagingFiles?.length ? `${stagingFiles.length} 个待上传` : '上传照片或视频'}
+        primaryHint={dragActive ? '松开上传' : '上传'} primaryProps={canUploadPhotos ? {
+            onClick: openUploadPicker,
+            title: stagingFiles?.length ? `${stagingFiles.length} 个待上传` : '点击或拖入照片/视频',
+            onMouseEnter: () => setUploadHover(true),
+            onMouseLeave: () => setUploadHover(false),
+            onDragOver: (e) => {
               e.preventDefault();
               if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
               setDragActive(true);
-            }}
-            onDragEnter={(e) => {
+            },
+            onDragEnter: (e) => {
               e.preventDefault();
               setDragActive(true);
-            }}
-            onDragLeave={(e) => {
+            },
+            onDragLeave: (e) => {
               e.preventDefault();
               setDragActive(false);
-            }}
-            onDrop={(e) => {
+            },
+            onDrop: (e) => {
               e.preventDefault();
               setDragActive(false);
               if (e.dataTransfer && e.dataTransfer.files) handleFilesSelected(e.dataTransfer.files);
-            }}
-            aria-label={stagingFiles && stagingFiles.length > 0 ? `${stagingFiles.length} 个待上传` : '上传照片或视频'}
-            title={stagingFiles && stagingFiles.length > 0 ? `${stagingFiles.length} 个待上传` : '点击或拖入照片/视频'}
-          >
-            <IconPlus />
-            <span className="detail-bottom-upload-hint">{dragActive ? '松开上传' : '上传'}</span>
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="detail-bottom-upload is-disabled"
-            disabled
-            aria-label="上传不可用"
-          >
-            <IconPlus />
-            <span className="detail-bottom-upload-hint">上传</span>
-          </button>
-        )}
-
-        <button
-          type="button"
-          className={`detail-bottom-nav-item detail-bottom-nav-item--actions${actionSheetOpen ? ' is-active' : ''}`}
-          onClick={() => setActionSheetOpen(true)}
-          aria-expanded={actionSheetOpen}
-          aria-label="打开功能"
-        >
-          <span className="detail-bottom-nav-icon" aria-hidden="true"><IconMoreStroked /></span>
-          <span>功能</span>
-        </button>
-      </nav>
+            },
+          } : {}} />
 
       {actionSheetOpen ? (
         <button

@@ -48,13 +48,13 @@ async function getProjectById(id, { demo = false, includeFaces = true, timeoutMs
   });
 }
 
-async function updateProject(id, data) {
+async function updateProject(id, data, options = {}) {
   if (!id) throw new Error('missing project id');
   // determine API base: prefer window.__MAMAGE_API_BASE__, then REQ_BASE, then use relative paths for proxy
   const apiBase = (typeof window !== 'undefined' && window.__MAMAGE_API_BASE__) ? window.__MAMAGE_API_BASE__ : (REQ_BASE || '');
   const url = `${String(apiBase).replace(/\/+$/,'')}/api/projects/${id}/update`;
   const token = (typeof window !== 'undefined') ? (localStorage.getItem('mamage_jwt_token') || '') : '';
-  const headers = Object.assign({ 'Content-Type': 'application/json' }, token ? { Authorization: `Bearer ${token}` } : {});
+  const headers = Object.assign({ 'Content-Type': 'application/json' }, token ? { Authorization: `Bearer ${token}` } : {}, options.headers || {});
   const resp = await fetch(url, { method: 'POST', headers, body: JSON.stringify(data) });
   if (!resp.ok) {
     const text = await resp.text();
@@ -67,7 +67,7 @@ async function updateProject(id, data) {
   return resp.text();
 }
 
-async function createProject(data) {
+async function createProject(data, options = {}) {
   const payload = {
     projectName: data?.projectName || data?.name || data?.title || '',
   };
@@ -84,7 +84,7 @@ async function createProject(data) {
   const apiBase = (typeof window !== 'undefined' && window.__MAMAGE_API_BASE__) ? window.__MAMAGE_API_BASE__ : (REQ_BASE || '');
   const url = `${String(apiBase).replace(/\/+$/,'')}/api/projects`;
   const token = (typeof window !== 'undefined') ? (localStorage.getItem('mamage_jwt_token') || '') : '';
-  const headers = Object.assign({ 'Content-Type': 'application/json' }, token ? { Authorization: `Bearer ${token}` } : {});
+  const headers = Object.assign({ 'Content-Type': 'application/json' }, token ? { Authorization: `Bearer ${token}` } : {}, options.headers || {});
   const resp = await fetch(url, { method: 'POST', headers, body: JSON.stringify(payload) });
   if (!resp.ok) {
     const text = await resp.text();
