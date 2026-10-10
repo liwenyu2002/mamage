@@ -1,8 +1,10 @@
 // src/ProjectCard.jsx
 import React from 'react';
 import { fetchRandomByProject } from './services/photoQueryService';
+import { fetchProjectPreviews, PROJECT_PREVIEW_LIMIT } from './services/projectPreviewService';
 import { resolveAssetUrl } from './services/request';
-import { IconGridView, IconListView, IconSimilarStack } from './ui/icons';
+import { pickProjectPreviewSrc as pickThumbSrc, projectPreviewSourceKey, findProjectPreviewPhotoId } from './utils/projectPreviewPhotos';
+import { IconGridView, IconListView, IconSimilarStack, IconStar } from './ui/icons';
 import './ProjectCard.css';
 
 const FALLBACK_THUMB_CACHE = new Map();
@@ -48,12 +50,6 @@ const sameStringList = (a, b) => {
   return true;
 };
 
-const pickThumbSrc = (item) => {
-  if (!item) return null;
-  if (typeof item === 'string') return item;
-  return item.thumbSrc || item.thumbUrl || item.thumbnail || item.thumb || item.coverUrl || item.url || item.fileUrl || item.imageUrl || null;
-};
-
 function ImportStatusBadge({ summary }) {
   if (!summary || summary.status === 'completed') return null;
   const { status, scanStatus } = summary;
@@ -90,14 +86,20 @@ function ProjectCard({
   date,
   startDate,
   createdAt,
+  updatedAt,
   description,
   originLabel,
   count,
+  pinned = false,
   images = [],
   cover = null,
   thumbnails = [],
+  previewPhotos = [],
   importStatus,
+  previewScope,
+  selectionMode = false,
   onClick,
+  onPreviewOpen,
   onHoverIntent,
 }) {
   const main = cover || images[0];
@@ -115,11 +117,17 @@ function ProjectCard({
   ), [thumbnails]);
 
   const [fallbackThumbs, setFallbackThumbs] = React.useState([]);
+  const [fallbackPhotos, setFallbackPhotos] = React.useState([]);
   const [coverOverride, setCoverOverride] = React.useState(null);
   const [loadedMap, setLoadedMap] = React.useState({});
   const [failedMap, setFailedMap] = React.useState({});
-  const [selectedPreview, setSelectedPreview] = React.useState(null);
   const [hoverPreview, setHoverPreview] = React.useState(null);
+  const [previewExpanded, setPreviewExpanded] = React.useState(false);
+  const [diverseThumbs, setDiverseThumbs] = React.useState(null);
+  const [previewLoading, setPreviewLoading] = React.useState(false);
+  const previewPointerInside = React.useRef(false);
+  const thumbGridRef = React.useRef(null);
+  const restorePreviewFocus = React.useRef(null);
   const mediaId = React.useId();
   const markFailed = (src) => {
     if (!src) return;
@@ -127,6 +135,42 @@ function ProjectCard({
   };
   const [isVisible, setIsVisible] = React.useState(false);
   const cardRef = React.useRef(null);
+  const previewRevision = `${updatedAt || ''}:${count ?? ''}`;
+
+  React.useEffect(() => {
+    setDiverseThumbs(null);
+    setPreviewExpanded(false);
+    setHoverPreview(null);
+    setFallbackPhotos([]);
+    setFallbackThumbs([]);
+    setCoverOverride(null);
+    previewPointerInside.current = false;
+  }, [id, previewRevision, previewScope?.userId, previewScope?.unitId, previewScope?.organizationId]);
+
+  React.useEffect(() => {
+    if (!previewExpanded || !id || diverseThumbs !== null) return undefined;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      setPreviewLoading(true);
+      fetchProjectPreviews(id, { scope: previewScope, revision: previewRevision }).then(list => {
+        if (cancelled) return;
+        const sources = list.map(item => resolveAssetUrl(pickThumbSrc(item))).filter(Boolean);
+        if (!sources.length) return;
+        const buttons = [...(thumbGridRef.current?.querySelectorAll('button') || [])];
+        const focusedIndex = buttons.indexOf(document.activeElement);
+        if (focusedIndex >= 0 && document.activeElement.matches(':focus-visible')) restorePreviewFocus.current = focusedIndex;
+        setDiverseThumbs(list);
+      }).catch(() => {}).finally(() => { if (!cancelled) setPreviewLoading(false); });
+    }, 120);
+    return () => { cancelled = true; clearTimeout(timer); setPreviewLoading(false); };
+  }, [id, previewExpanded, diverseThumbs, previewRevision, previewScope]);
+
+  React.useLayoutEffect(() => {
+    if (restorePreviewFocus.current === null) return;
+    const buttons = [...(thumbGridRef.current?.querySelectorAll('button') || [])];
+    buttons[Math.min(restorePreviewFocus.current, buttons.length - 1)]?.focus({ preventScroll: true });
+    restorePreviewFocus.current = null;
+  }, [diverseThumbs]);
 
   React.useEffect(() => {
     const node = cardRef.current;
@@ -148,8 +192,10 @@ function ProjectCard({
       return undefined;
     }
 
-    const applyFallbacks = (srcs) => {
+    const applyFallbacks = (list) => {
       if (canceled) return;
+      const srcs = list.map(item => resolveAssetUrl(pickThumbSrc(item))).filter(Boolean);
+      setFallbackPhotos(list);
       const existing = new Set([...normalizedThumbnails, ...normalizedImages]);
       const filtered = srcs.filter((s) => s && s !== resolvedMain && !existing.has(s));
       const nextFallbacks = filtered.slice(0, 3);
@@ -175,10 +221,9 @@ function ProjectCard({
       promise = scheduleFallbackThumbFetch(() => fetchRandomByProject(id, 6))
         .then((res) => {
           const list = Array.isArray(res?.list) ? res.list : (Array.isArray(res) ? res : []);
-          const srcs = list.map((it) => resolveAssetUrl(pickThumbSrc(it) || it)).filter(Boolean);
-          FALLBACK_THUMB_CACHE.set(cacheKey, srcs);
+          FALLBACK_THUMB_CACHE.set(cacheKey, list);
           FALLBACK_THUMB_IN_FLIGHT.delete(cacheKey);
-          return srcs;
+          return list;
         })
         .catch((err) => {
           FALLBACK_THUMB_IN_FLIGHT.delete(cacheKey);
@@ -194,7 +239,6 @@ function ProjectCard({
   }, [id, isVisible, count, normalizedThumbnails, normalizedImages, resolvedMain]);
 
   React.useEffect(() => {
-    setSelectedPreview(null);
     setHoverPreview(null);
   }, [id]);
 
@@ -251,11 +295,27 @@ function ProjectCard({
   fallbackThumbs.forEach(pushIfUnique);
   normalizedImages.forEach(pushIfUnique);
   pushIfUnique(resolvedMain);
-  const previewSources = (count != null && Number(count) === 0 ? [] : [coverDisplayed || resolvedMain, ...combined])
-    .filter((src) => src && !failedMap[src]).slice(0, 4);
-  const others = previewSources.slice(1);
-  const activeSource = [hoverPreview, selectedPreview].find((src) => previewSources.includes(src)) || previewSources[0];
+  const uniqueSources = (sources) => {
+    const seen = new Set();
+    return sources.filter(src => {
+      if (!src || failedMap[src]) return false;
+      // Media signatures can change between the initial list and hover request.
+      const key = projectPreviewSourceKey(src);
+      if (seen.has(key)) return false;
+      seen.add(key); return true;
+    });
+  };
+  const baseSources = uniqueSources([coverDisplayed || resolvedMain, ...combined]).slice(0, PROJECT_PREVIEW_LIMIT + 1);
+  const diverseSources = diverseThumbs ? uniqueSources([coverDisplayed || resolvedMain, ...diverseThumbs.map(item => resolveAssetUrl(pickThumbSrc(item)))]).slice(0, PROJECT_PREVIEW_LIMIT + 1) : [];
+  const previewSources = count != null && Number(count) === 0 ? [] : diverseSources.length > 1 ? diverseSources : baseSources;
+  const others = previewSources.slice(1, previewExpanded ? PROJECT_PREVIEW_LIMIT + 1 : 4);
+  const previewColumns = Math.min(10, Math.max(1, others.length));
+  const previewRows = Math.ceil(others.length / previewColumns);
+  const activeSource = previewSources.includes(hoverPreview) ? hoverPreview : previewSources[0];
   const activeIndex = previewSources.indexOf(activeSource);
+  const coverSources = uniqueSources([previewSources[0], activeSource]);
+  const visibleCover = loadedMap[activeSource] ? activeSource : previewSources[0];
+  const closePreview = () => { setPreviewExpanded(false); setHoverPreview(null); };
 
   const formatDay = (d) => {
     if (!d) return null;
@@ -299,31 +359,40 @@ function ProjectCard({
     <article className="project-card project-card--visual" ref={cardRef} aria-label={title}>
       <button type="button" className="project-card__open" onClick={onClick} aria-label={`打开相册 ${title}`}>
         <span className="project-card__cover-image" id={mediaId} data-active-preview={activeIndex}>
-          {previewSources.map((src) => <img key={src} src={src} alt="" loading="lazy" decoding="async" draggable={false}
-            className={`project-card__img${loadedMap[src] ? ' is-ready' : ''}${src === activeSource ? ' is-active' : ''}`}
+          {coverSources.map((src) => <img key={src} src={src} alt="" loading="lazy" decoding="async" draggable={false}
+            className={`project-card__img${loadedMap[src] ? ' is-ready' : ''}${src === visibleCover ? ' is-active' : ''}`}
             onLoad={() => markLoaded(src)} onError={() => markFailed(src)} />)}
           {!previewSources.length && <span className="project-card__cover-empty"><IconGridView /><span>暂无照片</span></span>}
-          <span className="project-card__count"><IconSimilarStack /><span>{count ?? previewSources.length} 作品</span></span>
+          <span className="project-card__count"><IconSimilarStack /><span>{count ?? previewSources.length} 作品</span>{pinned && <IconStar className="project-card__pin" aria-label="已置顶" />}</span>
           {activeIndex > 0 && <span className="project-card__frame-index" aria-hidden="true">{String(activeIndex + 1).padStart(2, '0')} / {String(previewSources.length).padStart(2, '0')}</span>}
         </span>
       </button>
-      {others.length > 0 && <div className="project-card__thumb-grid" role="group" aria-label={`${title} 照片预览`}
-        onPointerLeave={() => setHoverPreview(null)} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setHoverPreview(null); }}
+      {others.length > 0 && <div ref={thumbGridRef} className={`project-card__thumb-grid${previewExpanded && others.length > 3 ? ' is-expanded' : ''}`} style={{ '--project-preview-columns': previewColumns, '--project-preview-rows': previewRows }} role="group" aria-label={`${title} 照片预览`} aria-busy={previewLoading}
+        onPointerEnter={(event) => { if (!selectionMode && event.pointerType === 'mouse') { previewPointerInside.current = true; setPreviewExpanded(true); } }}
+        onPointerLeave={() => { previewPointerInside.current = false; setHoverPreview(null); if (!thumbGridRef.current?.contains(document.activeElement) || !document.activeElement?.matches(':focus-visible')) setPreviewExpanded(false); }}
+        onFocus={(event) => { if (!selectionMode && event.target.matches(':focus-visible')) setPreviewExpanded(true); }}
+        onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) { setHoverPreview(null); if (!previewPointerInside.current) setPreviewExpanded(false); } }}
         onKeyDown={(event) => {
-          if (event.key === 'Escape') { setHoverPreview(null); setSelectedPreview(null); return; }
-          if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+          if (event.key === 'Escape') { event.currentTarget.querySelector('button')?.focus({ preventScroll: true }); closePreview(); return; }
+          if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return;
           event.preventDefault();
           const buttons = [...event.currentTarget.querySelectorAll('button')];
           const index = buttons.indexOf(document.activeElement);
+          const step = previewRows > 1 && ['ArrowUp', 'ArrowDown'].includes(event.key) ? previewColumns : 1;
           const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1
-            : (index + (event.key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length;
+            : (index + (['ArrowRight', 'ArrowDown'].includes(event.key) ? step : -step) + buttons.length) % buttons.length;
           buttons[next]?.focus({ preventScroll: true });
         }}>
         {others.map((src, index) => <button type="button" className="project-card__thumb" key={src} aria-controls={mediaId}
-          aria-label={`预览 ${title} 第 ${index + 2} 张`} aria-pressed={src === activeSource} title={`预览第 ${index + 2} 张照片`}
-          onPointerEnter={(event) => { if (event.pointerType === 'mouse') setHoverPreview(src); }}
-          onFocus={(event) => { if (event.currentTarget.matches(':focus-visible')) setHoverPreview(src); }}
-          onClick={(event) => { event.stopPropagation(); setHoverPreview(null); setSelectedPreview((old) => old === src ? null : src); }}>
+          aria-label={selectionMode ? `选择相册 ${title}，小图 ${index + 1}` : `打开 ${title} 第 ${index + 2} 张照片`} title={selectionMode ? '选择相册' : `打开第 ${index + 2} 张照片`}
+          onPointerEnter={(event) => { if (!selectionMode && event.pointerType === 'mouse') setHoverPreview(src); }}
+          onFocus={(event) => { if (!selectionMode && event.currentTarget.matches(':focus-visible')) setHoverPreview(src); }}
+          onClick={(event) => {
+            event.stopPropagation();
+            const photoId = findProjectPreviewPhotoId(src, [...(diverseThumbs || []), ...previewPhotos, ...thumbnails, ...fallbackPhotos, ...images, cover], resolveAssetUrl);
+            if (onPreviewOpen) onPreviewOpen({ photoId, src });
+            else onClick?.();
+          }}>
           <img src={src} alt="" loading="lazy" decoding="async" draggable={false}
             className={`project-card__img${loadedMap[src] ? ' is-ready' : ''}`}
             onLoad={() => markLoaded(src)} onError={() => markFailed(src)} />

@@ -30,8 +30,9 @@ import {
 import './ProjectDetail.css';
 import { getProjectById, updateProject, deleteProject, createTimelineSection, updateTimelineSection, deleteTimelineSection, reorderTimelineSections } from './services/projectService';
 import { getToken } from './services/authService';
-import { fetchRandomByProject, searchPhotos, getPhotoById, updatePhoto, assignPhotosTimelineSection, getFacePersonInfo, labelFacePerson, renameFacePerson, uploadPhotoFiles, warmUploadApiProbe, deletePhotos, getPhotoFaces, getUploadFileLimitError, FRONTEND_MAX_VIDEO_UPLOAD_TEXT, runGroupRescueJob, isBrowserUndisplayableImage, isNeverBrowserPreviewable, undisplayableFormatLabel, getPersonFaces, previewPersonSplit, splitPerson } from './services/photoService';
+import { fetchRandomByProject, searchPhotos, getPhotoById, updatePhoto, assignPhotosTimelineSection, getFacePersonInfo, getFaceAvatar, getFacePersonPhotos, labelFacePerson, renameFacePerson, uploadPhotoFiles, warmUploadApiProbe, deletePhotos, getPhotoFaces, getUploadFileLimitError, FRONTEND_MAX_VIDEO_UPLOAD_TEXT, runGroupRescueJob, isBrowserUndisplayableImage, isNeverBrowserPreviewable, undisplayableFormatLabel, getPersonFaces, previewPersonSplit, splitPerson } from './services/photoService';
 import { resolveAssetUrl, BASE_URL } from './services/request';
+import { findProjectPreviewIndex } from './utils/projectPreviewPhotos';
 import { getDirectMediaUrl } from './services/directStorage';
 import FindMeModal from './FindMeModal';
 import FacePersonMerge from './FacePersonMerge';
@@ -593,9 +594,10 @@ function normalizeFacePerson(payload, sourceFace) {
   const faceId = sourceFace?.faceId ? String(sourceFace.faceId) : '';
   const personNameRaw = person.name || person.personName || person.person_name || person.label || sourceFace?.personName || '';
   const personName = String(personNameRaw || '').trim();
-  const relatedPhotos = normalizeRelatedFacePhotos(
+  const allRelatedPhotos = normalizeRelatedFacePhotos(
     data.relatedPhotos || data.photos || person.relatedPhotos || person.photos || sourceFace?.relatedPhotos || []
   );
+  const relatedPhotos = data.page === undefined ? allRelatedPhotos.slice(0, 24) : allRelatedPhotos;
 
   return {
     personId,
@@ -605,6 +607,11 @@ function normalizeFacePerson(payload, sourceFace) {
     description: String(person.description || person.bio || person.summary || '').trim(),
     // 服务端按人脸裁好的头像（data URI）。有它就直接当主图，不再下原图 + CSS 缩放
     avatarDataUrl: typeof data.avatarDataUrl === 'string' && data.avatarDataUrl ? data.avatarDataUrl : '',
+    avatarFaceId: data.avatarFaceId ? String(data.avatarFaceId) : '',
+    photoTotal: data.total !== undefined && Number.isFinite(Number(data.total)) ? Number(data.total) : allRelatedPhotos.length,
+    photoTotalKnown: data.total !== undefined || Array.isArray(data.relatedPhotos) || Array.isArray(data.photos),
+    photoPage: Number(data.page) || 1,
+    photoHasMore: data.hasMore === undefined ? allRelatedPhotos.length > relatedPhotos.length : Boolean(data.hasMore),
     relatedPhotos,
     sourceFace: sourceFace || null,
     raw: data,
@@ -616,6 +623,7 @@ function ProjectDetail({
   initialProject,
   onBack,
   initialOpenPhotoId,
+  initialOpenPhotoSrc,
   onInitialOpenPhotoHandled,
   readOnly = false,
   galleryMode: controlledGalleryMode,
@@ -731,6 +739,12 @@ function ProjectDetail({
   const [facePersonHeroPhoto, setFacePersonHeroPhoto] = React.useState(null);
   const [facePersonEditName, setFacePersonEditName] = React.useState('');
   const [facePersonSaving, setFacePersonSaving] = React.useState(false);
+  const [facePersonNameConflict, setFacePersonNameConflict] = React.useState(null);
+  const [facePersonPhotosLoading, setFacePersonPhotosLoading] = React.useState(false);
+  const [facePersonPhotosError, setFacePersonPhotosError] = React.useState('');
+  const facePersonRequestRef = React.useRef(null);
+  const facePersonPageRequestRef = React.useRef(null);
+  React.useEffect(() => () => { facePersonRequestRef.current?.abort(); facePersonRequestRef.current = null; }, [projectId]);
   const [faceMergeVisible, setFaceMergeVisible] = React.useState(false);
   // 系统认错人了？——人物拆分（select=勾种子脸，preview=预览两组归属）
   const [faceSplitMode, setFaceSplitMode] = React.useState(null);
@@ -3662,6 +3676,12 @@ function ProjectDetail({
   }, []);
 
   const closeFacePersonModal = React.useCallback(() => {
+    facePersonRequestRef.current?.abort();
+    facePersonRequestRef.current = null;
+    facePersonPageRequestRef.current = null;
+    setFacePersonPhotosLoading(false);
+    setFacePersonPhotosError('');
+    setFacePersonNameConflict(null);
     setFacePersonVisible(false);
     setFacePersonLoading(false);
     setFacePersonSaving(false);
@@ -3685,15 +3705,33 @@ function ProjectDetail({
     setFaceSplitError('');
   }, []);
 
+  const loadFacePersonAvatar = React.useCallback((data, controller) => {
+    if (!data.avatarFaceId || data.avatarDataUrl || !controller) return;
+    getFaceAvatar(data.avatarFaceId, { signal: controller.signal }).then(avatar => {
+      if (facePersonRequestRef.current !== controller || controller.signal.aborted || !avatar?.avatarDataUrl) return;
+      setFacePersonData(previous => previous ? { ...previous, avatarDataUrl: avatar.avatarDataUrl } : previous);
+    }).catch(() => {});
+  }, []);
+
   const openFacePersonModal = React.useCallback(async (face) => {
     if (!face) return;
+    facePersonRequestRef.current?.abort();
+    const controller = new AbortController();
+    facePersonRequestRef.current = controller;
+    facePersonPageRequestRef.current = null;
     const seedData = normalizeFacePerson({}, face);
+    const sourcePhoto = photoMetas.find(meta => String(getMetaPhotoId(meta)) === String(face.photoId));
+    const seedHero = sourcePhoto ? normalizeRelatedFacePhotos([sourcePhoto])[0] : pickFacePersonHeroPhoto(seedData);
     setFacePersonError('');
+    setFacePersonPhotosError('');
+    setFacePersonNameConflict(null);
+    setFacePersonPhotosLoading(false);
+    setFacePersonLoading(false);
     setFaceMergeVisible(false);
     setFacePersonVisible(true);
     setFacePersonData(seedData);
     setFacePersonEditName(seedData.personName || '');
-    setFacePersonHeroPhoto(pickFacePersonHeroPhoto(seedData));
+    setFacePersonHeroPhoto(seedHero);
 
     if (!face.faceId && !face.personId) return;
 
@@ -3703,18 +3741,46 @@ function ProjectDetail({
         faceId: face.faceId || undefined,
         personId: face.personId || undefined,
         projectId: projectId || undefined,
+        signal: controller.signal,
       });
+      if (facePersonRequestRef.current !== controller || controller.signal.aborted) return;
       const normalized = normalizeFacePerson(data, face);
       setFacePersonData(normalized);
       setFacePersonEditName(normalized.personName || '');
-      setFacePersonHeroPhoto(pickFacePersonHeroPhoto(normalized));
+      setFacePersonHeroPhoto(seedHero || pickFacePersonHeroPhoto(normalized));
+      loadFacePersonAvatar(data, controller);
     } catch (err) {
+      if (facePersonRequestRef.current !== controller || controller.signal.aborted) return;
       console.error('getFacePersonInfo failed', err);
-      setFacePersonError(err?.body || err?.message || '获取人物信息失败');
+      setFacePersonError(err?.message || '获取人物信息失败');
     } finally {
-      setFacePersonLoading(false);
+      if (facePersonRequestRef.current === controller) setFacePersonLoading(false);
     }
-  }, [pickFacePersonHeroPhoto, projectId]);
+  }, [pickFacePersonHeroPhoto, projectId, photoMetas, getMetaPhotoId, loadFacePersonAvatar]);
+
+  const loadMoreFacePersonPhotos = React.useCallback(async () => {
+    const controller = facePersonRequestRef.current;
+    if (!controller || facePersonPageRequestRef.current === controller || !facePersonData?.personId || !facePersonData.photoHasMore) return;
+    facePersonPageRequestRef.current = controller;
+    setFacePersonPhotosLoading(true); setFacePersonPhotosError('');
+    try {
+      const data = await getFacePersonPhotos({ personId: facePersonData.personId, page: facePersonData.photoPage + 1, signal: controller.signal });
+      if (facePersonRequestRef.current !== controller || controller.signal.aborted) return;
+      const photos = normalizeRelatedFacePhotos(data.photos || []);
+      setFacePersonData(previous => {
+        if (!previous || previous.personId !== facePersonData.personId) return previous;
+        const ids = new Set(previous.relatedPhotos.map(photo => photo.id));
+        return { ...previous, relatedPhotos: [...previous.relatedPhotos, ...photos.filter(photo => {
+          if (ids.has(photo.id)) return false; ids.add(photo.id); return true;
+        })], photoTotal: Number(data.total) || 0, photoPage: Number(data.page), photoHasMore: Boolean(data.hasMore) };
+      });
+    } catch (err) {
+      if (facePersonRequestRef.current === controller && !controller.signal.aborted) setFacePersonPhotosError(err?.message || '照片加载失败，请重试');
+    } finally {
+      if (facePersonPageRequestRef.current === controller) facePersonPageRequestRef.current = null;
+      if (facePersonRequestRef.current === controller) setFacePersonPhotosLoading(false);
+    }
+  }, [facePersonData]);
 
   // ---- 系统认错人了？拆分流程 ----
   const resetFaceSplitState = React.useCallback(() => {
@@ -3877,14 +3943,19 @@ function ProjectDetail({
 
       // 刷新人物面板为原人物拆分后的最新数据
       try {
+        const controller = facePersonRequestRef.current;
+        if (!controller) return;
         const data = await getFacePersonInfo({
           personId: facePersonData.personId,
           projectId: projectId || undefined,
+          signal: controller.signal,
         });
+        if (facePersonRequestRef.current !== controller || controller.signal.aborted) return;
         const normalized = normalizeFacePerson(data, facePersonData.sourceFace || null);
         setFacePersonData(normalized);
         setFacePersonEditName(normalized.personName || '');
         setFacePersonHeroPhoto(pickFacePersonHeroPhoto(normalized));
+        loadFacePersonAvatar(data, controller);
       } catch (e) {
         console.warn('refresh face person after split failed', e);
       }
@@ -3894,25 +3965,34 @@ function ProjectDetail({
     } finally {
       setFaceSplitSubmitting(false);
     }
-  }, [facePersonData, faceSplitMoveIds, faceSplitSeedIds, faceSplitPreview, faceSplitNewName, resetFaceSplitState, projectId, pickFacePersonHeroPhoto]);
+  }, [facePersonData, faceSplitMoveIds, faceSplitSeedIds, faceSplitPreview, faceSplitNewName, resetFaceSplitState, projectId, pickFacePersonHeroPhoto, loadFacePersonAvatar]);
   // ---- 拆分流程结束 ----
 
   const handleFacePersonsMerged = React.useCallback((result) => {
+    facePersonRequestRef.current?.abort();
+    const controller = new AbortController();
+    facePersonRequestRef.current = controller;
+    facePersonPageRequestRef.current = null;
+    setFacePersonPhotosLoading(false); setFacePersonPhotosError('');
     setFaceMergeVisible(false);
     setFacePersonError('');
+    setFacePersonNameConflict(null);
 
     if (result?.profile) {
       const normalized = normalizeFacePerson(result.profile, null);
       setFacePersonData(normalized);
       setFacePersonEditName(normalized.personName || '');
       setFacePersonHeroPhoto(pickFacePersonHeroPhoto(normalized));
+      loadFacePersonAvatar(result.profile, controller);
     } else if (result?.targetPersonId) {
-      getFacePersonInfo({ personId: result.targetPersonId, projectId: projectId || undefined })
+      getFacePersonInfo({ personId: result.targetPersonId, projectId: projectId || undefined, signal: controller.signal })
         .then((data) => {
+          if (facePersonRequestRef.current !== controller || controller.signal.aborted) return;
           const normalized = normalizeFacePerson(data, null);
           setFacePersonData(normalized);
           setFacePersonEditName(normalized.personName || '');
           setFacePersonHeroPhoto(pickFacePersonHeroPhoto(normalized));
+          loadFacePersonAvatar(data, controller);
         })
         .catch((error) => console.warn('refresh merged person failed', error));
     }
@@ -3923,10 +4003,11 @@ function ProjectDetail({
         setViewerFaceErrorMap({});
         viewerFaceFetchPromiseRef.current = {};
       });
-  }, [pickFacePersonHeroPhoto, projectId, refreshProjectDetail]);
+  }, [pickFacePersonHeroPhoto, projectId, refreshProjectDetail, loadFacePersonAvatar]);
 
   const saveFacePersonName = React.useCallback(async () => {
     if (!facePersonData) return;
+    const controller = facePersonRequestRef.current;
     const nextName = String(facePersonEditName || '').trim();
     if (!nextName) {
       Toast.warning('请输入人物姓名');
@@ -3940,6 +4021,7 @@ function ProjectDetail({
 
     setFacePersonSaving(true);
     setFacePersonError('');
+    setFacePersonNameConflict(null);
     try {
       let data;
       if (facePersonData.personId) {
@@ -3953,6 +4035,7 @@ function ProjectDetail({
           personName: nextName,
         });
       }
+      if (facePersonRequestRef.current !== controller) return;
 
       const normalized = normalizeFacePerson(data, {
         faceId: facePersonData.faceId || '',
@@ -4004,20 +4087,27 @@ function ProjectDetail({
 
       Toast.success('人物姓名已更新');
     } catch (err) {
+      if (facePersonRequestRef.current !== controller) return;
       console.error('saveFacePersonName failed', err);
       let msg = err?.message || '更新人物姓名失败';
+      let parsed = null;
       if (err?.body) {
         try {
-          const parsed = typeof err.body === 'string' ? JSON.parse(err.body) : err.body;
+          parsed = typeof err.body === 'string' ? JSON.parse(err.body) : err.body;
           msg = parsed?.message || parsed?.error || msg;
         } catch (e) {
           msg = typeof err.body === 'string' ? err.body : msg;
         }
       }
+      const isNameConflict = err?.status === 409 && (parsed?.error === 'person name already exists' || parsed?.existingPersonId || /person name already exists|同名|姓名/.test(msg));
+      if (isNameConflict) {
+        msg = '已有同名人物档案，请先核对是否为同一个人。不同人物请使用可区分的姓名。';
+        setFacePersonNameConflict({ name: nextName });
+      }
       setFacePersonError(msg);
-      Toast.error(msg);
+      if (!isNameConflict) Toast.error(msg);
     } finally {
-      setFacePersonSaving(false);
+      if (facePersonRequestRef.current === controller) setFacePersonSaving(false);
     }
   }, [facePersonData, facePersonEditName]);
 
@@ -4273,20 +4363,20 @@ function ProjectDetail({
 
   const lastAutoOpenedPhotoKeyRef = React.useRef('');
   React.useEffect(() => {
-    if (!initialOpenPhotoId) return;
+    if (!initialOpenPhotoId && !initialOpenPhotoSrc) return;
+    if (loading) return;
     if (!Array.isArray(photoMetas) || !photoMetas.length) return;
-    const targetPhotoId = String(initialOpenPhotoId).trim();
-    if (!targetPhotoId) return;
-    const key = `${String(projectId || '')}:${targetPhotoId}`;
+    const key = `${String(projectId || '')}:${initialOpenPhotoId || initialOpenPhotoSrc}`;
     if (lastAutoOpenedPhotoKeyRef.current === key) return;
-    const idx = photoMetas.findIndex((m) => String(getMetaPhotoId(m) || '') === targetPhotoId);
+    const idx = findProjectPreviewIndex(photoMetas, { photoId: initialOpenPhotoId, src: initialOpenPhotoSrc }, resolveAssetUrl);
     if (idx < 0) return;
+    const targetPhotoId = getMetaPhotoId(photoMetas[idx]);
     lastAutoOpenedPhotoKeyRef.current = key;
     openViewerAt(idx, getViewerTargetSrc(idx, false));
     if (typeof onInitialOpenPhotoHandled === 'function') {
       onInitialOpenPhotoHandled(targetPhotoId);
     }
-  }, [initialOpenPhotoId, photoMetas, projectId, getMetaPhotoId, openViewerAt, getViewerTargetSrc, onInitialOpenPhotoHandled]);
+  }, [initialOpenPhotoId, initialOpenPhotoSrc, loading, photoMetas, projectId, getMetaPhotoId, openViewerAt, getViewerTargetSrc, onInitialOpenPhotoHandled]);
 
   const closeViewer = React.useCallback(() => {
     setViewerVisible(false);
@@ -6211,27 +6301,17 @@ function ProjectDetail({
           bodyStyle={{ maxHeight: isMobile ? '72vh' : '70vh', overflowY: 'auto' }}
         >
           {facePersonLoading ? (
-            <div className="person-sheet-loading">
-              <div className="person-loading-visual" aria-hidden="true">
-                <span />
-                <span />
-                <span />
-              </div>
-              <div className="person-loading-copy">
-                <div className="person-loading-title">正在同步人物信息</div>
-                <div className="person-loading-subtitle">整理人脸与关联照片</div>
-              </div>
-              <div className="person-loading-skeleton">
-                <span />
-                <span />
-                <span />
-              </div>
-            </div>
+            <div className="person-sheet-progress" role="status"><span aria-hidden="true" />正在读取人物资料…</div>
           ) : null}
 
           {facePersonError ? (
             <div className="person-sheet-error">
               <Text type="danger">{facePersonError}</Text>
+              {facePersonNameConflict && canSplitFacePerson && facePersonData?.personId && !faceMergeVisible ? (
+                <Button size="small" theme="light" onClick={() => { resetFaceSplitState(); setFaceMergeVisible(true); }}>查找同名人物</Button>
+              ) : facePersonNameConflict && !canSplitFacePerson ? (
+                <span>如需合并，请联系有合并权限的管理员。</span>
+              ) : null}
             </div>
           ) : null}
 
@@ -6274,14 +6354,17 @@ function ProjectDetail({
                         <div className="person-sheet-desc">{facePersonData.description}</div>
                       ) : null}
 
-                      <div className="person-sheet-stats">该组织下该人物照片：{relatedPhotos.length}</div>
+                      <div className="person-sheet-stats">该组织下该人物照片：{facePersonLoading ? '读取中…' : facePersonError && !facePersonData.photoTotalKnown ? '暂不可用' : facePersonData.photoTotal}</div>
 
                       <div className="person-sheet-edit-row">
                         <Input
                           value={facePersonEditName}
-                          onChange={(v) => setFacePersonEditName(v)}
+                          onChange={(v) => {
+                            setFacePersonEditName(v);
+                            if (facePersonNameConflict) { setFacePersonNameConflict(null); setFacePersonError(''); }
+                          }}
                           placeholder={facePersonData.personId ? '输入人物姓名' : '输入姓名并绑定到该人脸'}
-                          disabled={!canEditFacePersonName || facePersonSaving}
+                          disabled={!canEditFacePersonName || facePersonSaving || facePersonLoading}
                           maxLength={80}
                           style={{ flex: 1 }}
                         />
@@ -6290,7 +6373,7 @@ function ProjectDetail({
                           type="primary"
                           onClick={saveFacePersonName}
                           loading={facePersonSaving}
-                          disabled={!canEditFacePersonName || facePersonSaving}
+                          disabled={!canEditFacePersonName || facePersonSaving || facePersonLoading}
                         >
                           保存姓名
                         </Button>
@@ -6303,15 +6386,15 @@ function ProjectDetail({
 
                   {!faceSplitMode && !faceMergeVisible && canSplitFacePerson && facePersonData.personId ? (
                     <div className="person-sheet-face-actions">
-                      <Button size="small" theme="light" onClick={() => setFaceMergeVisible(true)}>合并人物</Button>
-                      {relatedPhotos.length >= 2 ? (
+                      <Button size="small" theme="light" onClick={() => { setFacePersonNameConflict(null); setFaceMergeVisible(true); }}>合并人物</Button>
+                      {facePersonData.photoTotal >= 2 ? (
                         <Button size="small" theme="light" onClick={startFaceSplit} loading={faceSplitLoading}>拆分人物</Button>
                       ) : null}
                     </div>
                   ) : null}
 
                   {faceMergeVisible && facePersonData.personId ? (
-                    <FacePersonMerge currentPerson={facePersonData} onCancel={() => setFaceMergeVisible(false)} onMerged={handleFacePersonsMerged} />
+                    <FacePersonMerge currentPerson={facePersonData} initialQuery={facePersonNameConflict?.name || ''} onCancel={() => setFaceMergeVisible(false)} onMerged={handleFacePersonsMerged} />
                   ) : null}
 
                   {faceSplitMode === 'select' ? (
@@ -6495,6 +6578,8 @@ function ProjectDetail({
                                   src={thumb}
                                   alt={titleText}
                                   className="person-sheet-thumb"
+                                  loading="lazy"
+                                  decoding="async"
                                 />
                               ) : (
                                 <div className="person-sheet-thumb person-sheet-thumb-empty">无图</div>
@@ -6522,7 +6607,13 @@ function ProjectDetail({
                       })}
                     </div>
                   ) : !faceSplitMode && !faceMergeVisible ? (
-                    <Empty description="暂无关联照片" />
+                    !facePersonLoading && <Empty description="暂无关联照片" />
+                  ) : null}
+                  {!faceSplitMode && !faceMergeVisible && facePersonData.photoHasMore ? (
+                    <div className="person-sheet-more">
+                      {facePersonPhotosError && <div role="alert">{facePersonPhotosError}</div>}
+                      <Button loading={facePersonPhotosLoading} onClick={loadMoreFacePersonPhotos}>加载更多（已显示 {relatedPhotos.length}/{facePersonData.photoTotal}）</Button>
+                    </div>
                   ) : null}
                 </div>
               );

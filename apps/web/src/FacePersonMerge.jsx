@@ -58,10 +58,10 @@ function FaceSample({ person, sample, onRetry }) {
   );
 }
 
-export default function FacePersonMerge({ currentPerson, onCancel, onMerged }) {
+export default function FacePersonMerge({ currentPerson, initialQuery = '', onCancel, onMerged }) {
   const currentId = String(currentPerson?.personId || '');
-  const [query, setQuery] = React.useState('');
-  const [searchTerm, setSearchTerm] = React.useState('');
+  const [query, setQuery] = React.useState(() => initialQuery.trim());
+  const [searchTerm, setSearchTerm] = React.useState(() => initialQuery.trim());
   const [page, setPage] = React.useState(1);
   const [rows, setRows] = React.useState([]);
   const [hasMore, setHasMore] = React.useState(false);

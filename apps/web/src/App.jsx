@@ -212,6 +212,7 @@ function App() {
   const [currentProjectId, setCurrentProjectId] = React.useState(null);
   const [activeProjectHeader, setActiveProjectHeader] = React.useState(null);
   const [pendingOpenPhotoId, setPendingOpenPhotoId] = React.useState(null);
+  const [pendingOpenPhotoSrc, setPendingOpenPhotoSrc] = React.useState(null);
   const [selectedNav, setSelectedNav] = React.useState('projects');
   const [showCreateModal, setShowCreateModal] = React.useState(false);
   const [functionPage, setFunctionPage] = React.useState(null);
@@ -630,14 +631,17 @@ function App() {
     setPhotoPreviewVisible(false);
   }, []);
 
-  const handleSelectProject = React.useCallback((projectId) => {
+  const handleSelectProject = React.useCallback((projectId, photo = {}) => {
     setCurrentProjectId(projectId);
-    setPendingOpenPhotoId(null);
+    const photoId = photo?.photoId == null ? null : String(photo.photoId).trim() || null;
+    setPendingOpenPhotoId(photoId);
+    setPendingOpenPhotoSrc(photo?.src || null);
     setSelectedNav('projects');
     try {
       const url = new URL(window.location.href);
       url.searchParams.set('projectId', projectId);
-      url.searchParams.delete('photoId');
+      if (photoId) url.searchParams.set('photoId', photoId);
+      else url.searchParams.delete('photoId');
       window.history.pushState({}, '', url);
     } catch (e) {
       // ignore
@@ -646,6 +650,8 @@ function App() {
 
   const handleBackToList = React.useCallback(() => {
     setCurrentProjectId(null);
+    setPendingOpenPhotoId(null);
+    setPendingOpenPhotoSrc(null);
     setSelectedNav('projects');
     setKeyword('');
     clearPhotoSearchState();
@@ -799,6 +805,7 @@ function App() {
     }
 
     const onPop = () => {
+      setPendingOpenPhotoSrc(null);
       try {
         const path = window.location.pathname;
         const params = new URLSearchParams(window.location.search);
@@ -916,6 +923,7 @@ function App() {
         cover: resolvedCover,
         coverSrc: resolvedCover,
         thumbnails: resolvedThumbnails,
+        previewPhotos: baseImages,
       };
     }).filter((project) => project.id != null);
 
@@ -1206,6 +1214,7 @@ function App() {
     : `第 ${projectPage} 页`;
 
   const handleInitialPhotoOpened = React.useCallback((photoId) => {
+    setPendingOpenPhotoSrc(null);
     const sid = photoId === null || photoId === undefined ? '' : String(photoId).trim();
     if (!sid) return;
     setPendingOpenPhotoId((prev) => (prev && String(prev).trim() === sid ? null : prev));
@@ -1595,6 +1604,7 @@ function App() {
                 onBack={handleBackToList}
                 readOnly={isDemoPath}
                 initialOpenPhotoId={pendingOpenPhotoId}
+                initialOpenPhotoSrc={pendingOpenPhotoSrc}
                 onInitialOpenPhotoHandled={handleInitialPhotoOpened}
                 onProjectHeaderChange={setActiveProjectHeader}
                 onShareAlbum={!isDemoPath && canShareWorkspace ? openAlbumShare : null}
@@ -1816,6 +1826,7 @@ function App() {
                           importStatus={projectImportStatuses[project.id]}
                           onHoverIntent={preloadProjectDetail}
                           onClick={() => handleSelectProject(project.id)}
+                          onPreviewOpen={photo => handleSelectProject(project.id, photo)}
                         />
                       ))}
                   </div>

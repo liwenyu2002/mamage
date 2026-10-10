@@ -12,7 +12,25 @@ const state = { albums, scope: { userId: 999, organizationId: 2, unitId: 10 },
     { id: 'empty', name: '空相册集', kind: 'manual', projectIds: [], rule: {}, symbol: 'grid', layout: 'stack', color: '#515c67', tint: '#e6e9ec' },
     { id: 'smart', name: '智能相册集', kind: 'smart', projectIds: [], rule: { year: '2026' }, symbol: 'smart', layout: 'rule', color: '#515c67', tint: '#e6e9ec' }],
   preferences: { pins: [], recentItems: [], colors: {}, dismissed: [] }, workspaceRevision: 1, userRevision: 1, canOrganize: true };
-const controls = { readOnly: false, failSave: false, failEdit: false, failCreate: false };
+const controls = { readOnly: false, failSave: false, failEdit: false, failCreate: false, failPreviews: false, previewCount: 21, legacyPreviewMetadata: false };
+const fixturePhotos = album => Array.from({ length: album?.count ? controls.previewCount : 0 }, (_, index) => ({
+  id: 900 + (album.id - 1) * 100 + index, projectId: album.id,
+  title: `测试照片 ${900 + (album.id - 1) * 100 + index}`,
+  thumbUrl: index ? `/fixture.svg?preview=${index + 1}` : '/fixture.svg',
+  url: index ? `/fixture.svg?preview=${index + 1}` : '/fixture.svg',
+  width: 1600, height: 1000, type: 'photo', aiStatus: 'completed', tags: ['测试'],
+}));
+const cardVariants = process.env.FIXTURE_CARD_VARIANTS === '1';
+if (cardVariants) {
+  albums.forEach(album => { album.thumbnails = [2, 3, 4].map(index => `/fixture.svg?preview=${index}`); });
+  albums[0].name = albums[0].title = '2026 北京中关村学院校园活动与融媒体作品记录';
+  albums[0].count = 2217;
+  albums[1].image = null; albums[1].thumbnails = []; albums[1].count = 0;
+}
+if (process.env.FIXTURE_WITH_HISTORY === '1') {
+  state.preferences.pins = ['album:1'];
+  state.preferences.recentItems = [{ id: 2, visitedAt: 1791590400000 }];
+}
 const calls = [];
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
@@ -53,9 +71,22 @@ const server = http.createServer(async (req, res) => {
       const album = albums.find(a => a.id === Number(edit[1]));
       Object.assign(album, data, { name: data.projectName, title: data.projectName }); return send(album);
     }
-    if (endpoint === '/api/projects/list') return send({ list: albums.map(a => ({ ...a, projectName: a.name, photoCount: a.count, coverThumbUrl: a.image, previewImages: [{ thumbUrl: a.image }] })), total: albums.length, page: 1, pageSize: 24, hasMore: false });
-    if (endpoint === '/api/projects/import-status') return send({ statuses: {} });
-    if (/^\/api\/projects\/\d+$/.test(endpoint)) { const album = albums.find(a => a.id === Number(endpoint.split('/').pop())); return send({ ...album, projectName: album?.name, photos: [{ id: 901, thumbUrl: '/fixture.svg', url: '/fixture.svg', width: 1600, height: 1000 }], photoCount: 1 }); }
+    if (endpoint === '/api/projects/list') return send({ list: albums.map(a => ({ ...a, projectName: a.name, photoCount: a.count, coverThumbUrl: a.image,
+      previewImages: fixturePhotos(a).slice(0, cardVariants ? 4 : 1).map(photo => controls.legacyPreviewMetadata ? { thumbUrl: photo.thumbUrl } : photo),
+    })), total: albums.length, page: 1, pageSize: 24, hasMore: false });
+    if (endpoint === '/api/projects/import-status') return send({ statuses: cardVariants ? {
+      3: { status: 'running', scanStatus: 'completed', discoveredCount: 1000, selectedCount: 1000, doneCount: 670 },
+      4: { status: 'paused', discoveredCount: 500, selectedCount: 500, doneCount: 120 },
+    } : {} });
+    const previews = endpoint.match(/^\/api\/projects\/(\d+)\/previews$/);
+    if (previews && req.method === 'GET') {
+      calls.push({ endpoint, unit: req.headers['x-mamage-unit-id'] });
+      if (controls.failPreviews) return send({ message: '模拟预览失败' }, 500);
+      return send({ diversity: 'similarity', list: fixturePhotos(albums.find(a => a.id === Number(previews[1]))) });
+    }
+    if (/^\/api\/projects\/\d+$/.test(endpoint)) { const album = albums.find(a => a.id === Number(endpoint.split('/').pop())); return send({ ...album, projectName: album?.name, photos: fixturePhotos(album).reverse(), photoCount: fixturePhotos(album).length }); }
+    if (endpoint === '/api/photos') return send({ list: fixturePhotos(albums.find(a => a.id === Number(url.searchParams.get('projectId')))) });
+    if (/^\/api\/photos\/\d+$/.test(endpoint)) return send(albums.flatMap(fixturePhotos).find(photo => photo.id === Number(endpoint.split('/').pop())) || {});
     if (endpoint === '/fixture.svg') { res.writeHead(200, { 'Content-Type': 'image/svg+xml' }); return res.end('<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000"><rect width="1600" height="1000" fill="#b6c8b9"/></svg>'); }
     if (endpoint.startsWith('/api/')) {
       if (req.method !== 'GET') { calls.push({ unexpected: true, endpoint, method: req.method }); return send({ message: 'Unexpected fixture write' }, 405); }

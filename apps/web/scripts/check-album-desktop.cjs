@@ -48,12 +48,25 @@ async function main(){
   });
   await page.goto(url,{waitUntil:'networkidle'});
   await page.locator('.album-desktop').waitFor();
-  for(const text of ['我的置顶','最近使用','相册集','最近更新'])assert(await page.locator('.acp-main h2').getByText(text,{exact:true}).count());
+  for(const text of ['我的置顶','相册集','最近更新'])assert(await page.locator('.acp-main h2').getByText(text,{exact:true}).count());
+  assert.equal(await page.locator('[data-desktop-section="usage"]').count(),0);
+  assert.equal(await page.locator('.acp-sidebar').getByRole('button',{name:'最近使用',exact:true}).count(),0);
   assert.equal(await page.locator('.album-desktop .project-toolbar').count(),0,'desktop must not show library sorting');
   await page.waitForTimeout(450);assert.equal(calls.length,0,'mount must not write shared data');
   await page.screenshot({path:'/tmp/mamage-desktop-desktop.png',fullPage:true});
   const widths=[1440,1180,1024,820,768,600,390,320];
-  for(const width of widths){await page.setViewportSize({width,height:1000});await page.waitForTimeout(80);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,`overflow at ${width}`);if(width===390)await page.screenshot({path:'/tmp/mamage-desktop-mobile.png',fullPage:true});}
+  for(const width of widths){
+   await page.setViewportSize({width,height:1000});await page.waitForTimeout(80);
+   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,`overflow at ${width}`);
+   const geometry=await page.locator('.desktop-album').first().evaluate(element=>{
+    const card=element.querySelector('.project-card').getBoundingClientRect(),cover=element.querySelector('.project-card__cover-image').getBoundingClientRect(),menu=getComputedStyle(element.querySelector('.desktop-album-menu-trigger'));
+    return {width:card.width,ratio:cover.width/cover.height,menuWidth:parseFloat(menu.width),menuHeight:parseFloat(menu.height)};
+   });
+   if(width===1440)assert(geometry.width<300,'desktop cards must retain their narrow layout');
+   assert(Math.abs(geometry.ratio-4/3)<.02,'cover dimensions must stay stable');
+   assert(geometry.menuWidth>=44&&geometry.menuHeight>=44,'album menu must keep an accessible hit area');
+   if(width===390)await page.screenshot({path:'/tmp/mamage-desktop-mobile.png',fullPage:true});
+  }
   await page.setViewportSize({width:1440,height:1000});
   await page.locator('.acp-sidebar').getByRole('button',{name:/^全部相册/}).click();
   const toolbar=page.locator('.album-desktop .project-toolbar');await toolbar.waitFor();
@@ -92,19 +105,22 @@ async function main(){
   await page.locator('.desktop-album[data-album-id="12"]').dragTo(page.locator('.acp-sidebar').getByRole('button',{name:/^另一个相册集/}));
   await page.getByRole('dialog').last().getByRole('button',{name:'确认加入',exact:true}).click();await page.waitForTimeout(500);
   assert(state.groups.find(g=>g.id==='other').projectIds.includes(12));
-  await page.locator('.desktop-album[data-album-id="12"]').locator('.project-card__open').click();await page.waitForURL(/projectId=12/);await page.waitForTimeout(100);assert.equal(state.preferences.recentItems[0].id,12);
+  const historyBeforeOpen=copy(state.preferences.recentItems),savesBeforeOpen=calls.length;
+  await page.locator('.desktop-album[data-album-id="12"]').locator('.project-card__open').click();await page.waitForURL(/projectId=12/);await page.waitForTimeout(500);
+  assert.deepEqual(state.preferences.recentItems,historyBeforeOpen,'opening an album must not change history');
+  assert.equal(calls.length,savesBeforeOpen,'opening an album must not save desktop preferences');
   state.canOrganize=false;await page.goto(url,{waitUntil:'networkidle'});await page.locator('.album-desktop').waitFor();
   assert.equal(await page.getByRole('button',{name:'新建相册集',exact:true}).count(),0);
   await page.setViewportSize({width:390,height:844});await page.locator('.desktop-directory-trigger').click();await page.getByRole('dialog').waitFor();assert(await page.getByRole('dialog').getByRole('navigation',{name:'相册目录'}).count());
   state.canOrganize=true;state.preferences={pins:[],recentItems:[],colors:{},dismissed:[]};
   await page.goto(url,{waitUntil:'networkidle'});await page.locator('.album-desktop').waitFor();
-  const checkPersonalSections=async(pins,usage)=>{
+  const checkPersonalSections=async(pins)=>{
    assert.equal(await page.locator('[data-desktop-section="pins"]').count(),Number(pins));
-   assert.equal(await page.locator('[data-desktop-section="usage"]').count(),Number(usage));
+   assert.equal(await page.locator('[data-desktop-section="usage"]').count(),0);
    assert.equal(await page.locator('.acp-sidebar').getByRole('button',{name:'我的置顶',exact:true}).count(),Number(pins));
-   assert.equal(await page.locator('.acp-sidebar').getByRole('button',{name:'最近使用',exact:true}).count(),Number(usage));
+   assert.equal(await page.locator('.acp-sidebar').getByRole('button',{name:'最近使用',exact:true}).count(),0);
   };
-  for(const width of [1440,390]){await page.setViewportSize({width,height:1000});await checkPersonalSections(false,false);await page.screenshot({path:`/tmp/mamage-desktop-empty-${width}.png`,fullPage:true});}
+  for(const width of [1440,390]){await page.setViewportSize({width,height:1000});await checkPersonalSections(false);await page.screenshot({path:`/tmp/mamage-desktop-empty-${width}.png`,fullPage:true});}
   await page.locator('.desktop-directory-trigger').click();
   const directory=page.getByRole('dialog');
   assert.equal(await directory.getByRole('button',{name:'我的置顶',exact:true}).count(),0);
@@ -114,17 +130,17 @@ async function main(){
   await page.getByRole('button',{name:'管理我的置顶',exact:true}).click();
   const pinDialog=page.getByRole('dialog');
   await pinDialog.locator('label').filter({has:page.getByText('校园活动 1',{exact:true})}).click();
-  await checkPersonalSections(true,false);
+  await checkPersonalSections(true);
   await pinDialog.getByRole('button',{name:'取消置顶项目 1',exact:true}).click();
-  await checkPersonalSections(false,false);
+  await checkPersonalSections(false);
   await pinDialog.getByRole('button',{name:'关闭',exact:true}).click();
   await page.locator('.desktop-album[data-album-id="12"] .project-card__open').click();
   await page.waitForURL(/projectId=12/);await page.waitForTimeout(100);
-  await page.goto(url,{waitUntil:'networkidle'});await page.locator('.album-desktop').waitFor();await checkPersonalSections(false,true);
+  await page.goto(url,{waitUntil:'networkidle'});await page.locator('.album-desktop').waitFor();await checkPersonalSections(false);
   state.preferences={pins:['album:999','group:missing'],recentItems:[{id:999,visitedAt:Date.now()}],colors:{},dismissed:[]};
-  await page.reload({waitUntil:'networkidle'});await page.locator('.album-desktop').waitFor();await checkPersonalSections(false,false);
+  await page.reload({waitUntil:'networkidle'});await page.locator('.album-desktop').waitFor();await checkPersonalSections(false);
   assert.deepEqual(errors,[]);
-  console.log(JSON.stringify({productionApp:true,fixtureOnly:true,widths,sections:true,fanLimit:9,persistence:true,pin:true,personalColor:true,dropConfirmation:true,visit:true,emptySectionsHidden:true,personalSectionsReappear:true,staleItemsHidden:true,libraryOnlySorting:true,libraryOnlyDateRange:true,errors}));
+  console.log(JSON.stringify({productionApp:true,fixtureOnly:true,widths,sections:true,fanLimit:9,persistence:true,pin:true,personalColor:true,dropConfirmation:true,visitDoesNotWriteHistory:true,recentUsageRemoved:true,emptySectionsHidden:true,pinnedSectionReappears:true,staleItemsHidden:true,libraryOnlySorting:true,libraryOnlyDateRange:true,errors}));
  }finally{await browser.close();await new Promise(resolve=>server.close(resolve));}
 }
 main().catch(error=>{console.error(error);server.close();process.exitCode=1});

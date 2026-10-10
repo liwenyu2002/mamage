@@ -1,0 +1,94 @@
+.sap-page {
+  position: relative;
+  isolation: isolate;
+  min-height: 100dvh;
+  background: #f7f7f7;
+  color: #000;
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  letter-spacing: 0;
+}
+.sap-page > .mamage-dynamic-backdrop { z-index: -1; }
+.sap-page button { font-family: inherit; }
+.sap-header { margin-top: 8px; }
+.sap-header-inner {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  min-height: 52px;
+  padding: 7px 16px;
+  font-size: 13px;
+  font-weight: 750;
+}
+.sap-header-inner strong { margin-right: 14px; font-size: 17px; font-weight: 900; }
+.sap-header-inner b {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  margin-left: auto;
+  border-radius: 50%;
+  background: #1a1a1a;
+  color: #fff;
+}
+.sap-album-page { max-width: 1280px; margin: 28px auto; padding: 0 22px 80px; }
+.sap-album-page > p { margin: 0 0 14px; font-size: 13px; font-weight: 650; }
+.sap-album-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.sap-album-head h1 { margin: 0 0 6px; font-size: 28px; font-weight: 900; line-height: 1.2; }
+.sap-album-head span { font-size: 13px; }
+.sap-album-head .mamage-button { flex: 0 0 auto; }
+.sap-album-head .mamage-button svg { width: 16px; height: 16px; }
+.sap-photo-wall { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 26px; }
+.sap-photo-wall > div { position: relative; aspect-ratio: 1.35; border-radius: 8px; background-color: #d9d9d9; background-position: center; background-size: cover; }
+.sap-photo-wall > div:nth-child(3n) { aspect-ratio: 1.1; }
+.sap-photo-select { position: absolute; top: 6px; right: 6px; display: grid; place-items: center; width: 36px; height: 36px; cursor: pointer; }
+
+.sap-dialog { max-width: calc(100vw - 24px); }
+.sap-dialog .mamage-modal-header { padding: 20px 24px 10px; }
+.sap-dialog .mamage-modal-title { font-size: 20px; letter-spacing: 0; }
+.sap-dialog .mamage-modal-body { padding: 0 24px 20px; }
+.sap-dialog .mamage-modal-close { width: 34px; height: 34px; }
+.sap-album-summary { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 5px 12px; padding: 4px 2px 16px; border-bottom: 1px solid rgba(0,0,0,.1); }
+.sap-album-summary span:first-child { grid-column: 1 / -1; font-size: 12px; font-weight: 750; }
+.sap-album-summary strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 17px; font-weight: 850; }
+.sap-album-summary span:last-child { max-width: 150px; overflow: hidden; padding: 5px 9px; border: 1px solid var(--liquid-glass-border); border-radius: var(--lg-radius-pill); background: rgba(255,255,255,.38); font-size: 12px; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
+.sap-tabs { margin-top: 16px; }
+.sap-tab-content { animation: sap-content-in 180ms ease both; }
+@keyframes sap-content-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+.sap-form { padding-top: 22px; }
+.sap-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; }
+.sap-mode-field { margin-top: 20px; }
+.sap-mode-help { min-height: 18px; margin: 9px 2px 0; color: #000; font-size: 12px; line-height: 1.4; animation: sap-content-in 180ms ease both; }
+.sap-form-end { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: end; gap: 16px; margin-top: 20px; }
+.sap-form-end .mamage-button { min-height: 44px; min-width: 168px; }
+.sap-form-end .mamage-button svg { width: 16px; height: 16px; }
+.sap-form-end p { margin: 0 0 9px; font-size: 12px; }
+.sap-preview-note { margin: 19px 2px 0; padding-top: 12px; border-top: 1px solid rgba(0,0,0,.08); color: #444; font-size: 11px; }
+.sap-records { padding-top: 12px; }
+.sap-record { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 65px; padding: 11px 2px; border-bottom: 1px solid rgba(0,0,0,.09); }
+.sap-record > div { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.sap-record strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.sap-record span { font-size: 12px; }
+.sap-status { padding: 4px 9px; border: 1px solid var(--liquid-glass-border); border-radius: var(--lg-radius-pill); background: rgba(255,255,255,.4); font-weight: 750; }
+.sap-empty { margin: 0; padding: 36px 0; font-size: 13px; text-align: center; }
+.sap-toast.mamage-toast { position: fixed; top: 18px; left: 50%; z-index: 20000; transform: translateX(-50%); }
+@media (max-width: 700px) {
+  .sap-header-inner { gap: 12px; }
+  .sap-header-inner > span { display: none; }
+  .sap-album-page { padding: 0 18px 80px; }
+  .sap-album-head { align-items: flex-start; flex-direction: column; }
+  .sap-album-head h1 { font-size: 23px; }
+  .sap-photo-wall { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .sap-dialog .mamage-modal-header { padding: 16px 16px 8px; }
+  .sap-dialog .mamage-modal-body { padding: 0 16px 16px; }
+  .sap-fields { grid-template-columns: 1fr; gap: 15px; }
+  .sap-form-end { grid-template-columns: 1fr; gap: 14px; }
+  .sap-form-end .mamage-button { width: 100%; }
+}
+@media (max-width: 380px) {
+  .sap-album-summary span:last-child { max-width: 100px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sap-tab-content, .sap-mode-help { animation-duration: .01ms; }
+}

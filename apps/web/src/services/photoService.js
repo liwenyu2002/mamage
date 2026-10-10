@@ -387,7 +387,7 @@ async function getPhotoFaces(photoId, { projectId } = {}) {
   throw lastErr || new Error('getPhotoFaces failed');
 }
 
-async function getFacePersonInfo({ faceId, personId, projectId } = {}) {
+async function getFacePersonInfo({ faceId, personId, projectId, compact = true, pageSize = 24, signal } = {}) {
   const sid = faceId !== undefined && faceId !== null ? String(faceId).trim() : '';
   const pid = personId !== undefined && personId !== null ? String(personId).trim() : '';
   if (!sid && !pid) {
@@ -395,6 +395,7 @@ async function getFacePersonInfo({ faceId, personId, projectId } = {}) {
   }
 
   const q = {};
+  if (compact) { q.compact = '1'; q.pageSize = pageSize; q.includeAvatar = '0'; }
   if (sid) q.faceId = sid;
   if (pid) q.personId = pid;
   if (projectId !== undefined && projectId !== null && String(projectId).trim() !== '') {
@@ -418,12 +419,21 @@ async function getFacePersonInfo({ faceId, personId, projectId } = {}) {
   let lastErr = null;
   for (const c of candidates) {
     try {
-      return await request(c.url, { method: c.method, data: c.data });
+      return await request(c.url, { method: c.method, data: { ...q, ...c.data }, signal });
     } catch (e) {
+      if (signal?.aborted || ![404, 405].includes(e?.status)) throw e;
       lastErr = e;
     }
   }
   throw lastErr || new Error('getFacePersonInfo failed');
+}
+
+function getFaceAvatar(faceId, { signal } = {}) {
+  return request(`/api/faces/${encodeURIComponent(String(faceId))}/avatar`, { signal });
+}
+
+function getFacePersonPhotos({ personId, page = 1, pageSize = 24, signal } = {}) {
+  return request(`/api/persons/${encodeURIComponent(String(personId))}/photos`, { data: { page, pageSize }, signal });
 }
 
 async function labelFacePerson({ faceId, personId, personName } = {}) {
@@ -1475,6 +1485,8 @@ export {
   detectPhotoFaces,
   getPhotoFaces,
   getFacePersonInfo,
+  getFaceAvatar,
+  getFacePersonPhotos,
   labelFacePerson,
   renameFacePerson,
   listFacePersons,
