@@ -1,7 +1,7 @@
 // Account-scoped desktop with shared workspace collections and production album data.
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { Button, GlassSelect, MotionModal } from './ui';
+import { Button, MotionModal } from './ui';
 import { IconSearch, IconPlus, IconChevronLeft, IconChevronRight, IconGridView, IconListView,
   IconClose, IconStar, IconSparkleAI, IconSimilarStack, IconTimelineFlow, IconSliders, IconMoreStroked, IconEditStroked } from './ui/icons';
 import { LiquidGlassDefs } from './liquidGlass';
@@ -336,7 +336,6 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
   const mainRef = React.useRef(null);
   const [draftQuery, setDraftQuery] = React.useState('');
   const [query, setQuery] = React.useState('');
-  const [year, setYear] = React.useState('all');
   const [collapsed, setCollapsed] = React.useState([]);
   const [newGroup, setNewGroup] = React.useState(false);
   const [groupName, setGroupName] = React.useState('');
@@ -453,8 +452,7 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
   const searchPlan = albumSearch(query);
   const isLibraryView = selected === 'all' && view === 'library';
   const enrichedAlbums = React.useMemo(()=>albums.map(album=>{const preview=projectPreviews.find(p=>Number(p.id)===Number(album.id));return preview ? {...preview,...album,image:preview.coverSrc || album.image,images:preview.images || album.images,thumbnails:preview.thumbnails || album.thumbnails} : album}),[albums,projectPreviews]);
-  const filtered = enrichedAlbums.filter((album) => (year === 'all' || album.year === year)
-    && (!query || ((!searchPlan.year || album.year === searchPlan.year) && (!searchPlan.group || album.groups.includes(searchPlan.group))
+  const filtered = enrichedAlbums.filter((album) => (!query || ((!searchPlan.year || album.year === searchPlan.year) && (!searchPlan.group || album.groups.includes(searchPlan.group))
       && (!searchPlan.text || album.name.includes(searchPlan.text))
       && (!searchPlan.literal || `${album.name} ${album.groups.map((id) => groups.find((group) => group.id === id)?.name).join(' ')}`.includes(searchPlan.literal))))
     && (view !== 'unfiled' || !album.groups.length)
@@ -469,7 +467,7 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
   React.useEffect(() => {
     setSelectingAlbums(false); setSelectedAlbumIds([]); setCollectionToolsOpen(false);
     setAddingAlbums(false); setRemovingAlbums(false);
-  }, [selected, view, query, year]);
+  }, [selected, view, query]);
   const toggleAlbumSelection = id => setSelectedAlbumIds(old => old.includes(id) ? old.filter(value => value !== id) : [...old, id]);
   const editCollection = () => {
     setCollectionToolsOpen(false); setEditingGroup(currentGroup); setGroupName(currentGroup.name); setNewGroup(true);
@@ -512,11 +510,11 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
   };
   const availableToAdd = manualCollection ? enrichedAlbums.filter(album => !album.groups.includes(currentGroup.id)
     && (!addQuery.trim() || album.name.toLowerCase().includes(addQuery.trim().toLowerCase()))) : [];
-  const home = !currentGroup && view === 'all' && !query && year === 'all';
+  const home = !currentGroup && view === 'all' && !query;
   const selectGroup = (id) => { setSelected(id); setView('all'); setQuery(''); setDraftQuery(''); setDirectoryOpen(false); setJumpRequest(null); setActiveSection('desktop'); };
   const selectView = (id) => { setView(id); setSelected('all'); setQuery(''); setDraftQuery(''); setDirectoryOpen(false); setJumpRequest(null); };
   const jumpToSection = (id) => {
-    setSelected('all'); setView('all'); setQuery(''); setDraftQuery(''); setYear('all'); setDirectoryOpen(false);
+    setSelected('all'); setView('all'); setQuery(''); setDraftQuery(''); setDirectoryOpen(false);
     if (id === 'updates') setCollapsed((old) => old.filter((key) => key !== 'recent'));
     setActiveSection(id); setJumpRequest({ id });
   };
@@ -785,7 +783,7 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
     selectGroup(id); setNotice('已保存为智能相册集');
   };
   const [gridPage, setGridPage] = React.useState(1);
-  React.useEffect(() => setGridPage(1), [selected, view, query, year]);
+  React.useEffect(() => setGridPage(1), [selected, view, query, sort?.key, sort?.order, dateFilter?.from, dateFilter?.to]);
   const visibleIds = (home ? filtered.slice(0,6) : currentGroup ? groupAlbums(currentGroup,filtered).slice(0,gridPage*24) : filtered.slice(0,gridPage*24)).map(a=>a.id).join(',');
   const [liveImportStatuses, setLiveImportStatuses] = React.useState(importStatuses || {});
   React.useEffect(() => {
@@ -801,8 +799,15 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
     onManage={canOrganize ? group=>{setEditingGroup(group);setGroupName(group.name);setNewGroup(true)} : undefined}
     pinned={pins.includes(`group:${group.id}`)} onPin={togglePin} onAppearance={editAppearance} surfaceColor={myColors[group.id] || DEFAULT_COLLECTION_COLOR}
     getAlbumDragProps={getAlbumDragProps} dropProps={{ ...getGroupDropProps(group), ...getSortDropProps('collections', group.id, group) }}
-    sortDragProps={canOrganize ? getSortDragProps('collections', group.id) : {}} dropActive={dropTargetId === group.id} isAlbumDragging={draggedAlbumId !== null || Boolean(sortSource)}
+    sortDragProps={canOrganize && !query ? getSortDragProps('collections', group.id) : {}} dropActive={dropTargetId === group.id} isAlbumDragging={draggedAlbumId !== null || Boolean(sortSource)}
     dropMessage={group.kind === 'smart' ? '智能相册集 · 按规则收录' : draggedAlbum?.groups.includes(group.id) ? '已在此相册集中' : `加入「${group.name}」`} />;
+  const libraryGroups = isLibraryView && query ? groups.filter(group => group.name.includes(query) || groupAlbums(group, filtered).length > 0) : groups;
+  const collectionsSection = <section className="acp-collections-section" id="collections" data-desktop-section="collections" aria-label="相册集">
+    <span className="acp-section-spotlight" aria-hidden="true" /><div className="acp-section-heading"><h2>相册集</h2>
+      <div className="acp-section-controls"><span className="acp-caption">{libraryGroups.length} 个</span>{canOrganize && <button className="acp-icon" title="调整相册集顺序" aria-label="调整相册集顺序" onClick={() => setOrderModal('collections')}><IconSliders /></button>}</div>
+    </div><div {...(canOrganize && !query ? getSortListProps('collections') : {})} className="acp-all-collections">{libraryGroups.map(collection)}</div>
+    {!libraryGroups.length && <p className="acp-empty">{query ? '没有匹配的相册集' : `还没有相册集${canOrganize ? '，可以从左侧目录新建' : ''}`}</p>}
+  </section>;
   const section = (name, items, key) => <section className="acp-section" key={key}
     id={key === 'recent' ? 'desktop-updates' : undefined} data-desktop-section={key === 'recent' ? 'updates' : undefined}>
     {key === 'recent' && <span className="acp-section-spotlight" aria-hidden="true" />}
@@ -836,14 +841,12 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
       <main className="acp-main" ref={mainRef} id="desktop" data-desktop-section="desktop">
         <div className="acp-page-heading"><div><div className="acp-breadcrumb">{workspaceName} <span>/</span> {currentGroup ? <button onClick={() => selectGroup('all')}>相册</button> : '素材库'}</div>
           <h1>{currentGroup?.name || ({ all: '我的桌面', library: '全部相册', recent: '最近更新', unfiled: '未归类' }[view])}<span>{currentGroup ? groupAlbums(currentGroup, albums).length : albums.length} 个相册</span></h1></div>
-          <div className="acp-heading-actions"><button className="acp-icon desktop-directory-trigger" title="相册目录" aria-label="打开相册目录" onClick={()=>setDirectoryOpen(true)}><IconListView /></button><button className={`acp-icon${visiblePins.length ? '' : ' is-needed'}`} title="管理我的置顶" aria-label="管理我的置顶" onClick={() => setPinsModal(true)}><IconStar /></button>
-            {canOrganize && !currentGroup && <Button type="primary" theme="neu" icon={<IconPlus />} onClick={() => { setEditingGroup(null); setGroupName(''); setNewGroup(true); }}>新建相册集</Button>}</div></div>
+          <div className="acp-heading-actions"><button className="acp-icon desktop-directory-trigger" title="相册目录" aria-label="打开相册目录" onClick={()=>setDirectoryOpen(true)}><IconListView /></button></div></div>
         <div className="acp-toolbar"><div className="acp-filters"><form className="acp-search" onSubmit={(event) => { event.preventDefault(); search(draftQuery); }}><IconSparkleAI />
             <input aria-label="搜索相册或相册集" placeholder="描述你想找的相册…" value={draftQuery} onChange={(event) => { setDraftQuery(event.target.value); if (!event.target.value) setQuery(''); }} />
             {draftQuery && <button className="acp-icon" type="button" title="清空搜索" onClick={() => { setDraftQuery(''); setQuery(''); }}><IconClose /></button>}
             <button className="acp-icon" type="submit" title="搜索" aria-label="搜索"><IconSearch /></button></form>
-            <GlassSelect label="年份" value={year} onChange={setYear} options={[{ value: 'all', label: '全部年份' }, ...Array.from(new Set(albums.map(a=>a.year))).sort().reverse().map(value=>({value,label:`${value} 年`}))]} /></div></div>
-        {isLibraryView && toolbar}
+            {isLibraryView && toolbar}</div></div>
         {saveError && <div className="desktop-save-error" role="alert">{saveError}<Button onClick={onReload}>重新加载</Button></div>}
         <span className="desktop-save-status" role="status">{saveStatus === 'saving' ? '正在保存…' : saveStatus === 'error' ? '未保存' : ''}</span>
         <div className="acp-content" key={`${selected}-${view}`}>
@@ -857,11 +860,11 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
                 return album ? <AlbumShortcut key={key} album={album} albums={albums} onOpen={setOpened}
                   sortDragProps={getSortDragProps('pins', key, album)} sortDropProps={getSortDropProps('pins', key)} /> : null;
               })}</div></section>}
-            <section className="acp-collections-section" id="collections" data-desktop-section="collections"><span className="acp-section-spotlight" aria-hidden="true" /><div className="acp-section-heading"><h2>相册集</h2><div className="acp-section-controls"><span className="acp-caption">{groups.length} 个</span>{canOrganize && <button className="acp-icon" title="调整相册集顺序" aria-label="调整相册集顺序" onClick={() => setOrderModal('collections')}><IconSliders /></button>}</div></div><div {...(canOrganize ? getSortListProps('collections') : {})} className="acp-all-collections">{groups.map(collection)}</div>{!groups.length && <p className="acp-empty">还没有相册集{canOrganize ? '，可以新建后将相册整理进来' : ''}</p>}</section>
+            {collectionsSection}
             {section('最近更新', [...filtered].sort((a,b)=>(Date.parse(b.updatedAt || b.createdAt)||0)-(Date.parse(a.updatedAt || a.createdAt)||0)).slice(0, 6), 'recent')}
           </> : currentGroup ? <><div className="acp-group-caption"><button className="acp-text-button" onClick={() => selectGroup('all')}><IconChevronLeft /> 返回相册</button>{currentGroup.kind === 'smart'
               ? <span className="acp-smart-rule"><IconSparkleAI />{currentGroup.rule.year || '全部年份'} · {groups.find((group) => group.id === currentGroup.rule.group)?.name || currentGroup.rule.text || '全部活动'} · 自动更新</span> : <span>小组织共用</span>}</div>{grid(collectionAlbums)}</>
-            : <>{query && <div className="acp-search-summary"><div><IconSparkleAI /><span>“{query}”</span><span>{filtered.length} 个匹配相册</span></div><button className="acp-text-button" onClick={saveSearch}><IconStar /> 保存为智能相册集</button></div>}
+            : <>{isLibraryView && groups.length > 0 && collectionsSection}{query && <div className="acp-search-summary"><div><IconSparkleAI /><span>“{query}”</span><span>{filtered.length} 个匹配相册</span></div><button className="acp-text-button" onClick={saveSearch}><IconStar /> 保存为智能相册集</button></div>}
               {section(view === 'unfiled' ? '未归类' : view === 'recent' ? '最近更新' : query ? '搜索结果' : '全部相册', view === 'recent' ? filtered.slice(0, 6) : filtered, 'results')}</>}
         </div>
         <span className="acp-section-spotlight" aria-hidden="true" />

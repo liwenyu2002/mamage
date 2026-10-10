@@ -45,6 +45,7 @@
 .project-card__thumb-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: minmax(0, 1fr); aspect-ratio: 9 / 2; min-height: 44px; gap: 4px; margin-top: 5px; }
 .project-card__thumb-grid.is-expanded { grid-template-columns: repeat(var(--project-preview-columns, 10), minmax(0, 1fr)); grid-template-rows: repeat(var(--project-preview-rows, 2), minmax(0, 1fr)); align-items: center; gap: 2px; }
 .project-card__thumb { position: relative; display: block; width: 100%; height: 100%; min-width: 0; min-height: 0; padding: 0; overflow: hidden; border: 0; border-radius: 6px; background: #e4e8e5; animation: project-preview-appear .16s ease-out; }
+.project-card__thumb[hidden] { display: none; }
 .project-card__thumb-grid.is-expanded .project-card__thumb { justify-self: center; width: min(100%, 44px); height: auto; aspect-ratio: 1; border-radius: 3px; }
 .project-card__thumb > img { position: absolute; inset: 0; }
 .project-card__thumb::after { content: ''; position: absolute; inset: 0; border: 1px solid #ffffff66; border-radius: inherit; pointer-events: none; }

@@ -1,11 +1,12 @@
 // Selected design: sidebar directory, compact personal shortcuts and simulated recommendations.
 // All state, including per-viewer appearance preferences, stays in memory; no production API is called.
 import React from 'react';
-import { Button, GlassSelect, MotionModal } from '../ui';
+import { Button, MotionModal } from '../ui';
 import { IconSearch, IconPlus, IconChevronLeft, IconChevronRight, IconGridView, IconListView,
   IconClose, IconStar, IconSparkleAI, IconSimilarStack, IconTimelineFlow, IconSliders, IconMoreStroked } from '../ui/icons';
 import { LiquidGlassDefs } from '../liquidGlass';
 import ProjectCard from '../ProjectCard';
+import ProjectLibraryToolbar from '../ProjectLibraryToolbar';
 import { PROJECT_PREVIEW_LIMIT } from '../services/projectPreviewService';
 import './albumCollectionsSidebar.css';
 
@@ -360,7 +361,10 @@ function AlbumDirectory({ groups, albums, sections, selected, view, isDesktop, a
 }
 
 export default function AlbumCollectionsPrototype({ userId = 'preview:liwenyu' }) {
-  const [albums, setAlbums] = React.useState(INITIAL_ALBUMS);
+  const [albums, setAlbums] = React.useState(() => INITIAL_ALBUMS.map((album, index) => {
+    const date = ['2026-10-10', '2026-10-09', '2026-10-07', '2026-10-06', '2026-10-05', '2026-10-03', '2026-09-28', '2026-09-26', '2025-06-18', '2025-12-10'][index];
+    return { ...album, createdAt: date, eventDate: date };
+  }));
   const [groups, setGroups] = React.useState(INITIAL_GROUPS);
   const [pins, setPins] = React.useState(['group:activity', 'group:campus', 'group:smart-term', 'album:1']);
   const [orderModal, setOrderModal] = React.useState(null);
@@ -371,7 +375,8 @@ export default function AlbumCollectionsPrototype({ userId = 'preview:liwenyu' }
   const mainRef = React.useRef(null);
   const [draftQuery, setDraftQuery] = React.useState('');
   const [query, setQuery] = React.useState('');
-  const [year, setYear] = React.useState('all');
+  const [sort, setSort] = React.useState({ key: 'createdAt', order: 'desc' });
+  const [dateFilter, setDateFilter] = React.useState({ from: '', to: '' });
   const [collapsed, setCollapsed] = React.useState([]);
   const [newGroup, setNewGroup] = React.useState(false);
   const [groupName, setGroupName] = React.useState('');
@@ -453,17 +458,20 @@ export default function AlbumCollectionsPrototype({ userId = 'preview:liwenyu' }
   }, [notice]);
 
   const searchPlan = demoSearch(query);
-  const filtered = albums.filter((album) => (year === 'all' || album.year === year)
-    && (!query || ((!searchPlan.year || album.year === searchPlan.year) && (!searchPlan.group || album.groups.includes(searchPlan.group))
+  const isLibraryView = selected === 'all' && view === 'library';
+  const filtered = albums.filter((album) => (!query || ((!searchPlan.year || album.year === searchPlan.year) && (!searchPlan.group || album.groups.includes(searchPlan.group))
       && (!searchPlan.text || album.name.includes(searchPlan.text))
       && (!searchPlan.literal || `${album.name} ${album.groups.map((id) => groups.find((group) => group.id === id)?.name).join(' ')}`.includes(searchPlan.literal))))
-    && (view !== 'unfiled' || !album.groups.length));
+    && (view !== 'unfiled' || !album.groups.length)
+    && (!isLibraryView || !dateFilter.from || (album.eventDate || album.createdAt) >= dateFilter.from)
+    && (!isLibraryView || !dateFilter.to || (album.eventDate || album.createdAt) <= dateFilter.to))
+    .sort((a, b) => ((Date.parse(a[sort.key] || a.createdAt) || 0) - (Date.parse(b[sort.key] || b.createdAt) || 0)) * (sort.order === 'asc' ? 1 : -1));
   const currentGroup = groups.find((group) => group.id === selected);
-  const home = !currentGroup && view === 'all' && !query && year === 'all';
+  const home = !currentGroup && view === 'all' && !query;
   const selectGroup = (id) => { setSelected(id); setView('all'); setQuery(''); setDraftQuery(''); setDirectoryOpen(false); setJumpRequest(null); setActiveSection('desktop'); };
   const selectView = (id) => { setView(id); setSelected('all'); setQuery(''); setDraftQuery(''); setDirectoryOpen(false); setJumpRequest(null); };
   const jumpToSection = (id) => {
-    setSelected('all'); setView('all'); setQuery(''); setDraftQuery(''); setYear('all'); setDirectoryOpen(false);
+    setSelected('all'); setView('all'); setQuery(''); setDraftQuery(''); setDirectoryOpen(false);
     if (id === 'updates') setCollapsed((old) => old.filter((key) => key !== 'recent'));
     setActiveSection(id); setJumpRequest({ id });
   };
@@ -731,8 +739,15 @@ export default function AlbumCollectionsPrototype({ userId = 'preview:liwenyu' }
   const collection = (group) => <CollectionCard key={group.id} group={group} albums={albums} onSelect={selectGroup} onOpen={setOpened}
     pinned={pins.includes(`group:${group.id}`)} onPin={togglePin} onAppearance={editAppearance} surfaceColor={myColors[group.id] || DEFAULT_COLLECTION_COLOR}
     getAlbumDragProps={getAlbumDragProps} dropProps={{ ...getGroupDropProps(group), ...getSortDropProps('collections', group.id, group) }}
-    sortDragProps={getSortDragProps('collections', group.id)} dropActive={dropTargetId === group.id} isAlbumDragging={draggedAlbumId !== null || Boolean(sortSource)}
+    sortDragProps={!query ? getSortDragProps('collections', group.id) : {}} dropActive={dropTargetId === group.id} isAlbumDragging={draggedAlbumId !== null || Boolean(sortSource)}
     dropMessage={group.kind === 'smart' ? '智能相册集 · 按规则收录' : draggedAlbum?.groups.includes(group.id) ? '已在此相册集中' : `加入「${group.name}」`} />;
+  const libraryGroups = isLibraryView && query ? groups.filter(group => group.name.includes(query) || groupAlbums(group, filtered).length > 0) : groups;
+  const collectionsSection = <section className="acp-collections-section" id="collections" data-desktop-section="collections" aria-label="相册集">
+    <span className="acp-section-spotlight" aria-hidden="true" /><div className="acp-section-heading"><h2>相册集</h2>
+      <div className="acp-section-controls"><span className="acp-caption">{libraryGroups.length} 个</span><button className="acp-icon" title="调整相册集顺序" aria-label="调整相册集顺序" onClick={() => setOrderModal('collections')}><IconSliders /></button></div>
+    </div><div {...(!query ? getSortListProps('collections') : {})} className="acp-all-collections">{libraryGroups.map(collection)}</div>
+    {!libraryGroups.length && <p className="acp-empty">{query ? '没有匹配的相册集' : '还没有相册集，可以从左侧目录新建'}</p>}
+  </section>;
   const section = (name, items, key) => <section className="acp-section" key={key}
     id={key === 'recent' ? 'desktop-updates' : undefined} data-desktop-section={key === 'recent' ? 'updates' : undefined}>
     {key === 'recent' && <span className="acp-section-spotlight" aria-hidden="true" />}
@@ -772,13 +787,12 @@ export default function AlbumCollectionsPrototype({ userId = 'preview:liwenyu' }
       <main className="acp-main" ref={mainRef} id="desktop" data-desktop-section="desktop">
         <div className="acp-page-heading"><div><div className="acp-breadcrumb">学工与融媒体中心 <span>/</span> {currentGroup ? <button onClick={() => selectGroup('all')}>相册</button> : '素材库'}</div>
           <h1>{currentGroup?.name || ({ all: '我的桌面', library: '全部相册', recent: '最近更新', unfiled: '未归类' }[view])}<span>{currentGroup ? groupAlbums(currentGroup, albums).length : albums.length} 个相册</span></h1></div>
-          <div className="acp-heading-actions"><button className={`acp-icon${visiblePins.length ? '' : ' is-needed'}`} title="管理我的置顶" aria-label="管理我的置顶" onClick={() => setPinsModal(true)}><IconStar /></button>
-            <Button type="primary" theme="neu" icon={<IconPlus />} onClick={() => { setGroupName(''); setNewGroup(true); }}>新建相册集</Button></div></div>
+        </div>
         <div className="acp-toolbar"><div className="acp-filters"><form className="acp-search" onSubmit={(event) => { event.preventDefault(); search(draftQuery); }}><IconSparkleAI />
             <input aria-label="搜索相册或相册集" placeholder="描述你想找的相册…" value={draftQuery} onChange={(event) => { setDraftQuery(event.target.value); if (!event.target.value) setQuery(''); }} />
             {draftQuery && <button className="acp-icon" type="button" title="清空搜索" onClick={() => { setDraftQuery(''); setQuery(''); }}><IconClose /></button>}
             <button className="acp-icon" type="submit" title="搜索" aria-label="搜索"><IconSearch /></button></form>
-            <GlassSelect label="年份" value={year} onChange={setYear} options={[{ value: 'all', label: '全部年份' }, { value: '2026', label: '2026 年' }, { value: '2025', label: '2025 年' }]} /></div></div>
+            {isLibraryView && <ProjectLibraryToolbar sort={sort} dateFilter={dateFilter} onSortChange={setSort} onDateFilterChange={setDateFilter} />}</div></div>
         <div className="acp-content" key={`${selected}-${view}`}>
           {home ? <>
             {visiblePins.length > 0 && <section className="acp-pins-section" id="desktop-pins" data-desktop-section="pins"><span className="acp-section-spotlight" aria-hidden="true" /><div className="acp-section-heading"><div className="acp-section-name"><h2>我的置顶</h2><span className="acp-personal-label">仅自己可见</span></div><button className="acp-text-button" onClick={() => setPinsModal(true)}>管理 <IconSliders /></button></div>
@@ -790,11 +804,11 @@ export default function AlbumCollectionsPrototype({ userId = 'preview:liwenyu' }
                 return album ? <AlbumShortcut key={key} album={album} albums={albums} onOpen={setOpened}
                   sortDragProps={getSortDragProps('pins', key, album)} sortDropProps={getSortDropProps('pins', key)} /> : null;
               })}</div></section>}
-            <section className="acp-collections-section" id="collections" data-desktop-section="collections"><span className="acp-section-spotlight" aria-hidden="true" /><div className="acp-section-heading"><h2>相册集</h2><div className="acp-section-controls"><span className="acp-caption">{groups.length} 个</span><button className="acp-icon" title="调整相册集顺序" aria-label="调整相册集顺序" onClick={() => setOrderModal('collections')}><IconSliders /></button></div></div><div {...getSortListProps('collections')} className="acp-all-collections">{groups.map(collection)}</div></section>
-            {section('最近更新', filtered.slice(0, 6), 'recent')}
+            {collectionsSection}
+            {section('最近更新', [...filtered].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)).slice(0, 6), 'recent')}
           </> : currentGroup ? <><div className="acp-group-caption"><button className="acp-text-button" onClick={() => selectGroup('all')}><IconChevronLeft /> 返回相册</button>{currentGroup.kind === 'smart'
               ? <span className="acp-smart-rule"><IconSparkleAI />{currentGroup.rule.year || '全部年份'} · {groups.find((group) => group.id === currentGroup.rule.group)?.name || currentGroup.rule.text || '全部活动'} · 自动更新</span> : <span>小组织共用</span>}</div>{grid(groupAlbums(currentGroup, filtered))}</>
-            : <>{query && <div className="acp-search-summary"><div><IconSparkleAI /><span>“{query}”</span><span>{filtered.length} 个匹配相册</span></div><button className="acp-text-button" onClick={saveSearch}><IconStar /> 保存为智能相册集</button></div>}
+            : <>{isLibraryView && groups.length > 0 && collectionsSection}{query && <div className="acp-search-summary"><div><IconSparkleAI /><span>“{query}”</span><span>{filtered.length} 个匹配相册</span></div><button className="acp-text-button" onClick={saveSearch}><IconStar /> 保存为智能相册集</button></div>}
               {section(view === 'unfiled' ? '未归类' : view === 'recent' ? '最近更新' : query ? '搜索结果' : '全部相册', view === 'recent' ? filtered.slice(0, 6) : filtered, 'results')}</>}
         </div>
         <span className="acp-section-spotlight" aria-hidden="true" />

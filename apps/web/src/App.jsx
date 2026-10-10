@@ -2,6 +2,7 @@
 import React from 'react';
 import { Typography as UiTypography, Button as UiButton, Empty as UiEmpty, Card as UiCard, Toast, HexLoader } from './ui';
 import ProjectCard from './ProjectCard';
+import ProjectLibraryToolbar from './ProjectLibraryToolbar';
 import * as authService from './services/authService';
 import PrivacyPage from './PrivacyPage';
 import {
@@ -41,30 +42,6 @@ const WorkspacePanel = lazyWithPreload(() => import(/* webpackChunkName: "worksp
 const PROJECT_PAGE_SIZE = 24;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-const PROJECT_SORT_OPTIONS = [
-  { key: 'createdAt', order: 'desc', label: '最新创建的相册', short: '最新创建' },
-  { key: 'createdAt', order: 'asc', label: '最早创建的相册', short: '最早创建' },
-  { key: 'eventDate', order: 'desc', label: '最近开展的活动', short: '最近活动' },
-  { key: 'eventDate', order: 'asc', label: '最早开展的活动', short: '最早活动' },
-];
-
-function projectSortShortLabel(sort) {
-  const hit = PROJECT_SORT_OPTIONS.find((o) => o.key === sort.key && o.order === sort.order);
-  return hit ? hit.short : '最新创建';
-}
-
-function projectDateFilterLabel(filter) {
-  const fmt = (v) => {
-    const m = /^\d{4}-(\d{2})-(\d{2})$/.exec(String(v || ''));
-    return m ? `${Number(m[1])}月${Number(m[2])}日` : '';
-  };
-  const f = fmt(filter.from);
-  const t = fmt(filter.to);
-  if (f && t) return `${f} – ${t}`;
-  if (f) return `${f} 起`;
-  if (t) return `至 ${t}`;
-  return '不限';
-}
 const MEDIA_STUDIO_PLATFORMS = [
   { key: 'wechat_article', label: '推文', path: '/function/wechat-composer', editor: 'wechat' },
   { key: 'xiaohongshu', label: '小红书', path: '/function/xiaohongshu', editor: 'writer' },
@@ -1160,36 +1137,9 @@ function App() {
     </button>
   ), [closeMobileNav, preloadNavItem, selectedNav]);
 
-  // 排序/时间筛选弹层：显式选项 + 点击外部/Esc 收起
-  const [sortMenuOpen, setSortMenuOpen] = React.useState(false);
-  const [dfilterOpen, setDfilterOpen] = React.useState(false);
-  const projectToolbarRef = React.useRef(null);
-  React.useEffect(() => {
-    if (!sortMenuOpen && !dfilterOpen) return undefined;
-    const onDown = (e) => {
-      if (projectToolbarRef.current && !projectToolbarRef.current.contains(e.target)) {
-        setSortMenuOpen(false);
-        setDfilterOpen(false);
-      }
-    };
-    const onKey = (e) => {
-      if (e.key === 'Escape') {
-        setSortMenuOpen(false);
-        setDfilterOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onDown);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [sortMenuOpen, dfilterOpen]);
-
-  const handleProjectSortSelect = React.useCallback((key, order) => {
+  const handleProjectSortSelect = React.useCallback(({ key, order }) => {
     setProjectSort({ key, order });
     try { localStorage.setItem('mamage_project_sort', JSON.stringify({ key, order })); } catch (e) { /* ignore */ }
-    setSortMenuOpen(false);
   }, []);
 
   // 时间筛选（闭区间）：活动时间优先，没填的相册按创建日期参与筛选
@@ -1202,10 +1152,6 @@ function App() {
       persistProjectDateFilter(next);
       return next;
     });
-  }, [persistProjectDateFilter]);
-  const clearProjectDateFilter = React.useCallback(() => {
-    setProjectDateFilter({ from: '', to: '' });
-    persistProjectDateFilter({ from: '', to: '' });
   }, [persistProjectDateFilter]);
 
   const showProjectPager = (projectPage > 1) || projectHasMore;
@@ -1230,91 +1176,8 @@ function App() {
   }, []);
 
 
-  const projectToolbar = (
-<div className="project-toolbar" ref={projectToolbarRef}>
-                    <div className="lg-popover">
-                      <button
-                        type="button"
-                        className={`lg-popover-trigger${sortMenuOpen ? ' is-open' : ''}`}
-                        onClick={() => { setSortMenuOpen((v) => !v); setDfilterOpen(false); }}
-                      >
-                        <span className="lg-popover-caption">排序</span>
-                        <span className="lg-popover-value">{projectSortShortLabel(projectSort)}</span>
-                        <span className={`lg-popover-caret${sortMenuOpen ? ' is-open' : ''}`} aria-hidden="true">▾</span>
-                      </button>
-                      {sortMenuOpen ? (
-                        <div className="lg-popover-menu" role="menu" aria-label="相册排序方式">
-                          {PROJECT_SORT_OPTIONS.map((opt) => {
-                            const active = projectSort.key === opt.key && projectSort.order === opt.order;
-                            return (
-                              <button
-                                key={`${opt.key}-${opt.order}`}
-                                type="button"
-                                role="menuitemradio"
-                                aria-checked={active}
-                                className={`lg-popover-item${active ? ' is-active' : ''}`}
-                                onClick={() => handleProjectSortSelect(opt.key, opt.order)}
-                              >
-                                <span className="lg-popover-item-check" aria-hidden="true">{active ? '✓' : ''}</span>
-                                <span>{opt.label}</span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      ) : null}
-                    </div>
-
-                    <div className="lg-popover">
-                      <button
-                        type="button"
-                        className={`lg-popover-trigger${(projectDateFilter.from || projectDateFilter.to) ? ' is-active' : ''}${dfilterOpen ? ' is-open' : ''}`}
-                        onClick={() => { setDfilterOpen((v) => !v); setSortMenuOpen(false); }}
-                      >
-                        <span className="lg-popover-caption">时间</span>
-                        <span className="lg-popover-value">{projectDateFilterLabel(projectDateFilter)}</span>
-                        {(projectDateFilter.from || projectDateFilter.to) ? (
-                          <span
-                            role="button"
-                            tabIndex={0}
-                            className="lg-popover-clear"
-                            aria-label="清除时间范围"
-                            onClick={(e) => { e.stopPropagation(); clearProjectDateFilter(); }}
-                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); clearProjectDateFilter(); } }}
-                          >×</span>
-                        ) : (
-                          <span className={`lg-popover-caret${dfilterOpen ? ' is-open' : ''}`} aria-hidden="true">▾</span>
-                        )}
-                      </button>
-                      {dfilterOpen ? (
-                        <div className="lg-popover-menu lg-popover-menu-wide" aria-label="按时间筛选">
-                          <div className="lg-dfilter-row">
-                            <input
-                              type="date"
-                              value={projectDateFilter.from}
-                              max={projectDateFilter.to || undefined}
-                              onChange={(e) => handleProjectDateFilterChange({ from: e.target.value })}
-                              aria-label="开始日期"
-                            />
-                            <span className="lg-dfilter-sep">至</span>
-                            <input
-                              type="date"
-                              value={projectDateFilter.to}
-                              min={projectDateFilter.from || undefined}
-                              onChange={(e) => handleProjectDateFilterChange({ to: e.target.value })}
-                              aria-label="结束日期"
-                            />
-                          </div>
-                          <div className="lg-dfilter-hint">按活动时间筛选；未填活动时间的相册按创建日期参与</div>
-                          {(projectDateFilter.from || projectDateFilter.to) ? (
-                            <button type="button" className="lg-popover-item" onClick={() => { clearProjectDateFilter(); }}>
-                              清除时间范围
-                            </button>
-                          ) : null}
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-  );
+  const projectToolbar = <ProjectLibraryToolbar sort={projectSort} dateFilter={projectDateFilter}
+    onSortChange={handleProjectSortSelect} onDateFilterChange={handleProjectDateFilterChange} />;
 
   if (isSharePath) {
     if (shareMode && shareInitialProject) {
