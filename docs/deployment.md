@@ -2,7 +2,7 @@
 
 ## 单一发布源
 
-- GitHub：私有仓库 `liwenyu2002/mamage`，分支 `main`。
+- GitHub：公开可读仓库 `liwenyu2002/mamage`，分支 `main`。
 - 开发目录：`~/mamage`。
 - 服务器连接：`ssh liwenyu@10.11.12.63`。
 - 线上仓库：服务器上的 `~/mamage`，仅拉取，不直接修改。
