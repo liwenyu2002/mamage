@@ -1,0 +1,16 @@
+{
+  "name": "mamage",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MaMage web and API, independently built and released together",
+  "engines": { "node": ">=22.22.0" },
+  "scripts": {
+    "setup": "node scripts/workspace.cjs setup",
+    "test": "node scripts/workspace.cjs test",
+    "build": "npm --prefix apps/web run build",
+    "dev": "npm --prefix apps/web run dev:prod -- --port 5188",
+    "dev:api": "npm --prefix apps/server start",
+    "deploy": "node scripts/deploy.cjs",
+    "test:deploy": "node --test scripts/deploy.test.cjs"
+  }
+}

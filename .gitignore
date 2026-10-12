@@ -1,0 +1,17 @@
+**/node_modules/
+**/dist/
+**/.env
+**/.env.*
+!**/.env.example
+**/.venv*/
+**/__pycache__/
+**/*.pyc
+**/logs/
+**/uploads/
+**/mysql-data/
+**/*.sql.gz
+**/*.log
+**/.DS_Store
+**/PRODUCTION_READONLY_API.md
+.local/
+
