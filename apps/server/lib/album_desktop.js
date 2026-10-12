@@ -25,13 +25,26 @@ function validateGroups(value, albumIds) {
     const rule = group.rule || {};
     const year = String(rule.year || '');
     if (year && !/^\d{4}$/.test(year)) throw invalid('年份不正确');
-    return { id, name, kind, projectIds: kind === 'smart' ? [] : projectIds,
+    const parentId = group.parentId == null || group.parentId === '' ? null : String(group.parentId);
+    return { id, name, kind, parentId, projectIds: kind === 'smart' ? [] : projectIds,
       rule: kind === 'smart' ? { year, text: String(rule.text || '').trim().slice(0, 100) } : {},
       symbol: kind === 'smart' ? 'smart' : ['timeline', 'image', 'grid'].includes(group.symbol) ? group.symbol : 'grid',
       layout: kind === 'smart' ? 'rule' : ['stack', 'panorama', 'mosaic'].includes(group.layout) ? group.layout : 'stack',
       color: /^#[a-fA-F0-9]{6}$/.test(group.color || '') ? group.color : '#515c67',
       tint: /^#[a-fA-F0-9]{6}$/.test(group.tint || '') ? group.tint : '#e6e9ec' };
   });
+  const byId = new Map(groups.map(group => [group.id, group]));
+  for (const group of groups) {
+    const ancestors = new Set();
+    let current = group;
+    while (current) {
+      if (ancestors.has(current.id)) throw invalid('文件夹不能移入自身或自己的子文件夹');
+      ancestors.add(current.id);
+      if (ancestors.size > 5) throw invalid('最多支持 5 级文件夹');
+      if (current.parentId && !byId.has(current.parentId)) throw invalid('目标文件夹不存在或不属于当前工作空间');
+      current = byId.get(current.parentId);
+    }
+  }
   return groups;
 }
 

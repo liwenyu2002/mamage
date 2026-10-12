@@ -1,6 +1,12 @@
 const assert = require('node:assert/strict');
 const { validateGroups, validatePreferences } = require('../lib/album_desktop');
 const ids = new Set([1, 2, 3]);
+const branch = Array.from({ length: 5 }, (_, i) => ({ id: `folder-${i}`, name: `第${i + 1}级`, parentId: i ? `folder-${i - 1}` : null }));
+assert.equal(validateGroups(branch, ids)[4].parentId, 'folder-3');
+assert.throws(() => validateGroups([...branch, { id: 'too-deep', name: '第六级', parentId: 'folder-4' }], ids), /最多支持 5 级/);
+assert.throws(() => validateGroups([{ id: 'a', name: 'A', parentId: 'a' }], ids), /不能移入/);
+assert.throws(() => validateGroups([{ id: 'a', name: 'A', parentId: 'b' }, { id: 'b', name: 'B', parentId: 'a' }], ids), /不能移入/);
+assert.throws(() => validateGroups([{ id: 'a', name: 'A', parentId: 'foreign' }], ids), /目标文件夹/);
 const groups = validateGroups([{ id: 'campus', name: '校园风光', projectIds: [1, 1, 2] }], ids);
 assert.deepEqual(groups[0].projectIds, [1, 2]);
 assert.throws(() => validateGroups([{ id: 'campus', name: '越权', projectIds: [99] }], ids), error => error.status === 403);
@@ -55,6 +61,14 @@ const server=app.listen(0,'127.0.0.1',async()=>{
   assert.equal((await put({preferences,userRevision:4},{'x-test-role':'member'})).status,200);
   assert.equal((await put({groups:[{id:'foreign',name:'越权',projectIds:[99]}],workspaceRevision:2})).status,403);
   assert.equal((await put({preferences,userRevision:4,scope:{userId:99,organizationId:7,unitId:9}})).status,409);
+  shared.state = { groups: branch };
+  const legacyGroups = branch.map(({ parentId, ...group }) => group);
+  assert.equal((await put({groups:legacyGroups,workspaceRevision:2})).status,200);
+  const savedTree = JSON.parse(calls.filter(call=>call.sql.startsWith('UPDATE album_desktop_workspaces')).at(-1).params[0]).groups;
+  assert.equal(savedTree[4].parentId,'folder-3','legacy clients must not flatten saved folders');
+  const writeCount=calls.filter(call=>call.sql.startsWith('UPDATE')).length;
+  assert.equal((await put({groups:[...branch,{id:'overflow',name:'Too deep',parentId:'folder-4'}],workspaceRevision:2})).status,400);
+  assert.equal(calls.filter(call=>call.sql.startsWith('UPDATE')).length,writeCount);
   console.log('PASS: desktop validation, scope isolation, personal preferences, revisions, permissions and rollback');
  }catch(error){console.error(error);process.exitCode=1}finally{server.close();}
 });

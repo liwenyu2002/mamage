@@ -86,7 +86,10 @@ router.put('/state', async (req, res) => {
     const albums = await catalog(workspace, conn, false);
     const ids = new Set(albums.map(a => Number(a.id)));
     const storedGroups = json(shared[0].state, {}).groups || [];
-    const groups = changesGroups ? validateGroups(body.groups, ids).map(group => ({...group,
+    // Older clients do not know parentId; never flatten a hierarchy on their saves.
+    const submittedGroups = Array.isArray(body.groups) ? body.groups.map(group => group && !Object.hasOwn(group, 'parentId')
+      ? { ...group, parentId: storedGroups.find(old => old.id === group.id)?.parentId || null } : group) : body.groups;
+    const groups = changesGroups ? validateGroups(submittedGroups, ids).map(group => ({...group,
       projectIds: group.kind === 'smart' ? [] : [...new Set([...group.projectIds,
         ...(storedGroups.find(old=>old.id===group.id)?.projectIds || []).filter(id=>!ids.has(Number(id)))])] })) : storedGroups;
     if (changesGroups) await conn.query('UPDATE album_desktop_workspaces SET state = ?, revision = revision + 1 WHERE organization_id = ? AND unit_key = ?', [JSON.stringify({ groups }), workspace.orgId, workspace.unitKey]);
