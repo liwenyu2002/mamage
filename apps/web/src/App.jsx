@@ -2,6 +2,7 @@
 import React from 'react';
 import { Typography as UiTypography, Button as UiButton, Empty as UiEmpty, Card as UiCard, Toast, HexLoader } from './ui';
 import ProjectCard from './ProjectCard';
+import FolderStyleMenu, { useFolderStyle } from './folders/FolderStyleMenu';
 import ProjectLibraryToolbar from './ProjectLibraryToolbar';
 import * as authService from './services/authService';
 import PrivacyPage from './PrivacyPage';
@@ -194,6 +195,7 @@ function App() {
   const [showCreateModal, setShowCreateModal] = React.useState(false);
   const [functionPage, setFunctionPage] = React.useState(null);
   const [currentUser, setCurrentUser] = React.useState(null);
+  const [folderStyle, setFolderStyle] = useFolderStyle(currentUser?.id);
   const [workspaceInfo, setWorkspaceInfo] = React.useState(null);
   const [workspaceSwitching, setWorkspaceSwitching] = React.useState(false);
   const [workspacePanelOpen, setWorkspacePanelOpen] = React.useState(false);
@@ -1405,6 +1407,7 @@ function App() {
                       setWorkspacePanelOpen(true);
                     }}>工作空间管理</button>
                   ) : null}
+                  <FolderStyleMenu value={folderStyle} onChange={style => { setFolderStyle(style); if (userMenuRef.current) userMenuRef.current.open = false; }} />
                   <button type="button" onClick={handleNavigateAccount}>账户信息</button>
                   <button type="button" onClick={handleSwitchNetworkEntry}>{isLanOrigin() ? '公网入口' : '内网入口'}</button>
                   <button type="button" onClick={handleLogout}>退出账号</button>
@@ -1656,7 +1659,7 @@ function App() {
                   </div>
                 </div>
               ) : currentUser && !isDemoPath ? (
-                <LazyPanel title="正在加载我的桌面"><AlbumDesktop currentUser={currentUser} workspaceInfo={workspaceInfo}
+                <LazyPanel title="正在加载我的桌面"><AlbumDesktop folderStyle={folderStyle} currentUser={currentUser} workspaceInfo={workspaceInfo}
                   onOpen={handleSelectProject} sort={projectSort} dateFilter={projectDateFilter} toolbar={projectToolbar}
                   projectPreviews={normalizedProjects} importStatuses={projectImportStatuses} /></LazyPanel>
               ) : (

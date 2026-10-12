@@ -32,6 +32,14 @@ if (process.env.FIXTURE_WITH_HISTORY === '1') {
   state.preferences.recentItems = [{ id: 2, visitedAt: 1791590400000 }];
 }
 const calls = [];
+if (process.env.FIXTURE_FOLDERS === '1') {
+  state.groups = state.groups.filter(group => group.kind !== 'smart');
+  state.groups[1].parentId = 'campus';
+  state.groups[1].name = '子文件夹';
+  for (let level = 3; level <= 5; level++) state.groups.push({ id: `level-${level}`, name: `第${level}级`,
+    parentId: level === 3 ? 'other' : `level-${level - 1}`, projectIds: [], kind: 'manual' });
+  state.preferences.pins = ['album:1'];
+}
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   const endpoint = url.pathname;

@@ -1,0 +1,38 @@
+const assert = require('node:assert/strict');
+const babel = require('@babel/core');
+const path = require('node:path');
+function load(file) {
+  const code = babel.transformFileSync(path.join(__dirname, '../src', file), { presets: [require.resolve('@babel/preset-env')] }).code;
+  const mod = { exports: {} };
+  new Function('module', 'exports', code)(mod, mod.exports);
+  return mod.exports;
+}
+const data = new Map();
+global.localStorage = { getItem: key => data.get(key) || null, setItem: (key, value) => data.set(key, value) };
+global.window = new EventTarget();
+const style = load('services/folderStyleStore.js');
+assert.equal(style.readFolderStyle(1), 'glass');
+style.writeFolderStyle(1, 'classic');
+assert.equal(style.readFolderStyle(1), 'classic');
+assert.equal(load('services/folderStyleStore.js').readFolderStyle(1), 'classic', 'remount must restore choice');
+assert.equal(style.readFolderStyle(2), 'glass', 'account choices stay isolated');
+style.writeFolderStyle(2, 'invalid');
+assert.equal(style.readFolderStyle(2), 'glass');
+assert.equal(style.writeFolderStyle(null, 'classic'), false);
+global.localStorage.setItem = () => { throw Error('quota'); };
+style.writeFolderStyle(1, 'glass');
+assert.equal(style.readFolderStyle(1), 'glass', 'failed writes should still keep session choice');
+const tree = load('folders/folderTree.js');
+const groups = Array.from({ length: 5 }, (_, i) => ({ id: String(i), name: String(i), parentId: i ? String(i - 1) : null }));
+groups.push({ id: 'other', name: 'Other' });
+assert.equal(tree.folderPath(groups[4], groups).length, 5);
+assert.match(tree.folderMoveIssue('0', '4', groups), /子文件夹/);
+assert.match(tree.folderMoveIssue('0', '0', groups), /自身/);
+assert.match(tree.folderMoveIssue('other', '4', groups), /5 级/);
+assert.match(tree.folderMoveIssue('0', 'other', groups), /5 级/);
+assert.equal(tree.folderMoveIssue('3', 'other', groups), '');
+assert.equal(tree.folderMoveIssue('1', null, groups), '');
+const albums = [{ id: 1, groups: ['0'] }, { id: 2, groups: ['1'] }, { id: 3, groups: ['other'] }];
+assert.equal(tree.groupAlbums(groups[0], albums, groups).length, 2);
+assert.deepEqual(tree.folderPreviewItems(groups[0], albums, groups).map(entry => [entry.kind, entry.item.id]), [['folder', '1'], ['album', 1]]);
+console.log('PASS: account style persistence, default, storage fallback, folder depth, cycles and direct-child previews');

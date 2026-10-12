@@ -42,7 +42,7 @@
 .project-card__cover-empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: #111; font-size: 12px; }
 .project-card__cover-empty svg { width: 30px; height: 30px; }
 
-.project-card__thumb-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: minmax(0, 1fr); aspect-ratio: 9 / 2; min-height: 44px; gap: 4px; margin-top: 5px; }
+.project-card__thumb-grid { display: grid; width: 100%; min-width: 0; max-width: 100%; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: minmax(0, 1fr); aspect-ratio: 9 / 2; min-height: 44px; gap: 4px; margin-top: 5px; }
 .project-card__thumb-grid.is-expanded { grid-template-columns: repeat(var(--project-preview-columns, 10), minmax(0, 1fr)); grid-template-rows: repeat(var(--project-preview-rows, 2), minmax(0, 1fr)); align-items: center; gap: 2px; }
 .project-card__thumb { position: relative; display: block; width: 100%; height: 100%; min-width: 0; min-height: 0; padding: 0; overflow: hidden; border: 0; border-radius: 6px; background: #e4e8e5; animation: project-preview-appear .16s ease-out; }
 .project-card__thumb[hidden] { display: none; }
