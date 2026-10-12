@@ -4,7 +4,7 @@ const os = require('node:os');
 const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
 const { createRequire } = require('node:module');
-const { revision, replaceLink, readLink, dumpDatabase, processConfig, assertNoDataLoss } = require('./deploy-lib.cjs');
+const { revision, replaceLink, readLink, dumpDatabase, processConfig, assertNoDataLoss, restorePlan, assertDiskSpace } = require('./deploy-lib.cjs');
 const { checkPublish } = require('./check-publish.cjs');
 const home = os.homedir();
 const repo = path.join(home, 'mamage');
@@ -38,9 +38,10 @@ async function restore(previous) {
     }
     fs.renameSync(previous.webDistBackup, dist);
   }
-  for (const config of previous.processes) {
+  for (const config of restorePlan(previous.processes, await pm('list'))) {
     if ((await pm('list')).some(p => p.name === config.name)) await pm('delete', config.name);
     await pm('start', config);
+    if (config.name === 'mamage-face-service') await healthy('http://127.0.0.1:8009/health');
   }
   await healthy('http://127.0.0.1:8080/api/health');
   await healthy('http://127.0.0.1:8009/health');
@@ -56,12 +57,12 @@ async function main() {
     if (process.argv[2] === '--rollback') {
       const last = JSON.parse(fs.readFileSync(path.join(data, 'last-release.json'), 'utf8'));
       const rollbackFile = path.join(data, 'last-rollback.json');
-      if (fs.existsSync(rollbackFile) && JSON.parse(fs.readFileSync(rollbackFile, 'utf8')).from === last.sha) {
+      if (fs.existsSync(rollbackFile) && JSON.parse(fs.readFileSync(rollbackFile, 'utf8')).from === last.release) {
         throw Error('This release was already rolled back');
       }
       const previous = JSON.parse(fs.readFileSync(path.join(last.backup, 'previous.json'), 'utf8'));
       await restore(previous);
-      save(path.join(data, 'last-rollback.json'), { from: last.sha, at: new Date().toISOString() });
+      save(path.join(data, 'last-rollback.json'), { from: last.release, at: new Date().toISOString() });
       console.log('Previous code restored; database was not rolled back.');
       return;
     }
@@ -71,6 +72,8 @@ async function main() {
     git('fetch', 'origin', 'main');
     git('merge-base', '--is-ancestor', sha, 'origin/main');
     checkPublish(repo);
+    const disk = fs.statfsSync(data);
+    assertDiskSpace(Number(disk.bavail) * Number(disk.bsize));
     const id = `${sha.slice(0, 12)}-${Date.now()}`;
     const release = path.join(home, 'mamage-releases', id);
     const backup = path.join(home, 'mamage-backups', id);

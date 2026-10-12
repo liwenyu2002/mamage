@@ -52,4 +52,16 @@ function assertNoDataLoss(before, after) {
   }
 }
 
-module.exports = { revision, replaceLink, readLink, dumpDatabase, processConfig, assertNoDataLoss };
+function restorePlan(previous, running) {
+  return [...previous].filter(config => {
+    const proc = running.find(item => item.name === config.name);
+    return !(config.name === 'mamage-face-service' && proc?.pm2_env.status === 'online'
+      && proc.pm2_env.pm_cwd === config.cwd && proc.pm2_env.pm_exec_path === config.script);
+  }).sort((a, b) => Number(b.name === 'mamage-face-service') - Number(a.name === 'mamage-face-service'));
+}
+
+function assertDiskSpace(available) {
+  if (!Number.isFinite(available) || available < 3 * 1024 ** 3) throw Error('At least 3 GiB free space is required before deployment');
+}
+
+module.exports = { revision, replaceLink, readLink, dumpDatabase, processConfig, assertNoDataLoss, restorePlan, assertDiskSpace };

@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { revision, replaceLink, readLink, processConfig, assertNoDataLoss } = require('./deploy-lib.cjs');
+const { revision, replaceLink, readLink, processConfig, assertNoDataLoss, restorePlan, assertDiskSpace } = require('./deploy-lib.cjs');
 const { checkPublish } = require('./check-publish.cjs');
 
 test('private files are excluded from the entire publishable history', () => {
@@ -42,4 +42,17 @@ test('data guard rejects missing workspaces or decreased album/photo counts', ()
   assert.throws(() => assertNoDataLoss(before, []));
   assert.throws(() => assertNoDataLoss(before, [{ ...before[0], albums: 20 }]));
   assert.throws(() => assertNoDataLoss(before, [{ ...before[0], photos: 3477 }]));
+});
+test('rollback restores a changed face service before the API, leaving an unchanged service running', () => {
+  const api = { name: 'mamage-server', cwd: '/old', script: '/old/app.js' };
+  const face = { name: 'mamage-face-service', cwd: '/old', script: '/venv/python' };
+  assert.deepEqual(restorePlan([api, face], []).map(p => p.name), [face.name, api.name]);
+  const running = [{ name: face.name, pm2_env: { status: 'online', pm_cwd: '/old', pm_exec_path: '/venv/python' } }];
+  assert.deepEqual(restorePlan([api, face], running), [api]);
+  running[0].pm2_env.pm_cwd = '/new';
+  assert.deepEqual(restorePlan([api, face], running).map(p => p.name), [face.name, api.name]);
+});
+test('low disk space aborts before building a release or switching live services', () => {
+  assertDiskSpace(3 * 1024 ** 3);
+  for (const value of [0, 1024 ** 3, NaN]) assert.throws(() => assertDiskSpace(value));
 });
