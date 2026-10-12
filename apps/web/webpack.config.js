@@ -1,0 +1,192 @@
+// webpack.config.js
+const path = require('path');
+const fs = require('fs');
+const HtmlWebpackPlugin = require('html-webpack-plugin');
+const MiniCssExtractPlugin = require('mini-css-extract-plugin');
+
+// 轻量 .env 加载（无 dotenv 依赖）：让构建 templateParameters(MAMAGE_*) 可靠地从项目根 .env 读取，
+// 否则标准 `npm run build`（不在 shell 里手动 export）会让这些变量全部落到默认空值——
+// 例如 MAMAGE_DISABLE_DIRECT_UPLOAD 丢失后直传开关失效，上传又会打向私网 S3 端点常态 409。
+// 已在 shell 环境显式设置的变量优先，不被 .env 覆盖。
+try {
+  const envPath = path.resolve(__dirname, '.env');
+  if (fs.existsSync(envPath)) {
+    fs.readFileSync(envPath, 'utf8').split(/\r?\n/).forEach((line) => {
+      const m = line.match(/^\s*([A-Za-z0-9_]+)\s*=\s*(.*?)\s*$/);
+      if (!m || process.env[m[1]] !== undefined) return;
+      let v = m[2];
+      if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
+      process.env[m[1]] = v;
+    });
+  }
+} catch (e) { /* .env 可选，缺失或不可读不影响构建 */ }
+
+const devProxyTarget = process.env.MAMAGE_BACKEND_URL || 'http://localhost:8001';
+const devProxyContexts = ['/api', '/uploads', '/static'];
+const productionReadOnly = String(process.env.MAMAGE_PRODUCTION_READONLY || '').trim() === '1';
+
+const nodeModulePackageTest = (packages) => (module) => {
+  const resource = module.nameForCondition && module.nameForCondition();
+  if (!resource) return false;
+
+  const normalized = resource.replace(/\\/g, '/');
+  return packages.some((pkg) => normalized.includes(`/node_modules/${pkg}/`));
+};
+
+const publicAssets = [
+  'robots.txt',
+  '.well-known/security.txt',
+  'favicon.svg',
+  'favicon.png',
+  'favicon-16x16.png',
+  'favicon-32x32.png',
+  'apple-touch-icon.png',
+  'site.webmanifest',
+  'icons/icon-192.png',
+  'icons/icon-512.png',
+];
+
+class CopyPublicAssetsPlugin {
+  apply(compiler) {
+    compiler.hooks.afterEmit.tapPromise('CopyPublicAssetsPlugin', async () => {
+      await Promise.all(publicAssets.map(async (asset) => {
+        const from = path.resolve(__dirname, 'public', asset);
+        const to = path.resolve(compiler.options.output.path, asset);
+        await fs.promises.mkdir(path.dirname(to), { recursive: true });
+        await fs.promises.copyFile(from, to);
+      }));
+    });
+  }
+}
+
+module.exports = (_env, argv) => ({
+  entry: './src/index.jsx',
+  output: {
+    path: path.resolve(__dirname, 'dist'),
+    filename: 'bundle.[contenthash].js',
+    chunkFilename: 'bundle.[name].[contenthash].js',
+    publicPath: '/',
+    // 保留历史哈希包：部署新版本后，边缘/浏览器里未过期的旧 HTML 引用的旧 chunk
+    // 依然可加载，避免"原地覆盖删旧文件 → 旧页面白屏"。dist 会缓慢累积，定期手动清理即可。
+    clean: {
+      keep: /^(?:bundle\.[^/]+\.(?:js|css)(?:\.LICENSE\.txt)?|bundle\.[^/]+\.(?:js|css)\.map)$/,
+    },
+  },
+  mode: 'development',
+  optimization: {
+    moduleIds: 'deterministic',
+    chunkIds: 'deterministic',
+    runtimeChunk: 'single',
+    splitChunks: {
+      chunks: 'all',
+      maxInitialRequests: 12,
+      maxAsyncRequests: 12,
+      minSize: 20000,
+      cacheGroups: {
+        react: {
+          test: nodeModulePackageTest(['react', 'react-dom', 'scheduler']),
+          name: 'vendor-react',
+          priority: 40,
+          enforce: true,
+          reuseExistingChunk: true,
+        },
+        exportTools: {
+          test: nodeModulePackageTest(['html-to-image', 'marked']),
+          name: 'vendor-export-tools',
+          chunks: 'async',
+          priority: 30,
+          enforce: true,
+          reuseExistingChunk: true,
+        },
+        vendors: {
+          test: /[\\/]node_modules[\\/]/,
+          name: 'vendor-async-common',
+          chunks: 'async',
+          priority: -10,
+          maxSize: 180000,
+          reuseExistingChunk: true,
+        },
+      },
+    },
+  },
+  resolve: {
+    extensions: ['.js', '.jsx'],
+  },
+  module: {
+    rules: [
+      {
+        test: /\.(js|jsx)$/,
+        exclude: /node_modules/,
+        use: {
+          loader: 'babel-loader',
+          options: {
+            presets: [
+              '@babel/preset-env',
+              '@babel/preset-react',
+            ],
+          },
+        },
+      },
+      {
+        test: /\.css$/,
+        use: [argv.mode === 'production' ? MiniCssExtractPlugin.loader : 'style-loader', 'css-loader'],
+      },
+    ],
+  },
+  plugins: [
+    ...(argv.mode === 'production' ? [new MiniCssExtractPlugin({
+      filename: 'bundle.[contenthash].css',
+      chunkFilename: 'bundle.[name].[contenthash].css',
+    })] : []),
+    new HtmlWebpackPlugin({
+      template: './public/index.html',
+      // Inject runtime config values into generated HTML.
+      templateParameters: {
+        MAMAGE_COS_BASE: process.env.MAMAGE_COS_BASE || '',
+        MAMAGE_API_BASE: process.env.MAMAGE_API_BASE || '',
+        MAMAGE_UPLOAD_API_BASE: process.env.MAMAGE_UPLOAD_API_BASE || '',
+        MAMAGE_UPLOAD_LAN_BASES: process.env.MAMAGE_UPLOAD_LAN_BASES || '',
+        MAMAGE_DISABLE_DIRECT_UPLOAD: process.env.MAMAGE_DISABLE_DIRECT_UPLOAD || '',
+      }
+    }),
+    new CopyPublicAssetsPlugin(),
+  ],
+  devServer: {
+    // Default dev server port (can be overridden by env vars)
+    port: process.env.WEBPACK_DEV_SERVER_PORT || process.env.PORT || 5173,
+    // Serve index.html for unknown routes so SPA routes like /share/:code work in dev
+    historyApiFallback: true,
+    open: process.env.WEBPACK_DEV_SERVER_OPEN === '0' ? false : true,
+    setupMiddlewares: (middlewares) => {
+      if (productionReadOnly) {
+        middlewares.unshift({
+          name: 'mamage-production-readonly-guard',
+          middleware: (req, res, next) => {
+            const method = String(req.method || 'GET').toUpperCase();
+            const pathname = String(req.url || '').split('?')[0];
+            const safeRead = method === 'GET' || method === 'HEAD' || method === 'OPTIONS';
+            const passwordLogin = method === 'POST' && pathname === '/api/users/login';
+            if (safeRead || passwordLogin || !pathname.startsWith('/api/')) return next();
+            res.statusCode = 405;
+            res.setHeader('Content-Type', 'application/json; charset=utf-8');
+            return res.end(JSON.stringify({
+              error: 'PRODUCTION_READONLY',
+              message: '本地前端当前连接生产只读 API，已阻止写操作。',
+            }));
+          },
+        });
+      }
+      return middlewares;
+    },
+    proxy: [
+      {
+        context: devProxyContexts,
+        // Proxy target should be provided via env `MAMAGE_BACKEND_URL`.
+        // Match the local API default in mamage-server/.env.
+        target: devProxyTarget,
+        changeOrigin: true,
+        secure: false,
+      },
+    ],
+  },
+});

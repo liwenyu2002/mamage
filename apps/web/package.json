@@ -1,0 +1,34 @@
+{
+  "dependencies": {
+    "docx": "^9.7.1",
+    "dompurify": "^3.4.11",
+    "html-to-image": "^1.11.13",
+    "marked": "^5.0.2",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "dependenciesMeta": {},
+  "scripts": {
+    "start": "webpack serve --mode development",
+    "dev:full": "MAMAGE_BACKEND_URL=http://localhost:8000 webpack serve --mode development",
+    "dev:prod": "MAMAGE_BACKEND_URL=https://mamage.wenyuli.site MAMAGE_DISABLE_DIRECT_UPLOAD=1 MAMAGE_PRODUCTION_READONLY=1 webpack serve --mode development",
+    "dev:mini": "MAMAGE_BACKEND_URL=http://10.100.65.147:8080 MAMAGE_DISABLE_DIRECT_UPLOAD=1 WEBPACK_DEV_SERVER_PORT=5188 webpack serve --mode development",
+    "build": "webpack --mode production",
+    "test:audit": "node scripts/check-album-desktop-saver.cjs && node scripts/check-photo-upload-recovery.cjs"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.28.5",
+    "@babel/preset-env": "^7.28.5",
+    "@babel/preset-react": "^7.28.5",
+    "babel-loader": "^10.0.0",
+    "css-loader": "^7.1.2",
+    "html-webpack-plugin": "^5.6.5",
+    "mini-css-extract-plugin": "^2.9.4",
+    "sass": "^1.94.2",
+    "sass-loader": "^16.0.6",
+    "style-loader": "^4.0.0",
+    "webpack": "^5.103.0",
+    "webpack-cli": "^6.0.1",
+    "webpack-dev-server": "^5.2.2"
+  }
+}

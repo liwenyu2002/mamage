@@ -1,0 +1,36 @@
+/* Scenery page: present projectId=1 images only. */
+.scenery-page {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.scenery-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 12px;
+  border: 1px solid var(--liquid-glass-border, rgba(255, 255, 255, 0.62));
+  border-radius: 18px;
+  background: var(--liquid-glass-material, rgba(255, 255, 255, 0.38));
+  box-shadow: var(--liquid-glass-shadow-tight, var(--lg-shadow-tight)), var(--liquid-glass-edge, none);
+  backdrop-filter: var(--liquid-glass-backdrop, blur(18px) saturate(1.35));
+  -webkit-backdrop-filter: var(--liquid-glass-backdrop, blur(18px) saturate(1.35));
+}
+
+/* Hide ProjectDetail header so only images are visible */
+.scenery-page .detail-header {
+  display: none !important;
+}
+
+.scenery-page .detail-page {
+  padding-top: 0;
+}
+
+/* Viewer overlay should still work */
+.scenery-page .viewer-overlay {
+  z-index: 2000;
+}

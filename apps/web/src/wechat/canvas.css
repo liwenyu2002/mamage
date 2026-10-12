@@ -1,0 +1,713 @@
+/* 画布编辑器样式。类名统一 .cve- 前缀，自包含。
+   约束：站内 UI（画布卡片外壳/hover-选中边框/浮动工具条/色点面板）保持纯黑白语言，
+   唯一允许出现彩色的地方是画布内容区本身（applyBlock 产出的样式块）与换色面板的 8 个色点——
+   那是文章配色的一部分，不是站内 chrome。 */
+
+.cve-canvas {
+  position: relative;
+  width: 677px;
+  max-width: 100%;
+  margin: 0 auto;
+  box-sizing: border-box;
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 40px 32px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 12px 32px rgba(0, 0, 0, 0.08);
+  /* 拖拽指示线用这个变量对齐左右内边距，两处 padding 数值只在这一处维护 */
+  --cve-pad-x: 32px;
+}
+
+@media (max-width: 760px) {
+  .cve-canvas {
+    width: 100%;
+    padding: 24px 16px;
+    border-radius: 10px;
+    --cve-pad-x: 16px;
+  }
+}
+
+.cve-empty-hint {
+  padding: 64px 20px;
+  text-align: center;
+  color: rgba(0, 0, 0, 0.35);
+  font-size: 14px;
+}
+
+/* ---- 块 wrapper：hover 淡边、选中实线黑边，用 outline 而非 border 避免影响内部模板的盒模型 ---- */
+
+.cve-block {
+  position: relative;
+  z-index: 0;
+  cursor: pointer;
+}
+
+.cve-block:hover:not(.cve-block--selected) {
+  outline: 1px dashed rgba(0, 0, 0, 0.28);
+  outline-offset: 6px;
+}
+
+.cve-block--selected {
+  z-index: 5;
+  outline: 2px solid #111111;
+  outline-offset: 6px;
+}
+
+/* ---- 布局模式 / 编辑辅助（视图开关，不影响导出）---- */
+/* 编辑辅助·元素边框：只描到块（元素组）层 */
+.cve-aid-outline .cve-block:not(.cve-block--selected) {
+  outline: 1px dashed rgba(0, 0, 0, 0.28);
+  outline-offset: 4px;
+}
+/* 布局模式（秀米 tn-editing-mode-layout 复刻）：块=外框，块内每个"单一元素"(cell)逐一描边——
+   section/div/p/img/svg/table/li 等结构元素递归全描，不止顶层元素组。:where() 保持 0 特异性，
+   让选中/框选的实线高亮仍能盖过。 */
+.cve-canvas--layout .cve-block:not(.cve-block--selected) {
+  outline: 1px dashed rgba(37, 99, 235, 0.55);
+  outline-offset: 3px;
+}
+.cve-canvas--layout .cve-block-body :where(section, div, p, blockquote, figure, figcaption, img, svg, table, thead, tbody, tr, td, th, ul, ol, li, hr, span[style*="background"]) {
+  outline: 1px dashed rgba(120, 140, 175, 0.6);
+  outline-offset: -1px;
+}
+/* 悬停某个 cell 时高亮它，方便定位 */
+.cve-canvas--layout .cve-block-body :where(section, div, p, img, svg, li):hover {
+  outline-color: rgba(37, 99, 235, 0.85);
+  background: rgba(37, 99, 235, 0.05);
+}
+.cve-canvas--layout { background-image: linear-gradient(rgba(0, 0, 0, 0.02) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 0, 0, 0.02) 1px, transparent 1px); background-size: 16px 16px; }
+.cve-aid-zebra .cve-block--even { background: rgba(0, 0, 0, 0.035); }
+.cve-block-badge {
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  z-index: 6;
+  padding: 1px 7px;
+  font-size: 10.5px;
+  line-height: 1.6;
+  border-radius: 7px 0 7px 0;
+  background: rgba(17, 17, 17, 0.82);
+  color: #fff;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* 框选命中的块：虚线蓝边区别于单选实线黑边 */
+.cve-block--multi:not(.cve-block--selected) {
+  outline: 2px dashed #2f6bd6;
+  outline-offset: 5px;
+  background: rgba(47, 107, 214, 0.05);
+}
+
+/* 框选橡皮筋矩形（画布相对定位；起手点在画布外时坐标为负值/越界，
+   .cve-canvas 无 overflow 裁剪，越界部分照常可见） */
+.cve-rubber {
+  position: absolute;
+  z-index: 16;
+  border: 1px solid #2f6bd6;
+  background: rgba(47, 107, 214, 0.1);
+  pointer-events: none;
+}
+
+/* 框选进行中（从画布空白或页面背景起手）：全页禁文本选择，
+   避免橡皮筋扫过标题/文案时拉出蓝色文本选区 */
+body.cve-box-selecting,
+body.cve-box-selecting * {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* 多选浮动操作条：固定视口底部居中，批量收藏/删除 */
+.cve-multibar {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(17, 17, 17, 0.94);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.34);
+  z-index: 2500;
+  white-space: nowrap;
+}
+
+.cve-multibar-count {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 13px;
+  padding: 0 6px;
+}
+
+.cve-multibar-btn {
+  appearance: none;
+  border: none;
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  font-size: 13px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.cve-multibar-btn:hover {
+  background: rgba(255, 255, 255, 0.26);
+}
+
+.cve-multibar-btn--ghost {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.cve-block-body {
+  cursor: default;
+}
+
+.cve-block-error {
+  margin: 20px 0;
+  padding: 14px 16px;
+  border: 1px dashed rgba(0, 0, 0, 0.3);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.04);
+  color: rgba(0, 0, 0, 0.55);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+/* ---- 拖拽插入指示线：黑色 3px 圆角条，横跨内容宽度，两端小圆点装饰 ---- */
+
+.cve-drop-indicator {
+  position: absolute;
+  left: var(--cve-pad-x);
+  right: var(--cve-pad-x);
+  height: 3px;
+  border-radius: 999px;
+  background: #111111;
+  z-index: 15;
+  pointer-events: none; /* 不能挡 dragover/drop 命中，事件要穿透到下层块/画布 */
+}
+
+.cve-drop-indicator::before,
+.cve-drop-indicator::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #111111;
+  transform: translateY(-50%);
+}
+
+.cve-drop-indicator::before {
+  left: -3px;
+}
+
+.cve-drop-indicator::after {
+  right: -3px;
+}
+
+/* ---- 拖拽把手：块左侧外挂竖条，hover/选中时才出现，纯黑白 chrome ---- */
+
+.cve-drag-handle {
+  position: absolute;
+  left: -30px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 34px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.06);
+  color: rgba(0, 0, 0, 0.45);
+  font-size: 14px;
+  line-height: 1;
+  cursor: grab;
+  user-select: none;
+  z-index: 4;
+}
+
+.cve-block:hover .cve-drag-handle,
+.cve-block--selected .cve-drag-handle {
+  display: flex;
+}
+
+.cve-drag-handle:hover {
+  background: rgba(0, 0, 0, 0.1);
+  color: rgba(0, 0, 0, 0.65);
+}
+
+.cve-drag-handle:active {
+  cursor: grabbing;
+}
+
+@media (max-width: 760px) {
+  .cve-drag-handle {
+    left: -20px;
+    width: 18px;
+  }
+}
+
+/* ---- 浮动块工具条：黑底白字小圆角胶囊组，首块翻到块下方 ---- */
+
+.cve-toolbar {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  border-radius: 18px;
+  background: rgba(17, 17, 17, 0.94);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
+  z-index: 20;
+  white-space: nowrap;
+  cursor: default;
+  width: max-content;
+  max-width: min(calc(100% - 8px), calc(100vw - 24px));
+  box-sizing: border-box;
+}
+
+.cve-toolbar-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: 100%;
+}
+
+/* 窄屏：文字格式行控件多，浮动工具条会超出屏幕。约束在视口内并允许按钮换行
+   （不用横向滚动——那样会裁掉字号/取色的下拉面板），字号等下拉面板照常向下弹出可见。 */
+@media (max-width: 768px) {
+  .cve-toolbar {
+    max-width: calc(100vw - 14px);
+    white-space: normal;
+  }
+  .cve-toolbar-row {
+    flex-wrap: wrap;
+    justify-content: center;
+    max-width: 100%;
+  }
+}
+
+/* 第二行上下文区与第一行之间一条细分隔 */
+.cve-toolbar-row--ctx {
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+  padding-top: 3px;
+  margin-top: 1px;
+}
+
+.cve-toolbar-sep {
+  width: 1px;
+  height: 14px;
+  margin: 0 4px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.cve-toolbar-label {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 11.5px;
+  padding: 0 4px;
+}
+
+.cve-toolbar-btn.is-on {
+  background: rgba(255, 255, 255, 0.24);
+}
+
+.cve-toolbar-btn--sz {
+  min-width: 26px;
+}
+
+.cve-dot-preview--text {
+  display: inline-block;
+  width: auto;
+  height: auto;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 700;
+  text-decoration: underline;
+}
+
+/* raw 块内选中的照片：黑色描边高亮（属性由 RawView 手工管理，innerHTML 非 React 域）。
+   照片=<img>/svg <image>/带 background-image 的元素，三种都要高亮，故选择器不限 img。 */
+.cve-raw-host [data-cve-img-active] {
+  outline: 2px solid #111111;
+  outline-offset: 2px;
+}
+/* 悬停任意照片给一层浅提示，暗示"可点选换图/编辑" */
+.cve-raw-host img:hover,
+.cve-raw-host image:hover,
+.cve-raw-host [style*="background-image"]:hover {
+  outline: 1px dashed rgba(17, 17, 17, 0.4);
+  outline-offset: 1px;
+  cursor: pointer;
+}
+
+.cve-toolbar--above {
+  bottom: 100%;
+  margin-bottom: 10px;
+}
+
+.cve-toolbar--below {
+  top: 100%;
+  margin-top: 10px;
+}
+
+/* 浮动模式：top 由内联样式给出(相对块顶部,跟随光标/选区/图片),bottom/margin 让位,
+   transform 决定工具条落在锚点上方(默认)还是下方(锚点离视口顶太近时) */
+.cve-toolbar--anchored {
+  bottom: auto;
+  margin: 0;
+}
+
+.cve-toolbar--anchored.cve-toolbar--above {
+  transform: translate(-50%, calc(-100% - 10px));
+}
+
+.cve-toolbar--anchored.cve-toolbar--below {
+  transform: translate(-50%, 10px);
+}
+
+.cve-toolbar-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: #ffffff;
+  font-size: 12.5px;
+  line-height: 1;
+  padding: 7px 9px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.cve-toolbar-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.cve-toolbar-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.cve-toolbar-swatch-wrap {
+  position: relative;
+}
+
+.cve-toolbar-dot-btn {
+  padding: 7px 8px;
+}
+
+.cve-dot-preview {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.55) inset, 0 0 0 1px rgba(0, 0, 0, 0.25);
+  vertical-align: middle;
+}
+
+.cve-swatch-panel {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: repeat(4, 20px);
+  gap: 7px;
+  padding: 9px;
+  border-radius: 12px;
+  background: rgba(17, 17, 17, 0.96);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.32);
+  z-index: 30;
+}
+
+.cve-swatch {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  transition: transform 100ms ease;
+}
+
+.cve-swatch:hover {
+  transform: scale(1.15);
+}
+/* 清除底色档：白底带斜杠示意 */
+.cve-swatch--none {
+  background:
+    linear-gradient(45deg, transparent 43%, #d64545 43%, #d64545 57%, transparent 57%),
+    #ffffff;
+}
+
+/* 文字底色预览方块（与文字颜色 A 区分） */
+.cve-dot-preview--hl {
+  width: auto;
+  height: auto;
+  border-radius: 3px;
+  box-shadow: none;
+  color: #ffd84d;
+  font-size: 12px;
+  line-height: 1;
+}
+
+/* 字号选择：菜单按钮 + 弹出的 px 档网格 */
+.cve-toolbar-menu-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.cve-toolbar-btn--menu {
+  padding: 0 8px;
+  min-width: 44px;
+  font-size: 12.5px;
+}
+.cve-size-menu {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: repeat(5, 34px);
+  gap: 4px;
+  padding: 8px;
+  border-radius: 12px;
+  background: rgba(17, 17, 17, 0.96);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.32);
+  z-index: 30;
+}
+.cve-size-item {
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.cve-size-item:hover {
+  background: rgba(255, 255, 255, 0.26);
+}
+
+/* ---- 行距 / 边距（间距）微调面板 ---- */
+.cve-spacing-menu {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 9px;
+  border-radius: 12px;
+  background: rgba(17, 17, 17, 0.96);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.32);
+  z-index: 30;
+  white-space: nowrap;
+}
+.cve-spacing-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* 数值输入组（行距/边距/字号等，手动键入 + 步进）——中性配色，深浅底皆可读 */
+.cve-numin { display: inline-flex; align-items: center; gap: 3px; }
+.cve-numin-btn {
+  width: 22px; height: 24px; border: none; border-radius: 6px;
+  background: rgba(128, 128, 128, 0.22); color: inherit;
+  font-size: 14px; line-height: 1; cursor: pointer;
+}
+.cve-numin-btn:hover { background: rgba(128, 128, 128, 0.4); }
+.cve-numin-input {
+  height: 24px; box-sizing: border-box;
+  border: 1px solid rgba(128, 128, 128, 0.4); border-radius: 6px;
+  background: #fff; color: #111; font-size: 12.5px; text-align: center;
+  padding: 0 4px; font-variant-numeric: tabular-nums;
+}
+.cve-numin-input:focus { outline: none; border-color: #2563eb; }
+.cve-numin-suffix { font-size: 11px; opacity: 0.55; }
+
+/* 布局模式·元素检查器（浮在选中元素上方，深色玻璃） */
+.cve-elx {
+  position: absolute;
+  z-index: 40;
+  width: 260px;
+  max-width: calc(100% - 8px);
+  box-sizing: border-box;
+  padding: 8px 10px 10px;
+  border-radius: 12px;
+  background: rgba(20, 22, 28, 0.96);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.36);
+  color: #f2f2f7;
+  cursor: default;
+}
+.cve-elx-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.cve-elx-title { font-size: 12px; font-weight: 700; }
+.cve-elx-close { border: none; background: transparent; color: rgba(255, 255, 255, 0.7); font-size: 16px; line-height: 1; cursor: pointer; }
+.cve-elx-close:hover { color: #fff; }
+.cve-elx-row { display: grid; grid-template-columns: 30px minmax(0, 1fr); align-items: center; gap: 8px; margin-bottom: 6px; }
+.cve-elx-label { width: 30px; font-size: 12px; color: rgba(255, 255, 255, 0.66); }
+.cve-elx-seg-group { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); min-width: 0; border-radius: 7px; overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.16); }
+.cve-elx-seg { min-width: 0; padding: 4px 5px; border: none; background: transparent; color: #e6e6ea; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.cve-elx-seg:hover { background: rgba(255, 255, 255, 0.12); }
+.cve-elx-seg.is-on { background: #2563eb; color: #fff; }
+.cve-elx-margins { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; margin-top: 4px; }
+.cve-elx-mrow { display: grid; grid-template-columns: 12px minmax(0, 1fr); align-items: center; gap: 4px; min-width: 0; }
+.cve-elx-mrow > span { width: 12px; font-size: 12px; color: rgba(255, 255, 255, 0.66); }
+.cve-elx-mrow .cve-numin { min-width: 0; gap: 2px; }
+.cve-elx-mrow .cve-numin-btn { width: 20px; flex: 0 0 20px; }
+.cve-elx-mrow .cve-numin-input { width: 34px !important; min-width: 0; }
+.cve-elx-mrow .cve-numin-suffix { font-size: 10px; }
+.cve-elx-hint { margin: 8px 0 0; font-size: 10.5px; line-height: 1.5; color: rgba(255, 255, 255, 0.5); }
+
+/* 选中的单一元素高亮 */
+.cve-canvas--layout [data-cve-elsel] {
+  outline: 2px solid #2563eb !important;
+  outline-offset: -1px !important;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
+}
+.cve-spacing-label {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 12px;
+}
+.cve-spacing-step {
+  height: 26px;
+  width: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+.cve-spacing-step:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+.cve-spacing-val {
+  text-align: center;
+  color: #fff;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+.cve-spacing-reset {
+  margin-top: 2px;
+  height: 26px;
+  border: none;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 12px;
+  cursor: pointer;
+}
+.cve-spacing-reset:hover {
+  background: rgba(255, 90, 90, 0.28);
+  color: #fff;
+}
+
+/* ---- styled 文本块 / 图片卡：可编辑槽位 + 占位符 ---- */
+
+.cve-styled-host,
+.cve-imagecard-host,
+.cve-divider-host {
+  display: block;
+}
+
+[data-cve-slot] {
+  outline: none;
+  cursor: text;
+}
+
+[data-cve-slot]:empty::before,
+.cve-para:empty::before {
+  content: attr(data-cve-placeholder);
+  color: rgba(0, 0, 0, 0.32);
+  pointer-events: none;
+}
+
+.cve-image-click-target {
+  cursor: pointer;
+  transition: opacity 120ms ease;
+}
+
+.cve-image-click-target:hover {
+  opacity: 0.86;
+}
+
+/* ---- raw 块（整文导入）：整块富文本编辑，样式全靠原文内联，宿主只做防溢出约束 ---- */
+
+.cve-raw-host {
+  outline: none;
+  cursor: text;
+  overflow-wrap: break-word;
+  /* 微信文章页 #js_content 实测基线(2026-07-12)：17px/1.6/0.544px/两端对齐。
+     原文裸 <p> 和不带内联行距的段落依赖微信页面这套 CSS，画布不补齐就会
+     吃浏览器默认(p margin 1em、line-height normal)，出现"行距和原文不一样"。
+     均可被块内联样式覆盖，只兜底未声明的属性。 */
+  font-size: 17px;
+  line-height: 1.6;
+  letter-spacing: 0.544px;
+  text-align: justify;
+}
+
+/* 微信页面对文章内元素做了全零边距重置（实测 p margin 0），浏览器默认 p/h/ul 的
+   1em 级外边距会让段间距明显大于原文——这是行距差异的最大来源 */
+.cve-raw-host p,
+.cve-raw-host h1, .cve-raw-host h2, .cve-raw-host h3,
+.cve-raw-host h4, .cve-raw-host h5, .cve-raw-host h6,
+.cve-raw-host blockquote, .cve-raw-host figure,
+.cve-raw-host ul, .cve-raw-host ol {
+  margin: 0;
+  padding: 0;
+}
+
+/* 与微信一致：p 清浮动 + 撑起空段（<p><br></p> 占一行行高，空行间距才能对齐原文） */
+.cve-raw-host p {
+  clear: both;
+  min-height: 1em;
+}
+
+/* 原文 img 内联样式若给了超画布的固定宽度，max-width 兜底防横向溢出（内联 width 仍受此约束） */
+.cve-raw-host img {
+  max-width: 100%;
+  height: auto;
+}
+
+/* ---- 普通段落：整段 contentEditable ---- */
+
+.cve-para {
+  outline: none;
+  min-height: 1.4em;
+  cursor: text;
+}
+
+.cve-para strong {
+  font-weight: 700;
+  color: var(--cve-accent, #1a1a1a);
+}
+
+.cve-para em {
+  font-style: italic;
+  color: #666666;
+}
+
+.cve-para a {
+  color: var(--cve-accent, #1a1a1a);
+  text-decoration: underline;
+}

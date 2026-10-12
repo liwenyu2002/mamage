@@ -1,0 +1,245 @@
+.person-merge {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--liquid-glass-border-soft, rgba(255, 255, 255, 0.58));
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.3);
+  box-shadow: var(--liquid-glass-edge, inset 0 1px 0 rgba(255, 255, 255, 0.62));
+  color: #000;
+}
+
+.person-merge-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+
+.person-merge-heading strong {
+  font-size: 15px;
+  font-weight: 850;
+}
+
+.person-merge-heading span,
+.person-merge-result-meta,
+.person-merge-sample-heading span {
+  color: rgba(0, 0, 0, 0.6);
+  font-size: 12px;
+}
+
+.person-merge-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 0 10px;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.44);
+}
+
+.person-merge-search svg {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+}
+
+.person-merge-search .mamage-input-wrapper {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.person-merge-results {
+  display: grid;
+  align-content: start;
+  min-height: 44px;
+  max-height: 194px;
+  overflow-y: auto;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.person-merge-result {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 38px;
+  padding: 7px 8px;
+  border: 0;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 0;
+  background: transparent;
+  color: #000;
+  text-align: left;
+  cursor: pointer;
+}
+
+.person-merge-result:hover,
+.person-merge-result.is-selected {
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.person-merge-result.is-selected {
+  box-shadow: inset 3px 0 0 #111;
+}
+
+.person-merge-result:focus-visible {
+  outline: 2px solid #111;
+  outline-offset: -2px;
+}
+
+.person-merge-result-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.person-merge-result-meta {
+  white-space: nowrap;
+}
+
+.person-merge-list-message,
+.person-merge-sample-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 38px;
+  padding: 6px 8px;
+  color: rgba(0, 0, 0, 0.62);
+  font-size: 12px;
+}
+
+.person-merge-list-message.is-error,
+.person-merge-sample-error,
+.person-merge-submit-error {
+  color: #9c2525;
+}
+
+.person-merge-compare {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.person-merge-sample {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.person-merge-sample-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.person-merge-sample-heading strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.person-merge-faces {
+  display: flex;
+  gap: 5px;
+  min-height: 46px;
+  min-width: 0;
+}
+
+.person-merge-faces img,
+.person-merge-face-placeholder {
+  width: 46px;
+  height: 46px;
+  flex: 0 0 46px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.person-merge-face-placeholder {
+  display: grid;
+  place-items: center;
+  color: rgba(0, 0, 0, 0.6);
+  font-size: 10px;
+}
+
+.person-merge-confirm {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-left: 3px solid #111;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.48);
+}
+
+.person-merge-confirm > div {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+  font-size: 13px;
+}
+
+.person-merge-confirm > div span {
+  color: rgba(0, 0, 0, 0.62);
+}
+
+.person-merge-confirm > div strong {
+  overflow-wrap: anywhere;
+}
+
+.person-merge-confirm p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.person-merge-submit-error {
+  font-size: 12px;
+}
+
+.person-merge-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+@media (max-width: 600px) {
+  .person-merge {
+    padding: 12px;
+  }
+
+  .person-merge-result {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1px;
+  }
+
+  .person-merge-compare {
+    gap: 8px;
+  }
+
+  .person-merge-faces {
+    display: grid;
+    grid-template-columns: repeat(2, 38px);
+    min-height: 38px;
+  }
+
+  .person-merge-faces img,
+  .person-merge-face-placeholder {
+    width: 38px;
+    height: 38px;
+    flex-basis: 38px;
+  }
+}

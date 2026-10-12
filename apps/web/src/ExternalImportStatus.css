@@ -1,0 +1,55 @@
+.external-import-status {
+  display: grid;
+  gap: 7px;
+  margin: 8px 0 14px;
+  color: #05070d;
+}
+
+.external-import-banner {
+  min-width: 0;
+  padding: 10px 14px;
+  border: var(--liquid-glass-stroke-width, 0.5px) solid var(--liquid-glass-border-soft, rgba(255, 255, 255, 0.35));
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.48);
+  backdrop-filter: blur(16px) saturate(1.12);
+  box-shadow: 0 6px 22px rgba(29, 38, 45, 0.07), inset 0 1px rgba(255, 255, 255, 0.58);
+}
+
+.external-import-banner-main { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.external-import-banner-main > strong { flex: none; font-size: 13px; font-weight: 800; }
+.external-import-state-dot { width: 7px; height: 7px; border-radius: 50%; background: #5a7791; flex: none; }
+.external-import-state-dot.is-running { background: #168765; }
+.external-import-state-dot.is-paused,
+.external-import-state-dot.is-completed_with_errors { background: #b97722; }
+.external-import-state-dot.is-completed { background: #168765; }
+.external-import-banner-title { min-width: 0; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.external-import-banner-counts { flex: 1; min-width: 0; font-size: 12px; color: #343b44; white-space: nowrap; }
+.external-import-banner-actions { display: flex; align-items: center; gap: 4px; margin-left: auto; flex: none; }
+.external-import-banner-actions .mamage-button { min-height: 30px; padding: 3px 9px; font-size: 12px; }
+
+.external-import-track { height: 4px; margin-top: 9px; border-radius: 4px; background: rgba(25, 47, 55, 0.12); overflow: hidden; }
+.external-import-track > span { display: block; height: 100%; border-radius: inherit; background: #223e46; transition: width 250ms ease-out; }
+.external-import-track.is-indeterminate > span { width: 30%; animation: import-scan 1.8s ease-in-out infinite; }
+@keyframes import-scan { from { transform: translateX(-110%); } to { transform: translateX(340%); } }
+.external-import-detail { display: block; margin-top: 5px; font-size: 11px; color: #4d5357; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.external-import-issues { display: grid; gap: 4px; max-height: 150px; overflow: auto; margin-top: 9px; padding-top: 8px; border-top: 1px solid rgba(51, 64, 70, 0.13); font-size: 12px; }
+.external-import-sources { display: grid; gap: 2px; padding: 0 3px; }
+.external-import-source { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 9px; font-size: 11px; color: #293038; }
+.external-import-source > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.external-import-source > span:nth-child(2) { color: #4c535a; }
+.external-import-source a,
+.external-import-source button { color: #162b36; font: inherit; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
+.external-import-source button { border: 0; padding: 0; background: none; cursor: pointer; }
+.external-import-status-error { font-size: 12px; color: #a82332; }
+
+@media (max-width: 700px) {
+  .external-import-banner { padding: 10px 11px; border-radius: 14px; }
+  .external-import-banner-main { flex-wrap: wrap; gap: 5px 7px; }
+  .external-import-banner-title { max-width: calc(100% - 125px); }
+  .external-import-banner-counts { order: 2; flex-basis: 100%; white-space: normal; }
+  .external-import-banner-actions { order: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .external-import-track > span { animation: none !important; transition: none; }
+}

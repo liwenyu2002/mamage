@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="MaMage">
+  <rect x="32" y="32" width="448" height="448" rx="108" fill="#2563EB"/>
+  <path
+    d="M146 340V184L256 302L366 184V340"
+    fill="none"
+    stroke="#FFFFFF"
+    stroke-width="54"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+</svg>

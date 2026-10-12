@@ -1,0 +1,38 @@
+.external-import-modal .mamage-modal-content {
+  border-radius: 20px;
+  background: rgba(248, 250, 252, 0.72);
+}
+
+.external-import-body {
+  display: grid;
+  gap: 10px;
+  color: #05070d;
+}
+
+.external-import-body label { font-size: 13px; font-weight: 750; }
+
+.external-import-body input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 44px;
+  padding: 0 13px;
+  border: 1px solid rgba(61, 72, 87, 0.18);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.62);
+  color: #05070d;
+  font: inherit;
+  outline: none;
+}
+
+.external-import-body input:focus-visible {
+  border-color: rgba(40, 92, 112, 0.56);
+  box-shadow: 0 0 0 3px rgba(69, 144, 164, 0.14);
+}
+
+.external-import-note { margin: 0; color: #40464d; font-size: 12px; }
+.external-import-error { color: #a82332; font-size: 13px; }
+
+@media (max-width: 640px) {
+  .external-import-modal .mamage-modal-footer { flex-wrap: wrap; }
+}

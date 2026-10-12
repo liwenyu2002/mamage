@@ -1,0 +1,639 @@
+﻿import React from 'react';
+import { MotionModal, DateTimePicker, Input, Toast } from './ui';
+import { IconClose, IconPlus } from './ui/icons';
+import AlbumDetailsFields from './AlbumDetailsFields';
+import UploadProgressSummary from './UploadProgressSummary';
+import { sectionTimeToInputValue, inputValueToSectionTime } from './utils/sectionTime';
+import './CreateAlbumModal.css';
+import { getUploadFileLimitError, FRONTEND_MAX_VIDEO_UPLOAD_TEXT, uploadPhotoFiles, isBrowserUndisplayableImage, isNeverBrowserPreviewable, undisplayableFormatLabel } from './services/photoService';
+import { getProjectById } from './services/projectService';
+import { getPermissions } from './permissions/permissionStore';
+import {
+  createInitialUploadProgress,
+  reduceUploadProgress,
+} from './utils/uploadProgress';
+
+// 手机端仅声明媒体 MIME，避免 RAW/TIFF 扩展名让浏览器跳转到通用文件管理器。
+const MOBILE_MEDIA_ACCEPT = 'image/*,video/*';
+const DESKTOP_MEDIA_ACCEPT = 'image/*,video/*,.avif,.heic,.heif,.tif,.tiff,.dng,.cr2,.cr3,.crw,.nef,.nrw,.arw,.sr2,.srf,.raf,.orf,.rw2,.raw,.pef,.srw,.x3f,.rwl,.3fr,.fff,.iiq,.mrw,.dcr,.kdc,.mos,.erf';
+
+function isVideoFile(file) {
+  const mime = String(file && file.type || '').toLowerCase();
+  if (mime.startsWith('video/')) return true;
+  const name = String(file && file.name || '').toLowerCase();
+  return /\.(mp4|m4v|mov|webm|ogv|ogg)$/i.test(name);
+}
+
+export default function CreateAlbumModal({ visible, onClose, onCreated, createProject }) {
+  const [name, setName] = React.useState('');
+  const [description, setDescription] = React.useState('');
+  const [tags, setTags] = React.useState([]);
+  const [startDate, setStartDate] = React.useState(null);
+  const [externalImportUrl, setExternalImportUrl] = React.useState('');
+  const [timelineEnabled, setTimelineEnabled] = React.useState(false);
+  const [timelineSections, setTimelineSections] = React.useState(() => [{ key: 1, name: '', sectionTime: '' }]);
+  const [submitting, setSubmitting] = React.useState(false);
+  const [userPermissions, setUserPermissions] = React.useState(() => getPermissions());
+  const [stagingFiles, setStagingFiles] = React.useState([]);
+  // 预览解码失败的 objectURL 集合（如 heic 在非 Safari 浏览器）→ 退占位图
+  const [failedPreviews, setFailedPreviews] = React.useState(() => new Set());
+  const markPreviewFailed = React.useCallback((url) => {
+    if (!url) return;
+    setFailedPreviews((prev) => { const n = new Set(prev); n.add(url); return n; });
+  }, []);
+  const [stagingPreviews, setStagingPreviews] = React.useState([]);
+  // 与 stagingFiles 平行：每个文件归属的环节本地 key（'' = 未归类）
+  const [stagingSectionKeys, setStagingSectionKeys] = React.useState([]);
+  const filePickerRef = React.useRef(null);
+  const pendingSectionKeyRef = React.useRef('');
+  const [uploadProgress, setUploadProgress] = React.useState(null);
+  const [draggingOverGroup, setDraggingOverGroup] = React.useState(null);
+  const sectionKeyRef = React.useRef(2);
+
+  React.useEffect(() => {
+    if (visible) return undefined;
+    const reducedMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const timer = window.setTimeout(() => {
+      setName('');
+      setDescription('');
+      setTags([]);
+      setStartDate(null);
+      setExternalImportUrl('');
+      setTimelineEnabled(false);
+      setTimelineSections([{ key: 1, name: '', sectionTime: '' }]);
+      sectionKeyRef.current = 2;
+      setSubmitting(false);
+      stagingPreviews.forEach((u) => { try { URL.revokeObjectURL(u); } catch (e) {} });
+      setStagingFiles([]);
+      setStagingPreviews([]);
+      setStagingSectionKeys([]);
+      setUploadProgress(null);
+      setDraggingOverGroup(null);
+    }, reducedMotion ? 0 : 220);
+    return () => window.clearTimeout(timer);
+  }, [visible]);
+
+  React.useEffect(() => {
+    if (!visible) return;
+    setUserPermissions(getPermissions());
+  }, [visible]);
+
+  const normalizedTimelineSections = React.useMemo(() => timelineSections
+    .map((section, idx) => ({
+      sourceKey: section.key,
+      name: String(section.name || '').trim(),
+      sectionTime: String(section.sectionTime || '').trim(),
+      sortOrder: idx,
+    }))
+    .filter((section) => section.name)
+    .map((section) => ({
+      ...section,
+      sectionTime: section.sectionTime || null,
+    })), [timelineSections]);
+
+  // 环节被删除后，归属它的暂存文件回落"未归类"
+  React.useEffect(() => {
+    const valid = new Set(normalizedTimelineSections.map((s) => String(s.sourceKey)));
+    setStagingSectionKeys((prev) => prev.map((k) => (k && !valid.has(String(k)) ? '' : k)));
+  }, [normalizedTimelineSections]);
+
+  // 分环节的暂存容器（与相册内上传弹窗一致）；未启用时间轴则单容器
+  const stagedUploadGroups = React.useMemo(() => {
+    const items = stagingFiles.map((file, index) => ({
+      file,
+      index,
+      preview: stagingPreviews[index],
+      key: String(stagingSectionKeys[index] || ''),
+    }));
+    if (!timelineEnabled || !normalizedTimelineSections.length) {
+      return [{ key: '', name: '待上传媒体', sectionTime: '', items }];
+    }
+    const groups = normalizedTimelineSections.map((section) => ({
+      key: String(section.sourceKey),
+      name: section.name,
+      sectionTime: section.sectionTime || '',
+      items: [],
+    }));
+    const byKey = new Map(groups.map((group) => [group.key, group]));
+    const unassigned = { key: '', name: '未归类', sectionTime: '', items: [] };
+    items.forEach((item) => {
+      (byKey.get(item.key) || unassigned).items.push(item);
+    });
+    return unassigned.items.length ? [...groups, unassigned] : groups;
+  }, [stagingFiles, stagingPreviews, stagingSectionKeys, timelineEnabled, normalizedTimelineSections]);
+
+  const addTimelineSection = React.useCallback(() => {
+    const key = sectionKeyRef.current;
+    sectionKeyRef.current += 1;
+    setTimelineSections((prev) => [...prev, { key, name: '', sectionTime: '' }]);
+  }, []);
+
+  const updateTimelineSection = React.useCallback((key, patch) => {
+    setTimelineSections((prev) => prev.map((section) => (
+      section.key === key ? { ...section, ...patch } : section
+    )));
+  }, []);
+
+  const removeTimelineSection = React.useCallback((key) => {
+    setTimelineSections((prev) => {
+      if (prev.length <= 1) return [{ ...prev[0], name: '', sectionTime: '' }];
+      return prev.filter((section) => section.key !== key);
+    });
+  }, []);
+
+  // 环节排序：桌面拖拽 ⠿，移动端 ↑↓
+  const [dragSectionIdx, setDragSectionIdx] = React.useState(null);
+  const [dragOverSectionIdx, setDragOverSectionIdx] = React.useState(null);
+  const [isMobileLayout, setIsMobileLayout] = React.useState(() => {
+    try { return typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches; } catch (e) { return false; }
+  });
+  React.useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return undefined;
+    const mq = window.matchMedia('(max-width: 768px)');
+    const onChange = (e) => setIsMobileLayout(e.matches);
+    try { mq.addEventListener('change', onChange); } catch (err) { mq.addListener(onChange); }
+    setIsMobileLayout(mq.matches);
+    return () => {
+      try { mq.removeEventListener('change', onChange); } catch (err) { mq.removeListener(onChange); }
+    };
+  }, []);
+
+  const moveTimelineSection = React.useCallback((idx, direction) => {
+    setTimelineSections((prev) => {
+      const target = idx + direction;
+      if (idx < 0 || idx >= prev.length || target < 0 || target >= prev.length) return prev;
+      const next = prev.slice();
+      [next[idx], next[target]] = [next[target], next[idx]];
+      return next;
+    });
+  }, []);
+
+  const commitSectionDrag = React.useCallback((targetIdx) => {
+    const from = dragSectionIdx;
+    setDragSectionIdx(null);
+    setDragOverSectionIdx(null);
+    if (from === null || targetIdx === null || from === targetIdx) return;
+    setTimelineSections((prev) => {
+      if (from < 0 || from >= prev.length || targetIdx < 0 || targetIdx >= prev.length) return prev;
+      const next = prev.slice();
+      const [moved] = next.splice(from, 1);
+      next.splice(targetIdx, 0, moved);
+      return next;
+    });
+  }, [dragSectionIdx]);
+
+  const handleFilesSelected = React.useCallback((files, sectionKey = '') => {
+    if (submitting) return;
+    const incoming = Array.from(files || []);
+    if (!incoming.length) return;
+    const acceptedIncoming = [];
+    let oversizedCount = 0;
+    incoming.forEach((file) => {
+      if (getUploadFileLimitError(file)) {
+        oversizedCount += 1;
+        return;
+      }
+      acceptedIncoming.push(file);
+    });
+    if (oversizedCount > 0) {
+      try { Toast.warning(`已跳过 ${oversizedCount} 个超过 ${FRONTEND_MAX_VIDEO_UPLOAD_TEXT} 的视频`); } catch (e) {}
+    }
+    if (!acceptedIncoming.length) return;
+
+    setStagingFiles((prevFiles) => {
+      const prevSigs = new Set(prevFiles.map((f) => `${f.name}::${f.size}::${f.lastModified}`));
+      const toAdd = [];
+      let dupCount = 0;
+      for (const f of acceptedIncoming) {
+        const sig = `${f.name}::${f.size}::${f.lastModified}`;
+        if (prevSigs.has(sig)) {
+          dupCount += 1;
+          continue;
+        }
+        prevSigs.add(sig);
+        toAdd.push(f);
+      }
+
+      if (dupCount > 0) {
+        try { Toast.warning(`已跳过 ${dupCount} 个重复文件`); } catch (e) {}
+      }
+
+      const combined = [...prevFiles, ...toAdd];
+
+      setStagingPreviews((prevPreviews) => {
+        // TIFF/RAW 任何浏览器都显示不了：不建 objectURL、直接占位。HEIC 仍建 objectURL——Safari 能真预览，
+        // 其它浏览器解码失败会走 <img onError> 兜底成占位（见下方渲染）。
+        const newPreviews = toAdd.map((f) => (isVideoFile(f) || isNeverBrowserPreviewable(f) ? '' : URL.createObjectURL(f)));
+        return [...prevPreviews, ...newPreviews];
+      });
+      setStagingSectionKeys((prevKeys) => [...prevKeys, ...toAdd.map(() => String(sectionKey || ''))]);
+
+      return combined;
+    });
+    setUploadProgress(null);
+  }, [submitting]);
+
+  const removeStagingFile = React.useCallback((index) => {
+    setStagingFiles((prev) => {
+      const next = [...prev];
+      next.splice(index, 1);
+      return next;
+    });
+    setStagingPreviews((prev) => {
+      const next = [...prev];
+      const removed = next.splice(index, 1);
+      if (removed && removed[0]) {
+        try { URL.revokeObjectURL(removed[0]); } catch (e) {}
+      }
+      return next;
+    });
+    setStagingSectionKeys((prev) => {
+      const next = [...prev];
+      next.splice(index, 1);
+      return next;
+    });
+    setUploadProgress(null);
+  }, []);
+
+  const assignStagingFileSection = React.useCallback((index, sectionKey) => {
+    setStagingSectionKeys((prev) => {
+      const next = [...prev];
+      next[index] = String(sectionKey || '');
+      return next;
+    });
+  }, []);
+
+  const openFilePicker = React.useCallback((sectionKey = '') => {
+    pendingSectionKeyRef.current = String(sectionKey || '');
+    filePickerRef.current?.click();
+  }, []);
+
+  const handleSubmit = React.useCallback(async () => {
+    if (submitting) return;
+    const importUrl = externalImportUrl.trim();
+    if (!name.trim() && !importUrl) return Toast.warning('相册名称为必填项');
+    if (timelineEnabled && normalizedTimelineSections.length === 0) {
+      return Toast.warning('开启时间轴后至少需要填写一个环节名称');
+    }
+    if (importUrl) {
+      try {
+        if (new URL(importUrl).protocol !== 'https:') throw new Error('HTTPS required');
+      } catch (_) {
+        return Toast.warning('请填写公开的 HTTPS 相册链接');
+      }
+    }
+    setSubmitting(true);
+    try {
+      const payloadSections = normalizedTimelineSections.map(({ name: sectionName, sectionTime, sortOrder }) => ({
+        name: sectionName,
+        sectionTime,
+        sortOrder,
+      }));
+      const payload = {
+        title: name.trim(),
+        description: description.trim() || undefined,
+        ...(userPermissions.includes('projects.create') && tags && tags.length ? { tags } : {}),
+        timelineEnabled,
+        timelineSections: timelineEnabled ? payloadSections : [],
+        ...(importUrl ? { externalImportUrl: importUrl } : {}),
+        eventDate: startDate
+          ? (startDate instanceof Date
+            ? `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`
+            : String(startDate).slice(0, 10))
+          : undefined,
+      };
+
+      let result;
+      if (typeof createProject === 'function') {
+        result = await createProject(payload);
+      } else if (typeof onCreated === 'function') {
+        result = await onCreated(payload);
+      }
+
+      Toast.success(importUrl ? '相册已创建，正在后台转存' : '已创建相册');
+
+      try {
+        const filesToUpload = (stagingFiles && stagingFiles.length) ? stagingFiles : [];
+        console.debug('[CreateAlbumModal] filesToUpload count', filesToUpload.length, 'stagingFiles count', (stagingFiles && stagingFiles.length) || 0);
+        const projectId = result && (result.id || result._id || result.projectId || (result.id === 0 ? result.id : null)) || null;
+
+        if (filesToUpload.length === 0) {
+          if (typeof onCreated === 'function') {
+            try { await onCreated(result, { openAlbum: Boolean(importUrl) }); } catch (e) { /* ignore */ }
+          }
+        }
+
+        if (filesToUpload.length > 0) {
+          if (!projectId) {
+            Toast.warning('已创建相册，但未获取到相册 ID，媒体未自动上传');
+          } else {
+            try {
+              const token = (typeof window !== 'undefined') ? (localStorage.getItem('mamage_jwt_token') || '') : '';
+              console.debug('[CreateAlbumModal] starting uploads', { projectId, tokenPresent: !!token, files: filesToUpload.length });
+              if (!token) {
+                Toast.warning('未检测到登录 token，上传可能会失败');
+              }
+            } catch (e) {}
+
+            try {
+              setUploadProgress(createInitialUploadProgress(filesToUpload));
+              const handleProgress = (event) => {
+                setUploadProgress((prev) => reduceUploadProgress(prev, event));
+              };
+              // 本地环节 key → 创建后的真实 section id（按 name+sortOrder 匹配）
+              const createdSections = Array.isArray(result && result.timelineSections) ? result.timelineSections : [];
+              const createdIdForKey = (sourceKey) => {
+                if (!timelineEnabled || !sourceKey) return undefined;
+                const local = normalizedTimelineSections.find((section) => String(section.sourceKey) === String(sourceKey));
+                if (!local) return undefined;
+                const matched = createdSections.find((section) => String(section.name || '') === local.name && Number(section.sortOrder || 0) === Number(local.sortOrder || 0))
+                  || createdSections.find((section) => String(section.name || '') === local.name);
+                return matched && matched.id ? matched.id : undefined;
+              };
+              // 按归属环节分组上传（文件在各自环节容器里选择/拖入）
+              const groupsByKey = new Map();
+              filesToUpload.forEach((file, index) => {
+                const key = String(stagingSectionKeys[index] || '');
+                if (!groupsByKey.has(key)) groupsByKey.set(key, []);
+                groupsByKey.get(key).push(file);
+              });
+              const results = [];
+              for (const [sourceKey, groupFiles] of groupsByKey) {
+                const groupResults = await uploadPhotoFiles(groupFiles, {
+                  projectId,
+                  timelineSectionId: createdIdForKey(sourceKey),
+                  onProgress: handleProgress,
+                });
+                results.push(...groupResults);
+              }
+              const rejected = results.filter((r) => r.status === 'rejected');
+              if (rejected.length > 0) {
+                console.error('[CreateAlbumModal] some uploads failed', rejected);
+                const firstUserMessage = rejected.map((item) => item && item.error && item.error.userMessage).find(Boolean);
+                try { Toast.error(firstUserMessage || `部分媒体上传失败：${rejected.length} 个`); } catch (e) {}
+              } else {
+                try { Toast.success('已上传所选媒体'); } catch (e) {}
+              }
+            } catch (e) {
+              console.error('parallel uploads failed unexpectedly', e);
+              try { Toast.error((e && e.userMessage) || '媒体上传失败'); } catch (ee) {}
+            }
+
+            try {
+              const full = await getProjectById(projectId);
+              if (typeof onCreated === 'function') {
+                try { await onCreated(full, { openAlbum: Boolean(importUrl) }); } catch (e) { /* ignore caller errors */ }
+              }
+            } catch (e) {
+              console.warn('Failed to reload project after uploads', e);
+              if (typeof onCreated === 'function') {
+                try { await onCreated(result, { openAlbum: Boolean(importUrl) }); } catch (err) { /* ignore */ }
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.error('post-create upload failed', e);
+      }
+
+      if (onClose) onClose();
+    } catch (e) {
+      console.error('create project failed', e);
+      let message = '创建失败';
+      try { message = JSON.parse(e?.body || '{}').message || message; } catch (_) { /* ignore */ }
+      Toast.error(message);
+    } finally {
+      setSubmitting(false);
+    }
+  }, [submitting, name, description, tags, startDate, externalImportUrl, timelineEnabled, normalizedTimelineSections, stagingSectionKeys, createProject, onCreated, onClose, stagingFiles, userPermissions]);
+
+  return (
+    <MotionModal
+      title="新建相册"
+      className="album-form-modal cam-modal"
+      width={680}
+      visible={visible}
+      onCancel={submitting ? () => Toast.warning('正在创建或上传，请等待完成') : onClose}
+      onOk={handleSubmit}
+      okButtonProps={{ loading: submitting }}
+      cancelText="取消"
+      okText={externalImportUrl.trim() ? '创建并转存' : '创建'}
+      closable={!submitting}
+    >
+      <div className="cam-form">
+        <AlbumDetailsFields
+          title={name}
+          onTitleChange={setName}
+          titleOptional={Boolean(externalImportUrl.trim())}
+          titlePlaceholder={externalImportUrl.trim() ? '从链接自动识别相册名' : '输入相册名称'}
+          description={description}
+          onDescriptionChange={setDescription}
+          eventDate={startDate}
+          onEventDateChange={(value) => setStartDate(value || '')}
+          tags={tags}
+          onTagsChange={setTags}
+          showTags={userPermissions.includes('projects.create')}
+          disabled={submitting}
+        />
+
+        <section className={`cam-timeline-panel${timelineEnabled ? ' is-enabled' : ''}`}>
+          <label className="cam-timeline-toggle">
+            <input
+              type="checkbox"
+              checked={timelineEnabled}
+              onChange={(e) => setTimelineEnabled(e.target.checked)}
+            />
+            <span className="cam-timeline-switch" aria-hidden="true" />
+            <span className="cam-timeline-toggle-copy"><strong>添加时间轴</strong><em>按活动环节整理照片和视频</em></span>
+          </label>
+
+          {timelineEnabled ? (
+            <div className="cam-timeline-sections">
+              {timelineSections.map((section, idx) => (
+                <div
+                  className={`cam-timeline-row${dragOverSectionIdx === idx && dragSectionIdx !== null && dragSectionIdx !== idx ? ' is-drag-over' : ''}${dragSectionIdx === idx ? ' is-dragging' : ''}`}
+                  key={section.key}
+                  onDragOver={(e) => { if (dragSectionIdx !== null) { e.preventDefault(); setDragOverSectionIdx(idx); } }}
+                  onDrop={(e) => { e.preventDefault(); commitSectionDrag(idx); }}
+                >
+                  {!isMobileLayout ? (
+                    <span
+                      className="cam-timeline-drag"
+                      draggable
+                      onDragStart={(e) => {
+                        setDragSectionIdx(idx);
+                        try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(section.key)); } catch (err) { }
+                      }}
+                      onDragEnd={() => { setDragSectionIdx(null); setDragOverSectionIdx(null); }}
+                      title="拖拽调整顺序"
+                      aria-label={`拖拽移动环节 ${section.name || idx + 1}`}
+                    >⠿</span>
+                  ) : (
+                    <span className="cam-timeline-move">
+                      <button type="button" className="cam-icon-button" disabled={idx === 0} onClick={() => moveTimelineSection(idx, -1)} aria-label="上移环节" title="上移环节">↑</button>
+                      <button type="button" className="cam-icon-button" disabled={idx === timelineSections.length - 1} onClick={() => moveTimelineSection(idx, 1)} aria-label="下移环节" title="下移环节">↓</button>
+                    </span>
+                  )}
+                  <input
+                    className="cam-timeline-name"
+                    value={section.name}
+                    onChange={(e) => updateTimelineSection(section.key, { name: e.target.value })}
+                    placeholder={`环节 ${idx + 1}`}
+                  />
+                  <DateTimePicker
+                    className="cam-timeline-time"
+                    value={sectionTimeToInputValue(section.sectionTime)}
+                    onChange={(v) => updateTimelineSection(section.key, { sectionTime: inputValueToSectionTime(v) })}
+                    placeholder="时间（可选）"
+                    clearable
+                    title="环节时间（可选）"
+                  />
+                  <button type="button" className="cam-icon-button" onClick={() => removeTimelineSection(section.key)} aria-label="删除环节" title="删除环节">
+                    <IconClose />
+                  </button>
+                </div>
+              ))}
+              <button type="button" className="cam-add-section" onClick={addTimelineSection}><IconPlus /> 添加环节</button>
+            </div>
+          ) : null}
+        </section>
+
+        {userPermissions.includes('upload.photo') ? (
+          <section className="cam-link-import">
+            <label className="album-field-label" htmlFor="cam-external-import-url">
+              链接转存 <span className="album-field-optional">可选</span>
+            </label>
+            <Input
+              id="cam-external-import-url"
+              className="cam-link-import-input"
+              type="url"
+              inputMode="url"
+              autoComplete="url"
+              placeholder="https://"
+              value={externalImportUrl}
+              onChange={setExternalImportUrl}
+              disabled={submitting}
+            />
+            {externalImportUrl.trim() ? <span className="cam-link-import-note">请仅转存已获授权的照片。</span> : null}
+          </section>
+        ) : null}
+
+        <section className="cam-upload-block">
+          <div className="cam-section-heading"><strong>照片与视频</strong><span>{stagingFiles.length ? `已选 ${stagingFiles.length} 个` : '可选'}</span></div>
+          <input
+            ref={filePickerRef}
+            type="file"
+            accept={isMobileLayout ? MOBILE_MEDIA_ACCEPT : DESKTOP_MEDIA_ACCEPT}
+            multiple
+            style={{ position: 'fixed', width: 1, height: 1, opacity: 0, pointerEvents: 'none', left: -1, top: -1 }}
+            disabled={submitting}
+            tabIndex={-1}
+            onChange={(e) => {
+              handleFilesSelected(e.target.files, pendingSectionKeyRef.current);
+              try { e.target.value = ''; } catch (err) {}
+            }}
+          />
+          <UploadProgressSummary progress={uploadProgress} />
+          <div className="cam-upload-groups">
+            {stagedUploadGroups.map((group) => (
+              <section
+                key={group.key || '__all__'}
+                className={`cam-upload-group${draggingOverGroup === group.key ? ' is-drag-over' : ''}`}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+                  setDraggingOverGroup(group.key);
+                }}
+                onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDraggingOverGroup(null); }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDraggingOverGroup(null);
+                  if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
+                    handleFilesSelected(e.dataTransfer.files, group.key);
+                  }
+                }}
+              >
+                <div className="cam-upload-group-head">
+                  <div className="cam-upload-group-title">
+                    <span>{group.name}</span>
+                    {group.sectionTime ? <em>{group.sectionTime}</em> : null}
+                  </div>
+                  <div className="cam-upload-group-actions">
+                    <span className="cam-upload-group-count">{group.items.length} 个</span>
+                    <button type="button" className="cam-file-picker cam-file-picker--sm" disabled={submitting} onClick={() => openFilePicker(group.key)}>
+                      添加
+                    </button>
+                  </div>
+                </div>
+                {group.items.length ? (
+                  <div className="cam-preview-row">
+                    {group.items.map((item) => {
+                      const isVideo = isVideoFile(item.file);
+                      // 显示占位：视频 / 铁定显示不了(tiff/raw) / heic 试了真预览但解码失败(非 Safari)
+                      const showPlaceholder = !isVideo && (
+                        isNeverBrowserPreviewable(item.file) || !item.preview || failedPreviews.has(item.preview)
+                      );
+                      const undisplayable = !isVideo && isBrowserUndisplayableImage(item.file);
+                      return (
+                        <div key={item.index} className="cam-preview-item">
+                          {isVideo ? (
+                            <>
+                              <span className="cam-preview-video-placeholder">
+                                <span>VIDEO</span>
+                              </span>
+                              <span className="cam-preview-video-badge">视频</span>
+                            </>
+                          ) : showPlaceholder ? (
+                            <>
+                              <span className="cam-preview-video-placeholder">
+                                <span>{undisplayableFormatLabel(item.file)}</span>
+                              </span>
+                              <span className="cam-preview-video-badge">{undisplayable ? '转JPEG' : '预览失败'}</span>
+                            </>
+                          ) : (
+                            <img
+                              src={item.preview}
+                              alt={`preview-${item.index}`}
+                              className="cam-preview-media"
+                              onError={() => markPreviewFailed(item.preview)}
+                            />
+                          )}
+                          <button
+                            type="button"
+                            className="cam-preview-remove"
+                            onClick={(e) => { e.stopPropagation(); removeStagingFile(item.index); }}
+                            disabled={submitting}
+                            aria-label="移除媒体"
+                            title="移除"
+                          >
+                            ×
+                          </button>
+                          {timelineEnabled && normalizedTimelineSections.length ? (
+                            <select
+                              className="cam-preview-section"
+                              value={item.key}
+                              onChange={(e) => assignStagingFileSection(item.index, e.target.value)}
+                              disabled={submitting}
+                              aria-label="调整媒体环节"
+                            >
+                              <option value="">未归类</option>
+                              {normalizedTimelineSections.map((section) => (
+                                <option key={section.sourceKey} value={String(section.sourceKey)}>{section.name}</option>
+                              ))}
+                            </select>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="cam-upload-group-empty">点击"添加"或把文件拖到这里</div>
+                )}
+              </section>
+            ))}
+          </div>
+        </section>
+      </div>
+    </MotionModal>
+  );
+}

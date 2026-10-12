@@ -1,0 +1,102 @@
+/* A flex chain fills the space below the header, including at UI zoom < 100%. */
+.mamage-shell:has(.album-desktop.acp-column-mode),
+.acp-folders-preview.acp-page.acp-column-mode {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  height: calc(100dvh / var(--mamage-ui-zoom, 1));
+  min-height: 0;
+}
+
+/* The document stays put; only the folder lists and horizontal rail scroll. */
+html:has(.acp-column-mode),
+body:has(.acp-column-mode) {
+  overflow: hidden;
+}
+
+.mamage-shell:has(.album-desktop.acp-column-mode) > .mamage-header,
+.acp-folders-preview.acp-column-mode > .mamage-header {
+  flex: 0 0 auto;
+}
+
+.mamage-content:has(.album-desktop.acp-column-mode) {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  padding-block: 10px 0 !important;
+}
+
+.mamage-content > .project-page:has(.album-desktop.acp-column-mode),
+.album-desktop.acp-page.acp-column-mode,
+.acp-column-mode > .acp-workspace,
+.acp-column-mode .acp-workspace > .acp-main,
+.acp-column-mode .acp-main > .acp-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.album-desktop.acp-page.acp-column-mode {
+  padding-bottom: 0;
+}
+
+.acp-column-mode > .acp-workspace {
+  align-items: stretch;
+}
+
+.acp-column-mode .acp-workspace > .acp-main {
+  width: 100%;
+}
+
+.acp-column-mode .desktop-save-status:empty {
+  display: none;
+}
+
+.acp-column-mode .desktop-save-status,
+.acp-column-mode .desktop-save-error {
+  flex-shrink: 0;
+}
+
+.acp-column-mode .acp-column-browser {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+}
+
+.acp-column-mode .acp-column-rail {
+  min-height: 0;
+}
+
+.acp-column-mode .acp-folder-column {
+  min-height: 0;
+}
+
+.acp-column-mode .acp-column-rest {
+  overflow: auto;
+}
+
+.acp-column-mode .acp-column-toolbar,
+.acp-column-mode .acp-column-path {
+  flex-shrink: 0;
+}
+
+.acp-column-browser > .mamage-footer {
+  flex: 0 0 auto;
+  padding: 5px 12px max(5px, env(safe-area-inset-bottom));
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.acp-column-mode .acp-column-browser:has(> .mamage-footer) > .acp-column-path {
+  border-radius: 0;
+}
+
+.acp-folders-preview.acp-page.acp-column-mode {
+  padding-bottom: 0;
+}
+
+.acp-folders-preview.acp-column-mode .acp-column-path {
+  padding-bottom: max(4px, env(safe-area-inset-bottom));
+}

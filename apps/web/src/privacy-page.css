@@ -1,0 +1,103 @@
+/* 隐私说明页：沿用站点液态玻璃语言 */
+.privacy-page {
+  max-width: 720px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  /* 给底部固定的内网入口提示条留出空间，避免遮挡正文 */
+  padding-bottom: 96px;
+}
+
+.privacy-hero {
+  padding: 22px 24px;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.1), 0 18px 40px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+}
+
+.privacy-title {
+  margin: 0 0 6px;
+  font-size: 26px;
+  font-weight: 750;
+  color: #111827;
+}
+
+.privacy-sub {
+  margin: 0 0 12px;
+  font-size: 14px;
+  color: #475569;
+}
+
+.privacy-lead {
+  margin: 0;
+  font-size: 15.5px;
+  line-height: 1.8;
+  color: #1f2937;
+}
+
+.privacy-em {
+  font-weight: 700;
+}
+
+.privacy-section {
+  padding: 16px 20px;
+  border: 1px solid rgba(15, 23, 42, 0.09);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08), 0 12px 28px rgba(15, 23, 42, 0.06);
+  backdrop-filter: blur(12px) saturate(1.15);
+  -webkit-backdrop-filter: blur(12px) saturate(1.15);
+}
+
+.privacy-section-title {
+  margin: 0 0 12px;
+  font-size: 18px;
+  font-weight: 750;
+  color: #111827;
+}
+
+.privacy-block + .privacy-block {
+  margin-top: 10px;
+}
+
+.privacy-block-sub {
+  margin: 0 0 5px;
+  font-size: 15.5px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.privacy-block-text {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.85;
+  color: #1e293b;
+}
+
+.privacy-back {
+  display: flex;
+  justify-content: center;
+  padding: 4px 0 12px;
+}
+
+.privacy-back-btn {
+  height: 36px;
+  padding: 0 18px;
+  border: var(--liquid-glass-stroke-width, 0.5px) solid var(--liquid-glass-border, rgba(255, 255, 255, 0.46));
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.7);
+  color: var(--lg-text, #1f2937);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.privacy-back-btn:hover {
+  background: rgba(255, 255, 255, 0.88);
+}

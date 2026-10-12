@@ -1,0 +1,137 @@
+.auth-page-root {
+  width: 100%;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background:
+    linear-gradient(135deg, rgba(248, 248, 248, 0.9), rgba(252, 252, 252, 0.72)),
+    repeating-linear-gradient(100deg, rgba(255, 255, 255, 0.22) 0 1px, transparent 1px 72px);
+}
+
+.auth-card {
+  position: relative;
+  width: min(420px, calc(100vw - 32px));
+  overflow: hidden;
+  border-radius: 26px !important;
+  border: 1px solid var(--liquid-glass-border, rgba(255, 255, 255, 0.68)) !important;
+  background: var(--liquid-glass-material-readable, linear-gradient(135deg, rgba(255, 255, 255, 0.68), rgba(255, 255, 255, 0.32))) !important;
+  box-shadow: var(--liquid-glass-shadow, var(--lg-shadow)), var(--liquid-glass-edge, none) !important;
+  backdrop-filter: var(--liquid-glass-backdrop, blur(24px) saturate(1.45));
+  -webkit-backdrop-filter: var(--liquid-glass-backdrop, blur(24px) saturate(1.45));
+}
+
+.auth-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;  background: var(--liquid-glass-caustic, var(--mamage-glass-caustic));
+  background-size: 180% 180%;
+  opacity: var(--liquid-glass-caustic-opacity, 0.82);
+  mix-blend-mode: screen;
+  animation: mamageGlassCaustic var(--liquid-glass-caustic-speed, 2.2s) ease-in-out infinite alternate;
+}
+
+.auth-card .mamage-card-header,
+.auth-card .mamage-card-body {
+  position: relative;
+  z-index: 1;
+}
+
+.auth-card .mamage-card-header-title {
+  color: var(--lg-text);
+  font-weight: 750;
+}
+
+.auth-email-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.auth-email-input {
+  width: 100%;
+  min-width: 0;
+}
+
+.auth-code-button {
+  min-width: 104px;
+  white-space: nowrap;
+}
+
+.auth-email-suggestions {
+  position: absolute;
+  left: 0;
+  right: 112px;
+  top: calc(100% + 6px);
+  z-index: 20;
+  overflow: hidden;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.62);
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 14px 32px rgba(31, 41, 55, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(18px) saturate(1.35);
+  -webkit-backdrop-filter: blur(18px) saturate(1.35);
+}
+
+.auth-email-suggestion {
+  padding: 9px 12px;
+  cursor: pointer;
+  color: #111827;
+  font-size: 14px;
+}
+
+.auth-email-suggestion:hover {
+  background: rgba(255, 255, 255, 0.56);
+}
+
+@media (max-width: 480px) {
+  .auth-email-row {
+    grid-template-columns: 1fr;
+  }
+
+  .auth-code-button {
+    width: 100%;
+  }
+
+  .auth-email-suggestions {
+    right: 0;
+  }
+}
+
+.auth-sso-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.auth-sso-divider {
+  color: rgba(0, 0, 0, 0.4);
+  font-size: 12px;
+}
+
+
+/* 登录即同意行：卡片内、主按钮下方，融入表单节奏 */
+.auth-consent-row {
+  text-align: center;
+  margin-top: 16px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: rgba(31, 41, 55, 0.52);
+}
+
+.auth-consent-row a {
+  color: rgba(31, 41, 55, 0.78);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(31, 41, 55, 0.25);
+  padding-bottom: 1px;
+}
+
+.auth-consent-row a:hover {
+  color: #111827;
+  border-bottom-color: #111827;
+}

@@ -1,0 +1,162 @@
+// src/services/transferStore.js
+// 全局“中转站”选择仓库：最多 1000 张，跨页面、跨会话（localStorage）
+// 上限须与服务端 PHOTO_ZIP_MAX_IDS 保持一致，否则存得下却打不了包（zip 接口返 413）
+
+const STORAGE_KEY = 'photo-transfer-selection';
+const MAX_COUNT = 1000;
+
+let selection = [];
+
+function getMediaKind(item) {
+  if (!item || typeof item !== 'object') return 'image';
+  const explicit = String(item.mediaType || item.media_type || item.kind || item.fileType || '').trim().toLowerCase();
+  const type = String(item.type || '').trim().toLowerCase();
+  const mime = String(item.mimeType || item.mime_type || item.contentType || item.content_type || '').trim().toLowerCase();
+  if (explicit === 'video' || explicit.startsWith('video/') || type === 'video' || type.startsWith('video/') || mime.startsWith('video/')) {
+    return 'video';
+  }
+  const source = String(
+    item.url || item.originalSrc || item.originalUrl || item.fullUrl || item.cosUrl || item.src || item.playbackUrl || item.playbackSrc || ''
+  ).split('?')[0].toLowerCase();
+  return /\.(mp4|m4v|mov|webm|ogv|ogg)$/i.test(source) ? 'video' : 'image';
+}
+
+function toNameList(input) {
+  if (!input) return [];
+  const arr = Array.isArray(input) ? input : String(input).split(/[;,，、|]/);
+  const out = [];
+  arr.forEach((v) => {
+    const s = String(v || '').trim();
+    if (!s) return;
+    if (out.includes(s)) return;
+    out.push(s);
+  });
+  return out;
+}
+
+function extractFaceNames(photo) {
+  const fromDirect = toNameList(
+    photo.faceNames
+    || photo.personNames
+    || photo.personNameList
+    || photo.face_name_list
+    || photo.person_name_list
+    || photo.people
+  );
+  if (fromDirect.length) return fromDirect;
+
+  const faces = Array.isArray(photo.faces) ? photo.faces : [];
+  const names = [];
+  faces.forEach((f) => {
+    const n = String(
+      (f && (f.personName || f.person_name || f.name || f.label)) || ''
+    ).trim();
+    if (!n) return;
+    if (/^人脸#?\d+$/i.test(n)) return;
+    if (/^face#?\d+$/i.test(n)) return;
+    if (!names.includes(n)) names.push(n);
+  });
+  return names;
+}
+
+function load() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        selection = parsed;
+        console.log('[transferStore] loaded from storage:', selection.length);
+      }
+    }
+  } catch (e) {
+    console.warn('[transferStore] load failed', e);
+  }
+}
+
+function persist() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(selection));
+  } catch (e) {
+    console.warn('[transferStore] save failed', e);
+  }
+}
+
+const listeners = [];
+
+function notify() {
+  const snapshot = selection.slice();
+  listeners.forEach(fn => {
+    try {
+      fn(snapshot);
+    } catch (e) {
+      console.warn('[transferStore] listener error', e);
+    }
+  });
+}
+
+function subscribe(fn) {
+  if (typeof fn === 'function') {
+    listeners.push(fn);
+    fn(selection.slice());
+  }
+  return () => {
+    const idx = listeners.indexOf(fn);
+    if (idx >= 0) listeners.splice(idx, 1);
+  };
+}
+
+function getAll() {
+  return selection.slice();
+}
+
+function getCount() {
+  return selection.length;
+}
+
+function add(photo) {
+  if (!photo) return false;
+  if (selection.length >= MAX_COUNT) return false;
+  // normalize stored shape to ensure downstream consumers always have these fields
+  const faceNames = extractFaceNames(photo);
+  const normalized = {
+    id: photo.id || photo.url || null,
+    url: photo.url || photo.fullUrl || photo.cosUrl || photo.src || photo.original || null,
+    thumbSrc: photo.thumbSrc || photo.thumb || photo.thumbUrl || photo.url || null,
+    description: photo.description || photo.caption || photo.alt || photo.title || '',
+    tags: Array.isArray(photo.tags) ? photo.tags : (photo.tagList || []),
+    projectTitle: photo.projectTitle || photo.source || '',
+    photographerId: photo.photographerId || photo.photographer_id || null,
+    photographerName: photo.photographerName || photo.photographer_name || '',
+    faceNames,
+    personNames: faceNames,
+    mediaType: getMediaKind(photo),
+    mimeType: photo.mimeType || photo.mime_type || photo.contentType || photo.content_type || '',
+  };
+  const key = normalized.id || normalized.url;
+  if (!key) return false;
+  if (selection.some(p => (p.id || p.url) === key)) return true;
+  selection.push(normalized);
+  persist();
+  notify();
+  return true;
+}
+
+function removeById(idOrUrl) {
+  const oldLen = selection.length;
+  selection = selection.filter(p => (p.id || p.url) !== idOrUrl);
+  if (selection.length !== oldLen) {
+    persist();
+    notify();
+  }
+}
+
+function clear() {
+  selection = [];
+  persist();
+  notify();
+}
+
+load();
+
+export { getAll, getCount, add, clear, getMediaKind, removeById, subscribe, MAX_COUNT };

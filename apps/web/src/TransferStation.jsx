@@ -1,0 +1,1500 @@
+﻿import React from 'react';
+import ReactDOM from 'react-dom';
+import { Toast, Tooltip, Modal } from './ui';
+import { getAll, getCount, add, clear, getMediaKind, subscribe, removeById } from './services/transferStore';
+import { resolveAssetUrl } from './services/request';
+import { pickZipSaveHandle, fetchZipToTarget, formatBytes, formatDuration, startNativeZipDownload } from './services/zipDownload';
+import { cancelDirectZipJob, getDirectZipJob, listActiveDirectZipJobs, startDirectZipJob, triggerDirectDownload } from './services/directStorage';
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename || 'files.zip';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+function getFilenameFromContentDisposition(resp) {
+  try {
+    const cd = resp.headers.get('content-disposition') || '';
+    if (!cd) return null;
+    const mStar = cd.match(/filename\*=(?:UTF-8'')?([^;\n]+)/i);
+    if (mStar && mStar[1]) return decodeURIComponent(mStar[1].trim().replace(/^\"|\"$/g, ''));
+    const mQuoted = cd.match(/filename=\"([^\"\n]+)\"/i);
+    if (mQuoted && mQuoted[1]) return mQuoted[1];
+    const m = cd.match(/filename=([^;\n]+)/i);
+    if (m && m[1]) return m[1].trim().replace(/^\"|\"$/g, '');
+  } catch (e) {
+    // ignore
+  }
+  return null;
+}
+
+function countMediaItems(items) {
+  return (items || []).reduce((summary, item) => {
+    if (getMediaKind(item) === 'video') summary.videos += 1;
+    else summary.photos += 1;
+    return summary;
+  }, { photos: 0, videos: 0 });
+}
+
+function formatMediaSummary(summary) {
+  const parts = [];
+  if (summary && summary.photos) parts.push(`${summary.photos} 张照片`);
+  if (summary && summary.videos) parts.push(`${summary.videos} 个视频`);
+  return parts.join(' · ') || '0 项媒体';
+}
+
+function getMediaLabel(item) {
+  return getMediaKind(item) === 'video' ? '视频' : '照片';
+}
+
+export default function TransferStation({ onInternalShare }) {
+  const detectMobile = React.useCallback(() => {
+    if (typeof window === 'undefined') return false;
+    const width = window.innerWidth || 0;
+    return width <= 900;
+  }, []);
+
+  const [count, setCount] = React.useState(getCount());
+  const [items, setItems] = React.useState(getAll());
+  const [open, setOpen] = React.useState(false);
+  const [expanded, setExpanded] = React.useState(false);
+  const [shareOptionsOpen, setShareOptionsOpen] = React.useState(false);
+  // 防重复触发：正在执行的动作 key（'pack'/'copy'/'share'）
+  const [busyKey, setBusyKey] = React.useState('');
+  const busyKeyRef = React.useRef('');
+  const setBusy = (k) => { busyKeyRef.current = k; setBusyKey(k); };
+  // 打包下载进度：{loaded, total, files}。服务端是流式打包(archiver 边拉边发)，没有 Content-Length，
+  // 所以 total 通常为 0 → 显示"已下载 X MB"+不定长动画条；万一有 CL 就显示真百分比。
+  const [packProgress, setPackProgress] = React.useState(null);
+  const directPackEstimateRef = React.useRef({ sampledAt: 0, loaded: 0, speedBps: 0 });
+  const directZipJobRef = React.useRef('');
+  const [resumedDirectZipJobs, setResumedDirectZipJobs] = React.useState([]);
+  const [hoverKey, setHoverKey] = React.useState(null);
+  const [pressedKey, setPressedKey] = React.useState(null);
+  const [dragOver, setDragOver] = React.useState(false);
+  const [isDraggingPhoto, setIsDraggingPhoto] = React.useState(false);
+  const [panelMounted, setPanelMounted] = React.useState(false);
+  const [panelVisible, setPanelVisible] = React.useState(false);
+  const [isMobile, setIsMobile] = React.useState(() => detectMobile());
+  const [vvInset, setVvInset] = React.useState({ right: 0, bottom: 0 });
+  const closeTimerRef = React.useRef(null);
+  const stationRef = React.useRef(null);
+  const shareExpiryOptions = React.useMemo(() => ([
+    { label: '1分钟', s: 60 },
+    { label: '1小时', s: 3600 },
+    { label: '6小时', s: 3600 * 6 },
+    { label: '12小时', s: 3600 * 12 },
+    { label: '1天', s: 86400 },
+    { label: '7天', s: 86400 * 7 },
+    { label: '1个月', s: 86400 * 30 },
+    { label: '永久', s: null },
+  ]), []);
+
+  React.useEffect(() => {
+    const unsub = subscribe((list) => {
+      setCount((list || []).length);
+      setItems(list || []);
+    });
+    return unsub;
+  }, []);
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    let frame = 0;
+    const apply = () => {
+      frame = 0;
+      setIsMobile(detectMobile());
+    };
+    const schedule = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(apply);
+    };
+    apply();
+    window.addEventListener('resize', schedule);
+    window.addEventListener('orientationchange', schedule);
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      window.removeEventListener('resize', schedule);
+      window.removeEventListener('orientationchange', schedule);
+    };
+  }, [detectMobile]);
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    let frame = 0;
+    const applyInset = () => {
+      frame = 0;
+      try {
+        const vv = window.visualViewport;
+        if (!vv) {
+          setVvInset({ right: 0, bottom: 0 });
+          return;
+        }
+        const rightGap = Math.max(0, Math.round(window.innerWidth - (vv.offsetLeft + vv.width)));
+        const bottomGap = Math.max(0, Math.round(window.innerHeight - (vv.offsetTop + vv.height)));
+        setVvInset({ right: rightGap, bottom: bottomGap });
+      } catch (e) {
+        setVvInset({ right: 0, bottom: 0 });
+      }
+    };
+    const scheduleInset = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(applyInset);
+    };
+
+    applyInset();
+    window.addEventListener('resize', scheduleInset);
+    window.addEventListener('orientationchange', scheduleInset);
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', scheduleInset);
+      window.visualViewport.addEventListener('scroll', scheduleInset);
+    }
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      window.removeEventListener('resize', scheduleInset);
+      window.removeEventListener('orientationchange', scheduleInset);
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener('resize', scheduleInset);
+        window.visualViewport.removeEventListener('scroll', scheduleInset);
+      }
+    };
+  }, []);
+
+  React.useEffect(() => {
+    if (open) {
+      setPanelMounted(true);
+      const t = setTimeout(() => setPanelVisible(true), 16);
+      return () => clearTimeout(t);
+    }
+    setPanelVisible(false);
+    const t = setTimeout(() => setPanelMounted(false), 320);
+    return () => clearTimeout(t);
+  }, [open]);
+
+  React.useEffect(() => {
+    if (!panelMounted) {
+      setPanelVisible(false);
+      return;
+    }
+  }, [panelMounted]);
+
+  const handleStore = React.useCallback(() => {
+    const getter = window.__MAMAGE_GET_CURRENT_PROJECT_SELECTION;
+    if (typeof getter !== 'function') {
+      Toast.warning('当前页面没有可读取的选择，先在相册里勾选媒体后再点“存入”。');
+      return;
+    }
+    try {
+      const list = getter() || [];
+      if (!list.length) {
+        Toast.info('当前没有选中任何媒体');
+        return;
+      }
+      let added = 0;
+      let skipped = 0;
+      for (const it of list) {
+        const mapped = {
+          id: it.id || it.url || null,
+          url: it.url || it.fullUrl || it.cosUrl || it.src || it.original || null,
+          thumbSrc: it.thumbSrc || it.thumb || it.thumbUrl || it.url || null,
+          description: it.description || it.caption || it.alt || it.title || '',
+          tags: Array.isArray(it.tags) ? it.tags : (it.tagList || []),
+          projectTitle: it.projectTitle || it.source || '',
+          photographerId: it.photographerId || it.photographer_id || null,
+          photographerName: it.photographerName || it.photographer_name || '',
+          faceNames: Array.isArray(it.faceNames) ? it.faceNames : (Array.isArray(it.personNames) ? it.personNames : []),
+          personNames: Array.isArray(it.personNames) ? it.personNames : (Array.isArray(it.faceNames) ? it.faceNames : []),
+          faces: Array.isArray(it.faces) ? it.faces : [],
+          mediaType: it.mediaType || it.media_type || it.kind || it.fileType || it.type || '',
+          mimeType: it.mimeType || it.mime_type || it.contentType || it.content_type || '',
+          playbackUrl: it.playbackUrl || it.playback_url || it.playbackSrc || '',
+        };
+        const ok = add(mapped);
+        if (ok) added += 1;
+        else skipped += 1;
+      }
+      Toast.success(`已存入 ${added} 项，重复或超限 ${skipped} 项`);
+    } catch (e) {
+      console.error('transfer store add failed', e);
+      Toast.error('存入失败');
+    }
+  }, []);
+
+  const handleClear = React.useCallback(() => {
+    const count = getCount();
+    if (!count) {
+      Toast.info('中转站已是空的');
+      return;
+    }
+    Modal.confirm({
+      title: '清空中转站？',
+      content: `将移除暂存的 ${count} 项媒体（不会删除相册里的原文件）。`,
+      okText: '清空',
+      cancelText: '取消',
+      onOk: () => {
+        clear();
+        Toast.info('已清空中转站');
+      },
+    });
+  }, []);
+
+  const getDirectPackProgress = React.useCallback((job, mediaSummary) => {
+    const total = Math.max(0, Number(job && job.totalBytes) || 0);
+    const loaded = Math.max(0, Number(job && job.processedBytes) || 0);
+    const now = Date.now();
+    const previous = directPackEstimateRef.current;
+    let speedBps = previous.speedBps || 0;
+    if (previous.sampledAt > 0 && now - previous.sampledAt >= 450 && loaded >= previous.loaded) {
+      const instant = ((loaded - previous.loaded) * 1000) / (now - previous.sampledAt);
+      if (instant > 0) speedBps = speedBps > 0 ? speedBps * 0.72 + instant * 0.28 : instant;
+    }
+    directPackEstimateRef.current = { sampledAt: now, loaded, speedBps };
+    return {
+      phase: 'preparing',
+      status: job && job.status ? job.status : 'packing',
+      jobId: job && job.id ? String(job.id) : '',
+      loaded,
+      total,
+      files: Number(job && job.files) || 0,
+      mediaSummary,
+      speedBps,
+      etaSeconds: total > 0 && speedBps > 1 ? Math.max(0, (total - loaded) / speedBps) : null,
+      queueAhead: Math.max(0, Number(job && job.queueAhead) || 0),
+      queuePosition: Math.max(0, Number(job && job.queuePosition) || 0),
+    };
+  }, []);
+
+  const handleCancelDirectPack = React.useCallback(async (event) => {
+    if (event) event.stopPropagation();
+    const jobId = directZipJobRef.current;
+    if (!jobId) return;
+    setPackProgress((previous) => previous ? { ...previous, status: 'cancelling' } : previous);
+    try {
+      const result = await cancelDirectZipJob(jobId);
+      if (!result || !result.cancelled) throw new Error('DIRECT_ZIP_CANCEL_FAILED');
+      Toast.info('已中断压缩任务并清理临时文件');
+    } catch (err) {
+      console.error('cancel direct ZIP failed', err);
+      Toast.error('中断任务失败，请稍后重试');
+    }
+  }, []);
+
+  const refreshResumedDirectZipJobs = React.useCallback(async () => {
+    try {
+      const jobs = await listActiveDirectZipJobs();
+      setResumedDirectZipJobs(jobs || []);
+      return jobs || [];
+    } catch (err) {
+      console.warn('load active direct ZIP jobs failed', err);
+      return [];
+    }
+  }, []);
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined' || window.location.protocol !== 'http:') return undefined;
+    let disposed = false;
+    let timer = null;
+    const poll = async () => {
+      const jobs = await refreshResumedDirectZipJobs();
+      if (disposed) return;
+      if (jobs.some((job) => job && ['queued', 'packing'].includes(job.status))) {
+        timer = window.setTimeout(poll, 1200);
+      }
+    };
+    poll();
+    return () => {
+      disposed = true;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [refreshResumedDirectZipJobs]);
+
+  const handleResumeDirectZipDownload = React.useCallback(async (jobId) => {
+    try {
+      const job = await getDirectZipJob(jobId);
+      if (!job || !job.downloadUrl) throw new Error('DIRECT_ZIP_DOWNLOAD_URL_MISSING');
+      triggerDirectDownload(job.downloadUrl);
+      setResumedDirectZipJobs((jobs) => (jobs || []).filter((entry) => entry && entry.id !== jobId));
+      Toast.success('压缩包已交给浏览器下载');
+    } catch (err) {
+      console.error('resume direct ZIP download failed', err);
+      Toast.error('压缩包暂不可下载，请稍后重试');
+    }
+  }, []);
+
+  const handleResumeDirectZipCancel = React.useCallback(async (jobId) => {
+    try {
+      const result = await cancelDirectZipJob(jobId);
+      if (!result || !result.cancelled) throw new Error('DIRECT_ZIP_CANCEL_FAILED');
+      setResumedDirectZipJobs((jobs) => (jobs || []).filter((entry) => entry && entry.id !== jobId));
+      Toast.info('已中断压缩任务并清理临时文件');
+    } catch (err) {
+      console.error('cancel resumed direct ZIP failed', err);
+      Toast.error('中断任务失败，请稍后重试');
+    }
+  }, []);
+
+  const handlePackDownload = React.useCallback(async () => {
+    if (busyKeyRef.current) return;
+    const list = getAll();
+    if (!list || list.length === 0) {
+      Toast.warning('中转站为空');
+      return;
+    }
+    const ids = list.map((p) => p.id).filter(Boolean);
+    if (!ids.length) {
+      Toast.warning('中转站内没有可下载的媒体 ID');
+      return;
+    }
+
+    const zipName = `transfer_${Date.now()}`;
+    const mediaSummary = formatMediaSummary(countMediaItems(list));
+    const isHttpEntry = typeof window !== 'undefined' && window.location.protocol === 'http:';
+    // 校园网 HTTP 能直连内网对象存储：后台流式组 ZIP 后，最终下载不再经过 Mac mini。
+    // HTTPS 公网入口会直接进入下方原有流程，且不会破坏 showSaveFilePicker 的用户手势。
+    if (isHttpEntry) {
+      setBusy('pack');
+      directPackEstimateRef.current = { sampledAt: 0, loaded: 0, speedBps: 0 };
+      setPackProgress({ phase: 'preparing', status: 'creating', jobId: '', loaded: 0, total: 0, files: ids.length, mediaSummary, speedBps: 0, etaSeconds: null, queueAhead: 0, queuePosition: 0 });
+      try {
+        let job = await startDirectZipJob({ photoIds: ids, zipName });
+        if (job && job.id) {
+          directZipJobRef.current = String(job.id);
+          const startedAt = Date.now();
+          while (job && !['ready', 'failed', 'cancelled'].includes(job.status)) {
+            setPackProgress(getDirectPackProgress({ ...job, files: ids.length }, mediaSummary));
+            await new Promise((resolve) => window.setTimeout(resolve, 900));
+            job = await getDirectZipJob(job.id);
+            if (!job && Date.now() - startedAt > 15000) throw new Error('DIRECT_ZIP_JOB_UNAVAILABLE');
+          }
+          if (job && job.status === 'cancelled') {
+            Toast.info('压缩任务已中断');
+            return;
+          }
+          if (!job || job.status === 'failed') throw new Error((job && job.error) || 'DIRECT_ZIP_PREPARATION_FAILED');
+          if (!job.downloadUrl) throw new Error('DIRECT_ZIP_DOWNLOAD_URL_MISSING');
+          triggerDirectDownload(job.downloadUrl);
+          Toast.success('压缩包已就绪，正在从内网存储高速下载');
+          return;
+        }
+      } catch (e) {
+        if (e && e.message === 'DIRECT_ZIP_CANCELLED') return;
+        // 加速通道异常时仍保留已有的流式打包下载，用户不会被卡死在单一路径上。
+        console.warn('direct object storage ZIP unavailable, fallback to media proxy ZIP:', e);
+        Toast.info('高速下载暂不可用，已切回兼容下载');
+      } finally {
+        directZipJobRef.current = '';
+        setBusy('');
+        setPackProgress(null);
+      }
+    }
+
+    // ① 保存框必须在这里弹：还在用户手势里。放到 await fetch 之后会因 activation 过期抛
+    //    SecurityError，保存框弹不出来（旧版"点了打包没反应"就是这个）。
+    const handle = await pickZipSaveHandle(`${zipName}.zip`);
+    if (handle === 'abort') return; // 用户取消，不发请求
+
+    if (!handle) {
+      setBusy('pack');
+      try {
+        await startNativeZipDownload({ photoIds: ids, zipName });
+        Toast.success('已交给浏览器下载，请查看下载列表');
+      } catch (e) {
+        console.error('transfer native pack download failed', e);
+        if (e && e.message === 'NOT_LOGGED_IN') Toast.warning('打包下载需要先登录');
+        else Toast.error(`打包下载失败: ${e?.message || '请求错误'}`);
+      } finally {
+        setBusy('');
+      }
+      return;
+    }
+
+    setBusy('pack');
+    setPackProgress({ loaded: 0, total: 0, files: ids.length, mediaSummary });
+    // 分块回调很密集，节流到 ~120ms 一次，避免每块都 setState 卡渲染
+    let lastTick = 0;
+    try {
+      await fetchZipToTarget({
+        photoIds: ids,
+        zipName,
+        fileHandle: handle || null,
+        onProgress: (loaded, total, stats) => {
+          const now = Date.now();
+          if (now - lastTick < 120) return;
+          lastTick = now;
+          setPackProgress({ loaded, total, files: ids.length, mediaSummary, speedBps: stats && stats.speedBps, etaSeconds: stats && stats.etaSeconds });
+        },
+      });
+      Toast.success('打包下载完成');
+    } catch (e) {
+      console.error('transfer pack download failed', e);
+      if (e && e.message === 'NOT_LOGGED_IN') Toast.warning('打包下载需要先登录');
+      else Toast.error(`打包下载失败: ${e?.message || '请求错误'}`);
+    } finally {
+      setBusy('');
+      setPackProgress(null);
+    }
+  }, [getDirectPackProgress]);
+
+  const createShareWithExpiry = React.useCallback(async (expiresInSeconds) => {
+    if (busyKeyRef.current) return;
+    const list = getAll();
+    if (!list || list.length === 0) {
+      Toast.warning('中转站为空');
+      return;
+    }
+    const ids = list.map((p) => p.id).filter(Boolean);
+    if (!ids.length) {
+      Toast.warning('中转站内没有可分享的照片 ID');
+      return;
+    }
+
+    setBusy('share');
+    try {
+      const token = (typeof window !== 'undefined') ? (localStorage.getItem('mamage_jwt_token') || '') : '';
+      if (!token) {
+        Toast.warning('创建分享需要先登录');
+        return;
+      }
+
+      const body = {
+        shareType: 'collection',
+        photoIds: ids,
+        expiresInSeconds: (typeof expiresInSeconds === 'number' ? expiresInSeconds : null),
+      };
+      const resp = await fetch('/api/share', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        credentials: 'same-origin',
+        body: JSON.stringify(body),
+      });
+      if (!resp.ok) {
+        const txt = await resp.text();
+        throw new Error(txt || `server responded ${resp.status}`);
+      }
+
+      const data = await resp.json().catch(() => ({}));
+      let code = data.code || data.shareCode || (data.data && (data.data.code || data.data.shareCode)) || null;
+      const rawUrl = data.url || data.shareUrl || data.data?.url || data.data?.shareUrl || null;
+      if (!code && rawUrl) {
+        try {
+          const m = String(rawUrl).match(/(?:\/api\/share|\/share)\/([A-Za-z0-9-_]+)/i);
+          if (m && m[1]) code = m[1];
+        } catch (e) {
+          // ignore
+        }
+      }
+
+      let shareLink = null;
+      const frontendOrigin = (typeof window !== 'undefined') ? String(window.location.origin).replace(/\/+$/, '') : '';
+      if (code) {
+        shareLink = `${frontendOrigin}/share/${code}`;
+      } else if (rawUrl) {
+        if (/^https?:\/\//i.test(rawUrl)) {
+          const m = String(rawUrl).match(/(?:\/api\/share|\/share)\/([A-Za-z0-9-_]+)/i);
+          if (m && m[1]) shareLink = `${frontendOrigin}/share/${m[1]}`;
+          else shareLink = rawUrl;
+        } else {
+          const m2 = String(rawUrl).match(/(?:\/api\/share|\/share)\/([A-Za-z0-9-_]+)/i);
+          if (m2 && m2[1]) shareLink = `${frontendOrigin}/share/${m2[1]}`;
+          else shareLink = `${frontendOrigin}${rawUrl.startsWith('/') ? rawUrl : '/' + rawUrl}`;
+        }
+      }
+
+      if (!shareLink) {
+        Toast.success('已创建分享（未返回可用链接）');
+        return;
+      }
+
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(shareLink);
+          Toast.success('分享链接已复制到剪贴板');
+        } else {
+          const ta = document.createElement('textarea');
+          ta.value = shareLink;
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          ta.remove();
+          Toast.success('分享链接已复制到剪贴板');
+        }
+      } catch (e) {
+        Toast.info(`已创建分享：${shareLink}`);
+      }
+    } catch (e) {
+      console.error('create share failed', e);
+      Toast.error(`创建分享失败: ${e?.message || '请求错误'}`);
+    } finally {
+      setBusy('');
+    }
+  }, []);
+
+  const startInternalShare = () => {
+    const ids = getAll().map((item) => Number(item.id)).filter((id) => Number.isSafeInteger(id) && id > 0);
+    if (!ids.length) return Toast.warning('中转站内没有可分享的照片');
+    if (typeof onInternalShare !== 'function') return;
+    setExpanded(false);
+    setShareOptionsOpen(false);
+    setOpen(false);
+    onInternalShare(ids);
+  };
+
+  const getPhotoUrl = React.useCallback((p) => {
+    const raw = p?.url || p?.original || p?.fullUrl || p?.src || p?.thumbSrc || '';
+    return raw ? resolveAssetUrl(raw) : '';
+  }, []);
+
+  const handleCopyRichHtml = React.useCallback(async () => {
+    if (busyKeyRef.current) return;
+    const list = getAll();
+    if (!list || list.length === 0) {
+      Toast.warning('中转站为空');
+      return;
+    }
+    const urls = list.map((p) => getPhotoUrl(p)).filter(Boolean);
+    if (!urls.length) {
+      Toast.warning('中转站内没有可用链接');
+      return;
+    }
+
+    const html = urls.map((u) => `<img src="${u}" />`).join('\n');
+    const plain = urls.join('\n');
+    const legacyCopyHtml = () => {
+      const box = document.createElement('div');
+      box.setAttribute('contenteditable', 'true');
+      box.style.position = 'fixed';
+      box.style.left = '-99999px';
+      box.style.top = '0';
+      box.style.opacity = '0';
+      box.innerHTML = html;
+      document.body.appendChild(box);
+      const selection = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(box);
+      selection.removeAllRanges();
+      selection.addRange(range);
+      const ok = document.execCommand('copy');
+      selection.removeAllRanges();
+      box.remove();
+      return ok;
+    };
+
+    setBusy('copy');
+    try {
+      if (navigator.clipboard && navigator.clipboard.write && typeof ClipboardItem !== 'undefined') {
+        try {
+          const blobHtml = new Blob([html], { type: 'text/html' });
+          const blobPlain = new Blob([plain], { type: 'text/plain' });
+          const item = new ClipboardItem({ 'text/html': blobHtml, 'text/plain': blobPlain });
+          await navigator.clipboard.write([item]);
+          Toast.success('已复制图片（富文本+链接）');
+          return;
+        } catch (e) {
+          // Continue to plain-text fallback for clients like WeChat input boxes.
+        }
+      }
+
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        try {
+          const ok = legacyCopyHtml();
+          if (ok) {
+            Toast.success('已复制图片（富文本）');
+            return;
+          }
+        } catch (e) {
+          // fallback to plain text below
+        }
+        await navigator.clipboard.writeText(plain);
+        Toast.success('已复制图片链接');
+        return;
+      }
+
+      try {
+        const ok = legacyCopyHtml();
+        if (ok) {
+          Toast.success('已复制图片（富文本）');
+          return;
+        }
+      } catch (e) {
+        // continue to plain fallback
+      }
+      const ta = document.createElement('textarea');
+      ta.value = plain;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      ta.remove();
+      Toast.success('已复制图片链接');
+    } catch (e) {
+      console.error('copy rich html failed', e);
+      Toast.error('复制失败，请在 HTTPS 页面或系统浏览器重试');
+    } finally {
+      setBusy('');
+    }
+  }, [getPhotoUrl]);
+
+  const handleToggleExpand = React.useCallback(() => {
+    setExpanded((v) => !v);
+  }, []);
+
+  const handleToggleOpen = React.useCallback(() => {
+    setOpen((v) => {
+      const next = !v;
+      if (!next) {
+        setExpanded(false);
+        setShareOptionsOpen(false);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleMouseEnter = React.useCallback(() => {
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  }, []);
+
+  const handleMouseLeave = React.useCallback(() => {
+    // Use click-outside to close; avoid hover-leave closing which breaks precise operations.
+  }, []);
+
+  const handleRemove = React.useCallback((photo) => {
+    try {
+      const key = photo.id || photo.url;
+      if (!key) return;
+      removeById(key);
+      Toast.success('已从中转站删除');
+    } catch (e) {
+      console.error('remove from transfer failed', e);
+      Toast.error('删除失败');
+    }
+  }, []);
+
+  const handleDragOver = React.useCallback((e) => {
+    try {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+      setDragOver(true);
+      setIsDraggingPhoto(true);
+      setOpen(true);
+    } catch (e2) {
+      // ignore
+    }
+  }, []);
+
+  const handleDragLeave = React.useCallback((e) => {
+    try {
+      const rt = e.relatedTarget;
+      if (!rt || !e.currentTarget.contains(rt)) {
+        setDragOver(false);
+      }
+    } catch (e2) {
+      setDragOver(false);
+    }
+  }, []);
+
+  // 条目拖出（如拖到"合影救场"候选区）：payload 与相册拖入一致；
+  // 拖出过程中自己也是 drop 目标，标记内部拖动避免"拖回自己"触发重复入站提示
+  const internalDragRef = React.useRef(false);
+  const handleItemDragStart = React.useCallback((e, p) => {
+    internalDragRef.current = true;
+    try {
+      e.dataTransfer.effectAllowed = 'copy';
+      e.dataTransfer.setData('application/x-mamage-photo', JSON.stringify(p));
+      e.dataTransfer.setData('application/json', JSON.stringify(p));
+      e.dataTransfer.setData('text/plain', p.url || '');
+    } catch (err) { }
+  }, []);
+  const handleItemDragEnd = React.useCallback(() => { internalDragRef.current = false; }, []);
+
+  const handleDrop = React.useCallback((e) => {
+    e.preventDefault();
+    setDragOver(false);
+    setIsDraggingPhoto(false);
+    if (internalDragRef.current) { internalDragRef.current = false; return; }
+
+    let payload = null;
+    try {
+      const raw = e.dataTransfer.getData('application/x-mamage-photo') || e.dataTransfer.getData('application/json') || '';
+      if (raw) payload = JSON.parse(raw);
+    } catch (err) {
+      payload = null;
+    }
+
+    if (!payload) {
+      Toast.warning('未识别到可存入中转站的照片');
+      return;
+    }
+
+    const list = Array.isArray(payload) ? payload : [payload];
+    let added = 0;
+    let skipped = 0;
+    list.forEach((item) => {
+      const ok = add(item);
+      if (ok) added += 1;
+      else skipped += 1;
+    });
+
+    if (added > 0 && skipped > 0) Toast.success(`已拖入 ${added} 张，重复或超限 ${skipped} 张`);
+    else if (added > 0) Toast.success(added > 1 ? `已拖入 ${added} 张` : '已拖入中转站');
+    else Toast.warning('中转站已满或该照片已存在');
+  }, []);
+
+  React.useEffect(() => {
+    const onDragStartEvt = () => {
+      setIsDraggingPhoto(true);
+      setOpen(true);
+    };
+    const onDragEndEvt = () => {
+      setIsDraggingPhoto(false);
+      setDragOver(false);
+    };
+
+    window.addEventListener('mamage-photo-drag-start', onDragStartEvt);
+    window.addEventListener('mamage-photo-drag-end', onDragEndEvt);
+    window.addEventListener('drop', onDragEndEvt);
+    window.addEventListener('dragend', onDragEndEvt);
+
+    return () => {
+      window.removeEventListener('mamage-photo-drag-start', onDragStartEvt);
+      window.removeEventListener('mamage-photo-drag-end', onDragEndEvt);
+      window.removeEventListener('drop', onDragEndEvt);
+      window.removeEventListener('dragend', onDragEndEvt);
+    };
+  }, []);
+
+  React.useEffect(() => {
+    if (!open) return undefined;
+    const onDocClick = (e) => {
+      try {
+        const inside = e.target && typeof e.target.closest === 'function'
+          ? e.target.closest('[data-transfer-station-root=\"1\"]')
+          : null;
+        if (inside) return;
+        setOpen(false);
+        setExpanded(false);
+        setShareOptionsOpen(false);
+      } catch (err) {
+        // ignore
+      }
+    };
+    document.addEventListener('click', onDocClick);
+    return () => document.removeEventListener('click', onDocClick);
+  }, [open]);
+
+  const getInteractiveTransform = React.useCallback((key) => {
+    const isPressed = pressedKey === key;
+    const isHovered = hoverKey === key;
+    return isPressed ? 'scale(0.98)' : (isHovered ? 'translateY(-1px)' : 'none');
+  }, [hoverKey, pressedKey]);
+
+  const bindCircleEvents = React.useCallback((key) => ({
+    onMouseEnter: () => setHoverKey(key),
+    onMouseLeave: () => {
+      setHoverKey((v) => (v === key ? null : v));
+      setPressedKey((v) => (v === key ? null : v));
+    },
+    onPointerDown: () => setPressedKey(key),
+    onPointerUp: () => setPressedKey((v) => (v === key ? null : v)),
+    onPointerCancel: () => setPressedKey((v) => (v === key ? null : v)),
+  }), []);
+
+  const containerStyle = isMobile ? {
+    position: 'fixed',
+    right: 12,
+    bottom: 'max(12px, env(safe-area-inset-bottom))',
+    zIndex: 2100,
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'flex-end',
+    padding: 0,
+    borderRadius: 18,
+    transition: 'transform 180ms ease, background 180ms ease, box-shadow 180ms ease',
+    transform: `scale(${dragOver ? 1.08 : (isDraggingPhoto ? 1.04 : 1)})`,
+    background: 'transparent',
+    boxShadow: 'none',
+  } : {
+    position: 'fixed',
+    right: 16,
+    top: '50%',
+    zIndex: 2000,
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    padding: isDraggingPhoto ? 10 : 0,
+    borderRadius: 18,
+    transition: 'transform 180ms ease, background 180ms ease, box-shadow 180ms ease, padding 180ms ease',
+    transform: `translateY(-50%) scale(${dragOver ? 1.12 : (isDraggingPhoto ? 1.07 : 1)})`,
+    background: isDraggingPhoto ? 'rgba(0, 0, 0, 0.09)' : 'transparent',
+    boxShadow: isDraggingPhoto ? '0 10px 26px rgba(0,0,0,0.2)' : 'none',
+  };
+
+  const triggerStyle = isMobile ? {
+    width: 58,
+    height: 58,
+    borderRadius: 999,
+    border: dragOver ? '1px solid rgba(17,17,17,0.55)' : 'var(--liquid-glass-stroke-width) solid var(--liquid-glass-border)',
+    background: dragOver
+      ? 'var(--liquid-glass-material-readable)'
+      : 'var(--liquid-glass-material)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 0,
+    cursor: 'pointer',
+    userSelect: 'none',
+    transition: 'transform 140ms ease, box-shadow 140ms ease, background 140ms ease',
+    willChange: 'transform',
+    transform: getInteractiveTransform('trigger'),
+    boxShadow: open ? '0 14px 30px rgba(0,0,0,0.192), var(--liquid-glass-edge)' : 'var(--liquid-glass-shadow-tight), var(--liquid-glass-edge)',
+    backdropFilter: 'var(--liquid-glass-backdrop)',
+    WebkitBackdropFilter: 'var(--liquid-glass-backdrop)',
+    position: 'relative',
+  } : {
+    width: isDraggingPhoto ? 132 : 116,
+    height: isDraggingPhoto ? 64 : 56,
+    borderRadius: 14,
+    border: dragOver ? '1px solid rgba(17,17,17,0.55)' : 'var(--liquid-glass-stroke-width) solid var(--liquid-glass-border)',
+    background: dragOver
+      ? 'var(--liquid-glass-material-readable)'
+      : 'var(--liquid-glass-material)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    padding: '0 10px',
+    cursor: 'pointer',
+    userSelect: 'none',
+    transition: 'transform 140ms ease, box-shadow 140ms ease, background 140ms ease',
+    willChange: 'transform',
+    transform: getInteractiveTransform('trigger'),
+    boxShadow: dragOver ? '0 14px 30px rgba(0,0,0,0.208), var(--liquid-glass-edge)' : 'var(--liquid-glass-shadow-tight), var(--liquid-glass-edge)',
+    backdropFilter: 'var(--liquid-glass-backdrop)',
+    WebkitBackdropFilter: 'var(--liquid-glass-backdrop)',
+  };
+
+  const actionButtonStyle = (key, extra = {}) => ({
+    width: '100%',
+    height: isMobile ? 40 : 36,
+    borderRadius: 999,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    boxShadow: 'var(--liquid-glass-edge), 0 8px 18px rgba(0,0,0,0.08)',
+    background: hoverKey === key ? 'var(--liquid-glass-material-readable)' : 'var(--liquid-glass-material)',
+    color: 'var(--lg-text, #000)',
+    fontSize: isMobile ? 12 : 13,
+    fontWeight: 700,
+    opacity: busyKey && busyKey === key ? 0.55 : 1,
+    pointerEvents: busyKey && busyKey === key ? 'none' : 'auto',
+    userSelect: 'none',
+    cursor: 'pointer',
+    transition: 'transform 120ms ease, box-shadow 120ms ease, background 120ms ease',
+    transform: getInteractiveTransform(key),
+    whiteSpace: 'nowrap',
+    ...extra,
+  });
+
+  const actionPanelStyle = isMobile ? {
+    position: 'fixed',
+    left: 12,
+    right: 12,
+    bottom: 'calc(max(12px, env(safe-area-inset-bottom)) + 142px)',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 10,
+    alignItems: 'stretch',
+    padding: 12,
+    borderRadius: 20,
+    background: 'var(--liquid-glass-material-readable)',
+    border: 'var(--liquid-glass-stroke-width) solid var(--liquid-glass-border)',
+    boxShadow: 'var(--liquid-glass-shadow), var(--liquid-glass-edge)',
+    backdropFilter: 'var(--liquid-glass-backdrop)',
+    WebkitBackdropFilter: 'var(--liquid-glass-backdrop)',
+    overflow: 'visible',
+    opacity: panelVisible ? 1 : 0,
+    pointerEvents: panelVisible ? 'auto' : 'none',
+    transformOrigin: 'bottom center',
+    transform: panelVisible ? 'translateY(0) scale(1)' : 'translateY(18px) scale(0.98)',
+    transition: 'opacity 220ms ease, transform 300ms cubic-bezier(0.2, 0.9, 0.2, 1)',
+    zIndex: 2200,
+    maxHeight: 'min(74vh, 620px)',
+  } : {
+    position: 'absolute',
+    right: 0,
+    top: isDraggingPhoto ? 124 : 110,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 8,
+    alignItems: 'stretch',
+    width: 120,
+    padding: 10,
+    borderRadius: 14,
+    background: 'var(--liquid-glass-material-readable)',
+    border: 'var(--liquid-glass-stroke-width) solid var(--liquid-glass-border)',
+    boxShadow: 'var(--liquid-glass-shadow-tight), var(--liquid-glass-edge)',
+    backdropFilter: 'var(--liquid-glass-backdrop)',
+    WebkitBackdropFilter: 'var(--liquid-glass-backdrop)',
+    overflow: 'visible',
+    opacity: panelVisible ? 1 : 0,
+    pointerEvents: panelVisible ? 'auto' : 'none',
+    transformOrigin: 'top center',
+    transform: panelVisible ? 'translateY(0) scaleY(1)' : 'translateY(-6px) scaleY(0.72)',
+    transition: 'opacity 240ms ease, transform 300ms cubic-bezier(0.22, 1, 0.36, 1)',
+  };
+
+  const stationMediaSummary = formatMediaSummary(countMediaItems(items));
+
+  // 打包进度卡（桌面/手机共用）：fixed 贴视口——桌面在中转站左侧，手机浮在 FAB 上方
+  const packProgressNode = packProgress ? (
+    <div
+      style={{
+        position: 'fixed', zIndex: 2700,
+        ...(isMobile
+          ? { right: 12, bottom: 170 + vvInset.bottom, left: 12, width: 'auto' }
+          // 中转站浮窗占右缘 16~132px，进度卡放它左边不遮挡
+          : { right: 144, top: '50%', transform: 'translateY(-50%)', width: 212 }),
+        padding: '10px 12px', borderRadius: 12,
+        background: 'rgba(255,255,255,0.97)', border: '1px solid rgba(15,23,42,0.08)',
+        boxShadow: '0 10px 26px rgba(0,0,0,0.18)', pointerEvents: 'auto',
+      }}
+    >
+      <style>{'@keyframes mm-pack-indet{0%{left:-40%}100%{left:100%}}'}</style>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+        <div style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 700, color: '#0f172a' }}>
+          {packProgress.phase === 'preparing' && packProgress.status === 'cancelling'
+            ? '正在中断压缩任务…'
+            : packProgress.phase === 'preparing' && packProgress.queueAhead > 0
+            ? `正在排队准备压缩包（${packProgress.mediaSummary || `${packProgress.files} 项媒体`}）…`
+            : packProgress.phase === 'preparing'
+            ? `正在准备高速压缩包（${packProgress.mediaSummary || `${packProgress.files} 项媒体`}）…`
+            : `正在打包 ${packProgress.mediaSummary || `${packProgress.files} 项媒体`}…`}
+        </div>
+        {packProgress.phase === 'preparing' && packProgress.jobId ? (
+          <button
+            type="button"
+            onClick={handleCancelDirectPack}
+            disabled={packProgress.status === 'cancelling'}
+            style={{ flex: '0 0 auto', border: '1px solid rgba(185,28,28,0.24)', borderRadius: 7, padding: '3px 6px', background: '#fff5f5', color: '#b91c1c', fontSize: 11, fontWeight: 700, cursor: packProgress.status === 'cancelling' ? 'wait' : 'pointer', opacity: packProgress.status === 'cancelling' ? 0.6 : 1 }}
+          >
+            中断
+          </button>
+        ) : null}
+      </div>
+      <div style={{ position: 'relative', height: 6, borderRadius: 999, background: '#e5e7eb', overflow: 'hidden' }}>
+        {packProgress.total > 0 ? (
+          <div style={{
+            position: 'absolute', left: 0, top: 0, bottom: 0,
+            width: `${Math.min(100, (packProgress.loaded / packProgress.total) * 100)}%`,
+            background: 'linear-gradient(90deg,#2f2f2f,#101010)', borderRadius: 999, transition: 'width .12s linear',
+          }} />
+        ) : (
+          // 服务端流式打包无总长度 → 不定长动画条，只表达"在动"
+          <div style={{
+            position: 'absolute', top: 0, bottom: 0, width: '40%', borderRadius: 999,
+            background: 'linear-gradient(90deg,#2f2f2f,#101010)',
+            animation: 'mm-pack-indet 1.1s ease-in-out infinite',
+          }} />
+        )}
+      </div>
+      <div style={{ fontSize: 11, color: '#64748b', marginTop: 6, fontVariantNumeric: 'tabular-nums' }}>
+        {packProgress.queueAhead > 0
+          ? `前方还有 ${packProgress.queueAhead} 个任务`
+          : <>{packProgress.phase === 'preparing' ? '已处理 ' : '已下载 '}{formatBytes(packProgress.loaded)}
+            {packProgress.total > 0 ? ` / ${formatBytes(packProgress.total)}` : ''}
+            {packProgress.speedBps > 1024 ? ` · ${formatBytes(packProgress.speedBps)}/s` : ''}</>}
+      </div>
+      {packProgress.queueAhead === 0 && Number.isFinite(packProgress.etaSeconds) && packProgress.etaSeconds > 0.5 ? (
+        <div style={{ fontSize: 11, color: '#0f172a', fontWeight: 600, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
+          剩余约 {formatDuration(packProgress.etaSeconds)}
+        </div>
+      ) : (packProgress.queueAhead === 0 && packProgress.phase === 'preparing' && packProgress.total > 0 ? (
+        <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+          正在测算完成时间…
+        </div>
+      ) : null)}
+    </div>
+  ) : null;
+
+  const resumedTaskJobs = (resumedDirectZipJobs || []).filter((job) => job && job.id !== packProgress?.jobId);
+  const resumedTaskTray = resumedTaskJobs.length ? (
+    <div
+      style={{
+        position: 'fixed', zIndex: 2690,
+        ...(isMobile
+          ? { left: 12, right: 12, bottom: (packProgress ? 290 : 174) + vvInset.bottom }
+          : { right: 144, bottom: 18, width: 258 }),
+        display: 'flex', flexDirection: 'column', gap: 8,
+        padding: 10, borderRadius: 12,
+        background: 'var(--liquid-glass-material-readable, rgba(255,255,255,0.94))',
+        border: 'var(--liquid-glass-stroke-width) solid var(--liquid-glass-border)',
+        boxShadow: 'var(--liquid-glass-shadow-tight), var(--liquid-glass-edge)',
+        backdropFilter: 'var(--liquid-glass-backdrop)',
+        WebkitBackdropFilter: 'var(--liquid-glass-backdrop)',
+        maxHeight: 'min(42vh, 330px)', overflowY: 'auto',
+      }}
+    >
+      <style>{'@keyframes mm-pack-indet{0%{left:-40%}100%{left:100%}}'}</style>
+      <div style={{ fontSize: 12, color: '#0f172a', fontWeight: 800, padding: '0 2px' }}>正在处理的下载</div>
+      {resumedTaskJobs.map((job) => {
+        const total = Math.max(0, Number(job.totalBytes) || 0);
+        const loaded = Math.max(0, Number(job.processedBytes) || 0);
+        const queued = job.status === 'queued';
+        const ready = job.status === 'ready';
+        const label = ready
+          ? '压缩包已就绪'
+          : queued
+          ? (Number(job.queueAhead) > 0 ? `正在排队，前方 ${job.queueAhead} 个任务` : '等待开始准备')
+          : '正在准备压缩包';
+        return (
+          <div key={job.id} style={{ padding: '8px', borderRadius: 9, background: 'rgba(255,255,255,0.58)', border: '1px solid rgba(15,23,42,0.08)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+              <div style={{ flex: 1, minWidth: 0, color: '#0f172a', fontSize: 11.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {label}{job.fileCount ? ` · ${job.fileCount} 项` : ''}
+              </div>
+              {ready ? (
+                <button type="button" onClick={() => handleResumeDirectZipDownload(job.id)} style={{ border: 0, borderRadius: 7, padding: '4px 7px', background: '#111827', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>下载</button>
+              ) : (
+                <button type="button" onClick={() => handleResumeDirectZipCancel(job.id)} style={{ border: '1px solid rgba(185,28,28,0.2)', borderRadius: 7, padding: '3px 6px', background: '#fff5f5', color: '#b91c1c', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>中断</button>
+              )}
+            </div>
+            {!ready && !queued ? (
+              <>
+                <div style={{ position: 'relative', height: 5, borderRadius: 999, overflow: 'hidden', background: '#e5e7eb', marginTop: 7 }}>
+                  <div style={{ position: 'absolute', inset: '0 auto 0 0', width: total > 0 ? `${Math.min(100, (loaded / total) * 100)}%` : '36%', borderRadius: 999, background: '#111827', animation: total > 0 ? undefined : 'mm-pack-indet 1.1s ease-in-out infinite' }} />
+                </div>
+                <div style={{ color: '#64748b', fontSize: 10.5, marginTop: 5, fontVariantNumeric: 'tabular-nums' }}>已处理 {formatBytes(loaded)}{total > 0 ? ` / ${formatBytes(total)}` : ''}</div>
+              </>
+            ) : null}
+          </div>
+        );
+      })}
+    </div>
+  ) : null;
+
+  const triggerNode = (
+    <div
+      style={triggerStyle}
+      onClick={handleToggleOpen}
+      {...bindCircleEvents('trigger')}
+      title="中转站"
+      aria-expanded={open}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          handleToggleOpen();
+        }
+      }}
+    >
+      {!isMobile && <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', whiteSpace: 'nowrap', marginLeft: 6 }}>中转站</span>}
+      <span
+        style={isMobile
+          ? { position: 'absolute', right: -3, top: -3, minWidth: 22, height: 22, borderRadius: 11, background: 'linear-gradient(135deg, #2f2f2f, #101010)', color: '#fff', fontSize: 11, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '0 6px', border: '2px solid #fff' }
+          : { marginLeft: 'auto', minWidth: 24, height: 24, borderRadius: 12, background: 'linear-gradient(135deg, #2f2f2f, #101010)', color: '#fff', fontSize: 12, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '0 6px' }}
+      >
+        {count}
+      </span>
+    </div>
+  );
+
+  const previewPanelNode = (
+    <div
+      style={{
+        ...(isMobile
+          ? {
+            width: '100%',
+            maxHeight: 250,
+            height: 250,
+            overflowY: 'auto',
+            overflowX: 'hidden',
+            padding: 8,
+            borderRadius: 16,
+            border: '1px solid rgba(255,255,255,0.62)',
+            background: 'var(--liquid-glass-material-readable, rgba(255,255,255,0.82))',
+            boxShadow: 'var(--liquid-glass-shadow-tight, 0 10px 26px rgba(0,0,0,0.096))',
+            backdropFilter: 'blur(16px) saturate(1.35)',
+            WebkitBackdropFilter: 'blur(16px) saturate(1.35)',
+          }
+          : {
+            position: 'absolute',
+            right: 132,
+            top: 0,
+            width: 300,
+            maxHeight: 360,
+            background: 'var(--liquid-glass-material-readable, rgba(255,255,255,0.86))',
+            boxShadow: 'var(--liquid-glass-shadow, 0 18px 44px rgba(0,0,0,0.144))',
+            borderRadius: 16,
+            border: '1px solid rgba(255,255,255,0.62)',
+            backdropFilter: 'blur(18px) saturate(1.4)',
+            WebkitBackdropFilter: 'blur(18px) saturate(1.4)',
+            padding: 10,
+            overflowY: 'auto',
+            overflowX: 'hidden',
+            zIndex: 2500,
+          }),
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 10,
+      }}
+      onMouseEnter={handleMouseEnter}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 6px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <div style={{ fontSize: 13, color: '#0f172a', fontWeight: 700 }}>已存入 ({count})</div>
+          <div style={{ fontSize: 11, color: '#64748b' }}>{stationMediaSummary}</div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {onInternalShare && <button type="button" onClick={startInternalShare}
+            style={{ border: 0, background: 'transparent', color: '#111', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+            内部分享
+          </button>}
+          <button type="button" style={{ border: 0, background: 'transparent', color: '#26333b', fontSize: 12, cursor: 'pointer' }}
+            onClick={() => setExpanded(false)}>关闭</button>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {items && items.length ? items.map((p, idx) => (
+          <div
+            key={idx}
+            draggable
+            onDragStart={(e) => handleItemDragStart(e, p)}
+            onDragEnd={handleItemDragEnd}
+            title="可拖到全媒体编辑台使用"
+            style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px', borderRadius: 12, background: 'rgba(255,255,255,0.55)', border: '1px solid rgba(255,255,255,0.66)', cursor: 'grab' }}
+          >
+            <div style={{ width: 72, height: 72, overflow: 'hidden', borderRadius: 8, flex: '0 0 72px', background: '#f1f5f9', position: 'relative' }}>
+              <img src={p.thumbSrc || p.url} alt={`thumb-${idx}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+              <span style={{ position: 'absolute', right: 4, bottom: 4, padding: '2px 5px', borderRadius: 6, background: 'rgba(15,23,42,0.78)', color: '#fff', fontSize: 10, fontWeight: 700 }}>
+                {getMediaLabel(p)}
+              </span>
+            </div>
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}>
+              <div style={{ fontSize: 12, color: '#1e293b' }}>
+                {p.projectTitle ? (
+                  <>
+                    来自
+                    <span style={{ fontWeight: 700, color: '#111', display: 'inline', whiteSpace: 'normal', wordBreak: 'break-word', margin: '0 4px' }}>
+                      {p.projectTitle.length > 12 ? (p.projectTitle.slice(0, 12) + '...') : p.projectTitle}
+                    </span>
+                    的{getMediaLabel(p)}
+                  </>
+                ) : (p.id || p.url || '未命名')}
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <div style={{ fontSize: 12, color: '#111', cursor: 'pointer', fontWeight: 600 }} onClick={() => handleRemove(p)}>删除</div>
+              </div>
+            </div>
+          </div>
+        )) : (
+          <div style={{ padding: '22px 12px', color: 'rgba(20,32,50,0.5)', textAlign: 'center', fontSize: 12.5, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M4 8h16M6 8l1.2 11a2 2 0 0 0 2 1.8h5.6a2 2 0 0 0 2-1.8L18 8M9 8V6a3 3 0 0 1 6 0v2" />
+            </svg>
+            <span>中转站还是空的</span>
+            <span style={{ fontSize: 11.5 }}>在相册里选择照片或视频后点"存入"即可暂存到这里</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  if (isMobile) {
+    const mobileRight = 12 + vvInset.right;
+    const mobileBottom = 94 + vvInset.bottom;
+    const mobilePanelBottom = mobileBottom + 76;
+    const mobileActions = [
+      { key: 'store', label: '存入', onClick: () => { handleStore(); setOpen(false); } },
+      { key: 'preview', label: expanded ? '收起' : '预览', onClick: () => { setExpanded((v) => !v); setShareOptionsOpen(false); } },
+      { key: 'pack', label: '打包', onClick: () => { handlePackDownload(); setOpen(false); } },
+      { key: 'share', label: '分享', onClick: () => { setShareOptionsOpen((v) => !v); setExpanded(false); } },
+      { key: 'copy', label: '复制', onClick: () => { handleCopyRichHtml(); setOpen(false); } },
+      { key: 'clear', label: '清空', onClick: () => { handleClear(); setOpen(false); } },
+    ];
+    const fanAngles = [-178, -160, -142, -124, -106, -88];
+    const fanRadius = 104;
+    const shareFanAngles = [-178, -166, -154, -142, -130, -118, -106, -94];
+    const shareFanRadius = 156;
+    const fabSize = 60;
+
+    const mobileNode = (
+      <>
+        {packProgressNode}
+        {resumedTaskTray}
+        {open && (
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(2,6,23,0.16)',
+              backdropFilter: 'blur(1px)',
+              zIndex: 2080,
+            }}
+            onClick={() => {
+              setOpen(false);
+              setExpanded(false);
+              setShareOptionsOpen(false);
+            }}
+          />
+        )}
+
+        {expanded && (
+          <div
+            data-transfer-station-root="1"
+            style={{
+              position: 'fixed',
+              right: mobileRight,
+              bottom: mobilePanelBottom,
+              width: 'min(92vw, 360px)',
+              maxHeight: '58vh',
+              overflowY: 'auto',
+              zIndex: 2110,
+              borderRadius: 14,
+              border: '1px solid rgba(15,23,42,0.1)',
+              background: 'rgba(255,255,255,0.98)',
+              boxShadow: '0 18px 32px rgba(0,0,0,0.24)',
+              padding: 10,
+            }}
+          >
+            {previewPanelNode}
+          </div>
+        )}
+
+        <div
+          ref={stationRef}
+          data-transfer-station-root="1"
+          style={{
+            position: 'fixed',
+            right: mobileRight,
+            bottom: mobileBottom,
+            zIndex: 2140,
+            width: fabSize,
+            height: fabSize,
+            transform: 'translate3d(0,0,0)',
+          }}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
+          <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+            {mobileActions.map((a, idx) => {
+              const rad = fanAngles[idx] * Math.PI / 180;
+              const dx = Math.cos(rad) * fanRadius;
+              const dy = Math.sin(rad) * fanRadius;
+              const shown = open;
+              return (
+                <button
+                  key={a.key}
+                  title={a.key === 'preview' ? '预览列表' : a.key === 'share' ? '分享' : undefined}
+                  onClick={a.onClick}
+                  style={{
+                    position: 'absolute',
+                    right: 6,
+                    bottom: 6,
+                    width: 42,
+                    height: 42,
+                    border: 'var(--liquid-glass-stroke-width) solid var(--liquid-glass-border-soft)',
+                    borderRadius: 999,
+                    background: a.key === 'clear' ? 'rgba(255,241,242,0.78)' : 'var(--liquid-glass-material-readable)',
+                    color: a.key === 'clear' ? '#b91c1c' : '#0f172a',
+                    boxShadow: 'var(--liquid-glass-shadow-tight), var(--liquid-glass-edge)',
+                    backdropFilter: 'var(--liquid-glass-backdrop)',
+                    WebkitBackdropFilter: 'var(--liquid-glass-backdrop)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexDirection: 'column',
+                    fontSize: 10,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    transform: shown ? `translate(${dx}px, ${dy}px) scale(1)` : 'translate(0,0) scale(0.7)',
+                    opacity: shown ? 1 : 0,
+                    pointerEvents: shown ? 'auto' : 'none',
+                    transition: `transform 280ms cubic-bezier(0.2, 1, 0.2, 1), opacity 180ms ease`,
+                    transitionDelay: shown ? `${idx * 18}ms` : '0ms',
+                  }}
+                >
+                  <span style={{ lineHeight: 1 }}>{a.label}</span>
+                </button>
+              );
+            })}
+
+            {shareExpiryOptions.map((opt, idx) => {
+              const rad = shareFanAngles[idx] * Math.PI / 180;
+              const dx = Math.cos(rad) * shareFanRadius;
+              const dy = Math.sin(rad) * shareFanRadius;
+              const shown = open && shareOptionsOpen;
+              return (
+                <button
+                  key={`share-${opt.label}`}
+                  title={`分享有效期：${opt.label}`}
+                  onClick={() => { setShareOptionsOpen(false); setOpen(false); createShareWithExpiry(opt.s); }}
+                  style={{
+                    position: 'absolute',
+                    right: 6,
+                    bottom: 6,
+                    width: 46,
+                    height: 46,
+                    border: 'var(--liquid-glass-stroke-width) solid rgba(0,0,0,0.12)',
+                    borderRadius: 999,
+                    background: 'var(--liquid-glass-material-readable)',
+                    color: '#111',
+                    boxShadow: 'var(--liquid-glass-shadow-tight), var(--liquid-glass-edge)',
+                    backdropFilter: 'var(--liquid-glass-backdrop)',
+                    WebkitBackdropFilter: 'var(--liquid-glass-backdrop)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    transform: shown ? `translate(${dx}px, ${dy}px) scale(1)` : 'translate(0,0) scale(0.72)',
+                    opacity: shown ? 1 : 0,
+                    pointerEvents: shown ? 'auto' : 'none',
+                    transition: 'transform 260ms cubic-bezier(0.2, 1, 0.2, 1), opacity 180ms ease',
+                    transitionDelay: shown ? `${idx * 16}ms` : '0ms',
+                  }}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+
+            <button
+              onClick={handleToggleOpen}
+              style={{
+                position: 'absolute',
+                right: 0,
+                bottom: 0,
+                width: fabSize,
+                height: fabSize,
+                borderRadius: 999,
+                border: dragOver ? '1px solid #111' : 'var(--liquid-glass-stroke-width) solid var(--liquid-glass-border)',
+                background: 'var(--liquid-glass-material-readable)',
+                boxShadow: open ? '0 12px 24px rgba(0,0,0,0.24), var(--liquid-glass-edge)' : 'var(--liquid-glass-shadow-tight), var(--liquid-glass-edge)',
+                backdropFilter: 'var(--liquid-glass-backdrop)',
+                WebkitBackdropFilter: 'var(--liquid-glass-backdrop)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 22,
+                cursor: 'pointer',
+                transform: open ? 'rotate(45deg)' : 'rotate(0deg)',
+                transition: 'transform 220ms ease, box-shadow 220ms ease',
+              }}
+              aria-expanded={open}
+              aria-label="中转站菜单"
+            >
+              {open ? '+' : '📁'}
+            </button>
+
+            <span
+              style={{
+                position: 'absolute',
+                right: -2,
+                top: -2,
+                minWidth: 22,
+                height: 22,
+                borderRadius: 11,
+                background: 'linear-gradient(135deg, #2f2f2f, #101010)',
+                color: '#fff',
+                fontSize: 11,
+                fontWeight: 700,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '0 6px',
+                border: '2px solid #fff',
+              }}
+            >
+              {count}
+            </span>
+          </div>
+        </div>
+      </>
+    );
+    if (typeof document !== 'undefined' && document.body) {
+      return ReactDOM.createPortal(mobileNode, document.body);
+    }
+    return mobileNode;
+  }
+
+  return (
+    <div
+      ref={stationRef}
+      data-transfer-station-root="1"
+      style={containerStyle}
+      aria-label="transfer-station"
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      <a
+        href="https://aqzp8yijm6s.feishu.cn/share/base/form/shrcnwu5HlSiXlpt6JiqumTVKec"
+        target="_blank"
+        rel="noopener noreferrer"
+        style={{ textDecoration: 'none', marginBottom: 8 }}
+      >
+        <div style={{ padding: '7px 12px', borderRadius: 999, background: 'var(--liquid-glass-material-readable, rgba(255,255,255,0.72))', color: 'var(--lg-blue, #111)', fontSize: 12, fontWeight: 700, cursor: 'pointer', border: '1px solid rgba(255,255,255,0.62)', boxShadow: 'var(--liquid-glass-shadow-tight, 0 8px 18px rgba(0,0,0,0.096))', backdropFilter: 'blur(12px) saturate(1.3)', WebkitBackdropFilter: 'blur(12px) saturate(1.3)' }}>反馈问题</div>
+      </a>
+
+      {packProgressNode}
+      {resumedTaskTray}
+
+      <Tooltip
+        content={'中转站：支持“存入选中”或“直接拖拽媒体”。可打包下载、复制富文本、分享外链。'}
+        position="left"
+      >
+        {triggerNode}
+      </Tooltip>
+
+      {panelMounted && (
+        <div style={actionPanelStyle} onMouseEnter={handleMouseEnter}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={actionButtonStyle('store')} title="存入当前选择" onClick={handleStore} {...bindCircleEvents('store')}>存入</div>
+            <div style={actionButtonStyle('expand')} title="展开中转预览" onClick={handleToggleExpand} {...bindCircleEvents('expand')}>
+              {expanded ? '收起' : '预览'}
+            </div>
+            <div style={actionButtonStyle('pack')} title="打包下载" onClick={handlePackDownload} {...bindCircleEvents('pack')}>打包</div>
+            <div style={actionButtonStyle('share')} title="分享中转站" onClick={() => setShareOptionsOpen((v) => !v)} {...bindCircleEvents('share')}>分享</div>
+            <div style={actionButtonStyle('copy')} title="复制为富文本 (HTML)" onClick={handleCopyRichHtml} {...bindCircleEvents('copy')}>复制</div>
+            <div style={actionButtonStyle('clear', { background: '#fff1f2', color: '#b91c1c' })} title="清空中转站" onClick={handleClear} {...bindCircleEvents('clear')}>清空</div>
+          </div>
+
+          {shareOptionsOpen && (
+            <div
+              style={{ position: 'absolute', top: 0, left: -242, width: 210, background: '#fff', boxShadow: '0 8px 20px rgba(0,0,0,0.14)', borderRadius: 10, padding: 8, zIndex: 2600, border: '1px solid rgba(15,23,42,0.08)' }}
+              onMouseEnter={() => setShareOptionsOpen(true)}
+              onMouseLeave={() => setShareOptionsOpen(false)}
+            >
+              <div style={{ fontSize: 13, marginBottom: 8, color: '#334155', fontWeight: 700 }}>分享过期时间</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {shareExpiryOptions.map((opt) => (
+                  <button
+                    key={opt.label}
+                    onClick={() => { setShareOptionsOpen(false); createShareWithExpiry(opt.s); }}
+                    style={{ textAlign: 'left', padding: '8px 10px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#f8fafc', cursor: 'pointer', color: '#334155', fontWeight: 600 }}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {expanded && previewPanelNode}
+        </div>
+      )}
+    </div>
+  );
+}
