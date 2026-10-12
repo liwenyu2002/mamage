@@ -148,7 +148,9 @@ function buildSystemPrompt(options) {
 
 async function generateFromPrompt({ prompt, options }) {
   const apiKey = process.env.AI_TEXT_API_KEY || process.env.OPENAI_API_KEY || null;
-  const model = process.env.AI_TEXT_MODEL || 'gpt-3.5-turbo';
+  // 新闻稿专属模型覆盖：长文生成用快速模型（Pro 推理模型写整篇常超时），
+  // 未配置时回退全局 AI_TEXT_MODEL
+  const model = process.env.AI_NEWS_MODEL || process.env.AI_TEXT_MODEL || 'gpt-3.5-turbo';
 
   if (!apiKey) {
     // mock 只在显式开启时可用（本地开发）；生产 key 失效时必须报错而不是静默产假文章
