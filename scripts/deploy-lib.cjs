@@ -21,7 +21,7 @@ function readLink(link) {
 }
 
 async function dumpDatabase(file, keys, executable = '/opt/homebrew/bin/mysqldump') {
-  const child = spawn(executable, ['--single-transaction', '--no-tablespaces', '--routines', '--triggers',
+  const child = spawn(executable, ['--single-transaction', '--no-tablespaces', '--routines', '--triggers', '--set-gtid-purged=OFF',
     '--host', keys.DB_HOST, '--port', String(keys.DB_PORT || 3306), '--user', keys.DB_USER, keys.DB_NAME],
   { env: { ...process.env, MYSQL_PWD: keys.DB_PASSWORD || '' }, stdio: ['ignore', 'pipe', 'pipe'] });
   let stderr = '';
