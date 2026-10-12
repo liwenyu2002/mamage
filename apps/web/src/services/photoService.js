@@ -767,6 +767,7 @@ async function abortDirectUpload(initData, uploadApiBase = '') {
     await requestUploadJson('/api/upload/photo/direct/abort', {
       method: 'POST',
       data: {
+        sessionToken: initData.sessionToken,
         originalKey: initData.original && initData.original.key,
         thumbKey: initData.thumb && initData.thumb.key,
       },
@@ -799,6 +800,7 @@ async function uploadViaDirectCos(file, fields, { onProgress, uploadApiBase = ''
     data: initPayload,
   }, uploadApiBase);
 
+  let completionStarted = false;
   try {
     emitUploadProgress(onProgress, {
       file,
@@ -822,7 +824,7 @@ async function uploadViaDirectCos(file, fields, { onProgress, uploadApiBase = ''
         total,
       });
     };
-    await Promise.all([
+    const uploads = await Promise.allSettled([
       putSignedObject(initData.original, file, (event) => {
         if (event.total) totalByPart.original = event.total;
         loadedByPart.original = event.loaded || 0;
@@ -834,6 +836,8 @@ async function uploadViaDirectCos(file, fields, { onProgress, uploadApiBase = ''
         reportCombined();
       }),
     ]);
+    const failedUpload = uploads.find(result => result.status === 'rejected');
+    if (failedUpload) throw failedUpload.reason;
 
     const total = (totalByPart.original || 0) + (totalByPart.thumb || 0);
     emitUploadProgress(onProgress, {
@@ -842,13 +846,23 @@ async function uploadViaDirectCos(file, fields, { onProgress, uploadApiBase = ''
       loaded: total,
       total,
     });
-    const response = await requestUploadJson('/api/upload/photo/direct/complete', {
+    const completionOptions = {
       method: 'POST',
       data: Object.assign({}, initPayload, {
+        sessionToken: initData.sessionToken,
         originalKey: initData.original && initData.original.key,
         thumbKey: initData.thumb && initData.thumb.key,
       }),
-    }, uploadApiBase);
+    };
+    completionStarted = true;
+    let response;
+    try {
+      response = await requestUploadJson('/api/upload/photo/direct/complete', completionOptions, uploadApiBase);
+    } catch (error) {
+      if (error.status && error.status !== 409 && error.status < 500) throw error;
+      await new Promise(resolve => setTimeout(resolve, 300));
+      response = await requestUploadJson('/api/upload/photo/direct/complete', completionOptions, uploadApiBase);
+    }
     emitUploadProgress(onProgress, {
       file,
       phase: 'done',
@@ -858,7 +872,8 @@ async function uploadViaDirectCos(file, fields, { onProgress, uploadApiBase = ''
     });
     return response;
   } catch (err) {
-    await abortDirectUpload(initData, uploadApiBase);
+    if (!completionStarted) await abortDirectUpload(initData, uploadApiBase);
+    else err.directUploadCompletionUnknown = true;
     err.directUploadFailed = true;
     throw err;
   }
@@ -1212,6 +1227,7 @@ async function uploadViaDirectVideo(file, fields, { onProgress, uploadApiBase = 
 
 function shouldFallbackToApi(err, file) {
   if (!err) return true;
+  if (err.directUploadCompletionUnknown) return false;
   // 大于 5GB 的文件不能落 Mac Mini 临时盘，直传失败时直接报错并清理会话。
   if (Number(file && file.size) > MAX_VIDEO_API_FALLBACK_BYTES) return false;
   if (err.status === 413 || err.status === 415) return false;

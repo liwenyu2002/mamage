@@ -12,7 +12,17 @@ export function createDesktopSaver(initial, onError, onStatus) {
   let preferences = JSON.stringify(initial.preferences);
   let pending;
   let running;
-  let failed;
+  let blocked;
+  const isTransient = error => !error.status || error.status === 408 || error.status === 429 || error.status >= 500;
+  async function persist(data) {
+    for (let attempt = 0; ; attempt += 1) {
+      try { return await saveAlbumDesktop(data, initial.scope); }
+      catch (error) {
+        if (!isTransient(error) || attempt >= 2) throw error;
+        await new Promise(resolve => setTimeout(resolve, 300 * (2 ** attempt)));
+      }
+    }
+  }
   async function drain() {
     onStatus?.('saving');
     try {
@@ -22,9 +32,9 @@ export function createDesktopSaver(initial, onError, onStatus) {
         const groupJson = groupKey(next.groups);
         const preferenceJson = JSON.stringify(next.preferences);
         if (groupJson === groups && preferenceJson === preferences) continue;
-        const result = await saveAlbumDesktop({ ...revision,
+        const result = await persist({ ...revision,
           ...(groupJson !== groups ? { groups: next.groups } : {}),
-          ...(preferenceJson !== preferences ? { preferences: next.preferences } : {}) }, initial.scope);
+          ...(preferenceJson !== preferences ? { preferences: next.preferences } : {}) });
         revision = {
           workspaceRevision: groupJson !== groups ? result.workspaceRevision : revision.workspaceRevision,
           userRevision: preferenceJson !== preferences ? result.userRevision : revision.userRevision,
@@ -34,14 +44,15 @@ export function createDesktopSaver(initial, onError, onStatus) {
       onStatus?.('saved');
       return true;
     } catch (error) {
-      failed = error;
+      blocked = !isTransient(error);
       onStatus?.('error'); onError(error);
       return false;
     } finally { running = null; }
   }
   return {
+    canRetry() { return !blocked; },
     save(next) {
-      if (failed) return Promise.resolve(false);
+      if (blocked) return Promise.resolve(false);
       pending = next;
       if (!running) running = Promise.resolve().then(drain);
       return running;

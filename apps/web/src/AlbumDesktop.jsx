@@ -138,7 +138,10 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
   const [saveError, setSaveError] = React.useState('');
   const [saveStatus, setSaveStatus] = React.useState('saved');
   const saverRef = React.useRef(null);
-  if (!saverRef.current) saverRef.current = createDesktopSaver(initial, error => setSaveError(error?.message || '保存失败，请重新加载后重试'), setSaveStatus);
+  if (!saverRef.current) saverRef.current = createDesktopSaver(initial, error => setSaveError(error?.message || '保存失败，请重新加载后重试'), status => {
+    setSaveStatus(status);
+    if (status === 'saved') setSaveError('');
+  });
   const canOrganize = initial.canOrganize;
   const [organizing, setOrganizing] = React.useState(null);
   const [checked, setChecked] = React.useState([]);
@@ -706,7 +709,7 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
             {draftQuery && <button className="acp-icon" type="button" title="清空搜索" onClick={() => { setDraftQuery(''); setQuery(''); }}><IconClose /></button>}
             <button className="acp-icon" type="submit" title="搜索" aria-label="搜索"><IconSearch /></button></form>
             {isLibraryView && toolbar}</div></div></>}
-        {saveError && <div className="desktop-save-error" role="alert">{saveError}<Button onClick={onReload}>重新加载</Button></div>}
+        {saveError && <div className="desktop-save-error" role="alert">{saveError}{saverRef.current.canRetry() && <Button onClick={() => saverRef.current.save(snapshotRef.current)}>重试保存</Button>}<Button onClick={onReload}>重新加载</Button></div>}
         <span className="desktop-save-status" role="status">{saveStatus === 'saving' ? '正在保存…' : saveStatus === 'error' ? '未保存' : ''}</span>
         <div className="acp-content" key={columnBrowsing ? 'columns' : `${selected}-${view}`}>
           {columnBrowsing ? <FolderColumns footer={footer} groups={groups} albums={enrichedAlbums} path={currentPath} onSelect={selectGroup} onOpen={setOpened}
