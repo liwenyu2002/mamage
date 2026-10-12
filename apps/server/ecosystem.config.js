@@ -86,6 +86,7 @@ module.exports = {
         AI_VISION_MODEL: process.env.AI_VISION_MODEL || 'qwen2-vl-72b-instruct',
         AI_VISION_FALLBACK_PROVIDER: process.env.AI_VISION_FALLBACK_PROVIDER || '',
         AI_REQUEST_TIMEOUT_MS: process.env.AI_REQUEST_TIMEOUT_MS || '60000',
+        AI_NEWS_MODEL: process.env.AI_NEWS_MODEL || '',
         OLLAMA_BASE_URL: process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434',
         OLLAMA_VISION_MODEL: process.env.OLLAMA_VISION_MODEL || 'qwen2.5vl:3b',
         OLLAMA_REQUEST_TIMEOUT_MS: process.env.OLLAMA_REQUEST_TIMEOUT_MS || '120000',
