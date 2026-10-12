@@ -42,6 +42,7 @@ export function applyDocumentZoom(zoom) {
   if (!el) return;
   if (!zoom || Math.abs(zoom - 1) < 0.001) el.style.zoom = '';
   else el.style.zoom = String(zoom);
+  el.style.setProperty('--mamage-ui-zoom', el.style.zoom || '1');
 }
 
 function IconMinus() {

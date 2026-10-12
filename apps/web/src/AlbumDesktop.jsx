@@ -108,7 +108,7 @@ function AlbumCard({ album, groups, onOpen, onOrganize, pinned, onPin, dragProps
   </div>;
 }
 
-function DesktopContent({ initial, userId, workspaceName, organizationName, onOpen, onReload, sort, dateFilter, toolbar, projectPreviews, importStatuses, folderStyle }) {
+function DesktopContent({ initial, userId, workspaceName, organizationName, onOpen, onReload, sort, dateFilter, toolbar, projectPreviews, importStatuses, folderStyle, footer }) {
   const [albums, setAlbums] = React.useState(() => initial.albums.map(a => ({ ...a, image: a.image ? resolveAssetUrl(a.image) : null, groups: initial.groups.filter(g => g.projectIds?.includes(a.id)).map(g=>g.id) })));
   const [groups, setGroups] = React.useState(initial.groups);
   const [pins, setPins] = React.useState(initial.preferences.pins);
@@ -709,7 +709,7 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
         {saveError && <div className="desktop-save-error" role="alert">{saveError}<Button onClick={onReload}>重新加载</Button></div>}
         <span className="desktop-save-status" role="status">{saveStatus === 'saving' ? '正在保存…' : saveStatus === 'error' ? '未保存' : ''}</span>
         <div className="acp-content" key={columnBrowsing ? 'columns' : `${selected}-${view}`}>
-          {columnBrowsing ? <FolderColumns groups={groups} albums={enrichedAlbums} path={currentPath} onSelect={selectGroup} onOpen={setOpened}
+          {columnBrowsing ? <FolderColumns footer={footer} groups={groups} albums={enrichedAlbums} path={currentPath} onSelect={selectGroup} onOpen={setOpened}
             onCreate={beginCreateGroup} onCreateAlbum={canCreateAlbum ? parent => setCreatingInGroup({ id: parent?.id || null, name: parent?.name || '小组空间' }) : undefined}
             onPin={togglePin} pins={visiblePins} onAppearance={editAppearance} onMove={group => setMovePicker({ sourceId: group.id })}
             onEditFolder={group => { setEditingGroup(group); setGroupName(group.name); setNewGroup(true); }} onEditAlbum={canEditAlbum ? setEditingAlbum : undefined}
@@ -885,7 +885,7 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
   </div>;
 }
 
-export default function AlbumDesktop({ currentUser, workspaceInfo, onOpen, sort, dateFilter, toolbar, projectPreviews = [], importStatuses = {}, folderStyle = 'glass' }) {
+export default function AlbumDesktop({ currentUser, workspaceInfo, onOpen, sort, dateFilter, toolbar, projectPreviews = [], importStatuses = {}, folderStyle = 'glass', footer }) {
   const [initial, setInitial] = React.useState(null);
   const [error, setError] = React.useState('');
   const [reload, setReload] = React.useState(0);
@@ -897,7 +897,7 @@ export default function AlbumDesktop({ currentUser, workspaceInfo, onOpen, sort,
   if(error)return <div className="desktop-load-state" role="alert"><p>{error}</p><Button onClick={()=>setReload(n=>n+1)}>重新加载</Button></div>;
   if(!initial)return <div className="desktop-load-state" role="status">正在加载小组空间…</div>;
   const workspaceName=workspaceInfo?.units?.find(unit=>Number(unit.id)===Number(workspaceInfo.activeUnitId))?.name || '历史相册';
-  return <DesktopContent key={`${currentUser.id}-${workspaceInfo?.activeUnitId || 'legacy'}-${reload}`} initial={initial} userId={String(currentUser.id)} workspaceName={workspaceName}
+  return <DesktopContent footer={footer} key={`${currentUser.id}-${workspaceInfo?.activeUnitId || 'legacy'}-${reload}`} initial={initial} userId={String(currentUser.id)} workspaceName={workspaceName}
     organizationName={currentUser.organizationName || currentUser.organization_name || '当前组织'} onOpen={onOpen} onReload={()=>setReload(n=>n+1)} sort={sort} dateFilter={dateFilter} toolbar={toolbar} projectPreviews={projectPreviews} importStatuses={importStatuses} folderStyle={folderStyle} />;
 }
 

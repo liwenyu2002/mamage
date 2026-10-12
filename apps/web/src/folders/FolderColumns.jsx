@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import { IconChevronLeft, IconChevronRight, IconPlus, IconMoreStroked, IconStar,
   IconSimilarStack, IconListView, IconSliders, IconGridView, IconSearch, IconClose } from '../ui/icons';
 import './folderColumns.css';
+import './folderViewport.css';
 
 function FolderGlyph({ color }) {
   return <span className="acp-column-folder-glyph" style={color && color !== '#ffffff' ? { '--folder-row-color': color } : undefined} aria-hidden="true" />;
@@ -12,7 +13,7 @@ function FolderGlyph({ color }) {
 export default function FolderColumns({ groups, albums, path, onSelect, onOpen, onCreate,
   onPin, pins, onAppearance, onMove, onOrganize, onOrder, colors, getFolderDragProps, getAlbumDragProps,
   getGroupDropProps, dropTargetId, maxDepth, query, draftQuery, onSearch, onDraftQuery,
-  searchGroups, searchAlbums, view, onView, onManagePins, workspaceName = '小组空间', canOrganize = false, onEditFolder, onCreateAlbum, onEditAlbum }) {
+  searchGroups, searchAlbums, view, onView, onManagePins, workspaceName = '小组空间', canOrganize = false, onEditFolder, onCreateAlbum, onEditAlbum, footer }) {
   const railRef = React.useRef(null);
   const pathRef = React.useRef(null);
   const panelRefs = React.useRef([]);
@@ -224,6 +225,7 @@ export default function FolderColumns({ groups, albums, path, onSelect, onOpen, 
       {virtualGroup && <><IconChevronRight /><span>{virtualGroup.name}</span></>}
       {chosenAlbum && <><IconChevronRight /><span>{chosenAlbum.name}</span></>}
     </nav>
+    {footer}
     {menuEntry && createPortal(<div ref={menuRef} className="acp-column-context-menu" role="menu" aria-label={`${menuEntry.item.name}操作`} style={{ left: menu.left, top: menu.top }}
       onKeyDown={event => {
         if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;

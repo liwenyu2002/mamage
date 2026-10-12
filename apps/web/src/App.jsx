@@ -1235,6 +1235,15 @@ function App() {
     );
   }
 
+  const columnWorkspace = folderStyle === 'classic' && !currentProjectId && selectedNav === 'projects' && !photoSearchMode && currentUser && !isDemoPath;
+  const appFooter = <footer className="mamage-footer" style={{ textAlign: 'center' }}>
+    MaMage 校园图库 © {new Date().getFullYear()} ·{' '}
+    <button type="button" onClick={handleNavigatePrivacy}
+      style={{ border: 'none', background: 'transparent', color: 'inherit', font: 'inherit', cursor: 'pointer', textDecoration: 'underline' }}>
+      隐私说明
+    </button>
+  </footer>;
+
   return (
     <div className="mamage-shell">
       {lanEntryOffer ? (
@@ -1659,7 +1668,7 @@ function App() {
                   </div>
                 </div>
               ) : currentUser && !isDemoPath ? (
-                <LazyPanel title="正在加载我的桌面"><AlbumDesktop folderStyle={folderStyle} currentUser={currentUser} workspaceInfo={workspaceInfo}
+                <LazyPanel title="正在加载我的桌面"><AlbumDesktop folderStyle={folderStyle} footer={appFooter} currentUser={currentUser} workspaceInfo={workspaceInfo}
                   onOpen={handleSelectProject} sort={projectSort} dateFilter={projectDateFilter} toolbar={projectToolbar}
                   projectPreviews={normalizedProjects} importStatuses={projectImportStatuses} /></LazyPanel>
               ) : (
@@ -1866,18 +1875,7 @@ function App() {
         </LazySilent>
       ) : null}
 
-      {!currentProjectId ? (
-        <footer className="mamage-footer" style={{ textAlign: 'center' }}>
-          MaMage 校园图库 © {new Date().getFullYear()} ·{' '}
-          <button
-            type="button"
-            onClick={handleNavigatePrivacy}
-            style={{ border: 'none', background: 'transparent', color: 'inherit', font: 'inherit', cursor: 'pointer', textDecoration: 'underline' }}
-          >
-            隐私说明
-          </button>
-        </footer>
-      ) : null}
+      {!currentProjectId && !columnWorkspace ? appFooter : null}
       {mountTransferStation ? (
         <LazySilent>
           <TransferStation onInternalShare={(photoIds) => {
