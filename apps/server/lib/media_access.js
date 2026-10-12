@@ -37,18 +37,17 @@ function verifyPayload(token) {
 function buildMediaUrl(path, context = null) {
   const url = buildUploadUrl(path);
   if (!url) return url;
-  if (process.env.ORGANIZATION_UNITS_ACTIVE !== '1') return url;
   if (!context || !Number(context.photoId)) return url;
   const key = cosStorage.keyFromUrlOrPath(path);
   const unitId = unitIdFromKey(key);
-  if (!unitId) return url;
+  if (!key || !key.startsWith('uploads/')) return url;
   const proxyBase = String(UPLOAD_BASE_URL || '').replace(/\/+$/, '');
   if (!/\/api\/image$/i.test(proxyBase)) {
     throw new Error('UPLOAD_BASE_URL must use /api/image for private media');
   }
   const proxyUrl = buildUploadUrl(`/${key}`);
   const payload = {
-    v: 1, k: key, w: unitId, p: Number(context.photoId),
+    v: 1, k: key, w: unitId || 0, p: Number(context.photoId),
     e: Math.floor(Date.now() / 1000) + TTL_SECONDS,
   };
   if (context.shareId) {
@@ -66,10 +65,9 @@ function buildMediaUrl(path, context = null) {
 
 async function authorizeMediaKey(key, token, db = pool) {
   const unitId = unitIdFromKey(key);
-  if (!unitId) return true;
-  if (process.env.ORGANIZATION_UNITS_ACTIVE !== '1') return false;
   const payload = verifyPayload(token);
-  if (!payload || payload.k !== key || payload.w !== unitId) return false;
+  if (!payload) return !unitId && /^uploads\/(?:wechat|avatars)\//.test(key);
+  if (payload.k !== key || payload.w !== (unitId || 0)) return false;
   if (payload.t === 'service') return true;
   if (!Number.isSafeInteger(payload.p)) return false;
   const [rows] = await db.query(
@@ -78,7 +76,7 @@ async function authorizeMediaKey(key, token, db = pool) {
      FROM photos WHERE id = ? LIMIT 1`, [payload.p]
   );
   const photo = rows[0];
-  if (!photo || Number(photo.unit_id) !== unitId) return false;
+  if (!photo || (unitId && Number(photo.unit_id) !== unitId)) return false;
   const matchingField = ['url', 'thumb_url', 'public_download_url', 'playback_url']
     .find((field) => photo[field] && cosStorage.keyFromUrlOrPath(photo[field]) === key);
   if (!matchingField) return false;
@@ -97,9 +95,9 @@ async function authorizeMediaKey(key, token, db = pool) {
     if (photo.type === 'video' && matchingField === 'public_download_url') return false;
     const [shares] = await db.query(
       `SELECT id, share_type, project_id, sync_mode FROM share_links
-       WHERE id = ? AND organization_id = ? AND unit_id = ?
+       WHERE id = ? AND organization_id = ? AND unit_id <=> ?
          AND revoked_at IS NULL AND expires_at > NOW() LIMIT 1`,
-      [payload.sh, photo.organization_id, unitId]
+      [payload.sh, photo.organization_id, photo.unit_id]
     );
     const share = shares[0];
     if (!share) return false;

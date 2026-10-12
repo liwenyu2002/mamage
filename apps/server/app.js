@@ -193,6 +193,7 @@ async function startup() {
 
   require('./lib/organization_copy_worker').start();
   require('./lib/external_import_worker').start();
+  require('./lib/ai_job_worker').start();
 
   // AI 打标队列是纯内存的：重启后把 pending/running 孤儿重新入队。
   // 延迟执行避开启动高峰；AI_REQUEUE_ON_BOOT=0 可关闭。

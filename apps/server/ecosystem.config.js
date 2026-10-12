@@ -43,7 +43,7 @@ module.exports = {
         MEDIA_URL_SECRET: process.env.MEDIA_URL_SECRET || '',
         MEDIA_URL_TTL_DAYS: process.env.MEDIA_URL_TTL_DAYS || '8',
         IMAGE_PROXY_KEY_PREFIXES: process.env.IMAGE_PROXY_KEY_PREFIXES || 'uploads/',
-        ORGANIZATION_UNITS_ACTIVE: process.env.ORGANIZATION_UNITS_ACTIVE || '0',
+        ORGANIZATION_UNITS_ACTIVE: process.env.ORGANIZATION_UNITS_ACTIVE || '1',
         INTERNAL_UPLOAD_BASE_URL: process.env.INTERNAL_UPLOAD_BASE_URL || '',
 
         // 视频编辑器：临时工作目录必须位于代码目录之外

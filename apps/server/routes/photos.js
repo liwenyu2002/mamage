@@ -1779,6 +1779,9 @@ async function handleZipRequest(req, res) {
             // 连接/首字节阶段的 20s 超时仍然保留（下方 setTimeout 只在响应前生效）。
             req.setTimeout(0);
             activeRequests.delete(req);
+            activeStreams.add(response);
+            response.once('close', () => activeStreams.delete(response));
+            if (clientClosed) { response.destroy(); resolve(false); return; }
             // ⚠️ 响应已到 → 立刻撤掉空闲超时。zip 是边拉边发的流：客户端慢(公网隧道 ~0.7MB/s)时，
             // archiver 的背压会把源 socket 按住不动几十秒——那是正常背压，不是故障。
             // 留着 20s 空闲超时会把正常下载腰斩，客户端看到 ERR_INCOMPLETE_CHUNKED_ENCODING。
@@ -1788,11 +1791,19 @@ async function handleZipRequest(req, res) {
               const contentLength = Number(response.headers['content-length'] || 0);
               if (Number.isFinite(contentLength) && contentLength > ZIP_MAX_REMOTE_BYTES) {
                 console.warn('[photos.zip] remote file too large, skip:', remoteUrl, contentLength);
-                response.resume();
+                response.destroy();
                 resolve(false);
                 return;
               }
               const passthrough = new PassThrough();
+              activeStreams.add(passthrough);
+              passthrough.once('close', () => activeStreams.delete(passthrough));
+              passthrough.once('end', () => activeStreams.delete(passthrough));
+              passthrough.on('error', (err) => {
+                if (clientClosed) return;
+                console.error('[photos.zip] archive source failed:', err.message);
+                res.destroy();
+              });
               let received = 0;
               response.on('data', (chunk) => {
                 received += chunk.length;

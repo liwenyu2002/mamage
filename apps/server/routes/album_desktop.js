@@ -49,18 +49,26 @@ function fail(res, error) {
 }
 
 router.get('/', async (req, res) => {
+  let conn;
   try {
     const workspace = await context(req);
-    const albums = await catalog(workspace);
-    const [shared] = await pool.query('SELECT state, revision FROM album_desktop_workspaces WHERE organization_id = ? AND unit_key = ?', [workspace.orgId, workspace.unitKey]);
-    const [personal] = await pool.query('SELECT state, revision FROM album_desktop_users WHERE user_id = ? AND organization_id = ? AND unit_key = ?', [workspace.userId, workspace.orgId, workspace.unitKey]);
+    conn = await pool.getConnection();
+    await conn.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+    await conn.beginTransaction();
+    const albums = await catalog(workspace, conn);
+    const [shared] = await conn.query('SELECT state, revision FROM album_desktop_workspaces WHERE organization_id = ? AND unit_key = ?', [workspace.orgId, workspace.unitKey]);
+    const [personal] = await conn.query('SELECT state, revision FROM album_desktop_users WHERE user_id = ? AND organization_id = ? AND unit_key = ?', [workspace.userId, workspace.orgId, workspace.unitKey]);
     const ids = new Set(albums.map(a => a.id));
     const storedGroups = json(shared[0]?.state, {}).groups || [];
     const groups = storedGroups.map(g => ({ ...g, projectIds: (g.projectIds || []).filter(id => ids.has(Number(id))) }));
+    await conn.commit();
     res.json({ albums, groups, preferences: validatePreferences(json(personal[0]?.state, {}), groups, ids),
       scope: { userId: workspace.userId, organizationId: workspace.orgId, unitId: workspace.unitId },
       workspaceRevision: Number(shared[0]?.revision || 0), userRevision: Number(personal[0]?.revision || 0), canOrganize: workspace.canOrganize });
-  } catch (error) { fail(res, error); }
+  } catch (error) {
+    if (conn) await conn.rollback().catch(() => null);
+    fail(res, error);
+  } finally { conn?.release(); }
 });
 
 router.put('/state', async (req, res) => {

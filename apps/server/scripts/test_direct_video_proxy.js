@@ -53,6 +53,7 @@ const fakeStorage = {
   isConfigured: () => fakeStorage.configured,
   getEndpointUrl: () => fakeStorage.endpointUrl,
   normalizeKey: (key) => String(key || '').replace(/^\/+/, ''),
+  keyFromUrlOrPath: (key) => String(key || '').replace(/^\/+/, ''),
   extFromFilenameOrMime: (name, mime, fallback) => fallback || '.mp4',
   createMultipartUpload: async (key) => {
     fakeStorage.multipartUploads += 1;
@@ -76,7 +77,10 @@ const fakeStorage = {
 // 在真实模块加载前注入替身
 const dbPath = require.resolve(path.join(ROOT, 'db'));
 const cosPath = require.resolve(path.join(ROOT, 'lib/cos_storage'));
-require.cache[dbPath] = { id: dbPath, filename: dbPath, loaded: true, exports: { pool: fakePool, buildUploadUrl: (rel) => `https://mamage.test${rel}` } };
+require.cache[dbPath] = { id: dbPath, filename: dbPath, loaded: true, exports: {
+  pool: fakePool, UPLOAD_BASE_URL: 'https://mamage.test/api/image',
+  buildUploadUrl: (rel) => `https://mamage.test/api/image${rel}`,
+} };
 require.cache[cosPath] = { id: cosPath, filename: cosPath, loaded: true, exports: fakeStorage };
 
 const express = require('express');

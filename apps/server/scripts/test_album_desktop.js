@@ -25,20 +25,29 @@ const shared = { state: { groups }, revision: 2 };
 const personal = { state: preferences, revision: 4 };
 const calls = [];
 let committed = false, rolledBack = false;
+let readSnapshot;
+let concurrentCatalog = false;
+let catalogIds = [1,2,3];
 const db = { async query(sql, params) {
   calls.push({sql,params});
+  if(sql.startsWith('SET TRANSACTION ISOLATION LEVEL'))return [{}];
   if(sql.startsWith('INSERT'))return [{}];
   if(sql.startsWith('SELECT p.id')) {
     assert(sql.includes('p.organization_id = ? AND p.unit_id = ?'));
     assert.deepEqual(params,[7,9]);
-    return [[{id:1},{id:2},{id:3}]];
+    const rows=(sql.includes('p.name') ? readSnapshot.ids : catalogIds).map(id=>({id,createdAt:'2026-10-01'}));
+    if(concurrentCatalog && sql.includes('p.name')) {
+      concurrentCatalog=false;catalogIds.push(4);
+      shared.state={groups:[{...groups[0],projectIds:[1,2,4]}]};shared.revision=3;
+    }
+    return [rows];
   }
-  if(sql.includes('SELECT state, revision FROM album_desktop_workspaces'))return [[shared]];
-  if(sql.includes('SELECT state, revision FROM album_desktop_users'))return [[personal]];
+  if(sql.includes('SELECT state, revision FROM album_desktop_workspaces'))return [[sql.includes('FOR UPDATE') ? shared : readSnapshot.shared]];
+  if(sql.includes('SELECT state, revision FROM album_desktop_users'))return [[sql.includes('FOR UPDATE') ? personal : readSnapshot.personal]];
   if(sql.startsWith('UPDATE album_desktop_workspaces')){assert.deepEqual(params.slice(1),[7,9]);return [{}];}
   if(sql.startsWith('UPDATE album_desktop_users')){assert.deepEqual(params.slice(1),[12,7,9]);return [{}];}
   throw new Error('Unexpected SQL '+sql);
-}, async beginTransaction(){},async commit(){committed=true},async rollback(){rolledBack=true},release(){} };
+}, async beginTransaction(){readSnapshot=structuredClone({shared,personal,ids:catalogIds});},async commit(){committed=true},async rollback(){rolledBack=true},release(){} };
 const stub=(name,exports)=>{require.cache[require.resolve(name)]={id:require.resolve(name),filename:require.resolve(name),loaded:true,exports};};
 stub('../db',{pool:{...db,async getConnection(){return db}}});
 stub('../lib/permissions',{requirePermission:()=> (req,res,next)=>{req.user={id:12,organization_id:7,role:'admin'};next()}});
@@ -69,6 +78,13 @@ const server=app.listen(0,'127.0.0.1',async()=>{
   const writeCount=calls.filter(call=>call.sql.startsWith('UPDATE')).length;
   assert.equal((await put({groups:[...branch,{id:'overflow',name:'Too deep',parentId:'folder-4'}],workspaceRevision:2})).status,400);
   assert.equal(calls.filter(call=>call.sql.startsWith('UPDATE')).length,writeCount);
+  shared.state={groups};shared.revision=2;concurrentCatalog=true;
+  const beforeRace=calls.length;
+  const snapshot=await(await fetch(endpoint.replace('/state',''))).json();
+  assert.equal(snapshot.workspaceRevision,2,'catalog and folder revisions must use the same snapshot');
+  assert(calls.slice(beforeRace).some(call=>call.sql==='SET TRANSACTION ISOLATION LEVEL REPEATABLE READ'));
+  assert.equal((await put({groups:snapshot.groups,workspaceRevision:snapshot.workspaceRevision})).status,409);
+  assert.deepEqual(shared.state.groups[0].projectIds,[1,2,4],'stale rename must not drop a concurrent album assignment');
   console.log('PASS: desktop validation, scope isolation, personal preferences, revisions, permissions and rollback');
  }catch(error){console.error(error);process.exitCode=1}finally{server.close();}
 });

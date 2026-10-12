@@ -25,7 +25,7 @@ async function resolveWorkspace(req, db = pool) {
   const userId = positiveId(req.user && req.user.id);
   const orgId = positiveId(req.user && req.user.organization_id);
   const userRole = req.user && req.user.role ? String(req.user.role) : null;
-  if (!userId || !orgId || process.env.ORGANIZATION_UNITS_ACTIVE !== '1') {
+  if (!userId || !orgId) {
     req.workspace = { enabled: false, userId, orgId, userRole, unitId: null, role: null, collegeAdmin: false };
     return req.workspace;
   }
@@ -36,6 +36,9 @@ async function resolveWorkspace(req, db = pool) {
   if (!units.length) {
     req.workspace = { enabled: false, userId, orgId, userRole, unitId: null, role: null, collegeAdmin: false };
     return req.workspace;
+  }
+  if (process.env.ORGANIZATION_UNITS_ACTIVE !== '1') {
+    throw new WorkspaceAccessError('WORKSPACE_CONFIGURATION_ERROR', 503);
   }
 
   const [adminRows] = await db.query(
@@ -76,9 +79,7 @@ async function resolveWorkspace(req, db = pool) {
 
 function projectListScope(workspace, alias = 'p') {
   if (!workspace.enabled) {
-    return process.env.ORGANIZATION_UNITS_ACTIVE === '1'
-      ? { sql: `${alias}.unit_id IS NULL`, params: [] }
-      : { sql: '', params: [] };
+    return { sql: `${alias}.unit_id IS NULL`, params: [] };
   }
   if (!workspace.unitId) return { sql: `${alias}.unit_id IS NULL`, params: [] };
   if (workspace.collegeAdmin) return { sql: `${alias}.unit_id = ?`, params: [workspace.unitId] };
@@ -113,7 +114,7 @@ async function hasInternalShare(workspace, resource, action = 'read', db = pool)
 
 async function canAccessProject(workspace, project, action = 'read', db = pool) {
   if (!project || positiveId(project.organization_id) !== workspace.orgId) return false;
-  if (!workspace.enabled) return true;
+  if (!workspace.enabled) return !positiveId(project.unit_id);
   if (positiveId(project.restricted_to_user_id) && !workspace.collegeAdmin
     && positiveId(project.restricted_to_user_id) !== workspace.userId) return false;
   const ownerUnitId = positiveId(project.unit_id);
@@ -147,7 +148,10 @@ async function requirePhotoAccess(req, photoId, action = 'read', db = pool) {
     throw new WorkspaceAccessError('PHOTO_NOT_FOUND', 404);
   }
   const photo = rows[0];
-  if (!workspace.enabled) return photo;
+  if (!workspace.enabled) {
+    if (positiveId(photo.unit_id)) throw new WorkspaceAccessError('PHOTO_NOT_FOUND', 404);
+    return photo;
+  }
   if (positiveId(photo.restricted_to_user_id) && !workspace.collegeAdmin
     && positiveId(photo.restricted_to_user_id) !== workspace.userId) {
     throw new WorkspaceAccessError('PHOTO_NOT_FOUND', 404);
@@ -174,7 +178,11 @@ async function requirePhotosAccess(req, photoIds, action = 'read', db = pool) {
   if (rows.length !== ids.length || rows.some((row) => positiveId(row.organization_id) !== workspace.orgId)) {
     throw new WorkspaceAccessError('PHOTO_NOT_FOUND', 404);
   }
-  if (!workspace.enabled || workspace.collegeAdmin) return rows;
+  if (!workspace.enabled) {
+    if (rows.some(row => positiveId(row.unit_id))) throw new WorkspaceAccessError('PHOTO_NOT_FOUND', 404);
+    return rows;
+  }
+  if (workspace.collegeAdmin) return rows;
   if (rows.some((row) => positiveId(row.restricted_to_user_id)
     && positiveId(row.restricted_to_user_id) !== workspace.userId)) {
     throw new WorkspaceAccessError('PHOTO_NOT_FOUND', 404);

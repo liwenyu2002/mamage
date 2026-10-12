@@ -2,7 +2,6 @@ const express = require('express');
 const router = express.Router();
 const { pool } = require('../db');
 const { enqueueJob, runJobNow, getOrgIdForUser } = require('../lib/ai_job_worker');
-const { generateFromPrompt } = require('../ai_function/ai_for_news/ai_for_news');
 const { requirePermission } = require('../lib/permissions');
 const {
   positiveId, resolveWorkspace, requireProjectAccess, requirePhotosAccess, sendWorkspaceError,
@@ -307,17 +306,8 @@ router.post('/generate', requirePermission('ai.generate'), async (req, res) => {
 
     if (sync) {
       try {
-        await pool.query('UPDATE ai_jobs SET status = ?, started_at = NOW() WHERE id = ?', ['running', jobId]);
-        const result = await generateFromPrompt({ prompt, options });
-
-        await pool.query(
-          'INSERT INTO ai_results (job_id, title, subtitle, markdown, html, placeholders, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW())',
-          [jobId, result.title, result.subtitle, result.markdown, result.html, JSON.stringify(result.placeholders || [])]
-        );
-        await pool.query(
-          'UPDATE ai_jobs SET status = ?, finished_at = NOW(), tokens_used = ?, cost_estimate = ? WHERE id = ?',
-          ['succeeded', result.tokens || 0, result.cost || 0, jobId]
-        );
+        const result = await runJobNow(jobId);
+        if (!result) return res.status(202).json({ jobId, status: 'running' });
 
         const photos = Array.isArray(result.placeholders)
           ? result.placeholders
@@ -327,7 +317,6 @@ router.post('/generate', requirePermission('ai.generate'), async (req, res) => {
       } catch (e) {
         console.error('sync generate error', e);
         const reason = String((e && e.message) || e).slice(0, 200);
-        await pool.query('UPDATE ai_jobs SET status = ?, error = ?, finished_at = NOW() WHERE id = ?', ['failed', reason, jobId]);
         return res.status(500).json({ jobId, status: 'failed', error: reason });
       }
     }

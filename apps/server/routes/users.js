@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const { pool, buildUploadUrl } = require('../db');
+const { pool } = require('../db');
+const { validAvatar, buildAvatarUrl } = require('../lib/user_avatar');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
@@ -108,7 +109,7 @@ async function authMiddleware(req, res, next) {
       }
     }
     // convert avatar_url to full URL if present
-    try { user.avatar_url = user.avatar_url ? buildUploadUrl(user.avatar_url) : null; } catch (e) { user.avatar_url = user.avatar_url || null; }
+    user.avatar_url = buildAvatarUrl(user.avatar_url, user.id);
     // normalize organization_id to integer or null
     try {
       if (user.organization_id !== undefined && user.organization_id !== null) {
@@ -480,6 +481,9 @@ router.get('/me', authMiddleware, async (req, res) => {
 // 更新当前用户资料（允许更新: name, department, avatar_url, nickname, email）
 router.put('/me', authMiddleware, async (req, res) => {
   try {
+    if (req.body.avatar_url !== undefined && !validAvatar(req.body.avatar_url, req.user.id)) {
+      return res.status(400).json({ error: 'INVALID_AVATAR' });
+    }
     const allowed = ['name', 'department', 'avatar_url', 'nickname', 'email'];
     const updates = [];
     const params = [];
@@ -502,7 +506,7 @@ router.put('/me', authMiddleware, async (req, res) => {
     await pool.query(sql, params);
     const [rows] = await pool.query('SELECT id, student_no, name, department, role, email, avatar_url, nickname, organization_id FROM users WHERE id = ?', [req.user.id]);
     if (rows && rows[0]) {
-      try { rows[0].avatar_url = rows[0].avatar_url ? buildUploadUrl(rows[0].avatar_url) : null; } catch (e) { rows[0].avatar_url = rows[0].avatar_url || null; }
+      rows[0].avatar_url = buildAvatarUrl(rows[0].avatar_url, rows[0].id);
     }
     res.json(rows[0]);
   } catch (err) {
@@ -586,7 +590,7 @@ router.post('/me/invite', authMiddleware, async (req, res) => {
     conn.release();
     const [rows2] = await pool.query('SELECT id, student_no, name, department, role, email, avatar_url, nickname, organization_id FROM users WHERE id = ?', [req.user.id]);
     if (rows2 && rows2[0]) {
-      try { rows2[0].avatar_url = rows2[0].avatar_url ? buildUploadUrl(rows2[0].avatar_url) : null; } catch (e) { rows2[0].avatar_url = rows2[0].avatar_url || null; }
+      rows2[0].avatar_url = buildAvatarUrl(rows2[0].avatar_url, rows2[0].id);
     }
     res.json(rows2[0]);
   } catch (err) {

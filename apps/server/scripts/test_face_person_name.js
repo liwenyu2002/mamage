@@ -28,6 +28,7 @@ const feedback = [];
 // Exercise the real HTTP handlers against the same empty/inactive profile pattern as production.
 async function query(sql, params = []) {
   const statement = String(sql).replace(/\s+/g, ' ').trim();
+  if (statement.startsWith('SELECT id FROM organization_units')) return [[]];
   if (statement.includes('SELECT role FROM users')) return [[{ role: 'admin' }]];
   if (statement.includes('SELECT organization_id FROM users')) return [[{ organization_id: 1 }]];
   if (statement.includes('role_permissions')) return [[{ 1: 1 }]];

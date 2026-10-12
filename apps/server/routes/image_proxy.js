@@ -77,7 +77,7 @@ function setObjectHeaders(res, key, object) {
   if (object.ContentLength !== undefined && object.ContentLength !== null) {
     res.setHeader('Content-Length', String(object.ContentLength));
   }
-  if (unitIdFromKey(key)) {
+  if (unitIdFromKey(key) || !/^uploads\/(?:wechat|avatars)\//.test(key)) {
     res.setHeader('Cache-Control', 'private, no-store');
   } else if (object.CacheControl) {
     res.setHeader('Cache-Control', object.CacheControl);

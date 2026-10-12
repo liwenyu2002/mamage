@@ -18,6 +18,7 @@ const { resolveWorkspace, requireProjectAccess, WorkspaceAccessError } = require
 const { requirePermission } = require('../lib/permissions');
 const { createPublicDownloadBuffer, readStreamToBuffer, DEFAULT_MAX_BYTES: DEFAULT_PUBLIC_DOWNLOAD_MAX_BYTES } = require('../lib/public_download_variant');
 const { getMaxVideoUploadBytes, getMaxVideoApiFallbackBytes } = require('../config/video_upload_limits');
+const photoUploadSessions = require('../lib/photo_upload_session');
 
 const execFileAsync = promisify(execFile);
 
@@ -636,6 +637,11 @@ function enqueueDirectVideoPostProcess({ sourceKey, mimeType, thumbKey, thumbRel
           contentLength: preparedVideo.size,
           cacheControl: UPLOAD_CACHE_CONTROL,
         });
+        const [live] = await pool.query('SELECT id FROM photos WHERE id = ? AND url = ? LIMIT 1', [insertedId, `/${sourceKey}`]);
+        if (!live.length) {
+          await cosStorage.deleteObjects([sourceKey]);
+          return;
+        }
       }
 
       if (VIDEO_PREVIEW_ENABLED && thumbKey && thumbRel) {
@@ -874,7 +880,7 @@ async function appendPhotoIdToProject(conn, projectId, insertedId) {
 }
 
 async function createPhotoRecord(payload) {
-  const conn = await pool.getConnection();
+  const conn = payload.connection || await pool.getConnection();
   try {
     await conn.beginTransaction();
     await ensureProjectInScope(conn, payload.projectId, payload.orgId, payload.req);
@@ -961,7 +967,7 @@ async function createPhotoRecord(payload) {
     try { await conn.rollback(); } catch (e) { }
     throw err;
   } finally {
-    conn.release();
+    if (!payload.connection) conn.release();
   }
 }
 
@@ -1380,7 +1386,9 @@ async function processUpload(req, res) {
           return result;
         });
 
-      await Promise.all([originalUploadPromise, thumbUploadPromise]);
+      const results = await Promise.allSettled([originalUploadPromise, thumbUploadPromise]);
+      const failedUpload = results.find(result => result.status === 'rejected');
+      if (failedUpload) throw failedUpload.reason;
       timings.storageMs = nowMs() - storageStartMs;
     } catch (err) {
       await cosStorage.deleteObjects(uploadedKeys).catch(() => null);
@@ -1632,9 +1640,12 @@ router.post('/photo/direct/init', requirePermission('upload.photo'), async (req,
       cosStorage.signedPost(originalKey, { expires: SIGNED_UPLOAD_EXPIRES_SECONDS, contentType: mimeType, cacheControl: UPLOAD_CACHE_CONTROL, maxBytes: fileSize }),
       cosStorage.signedPost(thumbKey, { expires: SIGNED_UPLOAD_EXPIRES_SECONDS, contentType: 'image/jpeg', cacheControl: UPLOAD_CACHE_CONTROL, maxBytes: Math.max(1024 * 1024, Math.min(fileSize, 16 * 1024 * 1024)) }),
     ]);
+    const sessionToken = photoUploadSessions.createSession({ userId: req.user.id, orgId,
+      metadata, originalKey, thumbKey, fileSize, mimeType }, SIGNED_UPLOAD_EXPIRES_SECONDS);
 
     res.json({
       uploadMode: 'direct-cos',
+      sessionToken,
       maxFileBytes: MAX_UPLOAD_BYTES,
       expiresIn: SIGNED_UPLOAD_EXPIRES_SECONDS,
       original: {
@@ -1659,51 +1670,44 @@ router.post('/photo/direct/init', requirePermission('upload.photo'), async (req,
 });
 
 router.post('/photo/direct/complete', requirePermission('upload.photo'), async (req, res) => {
-  const originalKey = cosStorage.normalizeKey(req.body && req.body.originalKey);
-  const thumbKey = cosStorage.normalizeKey(req.body && req.body.thumbKey);
   try {
-    if (!originalKey || !thumbKey || !originalKey.startsWith('uploads/') || !thumbKey.startsWith('uploads/')) {
-      return res.status(400).json({ error: 'INVALID_OBJECT_KEY' });
-    }
-    if (originalKey.includes('..') || thumbKey.includes('..')) {
-      return res.status(400).json({ error: 'INVALID_OBJECT_KEY' });
-    }
-
-    const metadata = readPhotoMetadata(req.body || {});
+    const session = photoUploadSessions.readSession(req.body?.sessionToken, req.user);
+    const { originalKey, thumbKey, metadata } = session;
     const photographerId = req.user && req.user.id ? req.user.id : null;
     const orgId = getOrgId(req);
-
-    let insertedId;
-    try {
-      insertedId = await createPhotoRecordWithRetry({
-        ...metadata,
-        relPath: `/${originalKey}`,
-        thumbRel: `/${thumbKey}`,
-        photographerId,
-        orgId,
-        req,
-      });
-    } catch (err) {
-      await cosStorage.deleteObjects([originalKey, thumbKey]).catch(() => null);
-      const status = err.status || 500;
-      const message = err.publicMessage || err.message || 'DB_INSERT_FAILED';
-      return res.status(status).json({ error: status === 404 ? 'PROJECT_NOT_FOUND' : 'DB_INSERT_FAILED', message });
-    }
+    const result = await photoUploadSessions.withSessionLock(pool, session, async connection => {
+      await ensureProjectInScope(connection, metadata.projectId, orgId, req);
+      const existing = await photoUploadSessions.findCommittedPhoto(connection, session);
+      if (existing) {
+        if (Number(existing.photographer_id) !== Number(photographerId)
+          || Number(existing.organization_id) !== Number(orgId)
+          || Number(existing.project_id) !== Number(metadata.projectId)) {
+          throw Object.assign(new Error('UPLOAD_OBJECT_ALREADY_COMMITTED'), { status: 409 });
+        }
+        return { insertedId: existing.id, created: false };
+      }
+      const [original, thumb] = await Promise.all([cosStorage.headObject(originalKey), cosStorage.headObject(thumbKey)]);
+      if (Number(original?.ContentLength) !== session.fileSize || !(Number(thumb?.ContentLength) > 0)) {
+        throw Object.assign(new Error('DIRECT_PHOTO_SIZE_MISMATCH'), { status: 400 });
+      }
+      const insertedId = await createPhotoRecordWithRetry({ ...metadata, relPath: `/${originalKey}`,
+        thumbRel: `/${thumbKey}`, photographerId, orgId, req, connection });
+      return { insertedId, created: true };
+    });
+    const { insertedId } = result;
 
     const photographerName = await getPhotographerName(photographerId);
-    enqueuePostUploadJobs({ insertedId, thumbRel: `/${thumbKey}`, thumbBuffer: null, photographerId });
-    const publicDownloadKey = buildPublicDownloadKeyFromOriginalKey(originalKey);
-    enqueuePublicDownloadDerivative({
-      insertedId,
-      sourceKey: originalKey,
-      publicDownloadKey,
-      publicDownloadRel: `/${publicDownloadKey}`,
-    });
-    setImmediate(() => {
-      appendPhotoIdToProjectBestEffort(metadata.projectId, insertedId).catch((err) => {
-        console.warn('[upload] project photo_ids async sync failed:', err && err.message ? err.message : err);
+    if (result.created) {
+      enqueuePostUploadJobs({ insertedId, thumbRel: `/${thumbKey}`, thumbBuffer: null, photographerId });
+      const publicDownloadKey = buildPublicDownloadKeyFromOriginalKey(originalKey);
+      enqueuePublicDownloadDerivative({ insertedId, sourceKey: originalKey, publicDownloadKey,
+        publicDownloadRel: `/${publicDownloadKey}` });
+      setImmediate(() => {
+        appendPhotoIdToProjectBestEffort(metadata.projectId, insertedId).catch((err) => {
+          console.warn('[upload] project photo_ids async sync failed:', err && err.message ? err.message : err);
+        });
       });
-    });
+    }
 
     res.json(makeResponsePayload({
       insertedId,
@@ -1724,14 +1728,17 @@ router.post('/photo/direct/complete', requirePermission('upload.photo'), async (
 
 router.post('/photo/direct/abort', requirePermission('upload.photo'), async (req, res) => {
   try {
-    const keys = [req.body && req.body.originalKey, req.body && req.body.thumbKey]
-      .map(cosStorage.normalizeKey)
-      .filter((key) => key && key.startsWith('uploads/') && !key.includes('..'));
-    const result = await cosStorage.deleteObjects(keys);
-    res.json({ ok: true, deleted: result.deleted || [], errors: result.errors || [] });
+    const session = photoUploadSessions.readSession(req.body?.sessionToken, req.user);
+    const result = await photoUploadSessions.withSessionLock(pool, session, async connection => {
+      const committed = await photoUploadSessions.findCommittedPhoto(connection, session);
+      if (committed) return { ok: true, committed: true, photoId: committed.id };
+      const deleted = await cosStorage.deleteObjects([session.originalKey, session.thumbKey]);
+      return { ok: true, deleted: deleted.deleted || [], errors: deleted.errors || [] };
+    });
+    res.json(result);
   } catch (err) {
     console.error('POST /api/upload/photo/direct/abort error:', err && err.message ? err.message : err);
-    res.status(500).json({ error: 'DIRECT_UPLOAD_ABORT_FAILED' });
+    res.status(err.status || 500).json({ error: err.status ? err.message : 'DIRECT_UPLOAD_ABORT_FAILED' });
   }
 });
 

@@ -58,7 +58,7 @@ router.use((req, res, next) => {
         return res.status(403).json({ error: 'FACE_SEARCH_GRANT_REQUIRED' });
       }
       const photoId = Number(req.params?.photoId || req.query?.photoId || req.body?.photoId);
-      if (Number.isSafeInteger(photoId) && photoId > 0) await requirePhotoAccess(req, photoId, 'read');
+      if (Number.isSafeInteger(photoId) && photoId > 0) await requirePhotoAccess(req, photoId, req.method === 'GET' ? 'read' : 'edit');
       await pool.query(
         `INSERT INTO organization_access_audit
            (organization_id, unit_id, user_id, action, resource_type, resource_id)
@@ -70,6 +70,16 @@ router.use((req, res, next) => {
       if (!sendWorkspaceError(res, err)) next(err);
     }
   });
+});
+
+router.param('photoId', async (req, res, next, value) => {
+  try {
+    const action = req.method === 'GET' && !['1', 'true'].includes(String(req.query.detect)) ? 'read' : 'edit';
+    await requirePhotoAccess(req, Number(value), action);
+    next();
+  } catch (error) {
+    if (!sendWorkspaceError(res, error)) next(error);
+  }
 });
 
 function appendOrgScope(sqlBase, alias, orgId, params) {

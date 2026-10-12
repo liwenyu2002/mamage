@@ -8,6 +8,7 @@ const { parseAlltuuUrl, normalizeAlltuuAsset, scanAlltuu } = require('./external
 const { scanFromTemplate } = require('./external_gallery_templates');
 const { updateImportMetadata, ingestBatch } = require('./external_import_jobs');
 const { parsePublicHttpsUrl, openPublicHttps } = require('./public_remote_fetch');
+const { acquireJobLock } = require('./job_lock');
 
 const MAX_SOURCE_BYTES = 500 * 1024 * 1024;
 const MAX_PREVIEW_BYTES = 20 * 1024 * 1024;
@@ -213,12 +214,17 @@ async function importItem(job, item) {
   } catch (err) { console.warn('[external-import] post-upload dispatch failed:', err?.message); }
 }
 
-async function scanJob(job, shouldStop) {
+async function scanJob(job, shouldStop, lock = null) {
+  if (lock) await lock.assertOwned();
   await pool.query("UPDATE external_import_jobs SET scan_status = 'running', scan_error_code = NULL, scan_attempts = scan_attempts + 1 WHERE id = ?", [job.id]);
   const options = {
     shouldStop,
-    onMetadata: async (summary) => { await updateImportMetadata(job, summary); },
+    onMetadata: async (summary) => {
+      if (lock) await lock.assertOwned();
+      await updateImportMetadata(job, summary);
+    },
     onBatch: async (batch, info) => {
+      if (lock) await lock.assertOwned();
       await ingestBatch(job, batch, { ...info, sourceSections: job.sourceSections });
     },
   };
@@ -228,12 +234,14 @@ async function scanJob(job, shouldStop) {
       : (job.provider === 'alltuu' || parseAlltuuUrl(job.source_url))
         ? await scanAlltuu(job.source_url, options)
         : await scanFromTemplate(job.source_url, options);
+    if (lock) await lock.assertOwned();
     await pool.query(
       `UPDATE external_import_jobs SET scan_status = 'completed', scan_error_code = NULL,
        source_title = ?, source_quality = ?, reported_total = ? WHERE id = ?`,
       [result.title, result.quality, result.reportedTotal, job.id]
     );
   } catch (err) {
+    if (lock) await lock.assertOwned();
     if (err.code === 'IMPORT_STOPPED' || shouldStop()) {
       await pool.query("UPDATE external_import_jobs SET scan_status = 'pending' WHERE id = ? AND scan_status = 'running'", [job.id]);
       return;
@@ -253,7 +261,7 @@ async function scanJob(job, shouldStop) {
   }
 }
 
-async function runJob(job) {
+async function runJob(job, lock = null) {
   if (job.provider === 'generic' && parseAlltuuUrl(job.source_url)) {
     await pool.query("UPDATE external_import_jobs SET provider = 'alltuu' WHERE id = ? AND provider = 'generic'", [job.id]);
     job.provider = 'alltuu';
@@ -266,56 +274,66 @@ async function runJob(job) {
     return;
   }
   let stopScan = false;
+  let scanError = null;
   let scanning = job.scan_status !== 'completed';
   const refreshExistingAssets = scanning && Number(job.discovered_count || job.selected_count || 0) > 0;
   const scanPromise = scanning
-    ? scanJob(job, () => stopScan).finally(() => { scanning = false; })
+    ? scanJob(job, () => stopScan, lock).catch(error => { scanError = error; }).finally(() => { scanning = false; })
     : Promise.resolve();
-  while (true) {
-    const [stateRows] = await pool.query('SELECT status, cancel_requested, scan_status FROM external_import_jobs WHERE id = ?', [job.id]);
-    const state = stateRows[0];
-    if (!state) { stopScan = true; break; }
-    if (state.cancel_requested) {
-      stopScan = true;
-      await pool.query("UPDATE external_import_jobs SET status = 'cancelled', finished_at = NOW() WHERE id = ?", [job.id]);
-      break;
-    }
-    if (state.status === 'paused') { stopScan = true; break; }
-    // Resumed jobs already contain old signed URLs; refresh them before claiming an item.
-    if (refreshExistingAssets) {
-      if (scanning) { await sleep(600); continue; }
-      if (state.scan_status !== 'completed') break;
-    }
-    const [items] = await pool.query("SELECT * FROM external_import_items WHERE job_id = ? AND status = 'pending' ORDER BY source_order, id LIMIT 1", [job.id]);
-    if (!items.length) {
-      if (!scanning) break;
-      await sleep(600);
-      continue;
-    }
-    const item = items[0];
-    await pool.query("UPDATE external_import_items SET status = 'running', attempt_count = attempt_count + 1 WHERE id = ? AND status = 'pending'", [item.id]);
-    try {
-      await importItem(job, item);
-    } catch (err) {
-      const code = failureCode(err);
-      console.warn('[external-import] item failed', { jobId: job.id, itemId: item.id, code });
-      if (code === 'SOURCE_RATE_LIMIT') {
+  try {
+    while (true) {
+      if (scanError) throw scanError;
+      if (lock) await lock.assertOwned();
+      const [stateRows] = await pool.query('SELECT status, cancel_requested, scan_status FROM external_import_jobs WHERE id = ?', [job.id]);
+      const state = stateRows[0];
+      if (!state) { stopScan = true; break; }
+      if (state.cancel_requested) {
         stopScan = true;
-        await pool.query("UPDATE external_import_items SET status = 'pending', error_code = ? WHERE id = ?", [code, item.id]);
-        await pool.query("UPDATE external_import_jobs SET status = 'paused', scan_error_code = 'SOURCE_RATE_LIMIT', retry_after = DATE_ADD(NOW(), INTERVAL 60 SECOND), scan_status = IF(scan_status = 'running', 'pending', scan_status) WHERE id = ?", [job.id]);
+        await pool.query("UPDATE external_import_jobs SET status = 'cancelled', finished_at = NOW() WHERE id = ?", [job.id]);
         break;
       }
-      if (code === 'UNSUPPORTED_RAW') {
-        await pool.query("UPDATE external_import_items SET status = 'skipped', error_code = ? WHERE id = ?", [code, item.id]);
+      if (state.status === 'paused') { stopScan = true; break; }
+      // Resumed jobs already contain old signed URLs; refresh them before claiming an item.
+      if (refreshExistingAssets) {
+        if (scanning) { await sleep(600); continue; }
+        if (state.scan_status !== 'completed') break;
+      }
+      const [items] = await pool.query("SELECT * FROM external_import_items WHERE job_id = ? AND status = 'pending' ORDER BY source_order, id LIMIT 1", [job.id]);
+      if (!items.length) {
+        if (!scanning) break;
+        await sleep(600);
         continue;
       }
-      const retry = Number(item.attempt_count) < 2 && RETRYABLE_ITEM_CODES.has(code);
-      await pool.query('UPDATE external_import_items SET status = ?, error_code = ? WHERE id = ?', [retry ? 'pending' : 'failed', code, item.id]);
-      if (retry) await sleep(1000 * (Number(item.attempt_count) + 1));
+      const item = items[0];
+      const [claim] = await pool.query("UPDATE external_import_items SET status = 'running', attempt_count = attempt_count + 1 WHERE id = ? AND status = 'pending'", [item.id]);
+      if (!claim.affectedRows) continue;
+      try {
+        await importItem(job, item);
+      } catch (err) {
+        const code = failureCode(err);
+        console.warn('[external-import] item failed', { jobId: job.id, itemId: item.id, code });
+        if (code === 'SOURCE_RATE_LIMIT') {
+          stopScan = true;
+          await pool.query("UPDATE external_import_items SET status = 'pending', error_code = ? WHERE id = ?", [code, item.id]);
+          await pool.query("UPDATE external_import_jobs SET status = 'paused', scan_error_code = 'SOURCE_RATE_LIMIT', retry_after = DATE_ADD(NOW(), INTERVAL 60 SECOND), scan_status = IF(scan_status = 'running', 'pending', scan_status) WHERE id = ?", [job.id]);
+          break;
+        }
+        if (code === 'UNSUPPORTED_RAW') {
+          await pool.query("UPDATE external_import_items SET status = 'skipped', error_code = ? WHERE id = ?", [code, item.id]);
+          continue;
+        }
+        const retry = Number(item.attempt_count) < 2 && RETRYABLE_ITEM_CODES.has(code);
+        await pool.query('UPDATE external_import_items SET status = ?, error_code = ? WHERE id = ?', [retry ? 'pending' : 'failed', code, item.id]);
+        if (retry) await sleep(1000 * (Number(item.attempt_count) + 1));
+      }
+      await sleep(150);
     }
-    await sleep(150);
+  } finally {
+    stopScan = true;
+    await scanPromise;
   }
-  await scanPromise;
+  if (scanError) throw scanError;
+  if (lock) await lock.assertOwned();
   const [stateRows] = await pool.query('SELECT status, cancel_requested, scan_status FROM external_import_jobs WHERE id = ?', [job.id]);
   const state = stateRows[0];
   if (!state || state.status === 'paused' || state.status === 'cancelled') return;
@@ -341,18 +359,33 @@ async function pump() {
   pumping = true;
   try {
     await pool.query("UPDATE external_import_jobs SET status = 'queued', retry_after = NULL WHERE status = 'paused' AND cancel_requested = 0 AND retry_after <= NOW()");
-    while (runningJobs.size < MAX_ACTIVE_JOBS) {
-      const [jobs] = await pool.query("SELECT * FROM external_import_jobs WHERE status = 'queued' ORDER BY id LIMIT 1");
-      if (!jobs.length) break;
-      const job = jobs[0];
-      const [claim] = await pool.query("UPDATE external_import_jobs SET status = 'running', scan_error_code = IF(scan_status = 'completed', NULL, scan_error_code) WHERE id = ? AND status = 'queued'", [job.id]);
-      if (!claim.affectedRows) continue;
+    const [jobs] = await pool.query("SELECT * FROM external_import_jobs WHERE status IN ('queued', 'running') ORDER BY id LIMIT 100");
+    for (const job of jobs) {
+      if (runningJobs.size >= MAX_ACTIVE_JOBS) break;
+      if (runningJobs.has(job.id)) continue;
+      const lock = await acquireJobLock(pool, `external-import:${job.id}`);
+      if (!lock) continue;
+      let claimed = false;
+      try {
+        const [current] = await pool.query('SELECT status FROM external_import_jobs WHERE id = ?', [job.id]);
+        if (!current.length || !['queued', 'running'].includes(current[0].status)) continue;
+        if (current[0].status === 'running') {
+          await pool.query("UPDATE external_import_items SET status = 'pending' WHERE job_id = ? AND status = 'running'", [job.id]);
+          await pool.query("UPDATE external_import_jobs SET status = 'queued', scan_status = IF(scan_status = 'running', 'pending', scan_status) WHERE id = ? AND status = 'running'", [job.id]);
+          if (job.scan_status === 'running') job.scan_status = 'pending';
+        }
+        const [claim] = await pool.query("UPDATE external_import_jobs SET status = 'running', scan_error_code = IF(scan_status = 'completed', NULL, scan_error_code) WHERE id = ? AND status = 'queued'", [job.id]);
+        if (!claim.affectedRows) continue;
+        claimed = true;
+      } finally { if (!claimed) await lock.release(); }
       runningJobs.add(job.id);
-      runJob(job).catch(async (err) => {
+      runJob(job, lock).catch(async (err) => {
         console.error('[external-import] job interrupted', { jobId: job.id, message: err?.message });
+        await lock.assertOwned();
         await pool.query("UPDATE external_import_items SET status = 'pending' WHERE job_id = ? AND status = 'running'", [job.id]).catch(() => null);
         await pool.query("UPDATE external_import_jobs SET status = 'paused', scan_status = IF(scan_status = 'running', 'pending', scan_status), scan_error_code = 'WORKER_INTERRUPTED', retry_after = DATE_ADD(NOW(), INTERVAL 30 SECOND) WHERE id = ? AND status = 'running'", [job.id]).catch(() => null);
-      }).finally(() => { runningJobs.delete(job.id); wake(); });
+      }).catch(err => console.error('[external-import] recovery failed', err.message))
+        .finally(async () => { await lock.release(); runningJobs.delete(job.id); wake(); });
     }
   } finally { pumping = false; }
 }
@@ -364,15 +397,9 @@ function wake() {
 function start() {
   if (started) return;
   started = true;
-  Promise.resolve()
-    .then(() => pool.query("UPDATE external_import_items SET status = 'pending' WHERE status = 'running'"))
-    .then(() => pool.query("UPDATE external_import_jobs SET status = 'queued', scan_status = IF(scan_status = 'running', 'pending', scan_status) WHERE status = 'running'"))
-    .then(() => {
-      ticker = setInterval(wake, 2500);
-      ticker.unref?.();
-      wake();
-    })
-    .catch((err) => console.warn('[external-import] startup recovery failed:', err?.message));
+  ticker = setInterval(wake, 2500);
+  ticker.unref?.();
+  wake();
 }
 
 module.exports = { start, wake, failureCode, transferImage, imageMime, runJob };

@@ -117,16 +117,18 @@ const INTERNAL_UPLOAD_BASE_URL = (process.env.INTERNAL_UPLOAD_BASE_URL || '').re
 
 function buildInternalMediaUrl(p) {
   const url = buildUploadUrl(p);
-  if (!INTERNAL_UPLOAD_BASE_URL || !url) return url;
+  if (!url) return url;
   const publicBase = UPLOAD_BASE_URL.replace(/\/$/, '');
+  if (!String(url).startsWith(publicBase + '/')) return url;
   let internalUrl = url;
-  if (String(url).startsWith(publicBase + '/')) {
+  if (INTERNAL_UPLOAD_BASE_URL && String(url).startsWith(publicBase + '/')) {
     internalUrl = INTERNAL_UPLOAD_BASE_URL + String(url).slice(publicBase.length);
   }
-  const match = /\/api\/image\/(uploads\/units\/(\d+)\/[^?]+)/.exec(String(internalUrl));
+  const match = /\/api\/image\/(uploads\/[^?]+)/.exec(String(internalUrl));
   if (match && MEDIA_URL_SECRET) {
     const key = decodeURIComponent(match[1]);
-    const payload = { v: 1, t: 'service', k: key, w: Number(match[2]),
+    const unitId = /^uploads\/units\/(\d+)\//.exec(key)?.[1];
+    const payload = { v: 1, t: 'service', k: key, w: Number(unitId) || 0,
       e: Math.floor(Date.now() / 1000) + 300 };
     const encoded = Buffer.from(JSON.stringify(payload)).toString('base64url');
     const signature = crypto.createHmac('sha256', MEDIA_URL_SECRET).update(encoded).digest('base64url');

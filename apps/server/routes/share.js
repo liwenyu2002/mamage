@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
 
-const { pool, buildUploadUrl } = require('../db');
+const { pool } = require('../db');
 const { buildMediaUrl } = require('../lib/media_access');
 const { requirePermission } = require('../lib/permissions');
 const {
@@ -509,11 +509,9 @@ router.get('/:code', async (req, res) => {
 
         const mapped = photos.map((p) => ({
             ...p,
-            url: (share.unit_id && p.type !== 'video'
+            url: (p.type !== 'video'
                 ? buildMediaUrl(p.publicDownloadUrl || p.thumbUrl, { shareId: share.id, photoId: p.id })
-                : share.unit_id && p.type === 'video'
-                    ? buildMediaUrl(p.playbackUrl || p.thumbUrl, { shareId: share.id, photoId: p.id })
-                    : buildUploadUrl(p.url)),
+                : buildMediaUrl(p.playbackUrl || p.thumbUrl, { shareId: share.id, photoId: p.id })),
             thumbUrl: p.thumbUrl ? buildMediaUrl(p.thumbUrl, { shareId: share.id, photoId: p.id }) : null,
             publicDownloadUrl: p.publicDownloadUrl ? buildMediaUrl(p.publicDownloadUrl, { shareId: share.id, photoId: p.id }) : null,
             playbackUrl: p.playbackUrl ? buildMediaUrl(p.playbackUrl, { shareId: share.id, photoId: p.id }) : null,

@@ -161,7 +161,7 @@ async function generateFromPrompt({ prompt, options }) {
   {
     // The dedicated text endpoint must win so changing a vision provider never redirects news generation.
     const baseURL = process.env.AI_TEXT_BASE_URL || process.env.DASHSCOPE_BASE_URL || undefined;
-    const client = baseURL ? new OpenAI({ apiKey, baseURL }) : new OpenAI({ apiKey });
+    const client = new OpenAI({ apiKey, ...(baseURL ? { baseURL } : {}), maxRetries: 0 });
 
     const systemPrompt = buildSystemPrompt(options);
 
@@ -185,9 +185,10 @@ async function generateFromPrompt({ prompt, options }) {
       temperature: 0.7,
       max_tokens: maxTokens
     };
+    if (/deepseek/i.test(model)) callOptions.thinking = { type: 'disabled' };
 
-    const maxAttempts = parseInt(process.env.AI_JSON_MAX_ATTEMPTS || '3', 10);
-    const timeoutMs = parseInt(process.env.AI_REQUEST_TIMEOUT_MS || '15000', 10);
+    const maxAttempts = Math.max(1, Math.min(5, Number(process.env.AI_JSON_MAX_ATTEMPTS) || 3));
+    const timeoutMs = Math.max(50, Number(process.env.AI_REQUEST_TIMEOUT_MS) || 15000);
 
     let resp = null;
     let content = null;
@@ -195,23 +196,21 @@ async function generateFromPrompt({ prompt, options }) {
     let lastErr = null;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
       try {
-        const call = client.chat.completions.create(callOptions);
-        resp = await Promise.race([
-          call,
-          new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), timeoutMs))
-        ]);
+        resp = await client.chat.completions.create(callOptions, { signal: controller.signal, timeout: timeoutMs });
         content = resp?.choices?.[0]?.message?.content;
         const str = typeof content === 'string' ? content : String(content || '');
         parsed = tryParseJsonFromString(str);
         if (parsed) break;
       } catch (e) {
-        lastErr = e;
-        if (attempt >= maxAttempts) {
-          console.error('[ai_for_news] text model call failed after retries:', e && e.stack ? e.stack : e);
-          resp = null;
-          content = null;
-        }
+        lastErr = controller.signal.aborted ? new Error('模型请求超时，请稍后重试') : e;
+        resp = null;
+        content = null;
+        break;
+      } finally {
+        clearTimeout(timer);
       }
     }
 
