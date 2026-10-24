@@ -2,7 +2,7 @@
 ARG API_IMAGE
 FROM ${API_IMAGE}
 USER root
-RUN node -e 'require("fs").writeFileSync("/tmp/sharp-version",require("sharp/package.json").version)'
+RUN node -e 'require("fs").writeFileSync("/tmp/sharp-version",require("./node_modules/sharp/package.json").version)'
 COPY apps/server/package.json apps/server/package-lock.json /tmp/next-package/
 RUN node -e 'if(require("/tmp/next-package/package-lock.json").packages["node_modules/sharp"].version!==require("fs").readFileSync("/tmp/sharp-version","utf8"))throw Error("Rebuild native compatibility for changed Sharp")'
 RUN rm -rf /app/lib /app/routes /app/scripts /app/ai_function /app/config
