@@ -52,7 +52,7 @@ async function main() {
   try {
     const disk = fs.statfsSync(archive);
     if (Number(disk.bavail) * Number(disk.bsize) < 12 * 1024 ** 3) throw Error('Need 12 GiB available for a safe release');
-    const beforeValues = JSON.parse(helm('get', 'values', options.release, '-n', options.namespace, '-o', 'json'));
+    const beforeValues = JSON.parse(helm('get', 'values', options.release, '-n', options.namespace, '--all', '-o', 'json'));
     save('values-before.private.json', beforeValues);
     const secret = json('get', 'secret', beforeValues.existingSecret);
     save('runtime-secret-before.private.json', secret);
