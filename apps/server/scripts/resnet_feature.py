@@ -9,6 +9,11 @@ import sys
 import os
 import json
 
+# Compatibility images opt out of kernels that require newer x86 instructions.
+if os.environ.get("IMAGE_SIMILARITY_CPU_BACKEND") == "generic":
+    torch.backends.mkldnn.enabled = False
+    torch.backends.nnpack.set_flags(False)
+
 print("正在加载 ResNet-50 模型...", file=sys.stderr)
 
 # Some torchvision/torch hub operations print download progress to stdout/stderr

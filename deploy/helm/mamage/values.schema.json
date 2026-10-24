@@ -1,0 +1,34 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["images", "imagePullSecrets", "publicURL", "existingSecret", "objectStorage", "modelServices", "api", "web", "persistence", "config", "ingress", "nodeSelector", "tolerations", "affinity"],
+  "properties": {
+    "images": {"type":"object","additionalProperties":false,"required":["api","web"],"properties":{"api":{"$ref":"#/definitions/image"},"web":{"$ref":"#/definitions/image"}}},
+    "imagePullSecrets": {"type":"array","items":{"type":"object","additionalProperties":false,"required":["name"],"properties":{"name":{"$ref":"#/definitions/name"}}}},
+    "publicURL": {"type":"string","pattern":"^https?://[^/]+/?$"},
+    "existingSecret": {"$ref":"#/definitions/name"},
+    "objectStorage": {"type":"object","additionalProperties":false,"required":["endpoint","region","forcePathStyle"],"properties":{"endpoint":{"type":"string","pattern":"^https?://"},"region":{"type":"string","minLength":1},"forcePathStyle":{"type":"boolean"}}},
+    "modelServices": {"type":"object","additionalProperties":false,"required":["faceURL","visionURL"],"properties":{"faceURL":{"type":"string","pattern":"^(https?://.+)?$"},"visionURL":{"type":"string"},"mediaCallbackURL":{"type":"string","pattern":"^(https?://[^/]+/api/image)?$"}}},
+    "api": {"type":"object","additionalProperties":false,"required":["replicaCount","strategy","autoscaling","terminationGracePeriodSeconds","shutdownTimeoutSeconds","resources"],"properties":{
+      "replicaCount":{"type":"integer","minimum":1,"maximum":32},"strategy":{"enum":["Recreate","RollingUpdate"]},"autoscaling":{"type":"boolean"},
+      "minReplicas":{"type":"integer","minimum":1,"maximum":32},"maxReplicas":{"type":"integer","minimum":1,"maximum":32},"targetCPUUtilizationPercentage":{"type":"integer","minimum":10,"maximum":90},
+      "terminationGracePeriodSeconds":{"type":"integer","minimum":15,"maximum":900},"shutdownTimeoutSeconds":{"type":"integer","minimum":1,"maximum":600},"resources":{"$ref":"#/definitions/resources"}}},
+    "web": {"type":"object","additionalProperties":false,"required":["replicaCount","strategy","resources","serviceType"],"properties":{"replicaCount":{"type":"integer","minimum":1,"maximum":32},"strategy":{"enum":["Recreate","RollingUpdate"]},"resources":{"$ref":"#/definitions/resources"},"serviceType":{"enum":["ClusterIP","NodePort","LoadBalancer"]}}},
+    "persistence": {"type":"object","additionalProperties":false,"required":["data","webAssets"],"properties":{"data":{"$ref":"#/definitions/claim"},"webAssets":{"$ref":"#/definitions/claim"}}},
+    "backup": {"type":"object","additionalProperties":false,"required":["enabled","schedule","timeZone","encryptionSecret","prefix","workSize","databaseImage"],"properties":{"enabled":{"type":"boolean"},"schedule":{"type":"string","minLength":9,"maxLength":100},"timeZone":{"type":"string","minLength":1},"encryptionSecret":{"$ref":"#/definitions/name"},"prefix":{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9/_-]*/$"},"workSize":{"type":"string","pattern":"^[1-9][0-9]*Gi$"},"databaseImage":{"$ref":"#/definitions/image"}}},
+    "config": {"type":"object","propertyNames":{"pattern":"^[A-Z_][A-Z0-9_]*$"},"additionalProperties":{"type":"string"}},
+    "ingress": {"type":"object","additionalProperties":false,"required":["enabled","className","host","tlsSecretName","annotations"],"properties":{"enabled":{"type":"boolean"},"className":{"type":"string"},"host":{"type":"string"},"tlsSecretName":{"type":"string"},"annotations":{"type":"object","additionalProperties":{"type":"string"}}}},
+    "nodeSelector": {"type":"object","additionalProperties":{"type":"string"}},
+    "tolerations": {"type":"array","items":{"type":"object"}},
+    "affinity": {"type":"object"}
+  },
+  "definitions": {
+    "name":{"type":"string","minLength":1,"maxLength":253,"pattern":"^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$"},
+    "image":{"type":"object","additionalProperties":false,"required":["repository","tag","digest","pullPolicy"],"properties":{
+      "repository":{"type":"string","minLength":1},"tag":{"type":"string","not":{"const":"latest"}},"digest":{"type":"string","pattern":"^(sha256:[a-f0-9]{64})?$"},"pullPolicy":{"enum":["Always","IfNotPresent","Never"]}},"anyOf":[{"properties":{"tag":{"minLength":1}}},{"properties":{"digest":{"minLength":1}}}]},
+    "claim":{"type":"object","additionalProperties":false,"required":["existingClaim","storageClass","accessMode","size"],"properties":{"existingClaim":{"type":"string"},"storageClass":{"type":"string"},"accessMode":{"enum":["ReadWriteOnce","ReadWriteOncePod","ReadWriteMany"]},"size":{"type":"string","pattern":"^[1-9][0-9]*(Gi|Ti)$"}}},
+    "resources":{"type":"object","additionalProperties":false,"required":["requests","limits"],"properties":{"requests":{"$ref":"#/definitions/quantities"},"limits":{"$ref":"#/definitions/quantities"}}},
+    "quantities":{"type":"object","required":["cpu","memory"],"additionalProperties":{"type":"string","minLength":1}}
+  }
+}

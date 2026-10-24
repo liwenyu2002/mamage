@@ -1,0 +1,27 @@
+.album-sharing-status {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    max-width: 100%;
+    margin: 0 4px 16px;
+    color: #526373;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.65;
+}
+
+.album-sharing-status > svg {
+    flex: 0 0 16px;
+    width: 16px;
+    height: 16px;
+    margin-top: 3px;
+}
+
+.album-sharing-status > span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.album-sharing-separator {
+    color: #8a959d;
+}

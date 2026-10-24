@@ -4,6 +4,8 @@ const crypto = require('crypto');
 
 const { pool } = require('../db');
 const { buildMediaUrl } = require('../lib/media_access');
+const { loadPublicFolderShare } = require('../lib/public_folder_share');
+const { publicFolderPhotoScope } = require('../lib/folder_shares');
 const { requirePermission } = require('../lib/permissions');
 const {
     resolveWorkspace, requireProjectAccess, requirePhotosAccess, sendWorkspaceError,
@@ -266,7 +268,8 @@ router.get('/mine', requirePermission('photos.view'), async (req, res) => {
         const workspace = await resolveWorkspace(req);
         if (!workspace.enabled || !workspace.unitId) return res.json([]);
         const [rows] = await pool.query(
-            `SELECT s.code, s.share_type AS shareType, s.title, s.project_id AS projectId,
+            `SELECT s.code, s.share_type AS shareType, COALESCE(folder.folder_name, s.title) AS title, s.project_id AS projectId, s.folder_share_id AS folderShareId,
+                    folder.source_folder_id AS folderId,
                     s.sync_mode AS syncMode, s.expires_at AS expiresAt, s.created_at AS createdAt,
                     p.name AS albumName,
                     CASE WHEN s.share_type = 'project' AND s.sync_mode = 'approval'
@@ -274,8 +277,16 @@ router.get('/mine', requirePermission('photos.view'), async (req, res) => {
                             LEFT JOIN share_link_items si ON si.share_id = s.id AND si.photo_id = ph.id
                             WHERE ph.project_id = s.project_id AND ph.organization_id = s.organization_id
                               AND ph.unit_id = s.unit_id AND si.photo_id IS NULL)
+                      WHEN s.folder_share_id IS NOT NULL AND s.sync_mode = 'approval'
+                      THEN (SELECT COUNT(*) FROM photos ph JOIN projects original ON original.id = ph.project_id
+                        LEFT JOIN share_link_items si ON si.share_id = s.id AND si.photo_id = ph.id
+                        WHERE ph.organization_id = s.organization_id AND ph.unit_id = s.unit_id
+                          AND original.restricted_to_user_id IS NULL AND si.photo_id IS NULL
+                          AND EXISTS (SELECT 1 FROM internal_shares membership WHERE membership.folder_share_id = s.folder_share_id
+                            AND membership.project_id = ph.project_id AND membership.revoked_at IS NULL))
                       ELSE 0 END AS pendingCount
              FROM share_links s LEFT JOIN projects p ON p.id = s.project_id
+             LEFT JOIN folder_shares folder ON folder.id = s.folder_share_id
              WHERE s.organization_id = ? AND s.unit_id = ? AND s.revoked_at IS NULL
                AND (s.expires_at IS NULL OR s.expires_at > NOW())
              ORDER BY s.created_at DESC LIMIT 100`,
@@ -294,7 +305,7 @@ async function requireShareManager(req, code) {
         throw new WorkspaceAccessError('UNIT_MANAGER_REQUIRED');
     }
     const [rows] = await pool.query(
-        `SELECT id, project_id, share_type, sync_mode FROM share_links
+        `SELECT id, project_id, share_type, sync_mode, folder_share_id, organization_id, unit_id FROM share_links
          WHERE code = ? AND organization_id = ? AND unit_id = ?
            AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > NOW()) LIMIT 1`,
         [code, workspace.orgId, workspace.unitId]
@@ -306,15 +317,16 @@ async function requireShareManager(req, code) {
 router.get('/:code/pending', requirePermission('photos.view'), async (req, res) => {
     try {
         const { share, workspace } = await requireShareManager(req, String(req.params.code || ''));
-        if (share.share_type !== 'project' || share.sync_mode !== 'approval') {
+        if ((!share.folder_share_id && share.share_type !== 'project') || share.sync_mode !== 'approval') {
             return res.json({ photos: [] });
         }
+        const scope = share.folder_share_id ? publicFolderPhotoScope(share) : { sql: 'p.project_id = ? AND p.organization_id = ? AND p.unit_id = ?', params: [share.project_id, workspace.orgId, workspace.unitId] };
         const [rows] = await pool.query(
             `SELECT p.id, p.title, p.thumb_url AS thumbUrl, p.created_at AS createdAt
              FROM photos p LEFT JOIN share_link_items si ON si.share_id = ? AND si.photo_id = p.id
-             WHERE p.project_id = ? AND p.organization_id = ? AND p.unit_id = ? AND si.photo_id IS NULL
+             WHERE ${scope.sql} AND si.photo_id IS NULL
              ORDER BY p.created_at DESC LIMIT 500`,
-            [share.id, share.project_id, workspace.orgId, workspace.unitId]
+            [share.id, ...scope.params]
         );
         res.json({ photos: rows.map((photo) => ({ ...photo,
             thumbUrl: photo.thumbUrl ? buildMediaUrl(photo.thumbUrl,
@@ -327,16 +339,16 @@ router.get('/:code/pending', requirePermission('photos.view'), async (req, res) 
 router.post('/:code/approve', requirePermission('photos.view'), async (req, res) => {
     try {
         const { share, workspace } = await requireShareManager(req, String(req.params.code || ''));
-        if (share.share_type !== 'project' || share.sync_mode !== 'approval') {
+        if ((!share.folder_share_id && share.share_type !== 'project') || share.sync_mode !== 'approval') {
             throw new WorkspaceAccessError('SHARE_NOT_APPROVAL_MODE', 400);
         }
         const ids = Array.from(new Set((req.body?.photoIds || [])
             .map(Number).filter((id) => Number.isSafeInteger(id) && id > 0)));
         if (!ids.length || ids.length > 500) throw new WorkspaceAccessError('INVALID_PHOTO_IDS', 400);
+        const scope = share.folder_share_id ? publicFolderPhotoScope(share) : { sql: 'p.project_id = ? AND p.organization_id = ? AND p.unit_id = ?', params: [share.project_id, workspace.orgId, workspace.unitId] };
         const [rows] = await pool.query(
-            `SELECT id FROM photos WHERE id IN (?) AND project_id = ?
-               AND organization_id = ? AND unit_id = ?`,
-            [ids, share.project_id, workspace.orgId, workspace.unitId]
+            `SELECT p.id FROM photos p WHERE p.id IN (?) AND ${scope.sql}`,
+            [ids, ...scope.params]
         );
         if (rows.length !== ids.length) throw new WorkspaceAccessError('PHOTO_NOT_FOUND', 404);
         const values = ids.map((id, index) => [share.id, id, index]);
@@ -416,6 +428,13 @@ router.get('/:code', async (req, res) => {
 
         const limit = normalizeLimit(req.query.limit, 100);
         const offset = normalizeOffset(req.query.offset);
+        if (share.folder_share_id) {
+            const projectId = req.query.projectId == null ? null : Number(req.query.projectId);
+            if (req.query.projectId != null && (!Number.isSafeInteger(projectId) || projectId <= 0)) return res.status(400).json({ error: 'INVALID_PROJECT' });
+            const data = await loadPublicFolderShare(pool, share, { projectId, limit, offset });
+            if (!data) return res.status(404).json({ error: 'NOT_FOUND' });
+            return res.json(data);
+        }
 
         let photos = [];
         let timelineSections = [];

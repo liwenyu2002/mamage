@@ -33,13 +33,19 @@ async function readStreamToBuffer(stream, options = {}) {
   return Buffer.concat(chunks, total);
 }
 
-async function encodeJpeg(input, quality) {
+async function preparePixels(input) {
   // rotate() bakes EXIF orientation into pixels. The output intentionally strips
   // EXIF/GPS metadata, while keeping the visual width, height and colour space.
   return sharp(input, { failOn: 'none' })
     .rotate()
     .flatten({ background: '#ffffff' })
     .toColorspace('srgb')
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+}
+
+async function encodeJpeg(pixels, quality) {
+  return sharp(pixels.data, { raw: { width: pixels.info.width, height: pixels.info.height, channels: pixels.info.channels } })
     .jpeg({
       quality,
       mozjpeg: true,
@@ -64,10 +70,15 @@ async function createPublicDownloadBuffer(input, options = {}) {
   let low = minQuality;
   let high = maxQuality;
   let best = null;
+  // Reuse decoded/oriented pixels across quality probes, not the compressed source.
+  const pixels = await preparePixels(input);
+  const largest = await encodeJpeg(pixels, maxQuality);
+  if (largest.data.length <= maxBytes) best = { ...largest, quality: maxQuality };
+  high = best ? minQuality - 1 : maxQuality - 1;
 
   while (low <= high) {
     const quality = Math.floor((low + high) / 2);
-    const encoded = await encodeJpeg(input, quality);
+    const encoded = await encodeJpeg(pixels, quality);
     if (encoded.data.length <= maxBytes) {
       best = { ...encoded, quality };
       low = quality + 1;
@@ -77,7 +88,7 @@ async function createPublicDownloadBuffer(input, options = {}) {
   }
 
   if (!best && minQuality > 1) {
-    const encoded = await encodeJpeg(input, 1);
+    const encoded = await encodeJpeg(pixels, 1);
     if (encoded.data.length <= maxBytes) best = { ...encoded, quality: 1 };
   }
 

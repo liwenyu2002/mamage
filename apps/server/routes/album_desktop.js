@@ -1,9 +1,12 @@
 const express = require('express');
 const { pool } = require('../db');
 const { requirePermission } = require('../lib/permissions');
-const { resolveWorkspace, projectListScope, unitRoleAllows, sendWorkspaceError } = require('../lib/workspace_access');
+const { resolveWorkspace, projectListScope, unitRoleAllows, metadataEditScope, sendWorkspaceError } = require('../lib/workspace_access');
 const { buildMediaUrl } = require('../lib/media_access');
-const { invalid, json, validateGroups, validatePreferences } = require('../lib/album_desktop');
+const { listSharedAlbums } = require('../lib/shared_albums');
+const { syncFolderShares, listFolderShares } = require('../lib/folder_shares');
+const { desktopSharingStatuses } = require('../lib/card_sharing_status');
+const { invalid, json, validateGroups, validatePreferences, authorizeFolderChanges } = require('../lib/album_desktop');
 const router = express.Router();
 
 router.use(requirePermission('photos.view'));
@@ -14,7 +17,9 @@ async function context(req) {
   if (!workspace.userId || !workspace.orgId) throw invalid('请登录后使用桌面', 401);
   return { ...workspace, unitKey: workspace.unitId || 0,
     canOrganize: workspace.enabled ? workspace.collegeAdmin || unitRoleAllows(workspace.role, 'edit')
-      : ['admin', 'superadmin', 'editor'].includes(workspace.userRole) };
+      : ['admin', 'superadmin', 'editor'].includes(workspace.userRole),
+    canDeleteFolders: workspace.enabled ? workspace.collegeAdmin || unitRoleAllows(workspace.role, 'manage')
+      : ['admin', 'superadmin'].includes(workspace.userRole) };
 }
 
 async function catalog(workspace, db = pool, full = true) {
@@ -25,7 +30,7 @@ async function catalog(workspace, db = pool, full = true) {
     const [rows] = await db.query(`SELECT p.id FROM projects p WHERE ${where}`, params);
     return rows;
   }
-  const [rows] = await db.query(`SELECT p.id, p.name, p.description, p.meta,
+  const [rows] = await db.query(`SELECT p.id, p.name, p.description, p.meta, p.admin_id AS adminId,
     p.created_at AS createdAt, p.updated_at AS updatedAt, p.event_date AS eventDate,
     (SELECT COUNT(*) FROM photos c WHERE c.project_id = p.id AND c.organization_id = p.organization_id) AS count,
     ph.id AS photoId, ph.thumb_url AS coverThumb, ph.url AS coverUrl
@@ -33,7 +38,9 @@ async function catalog(workspace, db = pool, full = true) {
       SELECT i.id FROM photos i WHERE i.project_id = p.id AND i.organization_id = p.organization_id
       AND (i.type IS NULL OR i.type <> 'video') ORDER BY i.created_at DESC, i.id DESC LIMIT 1
     ) WHERE ${where} ORDER BY COALESCE(p.updated_at, p.created_at) DESC, p.id DESC`, params);
-  return rows.map(row => ({ id: Number(row.id), name: row.name, title: row.name,
+  const editScope = metadataEditScope(workspace);
+  return rows.map(row => ({ id: Number(row.id), name: row.name, title: row.name, adminId: row.adminId || null,
+    canEdit: ['unit', 'organization'].includes(editScope) || (editScope === 'own' && Number(row.adminId) === workspace.userId),
     description: row.description || '', count: Number(row.count) || 0,
     originLabel: (() => { const lineage = json(row.meta, {}).shareLineage; const last = Array.isArray(lineage) ? lineage[lineage.length-1] : null; return [last?.organizationName,last?.unitName].filter(Boolean).join(' / '); })(),
     createdAt: row.createdAt, updatedAt: row.updatedAt, eventDate: row.eventDate,
@@ -55,16 +62,25 @@ router.get('/', async (req, res) => {
     conn = await pool.getConnection();
     await conn.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
     await conn.beginTransaction();
-    const albums = await catalog(workspace, conn);
+    const ownedAlbums = await catalog(workspace, conn);
+    const sharedAlbums = await listSharedAlbums(workspace, conn);
+    const sharedFolders = await listFolderShares(workspace, conn);
     const [shared] = await conn.query('SELECT state, revision FROM album_desktop_workspaces WHERE organization_id = ? AND unit_key = ?', [workspace.orgId, workspace.unitKey]);
     const [personal] = await conn.query('SELECT state, revision FROM album_desktop_users WHERE user_id = ? AND organization_id = ? AND unit_key = ?', [workspace.userId, workspace.orgId, workspace.unitKey]);
-    const ids = new Set(albums.map(a => a.id));
     const storedGroups = json(shared[0]?.state, {}).groups || [];
-    const groups = storedGroups.map(g => ({ ...g, projectIds: (g.projectIds || []).filter(id => ids.has(Number(id))) }));
+    const referencedIds = new Set(storedGroups.flatMap(g => g.kind === 'smart' ? [] : g.projectIds || []).map(Number));
+    const ownedIds = new Set(ownedAlbums.map(a => a.id));
+    const albums = [...ownedAlbums, ...sharedAlbums.filter(a => referencedIds.has(a.id) && !ownedIds.has(a.id))];
+    const ids = new Set(albums.map(a => a.id));
+    const groups = storedGroups.filter(g => !g.restrictedToUserId || Number(g.restrictedToUserId) === workspace.userId || workspace.collegeAdmin)
+      .map(g => ({ ...g, canEdit: workspace.canOrganize && (workspace.canDeleteFolders || Number(g.createdBy) === workspace.userId),
+      projectIds: (g.projectIds || []).filter(id => ids.has(Number(id))) }));
+    const sharingStatuses = await desktopSharingStatuses(workspace, ownedAlbums, sharedAlbums, groups, conn);
     await conn.commit();
-    res.json({ albums, groups, preferences: validatePreferences(json(personal[0]?.state, {}), groups, ids),
+    res.json({ albums, sharedAlbums, sharedFolders, groups, sharingStatuses, preferences: validatePreferences(json(personal[0]?.state, {}), groups, ids),
       scope: { userId: workspace.userId, organizationId: workspace.orgId, unitId: workspace.unitId },
-      workspaceRevision: Number(shared[0]?.revision || 0), userRevision: Number(personal[0]?.revision || 0), canOrganize: workspace.canOrganize });
+      workspaceRevision: Number(shared[0]?.revision || 0), userRevision: Number(personal[0]?.revision || 0),
+      canOrganize: workspace.canOrganize, canDeleteFolders: workspace.canDeleteFolders });
   } catch (error) {
     if (conn) await conn.rollback().catch(() => null);
     fail(res, error);
@@ -92,15 +108,31 @@ router.put('/state', async (req, res) => {
     if ((changesGroups && Number(body.workspaceRevision) !== Number(shared[0].revision))
       || (body.preferences && Number(body.userRevision) !== Number(personal[0].revision))) throw invalid('桌面已在其他页面更新，请重新加载后再操作', 409);
     const albums = await catalog(workspace, conn, false);
-    const ids = new Set(albums.map(a => Number(a.id)));
+    const sharedAlbums = await listSharedAlbums(workspace, conn);
+    const sharedIds = new Set(sharedAlbums.map(a => Number(a.id)));
+    const ids = new Set([...albums.map(a => Number(a.id)), ...sharedIds]);
     const storedGroups = json(shared[0].state, {}).groups || [];
+    const hiddenGroups = storedGroups.filter(group => group.restrictedToUserId
+      && Number(group.restrictedToUserId) !== workspace.userId && !workspace.collegeAdmin);
+    const hiddenIds = new Set(hiddenGroups.map(group => group.id));
+    if (changesGroups && Array.isArray(body.groups) && body.groups.some(group => hiddenIds.has(group?.id))) throw invalid('没有修改这个文件夹的权限', 403);
     // Older clients do not know parentId; never flatten a hierarchy on their saves.
     const submittedGroups = Array.isArray(body.groups) ? body.groups.map(group => group && !Object.hasOwn(group, 'parentId')
       ? { ...group, parentId: storedGroups.find(old => old.id === group.id)?.parentId || null } : group) : body.groups;
-    const groups = changesGroups ? validateGroups(submittedGroups, ids).map(group => ({...group,
+    const validatedGroups = changesGroups ? validateGroups(submittedGroups, ids).map(group => ({...group,
       projectIds: group.kind === 'smart' ? [] : [...new Set([...group.projectIds,
-        ...(storedGroups.find(old=>old.id===group.id)?.projectIds || []).filter(id=>!ids.has(Number(id)))])] })) : storedGroups;
+        ...(storedGroups.find(old=>old.id===group.id)?.projectIds || []).filter(id=>!ids.has(Number(id))
+          || (body.sharedReferencesVersion !== 1 && sharedIds.has(Number(id))))])] })) : storedGroups;
+    let groups = changesGroups ? authorizeFolderChanges(storedGroups.filter(group => !hiddenIds.has(group.id)), validatedGroups, {
+      userId: workspace.userId, canManage: workspace.canDeleteFolders, canDelete: workspace.canDeleteFolders,
+    }) : storedGroups;
+    if (changesGroups && hiddenGroups.length) {
+      const visible = [...groups];
+      groups = storedGroups.flatMap(group => hiddenIds.has(group.id) ? [group] : visible.length ? [visible.shift()] : []).concat(visible);
+      validateGroups(groups, new Set(groups.flatMap(group => group.projectIds || []).map(Number)));
+    }
     if (changesGroups) await conn.query('UPDATE album_desktop_workspaces SET state = ?, revision = revision + 1 WHERE organization_id = ? AND unit_key = ?', [JSON.stringify({ groups }), workspace.orgId, workspace.unitKey]);
+    if (changesGroups) await syncFolderShares(conn, workspace.orgId, workspace.unitKey, groups);
     if (body.preferences) {
       const preferences = validatePreferences(body.preferences, groups, ids);
       await conn.query('UPDATE album_desktop_users SET state = ?, revision = revision + 1 WHERE user_id = ? AND organization_id = ? AND unit_key = ?', [JSON.stringify(preferences), workspace.userId, workspace.orgId, workspace.unitKey]);

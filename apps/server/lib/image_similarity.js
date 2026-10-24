@@ -16,10 +16,11 @@ function getEncodeConcurrency() {
 
 let encodeRunning = 0;
 const encodeQueue = [];
+let stopping = false;
 
 function drainEncodeQueue() {
     const concurrency = getEncodeConcurrency();
-    while (encodeRunning < concurrency && encodeQueue.length > 0) {
+    while (!stopping && encodeRunning < concurrency && encodeQueue.length > 0) {
         const job = encodeQueue.shift();
         encodeRunning += 1;
         Promise.resolve()
@@ -33,6 +34,7 @@ function drainEncodeQueue() {
 }
 
 function runWithEncodeLimit(task) {
+    if (stopping) return Promise.reject(Object.assign(new Error('SERVER_DRAINING'), { code: 'SERVER_DRAINING' }));
     return new Promise((resolve, reject) => {
         encodeQueue.push({ task, resolve, reject });
         drainEncodeQueue();
@@ -158,4 +160,10 @@ function cosine(a, b) {
     return dot / (Math.sqrt(na) * Math.sqrt(nb) + 1e-12);
 }
 
-module.exports = { encodeImageFromBuffer, saveEmbedding, cosine };
+async function stop() {
+    stopping = true;
+    while (encodeQueue.length) encodeQueue.shift().reject(Object.assign(new Error('SERVER_DRAINING'), { code: 'SERVER_DRAINING' }));
+    await require('./runtime_lifecycle').waitForIdle(() => encodeRunning === 0);
+}
+
+module.exports = { encodeImageFromBuffer, saveEmbedding, cosine, stop };

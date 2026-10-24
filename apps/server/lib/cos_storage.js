@@ -500,7 +500,10 @@ async function signedGetUrl(key, options = {}) {
   if (!isSafeKey(normalized)) throw new Error('Invalid object key');
 
   const input = { Bucket: getBucket(), Key: normalized };
-  if (options.downloadName) input.ResponseContentDisposition = buildAttachmentDisposition(options.downloadName);
+  if (options.downloadName) {
+    input.ResponseContentDisposition = buildAttachmentDisposition(options.downloadName);
+    input.ResponseCacheControl = 'private, no-store';
+  }
   if (options.contentType) input.ResponseContentType = options.contentType;
   const expiresIn = Math.max(60, Number(options.expires || process.env.COS_SIGNED_READ_EXPIRES_SECONDS || 900));
 
@@ -590,7 +593,7 @@ async function getObject(key, options = {}) {
     if (!Number.isNaN(date.getTime())) input.IfModifiedSince = date;
   }
 
-  return s3.send(new GetObjectCommand(input));
+  return s3.send(new GetObjectCommand(input), options.signal ? { abortSignal: options.signal } : undefined);
 }
 
 async function headObject(key, options = {}) {
@@ -607,7 +610,7 @@ async function headObject(key, options = {}) {
     if (!Number.isNaN(date.getTime())) input.IfModifiedSince = date;
   }
 
-  return s3.send(new HeadObjectCommand(input));
+  return s3.send(new HeadObjectCommand(input), options.signal ? { abortSignal: options.signal } : undefined);
 }
 
 async function deleteObjects(keysToDelete) {

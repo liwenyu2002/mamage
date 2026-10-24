@@ -27,8 +27,10 @@ git commit -m "说明本次修改"
 npm run deploy
 ```
 
-发布只接受 `main` 上已提交、工作区干净的版本。它推送到此仓库，在服务器构建和测试，备份数据库后切换版本，再检查相册、文件夹与图片请求。失败自动回退代码，不回退数据库。
+发布只接受 `main` 上已提交、工作区干净的版本。它推送 GitHub 和 Gitee，在学校服务器构建并测试容器，备份数据库后切换 Kubernetes 服务，再检查相册、文件夹与图片请求。失败保留健康过渡实例并停止发布，不自动回退数据库或跨权限迁移回退旧代码。
 
-日后只向 `liwenyu2002/mamage` 推送。旧的 `mamage-web` 与 `mamage-server` 仓库保留作迁移前的历史参考，旧发布任务已停用。
+同步维护 `liwenyu2002/mamage` 与校内 `Levy/MaMage`。旧的 `mamage-web` 与 `mamage-server` 仓库保留作迁移前的历史参考，旧发布任务已停用。
+
+`npm run test:k8s` 验证 Helm 配置与备份隔离；`node apps/web/scripts/test-project-hardening-browser.cjs` 验证运行状态和新闻稿局部改写的刷新恢复、明确采用与并发编辑保护。人工标注评测与确定性算法回归分开记录，不将合成测试通过率当作真实检索准确率。
 
 密码、令牌、生产 `.env`、模型、运行数据、备份和禁止推送的接口文档均不进入仓库。

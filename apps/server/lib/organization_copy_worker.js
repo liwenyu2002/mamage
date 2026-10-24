@@ -5,6 +5,9 @@ const { usableFaceSql } = require('./face_result_policy');
 
 const MEDIA_FIELDS = ['url', 'thumb_url', 'public_download_url', 'playback_url'];
 let pumping = false;
+let stopping = false;
+let started = false;
+let ticker;
 
 async function retryStorage(operation) {
   let lastError;
@@ -204,8 +207,8 @@ async function commitCopy(job, share, photos, manifest) {
            (uuid, project_id, timeline_section_id, url, thumb_url, public_download_url,
             playback_url, title, tags, ai_status, ai_error, ai_score, ai_quality,
             ai_started_at, ai_finished_at, type, capture_time, photographer_id,
-            description, ocr_text, adjustments, organization_id, unit_id, source_attribution)
-         VALUES (UUID(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            description, detailed_description, ocr_text, adjustments, organization_id, unit_id, source_attribution, original_filename)
+         VALUES (UUID(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [projectId, sectionId, media.url, media.thumb_url || null,
           media.public_download_url || null, media.playback_url || null,
           photo.title, photo.tags ? JSON.stringify(parseJson(photo.tags)) : null,
@@ -213,9 +216,9 @@ async function commitCopy(job, share, photos, manifest) {
           photo.ai_quality ? JSON.stringify(parseJson(photo.ai_quality)) : null,
           restoreSnapshotDate(photo.ai_started_at), restoreSnapshotDate(photo.ai_finished_at),
           photo.type, restoreSnapshotDate(photo.capture_time),
-          photo.photographer_id, photo.description, photo.ocr_text,
+          photo.photographer_id, photo.description, photo.detailed_description || null, photo.ocr_text,
           photo.adjustments ? JSON.stringify(parseJson(photo.adjustments)) : null,
-          job.organization_id, job.target_unit_id, JSON.stringify(attribution)]
+          job.organization_id, job.target_unit_id, JSON.stringify(attribution), photo.original_filename || null]
       );
       newPhotoIds.push(inserted.insertId);
       await conn.query(
@@ -242,6 +245,12 @@ async function commitCopy(job, share, photos, manifest) {
     const ids = Array.isArray(existing) ? existing.concat(newPhotoIds) : newPhotoIds;
     await conn.query('UPDATE projects SET photo_ids = ? WHERE id = ?', [JSON.stringify(ids), projectId]);
     const result = { projectId, photoIds: newPhotoIds };
+    if (share.folder_share_id) {
+      const [parents] = await conn.query('SELECT * FROM folder_shares WHERE id = ? AND organization_id = ? AND mode = ? LIMIT 1',
+        [share.folder_share_id, share.organization_id, 'copy']);
+      if (!parents.length) throw new Error('FOLDER_COPY_SHARE_MISSING');
+      result.folderId = await require('./folder_share_copy').attachFolderCopy(conn, parents[0], share.project_id, projectId);
+    }
     await conn.query(
       "UPDATE organization_copy_jobs SET status = 'ready', result_json = ?, error_code = NULL WHERE id = ?",
       [JSON.stringify(result), job.id]
@@ -289,10 +298,10 @@ async function runJob(job) {
 }
 
 async function pump() {
-  if (pumping || process.env.ORGANIZATION_UNITS_ACTIVE !== '1') return;
+  if (pumping || stopping || process.env.ORGANIZATION_UNITS_ACTIVE !== '1') return;
   pumping = true;
   try {
-    for (;;) {
+    for (; !stopping;) {
       const [queued] = await pool.query(
         "SELECT * FROM organization_copy_jobs WHERE status = 'queued' ORDER BY id LIMIT 1"
       );
@@ -311,16 +320,26 @@ async function pump() {
 }
 
 function wake() {
+  if (require('./distributed_runtime').distributed() && !require('./distributed_runtime').coordinator.isLeader()) return;
   setImmediate(() => { pump().catch(() => {}); });
 }
 
 function start() {
-  if (process.env.ORGANIZATION_UNITS_ACTIVE !== '1') return;
+  if (require('./distributed_runtime').distributed() && !require('./distributed_runtime').coordinator.isLeader()) return;
+  if (started || stopping || process.env.ORGANIZATION_UNITS_ACTIVE !== '1') return;
+  started = true;
   pool.query(
-    "UPDATE organization_copy_jobs SET status = 'queued' WHERE status = 'copying' AND updated_at < DATE_SUB(NOW(), INTERVAL 2 HOUR)"
+    "UPDATE organization_copy_jobs SET status = 'queued' WHERE status = 'copying'"
+      + (require('./distributed_runtime').distributed() ? '' : ' AND updated_at < DATE_SUB(NOW(), INTERVAL 2 HOUR)')
   ).then(wake).catch((err) => console.error('[organization-copy] recovery failed:', err));
-  const timer = setInterval(wake, 60 * 1000);
-  if (typeof timer.unref === 'function') timer.unref();
+  ticker = setInterval(wake, 60 * 1000);
+  ticker.unref?.();
 }
 
-module.exports = { wake, start, destinationKey };
+async function stop() {
+  stopping = true;
+  clearInterval(ticker);
+  await require('./runtime_lifecycle').waitForIdle(() => !pumping);
+}
+
+module.exports = { wake, start, stop, destinationKey };

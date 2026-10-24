@@ -1,0 +1,55 @@
+name: Verify Containers
+on:
+  workflow_dispatch:
+    inputs:
+      compatibility:
+        description: Also build and test the baseline x86-64 compatibility images
+        type: boolean
+        default: false
+  pull_request:
+    paths:
+      - deploy/**
+      - apps/server/**
+      - apps/web/**
+      - .dockerignore
+      - .github/workflows/containers.yml
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [api, web]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Linux image without publishing
+        run: docker build -f deploy/docker/Dockerfile.${{ matrix.component }} -t mamage-${{ matrix.component }}:test .
+      - name: Check API native and browser dependencies
+        if: matrix.component == 'api'
+        run: |
+          docker run --rm --read-only --tmpfs /tmp --cap-drop ALL --entrypoint node mamage-api:test scripts/verify_container_runtime.js
+      - name: Check web proxy configuration
+        if: matrix.component == 'web'
+        run: docker run --rm --read-only --tmpfs /tmp --add-host mamage-api:127.0.0.1 --entrypoint nginx mamage-web:test -t
+      - name: Build baseline x86-64 API
+        if: matrix.component == 'api' && inputs.compatibility
+        run: docker build -f deploy/docker/Dockerfile.api.compat --build-arg API_IMAGE=mamage-api:test -t mamage-api:compat-test .
+      - name: Check compatible image codecs and native dependencies
+        if: matrix.component == 'api' && inputs.compatibility
+        run: |
+          docker run --rm --network none --read-only --tmpfs /tmp --cap-drop ALL --entrypoint node mamage-api:compat-test scripts/test_compatible_image_runtime.js
+          docker run --rm --network none --read-only --tmpfs /tmp --cap-drop ALL --entrypoint node mamage-api:compat-test scripts/verify_container_runtime.js
+          docker run --rm --network none --read-only --tmpfs /tmp --cap-drop ALL --entrypoint node mamage-api:compat-test scripts/test_migration_files.js
+  compatible-database:
+    if: github.event_name == 'workflow_dispatch' && inputs.compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build baseline x86-64 MySQL without publishing
+        run: docker build -f deploy/docker/Dockerfile.mysql.compat -t mamage-mysql:compat-test .
+      - name: Check initialization, JSON, locks, restart and logical restore
+        run: bash deploy/docker/verify-mysql-compat.sh mamage-mysql:compat-test

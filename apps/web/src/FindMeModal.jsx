@@ -1,7 +1,7 @@
 // src/FindMeModal.jsx
 // 拍照找我（相册页 / 公开分享页共用）：拍摄或上传单人照 → 服务端人脸匹配 → 命中照片网格。
 // mode='album' 需 projectId(带登录态)；mode='share' 需 shareCode(公开,无需登录)。
-// 隐私：照片仅用于本次匹配，服务端用完即删，不保存。
+// MaMage 不保存自拍；统一模型平台的调用日志留存见隐私说明。
 import React from 'react';
 import { Modal, Button } from './ui';
 import { getToken } from './services/authService';
@@ -175,7 +175,7 @@ export default function FindMeModal({ visible, mode, projectId, shareCode, onClo
       return;
     }
     if (!navigator.mediaDevices?.getUserMedia) {
-      setErrText('当前页面无法使用摄像头，请通过 HTTPS 打开，或从相册选择照片。');
+      setErrText('当前内网页面无法直接调用摄像头，请从相册选择照片。');
       return;
     }
     closeCamera();
@@ -345,7 +345,7 @@ export default function FindMeModal({ visible, mode, projectId, shareCode, onClo
           <input ref={cameraRef} type="file" accept="image/*" capture="user" style={{ display: 'none' }} onChange={(e) => { onFile(e.target.files && e.target.files[0]); e.target.value = ''; }} />
           <input ref={pickerRef} type="file" accept="image/*,.heic,.heif" style={{ display: 'none' }} onChange={(e) => { onFile(e.target.files && e.target.files[0]); e.target.value = ''; }} />
           {compressionNotice ? <span style={{ fontSize: 12, color: compressing ? '#2563eb' : '#687386' }}>{compressionNotice}</span> : null}
-          <span style={{ fontSize: 12, color: '#9098a2' }}>照片仅用于本次匹配，不会被保存。</span>
+          <span style={{ fontSize: 12, color: '#9098a2' }}>MaMage 不保存自拍；模型平台可能留存调用记录。<a href="/privacy" target="_blank" rel="noopener noreferrer">隐私说明</a></span>
         </div>
 
         {errText ? <div className="findme-error">{errText}</div> : null}

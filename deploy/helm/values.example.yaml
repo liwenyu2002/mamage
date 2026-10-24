@@ -1,0 +1,34 @@
+# Non-secret example. Replace placeholders; do not copy production .env into values.
+images:
+  api:
+    repository: registry.campus.example/mamage/api
+    tag: COMMIT_SHA
+  web:
+    repository: registry.campus.example/mamage/web
+    tag: COMMIT_SHA
+publicURL: https://mamage.campus.example
+existingSecret: mamage-runtime
+objectStorage:
+  endpoint: https://s3.campus.example
+  region: us-east-1
+  forcePathStyle: true
+modelServices:
+  faceURL: http://face-service.models.svc.cluster.local:8009
+  visionURL: http://ollama.models.svc.cluster.local:11434
+config:
+  AI_VISION_PROVIDER: ollama
+  OLLAMA_VISION_MODEL: REPLACE_WITH_EXISTING_MODEL
+  LAN_ENTRY_HOST: mamage.campus.example
+  LAN_HTTPS_PORT: "443"
+# No ingress-controller assumptions: configure this after the school chooses a controller.
+ingress:
+  enabled: true
+  className: REPLACE_WITH_CLUSTER_INGRESS_CLASS
+  host: mamage.campus.example
+  tlsSecretName: mamage-campus-tls
+  annotations: {}
+persistence:
+  data:
+    size: 512Gi
+  webAssets:
+    size: 2Gi

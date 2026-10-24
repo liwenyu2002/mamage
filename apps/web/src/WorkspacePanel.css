@@ -700,3 +700,15 @@
   .workspace-album-form,
   .workspace-album-public-form { animation-duration: .01ms; }
 }
+.workspace-face-permissions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: center;
+}
+.workspace-face-permissions label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+}

@@ -8,9 +8,12 @@
     "setup": "node scripts/workspace.cjs setup",
     "test": "node scripts/workspace.cjs test",
     "build": "npm --prefix apps/web run build",
-    "dev": "npm --prefix apps/web run dev:prod -- --port 5188",
+    "dev": "WEBPACK_DEV_SERVER_PORT=5188 npm --prefix apps/web run dev:prod",
     "dev:api": "npm --prefix apps/server start",
     "deploy": "node scripts/deploy.cjs",
-    "test:deploy": "node --test scripts/deploy.test.cjs"
+    "test:deploy": "node --test scripts/deploy.test.cjs scripts/deploy-kubernetes.test.cjs",
+    "test:k8s": "node --test scripts/kubernetes.test.cjs",
+    "test:workspace:isolated": "node scripts/verify-workspace-db.cjs",
+    "test:k8s:smoke": "node scripts/verify-kubernetes.cjs"
   }
 }

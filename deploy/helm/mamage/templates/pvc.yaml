@@ -1,0 +1,21 @@
+{{- range $kind, $claim := .Values.persistence }}
+{{- if not $claim.existingClaim }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "mamage.name" $ }}-{{ $kind | lower }}
+  annotations:
+    helm.sh/resource-policy: keep
+  labels:
+    {{- include "mamage.labels" $ | nindent 4 }}
+spec:
+  accessModes: [{{ $claim.accessMode | quote }}]
+  {{- if $claim.storageClass }}
+  storageClassName: {{ $claim.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ $claim.size | quote }}
+{{- end }}
+{{- end }}

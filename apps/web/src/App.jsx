@@ -2,14 +2,13 @@
 import React from 'react';
 import { Typography as UiTypography, Button as UiButton, Empty as UiEmpty, Card as UiCard, Toast, HexLoader } from './ui';
 import ProjectCard from './ProjectCard';
+import AlbumSharingStatus from './AlbumSharingStatus';
+import SearchFeedback, { SearchSkeleton } from './SearchFeedback';
 import FolderStyleMenu, { useFolderStyle } from './folders/FolderStyleMenu';
 import ProjectLibraryToolbar from './ProjectLibraryToolbar';
 import * as authService from './services/authService';
+import { buildAlbumUploadUrl, readAlbumUploadIntent, rememberAlbumUploadIntent, storedAlbumUploadIntent, clearAlbumUploadIntent } from './utils/albumUploadLink';
 import PrivacyPage from './PrivacyPage';
-import {
-  fetchManualLanEntry, isLanOrigin, buildLanEntryUrl, publicStayUrl,
-  setEntryPref, checkLanEntryOffer, dismissLanEntryOffer,
-} from './services/networkService';
 import { fetchProjectList, fetchProjectImportStatuses, createProject } from './services/projectService';
 import { searchPhotos } from './services/photoQueryService';
 import { fetchWorkspaces, setActiveWorkspace } from './services/workspaceService';
@@ -32,6 +31,7 @@ const ShareView = lazyWithPreload(() => import(/* webpackChunkName: "share-view"
 const AuthPage = lazyWithPreload(() => import(/* webpackChunkName: "auth-page" */ './AuthPage'));
 const CreateAlbumModal = lazyWithPreload(() => import(/* webpackChunkName: "create-album" */ './CreateAlbumModal'));
 const TransferStation = lazyWithPreload(() => import(/* webpackChunkName: "transfer-station" */ './TransferStation'));
+const BatchVideoDownload = lazyWithPreload(() => import(/* webpackChunkName: "video-download" */ './BatchVideoDownload'));
 const PhotoPreviewOverlay = lazyWithPreload(() => import(/* webpackChunkName: "photo-preview" */ './PhotoPreviewOverlay.jsx'));
 const Scenery = lazyWithPreload(() => import(/* webpackChunkName: "scenery" */ './Scenery'));
 const AccountPage = lazyWithPreload(() => import(/* webpackChunkName: "account-page" */ './AccountPage'));
@@ -47,7 +47,7 @@ const MEDIA_STUDIO_PLATFORMS = [
   { key: 'wechat_article', label: '推文', path: '/function/wechat-composer', editor: 'wechat' },
   { key: 'xiaohongshu', label: '小红书', path: '/function/xiaohongshu', editor: 'writer' },
   { key: 'press_release', label: '新闻稿', path: '/function/news', editor: 'writer' },
-  { key: 'report_brief', label: '通讯稿', path: '/function/brief', editor: 'writer' },
+  { key: 'report_brief', label: '工作简报', path: '/function/brief', editor: 'writer' },
   { key: 'weibo', label: '微博', path: '/function/weibo', editor: 'writer' },
   { key: 'video_editor', label: '视频剪辑', path: '/function/video', editor: 'video' },
 ];
@@ -133,51 +133,21 @@ function Card({ title, children }) {
   return <UiCard title={title}>{children}</UiCard>;
 }
 
-// 钉钉 OAuth / 内网入口交接把 JWT 挂在 fragment 上（不进服务器日志）；模块加载即落地并清理
+// 钉钉 OAuth 把 JWT 挂在 fragment 上（不进服务器日志）；模块加载即落地并清理
 try {
-  const tokenInHash = String(window.location.hash || '').match(/(?:dingtalk_token|mamage_token)=([^&]+)/);
+  const tokenInHash = String(window.location.hash || '').match(/dingtalk_token=([^&]+)/);
   if (tokenInHash) {
     localStorage.setItem('mamage_jwt_token', decodeURIComponent(tokenInHash[1]));
-    window.history.replaceState({}, '', window.location.pathname + window.location.search);
+    const pendingUpload = storedAlbumUploadIntent(window.sessionStorage);
+    window.history.replaceState({}, '', pendingUpload && window.location.pathname === '/login'
+      ? buildAlbumUploadUrl(pendingUpload.projectId, pendingUpload.unitId, window.location.origin)
+      : window.location.pathname + window.location.search);
   }
 } catch (e) { /* ignore */ }
 
 function App() {
   React.useEffect(() => initLiquidLens(), []);
 
-  // 入口自动选择：先落地 ?entry=public/auto 偏好（内网页面「公网入口」菜单跳来的），
-  // 再做校园网判定。检测全自动，但切换改为页面内提示条一键完成——静默跳转会
-  // 把不知情用户甩进自签证书的浏览器整页警告。
-  const [lanEntryOffer, setLanEntryOffer] = React.useState(null);
-  React.useEffect(() => {
-    try {
-      const params = new URLSearchParams(window.location.search);
-      const entry = String(params.get('entry') || '').toLowerCase();
-      if (entry === 'public' || entry === 'auto') {
-        setEntryPref(entry);
-        params.delete('entry');
-        const qs = params.toString();
-        window.history.replaceState({}, '', window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash);
-      }
-    } catch (e) { /* ignore */ }
-    checkLanEntryOffer().then((offer) => { if (offer) setLanEntryOffer(offer); });
-  }, []);
-
-  const handleLanEntrySwitch = React.useCallback(() => {
-    if (!lanEntryOffer) return;
-    const path = (window.location.pathname || '/') + (window.location.search || '');
-    window.location.replace(buildLanEntryUrl(lanEntryOffer, authService.getToken() || '', path));
-  }, [lanEntryOffer]);
-
-  const handleLanEntryStay = React.useCallback(() => {
-    setEntryPref('public'); // 记住"留在公网"，直到菜单里重新点内网入口恢复自动
-    setLanEntryOffer(null);
-  }, []);
-
-  const handleLanEntryDismiss = React.useCallback(() => {
-    dismissLanEntryOffer();
-    setLanEntryOffer(null);
-  }, []);
   const [projects, setProjects] = React.useState([]);
   const [projectImportStatuses, setProjectImportStatuses] = React.useState({});
   const [projectPage, setProjectPage] = React.useState(1);
@@ -187,6 +157,11 @@ function App() {
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState(null);
   const [keyword, setKeyword] = React.useState('');
+  const [albumUploadIntent, setAlbumUploadIntent] = React.useState(() => {
+    const intent = readAlbumUploadIntent(window.location.href);
+    try { if (intent) rememberAlbumUploadIntent(window.sessionStorage, intent); } catch { /* Storage is optional. */ }
+    return intent;
+  });
   const [currentProjectId, setCurrentProjectId] = React.useState(null);
   const [activeProjectHeader, setActiveProjectHeader] = React.useState(null);
   const [pendingOpenPhotoId, setPendingOpenPhotoId] = React.useState(null);
@@ -215,6 +190,8 @@ function App() {
   const [shareMode, setShareMode] = React.useState(false);
   const [shareInitialProject, setShareInitialProject] = React.useState(null);
   const [photoSearchMode, setPhotoSearchMode] = React.useState(false);
+  const [folderSearchScope, setFolderSearchScope] = React.useState(null);
+  const [scopedSearchRequest, setScopedSearchRequest] = React.useState(null);
   const [photoSearchResults, setPhotoSearchResults] = React.useState([]);
   const [photoSearchLoading, setPhotoSearchLoading] = React.useState(false);
   const [photoSearchError, setPhotoSearchError] = React.useState(null);
@@ -226,6 +203,7 @@ function App() {
   const [photoPreviewVisible, setPhotoPreviewVisible] = React.useState(false);
   const [photoPreviewSrc, setPhotoPreviewSrc] = React.useState('');
   const [photoPreviewTitle, setPhotoPreviewTitle] = React.useState('');
+  const [photoPreviewOriginalFilename, setPhotoPreviewOriginalFilename] = React.useState('');
   const [photoPreviewDescription, setPhotoPreviewDescription] = React.useState('');
   const [photoPreviewTags, setPhotoPreviewTags] = React.useState([]);
   const [mountTransferStation, setMountTransferStation] = React.useState(false);
@@ -257,7 +235,14 @@ function App() {
 
   const latestRequestRef = React.useRef(0);
   const latestPhotoSearchReqRef = React.useRef(0);
+  const photoSearchAbortRef = React.useRef(null);
+  const photoSearchResultsRef = React.useRef([]);
+  const [photoSearchPhase, setPhotoSearchPhase] = React.useState('idle');
   const userMenuRef = React.useRef(null);
+  React.useEffect(() => () => {
+    latestPhotoSearchReqRef.current += 1;
+    photoSearchAbortRef.current?.abort();
+  }, []);
 
   // 用户菜单（原生 <details>）：点外部/按 Esc 关闭；点菜单项后也自动收起
   React.useEffect(() => {
@@ -361,9 +346,23 @@ function App() {
     }
   }, [isDemoPath, projectSort, projectDateFilter]);
 
+  const handleInitialUploadHandled = React.useCallback(() => {
+    setAlbumUploadIntent(null);
+    try { clearAlbumUploadIntent(window.sessionStorage); } catch { /* Storage is optional. */ }
+    const url = new URL(window.location.href);
+    if (readAlbumUploadIntent(url.href)) {
+      url.searchParams.delete('upload'); url.searchParams.delete('unitId');
+      window.history.replaceState({}, '', url);
+    }
+  }, []);
+
   const clearPhotoSearchState = React.useCallback(() => {
+    latestPhotoSearchReqRef.current += 1;
+    photoSearchAbortRef.current?.abort();
     setPhotoSearchMode(false);
     setPhotoSearchResults([]);
+    photoSearchResultsRef.current = [];
+    setPhotoSearchPhase('idle');
     setPhotoSearchLoading(false);
     setPhotoSearchError(null);
     setPhotoSearchHasMore(false);
@@ -373,7 +372,7 @@ function App() {
     setHoverPhotoSearchIdx(-1);
   }, []);
 
-  const loadPhotoSearchResults = React.useCallback(async ({ kw = '', page = 1, append = false } = {}) => {
+  const loadPhotoSearchResults = React.useCallback(async ({ kw = '', page = 1, append = false, related = false } = {}) => {
     const trimmed = String(kw || '').trim();
     if (!trimmed) {
       clearPhotoSearchState();
@@ -382,8 +381,32 @@ function App() {
 
     const currentToken = latestPhotoSearchReqRef.current + 1;
     latestPhotoSearchReqRef.current = currentToken;
+    photoSearchAbortRef.current?.abort();
+    const controller = new AbortController();
+    photoSearchAbortRef.current = controller;
     setPhotoSearchLoading(true);
+    setPhotoSearchPhase('starting');
+    setPhotoSearchTotal(null);
     setPhotoSearchError(null);
+    const base = append ? photoSearchResultsRef.current : [];
+    if (!append) { photoSearchResultsRef.current = []; setPhotoSearchResults([]); setPhotoSearchMeta(null); }
+    let received = false;
+    const applyResponse = response => {
+      if (controller.signal.aborted || latestPhotoSearchReqRef.current !== currentToken) return;
+      const mapped = (Array.isArray(response?.list) ? response.list : []).map(item => ({ ...item,
+        url: item?.url ? resolveAssetUrl(item.url) : null,
+        thumbUrl: item?.thumbUrl ? resolveAssetUrl(item.thumbUrl) : (item?.url ? resolveAssetUrl(item.url) : null),
+      }));
+      const next = [...new Map([...base, ...mapped].map(photo => [String(photo.id), photo])).values()];
+      received = received || mapped.length > 0;
+      photoSearchResultsRef.current = next;
+      setPhotoSearchResults(next);
+      setPhotoSearchMode(true);
+      setPhotoSearchPage(page);
+      setPhotoSearchTotal(response?.total ?? null);
+      setPhotoSearchHasMore(Boolean(response?.hasMore));
+      setPhotoSearchMeta(response?.search || null);
+    };
     try {
       const response = await searchPhotos({
         q: trimmed,
@@ -392,28 +415,29 @@ function App() {
         sort: 'relevance',
         smart: true,
         demo: isDemoPath,
+        related, signal: controller.signal,
+        onProgress: event => {
+          if (controller.signal.aborted || latestPhotoSearchReqRef.current !== currentToken) return;
+          if (event.type === 'results') { applyResponse(event.data); setPhotoSearchPhase('receiving'); }
+          else if (event.type === 'status') {
+            setPhotoSearchPhase(event.phase);
+            if (event.search) setPhotoSearchMeta(event.search);
+          }
+        },
       });
       if (latestPhotoSearchReqRef.current !== currentToken) return;
 
-      const list = Array.isArray(response?.list) ? response.list : [];
-      const mapped = list.map((item) => ({
-        ...item,
-        url: item?.url ? resolveAssetUrl(item.url) : null,
-        thumbUrl: item?.thumbUrl ? resolveAssetUrl(item.thumbUrl) : (item?.url ? resolveAssetUrl(item.url) : null),
-      }));
-
-      setPhotoSearchResults((prev) => (append ? [...prev, ...mapped] : mapped));
-      setPhotoSearchMode(true);
-      setPhotoSearchPage(page);
-      setPhotoSearchTotal(Number(response?.total) || 0);
-      setPhotoSearchHasMore(Boolean(response?.hasMore));
-      setPhotoSearchMeta(response?.search || null);
+      applyResponse(response);
+      setPhotoSearchPhase('complete');
     } catch (err) {
+      if (controller.signal.aborted) return;
       if (latestPhotoSearchReqRef.current !== currentToken) return;
       const message = err?.body || err?.message || '搜索照片失败';
       setPhotoSearchError(message);
-      if (!append) setPhotoSearchResults([]);
-      if (!append) setPhotoSearchMeta(null);
+      setPhotoSearchPhase('error');
+      if ((!append && !received) || [401,403].includes(Number(err?.status))) {
+        setPhotoSearchResults([]); photoSearchResultsRef.current = []; setPhotoSearchMeta(null);
+      }
       setPhotoSearchHasMore(false);
     } finally {
       if (latestPhotoSearchReqRef.current === currentToken) {
@@ -478,10 +502,31 @@ function App() {
     }
   }, []);
 
+  React.useEffect(() => {
+    if (!currentUser || !albumUploadIntent?.unitId || !workspaceInfo
+      || Number(workspaceInfo.activeUnitId) === Number(albumUploadIntent.unitId)) return undefined;
+    if (!workspaceInfo.units?.some(unit => Number(unit.id) === Number(albumUploadIntent.unitId))) {
+      handleInitialUploadHandled();
+      Toast.warning('当前账号无权进入该相册所属的小组');
+      return undefined;
+    }
+    let cancelled = false;
+    setWorkspaceSwitching(true);
+    setActiveWorkspace(Number(albumUploadIntent.unitId)).then(() => {
+      if (!cancelled) window.location.replace(buildAlbumUploadUrl(albumUploadIntent.projectId, albumUploadIntent.unitId, window.location.origin));
+    }).catch(error => {
+      if (!cancelled) {
+        setWorkspaceSwitching(false); handleInitialUploadHandled();
+        Toast.error(error?.message || '无法进入上传相册');
+      }
+    });
+    return () => { cancelled = true; };
+  }, [currentUser, albumUploadIntent, workspaceInfo, handleInitialUploadHandled]);
+
   const openAlbumShare = React.useCallback((album) => {
     if (!album?.id || !workspaceInfo?.activeUnitId
       || Number(album.unitId) !== Number(workspaceInfo.activeUnitId)) {
-      Toast.warning('请先切换到相册所属的工作空间');
+      Toast.warning('请先切换到所属的工作空间');
       return;
     }
     setWorkspacePanelPhotoIds([]);
@@ -546,6 +591,11 @@ function App() {
 
   const handleSearchSubmit = React.useCallback(() => {
     const trimmed = String(keyword || '').trim();
+    if (currentProjectId || (selectedNav === 'projects' && folderSearchScope)) {
+      setScopedSearchRequest({ q: trimmed, projectId: currentProjectId || null,
+        folderId: currentProjectId ? null : folderSearchScope.folderId, revision: {} });
+      return;
+    }
     setSelectedNav('projects');
     setCurrentProjectId(null);
     try {
@@ -570,12 +620,12 @@ function App() {
     setPhotoSearchMeta(null);
     loadProjects(trimmed, 1, PROJECT_PAGE_SIZE);
     loadPhotoSearchResults({ kw: trimmed, page: 1, append: false });
-  }, [keyword, loadPhotoSearchResults, clearPhotoSearchState, loadProjects, isDemoPath]);
+  }, [keyword, currentProjectId, selectedNav, folderSearchScope, loadPhotoSearchResults, clearPhotoSearchState, loadProjects, isDemoPath]);
 
   const handlePhotoSearchLoadMore = React.useCallback(() => {
     if (photoSearchLoading || !photoSearchHasMore) return;
-    loadPhotoSearchResults({ kw: keyword, page: photoSearchPage + 1, append: true });
-  }, [photoSearchLoading, photoSearchHasMore, loadPhotoSearchResults, keyword, photoSearchPage]);
+    loadPhotoSearchResults({ kw: keyword, page: photoSearchPage + 1, append: true, related: photoSearchMeta?.matchType === 'related' });
+  }, [photoSearchLoading, photoSearchHasMore, loadPhotoSearchResults, keyword, photoSearchPage, photoSearchMeta]);
 
   const openPhotoPreview = React.useCallback((photo) => {
     const src = photo?.thumbUrl || photo?.url || '';
@@ -601,6 +651,7 @@ function App() {
 
     setPhotoPreviewSrc(src);
     setPhotoPreviewTitle(photo?.title || photo?.projectName || '照片预览');
+    setPhotoPreviewOriginalFilename(photo?.originalFilename || '');
     setPhotoPreviewDescription(photo?.description ? String(photo.description) : '');
     setPhotoPreviewTags(tags.slice(0, 20));
     setPhotoPreviewVisible(true);
@@ -611,6 +662,9 @@ function App() {
   }, []);
 
   const handleSelectProject = React.useCallback((projectId, photo = {}) => {
+    handleInitialUploadHandled();
+    setScopedSearchRequest(null);
+    setKeyword('');
     setCurrentProjectId(projectId);
     const photoId = photo?.photoId == null ? null : String(photo.photoId).trim() || null;
     setPendingOpenPhotoId(photoId);
@@ -619,15 +673,18 @@ function App() {
     try {
       const url = new URL(window.location.href);
       url.searchParams.set('projectId', projectId);
+      url.searchParams.delete('focusPhotoId');
       if (photoId) url.searchParams.set('photoId', photoId);
       else url.searchParams.delete('photoId');
       window.history.pushState({}, '', url);
     } catch (e) {
       // ignore
     }
-  }, []);
+  }, [handleInitialUploadHandled]);
 
   const handleBackToList = React.useCallback(() => {
+    handleInitialUploadHandled();
+    setScopedSearchRequest(null);
     setCurrentProjectId(null);
     setPendingOpenPhotoId(null);
     setPendingOpenPhotoSrc(null);
@@ -638,6 +695,7 @@ function App() {
     try {
       const url = new URL(window.location.href);
       url.searchParams.delete('projectId');
+      url.searchParams.delete('focusPhotoId');
       url.searchParams.delete('photoId');
       // navigate back to root list view
       const base = isDemoPath ? '/demo' : (url.pathname && url.pathname !== '/' ? '/' : url.pathname || '/');
@@ -645,7 +703,7 @@ function App() {
     } catch (e) {
       // ignore
     }
-  }, [clearPhotoSearchState, loadProjects, isDemoPath]);
+  }, [clearPhotoSearchState, loadProjects, isDemoPath, handleInitialUploadHandled]);
 
   const handleProjectPrevPage = React.useCallback(() => {
     if (loading || projectPage <= 1) return;
@@ -664,6 +722,9 @@ function App() {
       const pid = params.get('projectId');
       const openPhotoId = params.get('photoId');
       const path = window.location.pathname;
+      if (path === '/login' && readAlbumUploadIntent(window.location.href)) {
+        window.history.replaceState({}, '', '/' + window.location.search);
+      }
       // handle public share links served by SPA: /share/:code
       if (path && path.startsWith('/share/')) {
         const code = path.split('/')[2];
@@ -755,7 +816,7 @@ function App() {
       } else if (path === '/scenery') {
         setSelectedNav('scenery');
         setCurrentProjectId(null);
-      } else if (path === '/login') {
+      } else if (path === '/login' && !readAlbumUploadIntent(window.location.href)) {
         // if visiting /login and already authenticated, redirect to root
         if (currentUser) {
           try { window.history.replaceState({}, '', '/'); } catch (e) { }
@@ -784,6 +845,9 @@ function App() {
     }
 
     const onPop = () => {
+      const intent = readAlbumUploadIntent(window.location.href);
+      setAlbumUploadIntent(intent);
+      if (intent) rememberAlbumUploadIntent(window.sessionStorage, intent);
       setPendingOpenPhotoSrc(null);
       try {
         const path = window.location.pathname;
@@ -801,7 +865,7 @@ function App() {
         } else if (path === '/scenery') {
           setSelectedNav('scenery');
           setCurrentProjectId(null);
-        } else if (path === '/login') {
+        } else if (path === '/login' && !readAlbumUploadIntent(window.location.href)) {
           // on popstate to /login, keep showing auth if not logged in
           if (currentUser) {
             try { window.history.replaceState({}, '', '/'); } catch (e) { }
@@ -835,6 +899,12 @@ function App() {
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, []);
+
+  const canUseMediaStudio = Boolean(
+    currentUser
+    && Array.isArray(currentUser.permissions)
+    && currentUser.permissions.includes('ai.generate')
+  );
 
   // 无 ai.generate 权限的人直接访问编辑台 URL（如 /wechat）时，弹回项目列表
   React.useEffect(() => {
@@ -1078,26 +1148,6 @@ function App() {
     setCurrentProjectId(null);
   }, []);
 
-  // 入口切换（手动兜底）：公网页面点「内网入口」→ 后端实时上报 Mini 当前内网地址 →
-  // 带 token 交接打开，并恢复自动策略；内网页面点「公网入口」→ 跳公网并停用自动跳转。
-  const handleSwitchNetworkEntry = React.useCallback(async () => {
-    if (isLanOrigin()) {
-      const url = publicStayUrl();
-      try { window.open(url, '_blank', 'noopener'); } catch (e) { window.location.href = url; }
-      return;
-    }
-    Toast.info('正在获取内网地址…');
-    const info = await fetchManualLanEntry();
-    if (!info) {
-      Toast.warning('暂未取到内网地址，请稍后再试');
-      return;
-    }
-    setEntryPref('auto'); // 手动去内网 = 下次访问公网继续自动跳
-    const path = (window.location.pathname || '/') + (window.location.search || '');
-    const url = buildLanEntryUrl(info, authService.getToken() || '', path);
-    window.location.assign(url);
-  }, []);
-
   const handleLogout = React.useCallback(async () => {
     try {
       await authService.logout();
@@ -1107,14 +1157,6 @@ function App() {
       console.error(e);
     }
   }, []);
-
-  // 全媒体编辑台：后端所有接口都要求 ai.generate（现仅 admin/superadmin 拥有）。
-  // 无权限者不显示入口，直达路由弹回项目列表，渲染层再兜一层底。
-  const canUseMediaStudio = Boolean(
-    currentUser
-    && Array.isArray(currentUser.permissions)
-    && currentUser.permissions.includes('ai.generate')
-  );
 
   const navItems = React.useMemo(() => ([
     { key: 'projects', label: '项目', onClick: handleBackToList },
@@ -1230,12 +1272,20 @@ function App() {
     }
     return (
       <LazyPanel title="正在打开登录页">
-        <AuthPage onAuthenticated={(u) => { setCurrentUser(u); loadProjects(); }} />
+        <AuthPage onAuthenticated={async () => {
+          try {
+            const user = await authService.me();
+            if (!user) throw Error('登录状态未能确认，请重试');
+            setCurrentUser(user); loadProjects();
+          } catch (error) { Toast.error(error?.message || '登录状态未能确认，请重试'); }
+        }} />
       </LazyPanel>
     );
   }
 
   const columnWorkspace = folderStyle === 'classic' && !currentProjectId && selectedNav === 'projects' && !photoSearchMode && currentUser && !isDemoPath;
+  const uploadWorkspacePending = Boolean(albumUploadIntent?.unitId
+    && Number(workspaceInfo?.activeUnitId) !== Number(albumUploadIntent.unitId));
   const appFooter = <footer className="mamage-footer" style={{ textAlign: 'center' }}>
     MaMage 校园图库 © {new Date().getFullYear()} ·{' '}
     <button type="button" onClick={handleNavigatePrivacy}
@@ -1246,16 +1296,6 @@ function App() {
 
   return (
     <div className="mamage-shell">
-      {lanEntryOffer ? (
-        <div className="lan-entry-banner" role="status">
-          <span className="lan-entry-banner__text">
-            检测到你在校园网，可切换到内网入口，上传下载更快（首次访问需在浏览器提示中选「高级 → 继续访问」）
-          </span>
-          <button type="button" className="lan-entry-banner__btn is-primary" onClick={handleLanEntrySwitch}>切换到内网</button>
-          <button type="button" className="lan-entry-banner__btn" onClick={handleLanEntryStay}>留在公网</button>
-          <button type="button" className="lan-entry-banner__close" onClick={handleLanEntryDismiss} aria-label="关闭提示">×</button>
-        </div>
-      ) : null}
       <LiquidGlassDefs />
       <div className="mamage-dynamic-backdrop" aria-hidden="true" />
       <header className={`mamage-header${currentProjectId ? ' is-project-detail' : ''}${isMobileHeader ? ' is-mobile-header' : ' is-desktop-header'}`}>
@@ -1328,8 +1368,8 @@ function App() {
             <div className="mamage-nav-search-field">
               <input
                 className="mamage-nav-search-input"
-                aria-label="用自然语言搜索项目、照片、人物或场景"
-                placeholder={isMobileHeader ? '搜索照片、人物、场景' : '试试：王婧琦的单人照'}
+                aria-label={currentProjectId ? '当前相册内智能检索' : folderSearchScope ? '当前文件夹内智能检索' : '用自然语言搜索项目、照片、人物或场景'}
+                placeholder={currentProjectId ? '在当前相册内搜索' : folderSearchScope ? `在「${folderSearchScope.name}」内搜索` : isMobileHeader ? '搜索照片、人物、场景' : '试试：王婧琦的单人照'}
                 value={keyword}
                 onChange={(event) => setKeyword(event.target.value)}
                 onKeyDown={(event) => {
@@ -1344,6 +1384,11 @@ function App() {
                   onClick={() => {
                     // 清空输入的同时退出搜索结果态，回到项目列表（与"搜索空关键词"行为一致）
                     setKeyword('');
+                    if (currentProjectId || (selectedNav === 'projects' && folderSearchScope)) {
+                      setScopedSearchRequest({ q: '', projectId: currentProjectId || null,
+                        folderId: currentProjectId ? null : folderSearchScope.folderId, revision: {} });
+                      return;
+                    }
                     clearPhotoSearchState();
                     loadProjects('', 1, PROJECT_PAGE_SIZE);
                   }}
@@ -1418,7 +1463,6 @@ function App() {
                   ) : null}
                   <FolderStyleMenu value={folderStyle} onChange={style => { setFolderStyle(style); if (userMenuRef.current) userMenuRef.current.open = false; }} />
                   <button type="button" onClick={handleNavigateAccount}>账户信息</button>
-                  <button type="button" onClick={handleSwitchNetworkEntry}>{isLanOrigin() ? '公网入口' : '内网入口'}</button>
                   <button type="button" onClick={handleLogout}>退出账号</button>
                 </div>
               </details>
@@ -1470,21 +1514,27 @@ function App() {
 
       <main className="mamage-content" style={{ padding: 'clamp(10px, 2.5vw, 24px)' }}>
         <div className="project-page">
+          {currentProjectId && !isDemoPath ? <AlbumSharingStatus
+            projectId={currentProjectId} unitId={workspaceInfo?.activeUnitId} suspended={workspacePanelOpen} /> : null}
           {currentProjectId ? (
             <LazyPanel title="正在加载相册">
-              <ProjectDetail
+              {uploadWorkspacePending ? <AppLoadingState title="正在打开上传相册" /> : <ProjectDetail
                 key={`project-${currentProjectId}`}
                 projectId={currentProjectId}
                 initialProject={currentProject || null}
+                currentUser={currentUser}
                 onBack={handleBackToList}
                 readOnly={isDemoPath}
                 initialOpenPhotoId={pendingOpenPhotoId}
                 initialOpenPhotoSrc={pendingOpenPhotoSrc}
+                initialOpenUpload={Boolean(albumUploadIntent && String(albumUploadIntent.projectId) === String(currentProjectId))}
+                onInitialUploadHandled={handleInitialUploadHandled}
                 onInitialOpenPhotoHandled={handleInitialPhotoOpened}
                 onProjectHeaderChange={setActiveProjectHeader}
                 onShareAlbum={!isDemoPath && canShareWorkspace ? openAlbumShare : null}
                 shareUnitId={workspaceInfo?.activeUnitId}
-              />
+                searchRequest={scopedSearchRequest}
+              />}
             </LazyPanel>
           ) : (
             selectedNav === 'projects' ? (
@@ -1504,7 +1554,7 @@ function App() {
                     <div className="app-search-insight" aria-label="智能搜索理解结果">
                       <span className={`app-search-insight__mode${photoSearchMeta.aiUsed ? ' is-ai' : ''}`}>
                         <IconSparkleAI />
-                        {photoSearchMeta.aiUsed ? 'AI 已理解' : '智能匹配'}
+                        {photoSearchMeta.visual ? '视觉核验' : photoSearchMeta.aiUsed ? 'AI 解析' : '条件匹配'}
                       </span>
                       <div className="app-search-insight__chips">
                         {photoSearchMeta.chips.map((chip) => <span key={chip}>{chip}</span>)}
@@ -1512,36 +1562,11 @@ function App() {
                     </div>
                   ) : null}
 
-                  {photoSearchMeta && photoSearchMeta.relaxedHint ? (
-                    <div className="app-search-relaxed" role="status">{photoSearchMeta.relaxedHint}</div>
-                  ) : null}
-
-                  {!loading && !error && normalizedProjects.length > 0 ? (
-                    <div className="app-search-project-results">
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                      <Text strong>项目结果</Text>
-                    </div>
-
-                    <div className="project-grid">
-                      {!loading && !error &&
-                        normalizedProjects.map((project) => (
-                          <ProjectCard
-                            key={project.id}
-                            {...project}
-                            importStatus={projectImportStatuses[project.id]}
-                            onClick={() => handleSelectProject(project.id)}
-                          />
-                        ))}
-                    </div>
-                    {!loading && !error && showProjectPager && (
-                      <div style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 10, marginTop: 12 }}>
-                        <Button size="small" disabled={projectPage <= 1 || loading} onClick={handleProjectPrevPage}>上一页</Button>
-                        <Text type="tertiary">{projectPageText}</Text>
-                        <Button size="small" disabled={!projectHasMore || loading} onClick={handleProjectNextPage}>下一页</Button>
-                      </div>
-                    )}
-                    </div>
-                  ) : null}
+                  <SearchFeedback search={photoSearchMeta} loading={photoSearchLoading}
+                    phase={photoSearchPhase} found={photoSearchResults.length}
+                    onRefresh={() => loadPhotoSearchResults({ kw: keyword, related: photoSearchMeta?.matchType === 'related' })}
+                    onRelated={() => loadPhotoSearchResults({ kw: keyword, related: true })}
+                    onStrict={() => loadPhotoSearchResults({ kw: keyword })} />
 
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
@@ -1550,7 +1575,7 @@ function App() {
 
                     {photoSearchLoading && photoSearchResults.length === 0 && (
                       <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
-                        <AppLoadingState title="正在智能检索" subtitle="理解场景、人物与画面质量" compact />
+                        <SearchSkeleton />
                       </div>
                     )}
 
@@ -1562,16 +1587,18 @@ function App() {
 
                     {!photoSearchLoading && !photoSearchError && photoSearchResults.length === 0 && (
                       <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
-                        <Empty description="没有匹配的照片" />
+                        <Empty description={photoSearchMeta?.visual && !photoSearchMeta.visual.coverageComplete
+                          ? '暂未确认符合条件的照片' : '没有匹配的照片'} />
                       </div>
                     )}
 
                     {photoSearchResults.length > 0 && (
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 14 }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 260px), 1fr))', gap: 14 }}>
                         {photoSearchResults.map((photo, idx) => (
                           <div
                             key={`${photo.id || 'p'}-${idx}`}
-                            className="app-photo-search-card"
+                            className="app-photo-search-card search-result-enter"
+                            style={{ '--search-order': idx % 8 }}
                           >
                             <button
                               type="button"
@@ -1587,7 +1614,7 @@ function App() {
                               }}
                             >
                               <div className="detail-photo-item" style={{ width: '100%', overflow: 'hidden', transform: 'none' }}>
-                                <div className="detail-photo" style={{ overflow: 'hidden', background: '#e5e7eb', transform: 'none' }}>
+                                <div className="detail-photo" style={{ overflow: 'hidden', background: '#e5e7eb', transform: 'none', aspectRatio: '4 / 3' }}>
                                   {photo.thumbUrl || photo.url ? (
                                     <img
                                       src={photo.thumbUrl || photo.url}
@@ -1595,7 +1622,7 @@ function App() {
                                       loading="lazy"
                                       decoding="async"
                                       className="detail-photo-img is-ready"
-                                      style={{ width: '100%', height: 'auto', objectFit: 'cover', cursor: (photo.thumbUrl || photo.url) ? 'zoom-in' : 'default' }}
+                                      style={{ width: '100%', height: '100%', objectFit: 'cover', cursor: (photo.thumbUrl || photo.url) ? 'zoom-in' : 'default' }}
                                     />
                                   ) : null}
                                 </div>
@@ -1662,15 +1689,37 @@ function App() {
                       {photoSearchHasMore ? (
                         <Button loading={photoSearchLoading} onClick={handlePhotoSearchLoadMore}>加载更多</Button>
                       ) : (
-                        photoSearchResults.length > 0 ? <Text type="tertiary">已显示全部结果</Text> : null
+                        !photoSearchLoading && !photoSearchError && photoSearchResults.length > 0 ? <Text type="tertiary">已显示全部结果</Text> : null
                       )}
                     </div>
                   </div>
+                  {!loading && !error && normalizedProjects.length > 0 ? (
+                    <div className="app-search-project-results">
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                        <Text strong>相册结果</Text>
+                      </div>
+                      <div className="project-grid">
+                        {normalizedProjects.map(project => (
+                          <ProjectCard key={project.id} {...project} importStatus={projectImportStatuses[project.id]}
+                            onClick={() => handleSelectProject(project.id)} />
+                        ))}
+                      </div>
+                      {showProjectPager ? (
+                        <div style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 10, marginTop: 12 }}>
+                          <Button size="small" disabled={projectPage <= 1 || loading} onClick={handleProjectPrevPage}>上一页</Button>
+                          <Text type="tertiary">{projectPageText}</Text>
+                          <Button size="small" disabled={!projectHasMore || loading} onClick={handleProjectNextPage}>下一页</Button>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
               ) : currentUser && !isDemoPath ? (
                 <LazyPanel title="正在加载我的桌面"><AlbumDesktop folderStyle={folderStyle} footer={appFooter} currentUser={currentUser} workspaceInfo={workspaceInfo}
-                  onOpen={handleSelectProject} sort={projectSort} dateFilter={projectDateFilter} toolbar={projectToolbar}
-                  projectPreviews={normalizedProjects} importStatuses={projectImportStatuses} /></LazyPanel>
+                  onOpen={handleSelectProject} onShare={canShareWorkspace ? openAlbumShare : undefined} sharingOpen={workspacePanelOpen}
+                  sort={projectSort} dateFilter={projectDateFilter} toolbar={projectToolbar}
+                  projectPreviews={normalizedProjects} importStatuses={projectImportStatuses}
+                  onSearchScopeChange={setFolderSearchScope} searchRequest={scopedSearchRequest} /></LazyPanel>
               ) : (
                 <>
                   {projectToolbar}
@@ -1716,7 +1765,7 @@ function App() {
               )
             ) : selectedNav === 'scenery' ? (
               <LazyPanel title="正在加载风景页">
-                <Scenery />
+                <Scenery currentUser={currentUser} />
               </LazyPanel>
             ) : selectedNav === 'account' ? (
               <LazyPanel title="正在加载账户页">
@@ -1804,7 +1853,9 @@ function App() {
                     </LazyPanel>
                   ) : (
                     <LazyPanel title={`正在加载${activeMediaPlatform.label}编辑台`}>
-                      <AiNewsWriter initialChannelKey={activeMediaPlatform.key} />
+                      <AiNewsWriter key={`${currentUser?.id}:${workspaceInfo?.activeUnitId || 'legacy'}`}
+                        currentUser={currentUser} workspaceId={workspaceInfo?.activeUnitId}
+                        initialChannelKey={activeMediaPlatform.key} />
                     </LazyPanel>
                   )}
                 </div>
@@ -1868,6 +1919,7 @@ function App() {
             visible={photoPreviewVisible}
             src={photoPreviewSrc}
             title={photoPreviewTitle}
+            originalFilename={photoPreviewOriginalFilename}
             description={photoPreviewDescription}
             tags={photoPreviewTags}
             onClose={closePhotoPreview}
@@ -1876,6 +1928,9 @@ function App() {
       ) : null}
 
       {!currentProjectId && !columnWorkspace ? appFooter : null}
+      {mountTransferStation ? (
+        <React.Suspense fallback={null}><BatchVideoDownload /></React.Suspense>
+      ) : null}
       {mountTransferStation ? (
         <LazySilent>
           <TransferStation onInternalShare={(photoIds) => {
@@ -1890,9 +1945,11 @@ function App() {
         <LazySilent>
           <WorkspacePanel visible={workspacePanelOpen} workspaceInfo={workspaceInfo}
             initialProjectId={albumShareProject?.id || (workspacePanelPhotoIds.length ? null : currentProjectId)}
-            albumShareProject={albumShareProject}
+            albumShareProject={albumShareProject?.kind === 'folder' ? null : albumShareProject}
+            folderShareFolder={albumShareProject?.kind === 'folder' ? albumShareProject : null}
             initialPhotoIds={workspacePanelPhotoIds}
             onOpenProject={handleSelectProject}
+            onOpenFolder={id => { window.location.href = `/?sharedFolder=${encodeURIComponent(id)}`; }}
             onClose={() => { setWorkspacePanelOpen(false); setAlbumShareProject(null); }} />
         </LazySilent>
       ) : null}

@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "note": "Synthetic format example only. Replace with a fixed, authorized corpus and human labels before claiming model accuracy.",
+  "corpusPhotoIds": ["example-a", "example-b", "example-c"],
+  "queries": [
+    {
+      "id": "person-attribute",
+      "q": "人物甲穿红色外套",
+      "category": "person-attribute",
+      "judgmentsComplete": true,
+      "grades": {"example-a": 3, "example-b": 1, "example-c": 0},
+      "allowedPhotoIds": ["example-a", "example-b"]
+    },
+    {
+      "id": "negation",
+      "q": "人物甲，不要红色衣服",
+      "category": "negation",
+      "judgmentsComplete": true,
+      "grades": {"example-a": 0, "example-b": 3, "example-c": 0},
+      "allowedPhotoIds": ["example-a", "example-b"],
+      "excludedPhotoIds": ["example-a"]
+    },
+    {
+      "id": "no-match",
+      "q": "图库中不存在的事件",
+      "category": "zero-result",
+      "judgmentsComplete": true,
+      "grades": {"example-a": 0, "example-b": 0, "example-c": 0}
+    }
+  ]
+}

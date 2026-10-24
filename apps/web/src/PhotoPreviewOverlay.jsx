@@ -1,84 +1,48 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
+import { IconClose, IconListView } from './ui/icons';
+import useMediaViewerDialog from './useMediaViewerDialog';
 import './ProjectDetail.css';
+import './mediaViewer.css';
 
-function PhotoPreviewOverlay({
-  visible,
-  src,
-  title,
-  description,
-  tags,
-  onClose,
-}) {
-  React.useEffect(() => {
-    if (!visible) return undefined;
-    const onKeyDown = (e) => {
-      if (e.key === 'Escape') onClose?.();
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [visible, onClose]);
-
+function PhotoPreviewOverlay({ visible, src, title, originalFilename, description, tags, onClose }) {
+  const [detailsVisible, setDetailsVisible] = React.useState(() => typeof window !== 'undefined' && window.innerWidth > 900);
+  useMediaViewerDialog(visible && !!src, onClose);
   if (!visible || !src) return null;
-
   const safeTags = Array.isArray(tags) ? tags.filter(Boolean) : [];
-
-  return (
-    <div className="viewer-overlay is-open" onClick={onClose} aria-hidden="false">
-      <div className="viewer-wrap">
-        <button
-          type="button"
-          className="viewer-close-btn"
-          aria-label="关闭预览"
-          onClick={(e) => {
-            e.stopPropagation();
-            onClose?.();
-          }}
-        >
-          ×
-        </button>
-
-        <div className="viewer-img-wrap" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-          <div className="viewer-img-stage" onClick={(e) => e.stopPropagation()}>
-            <div className="viewer-carousel" style={{ transform: 'translate3d(0, 0, 0)', width: '100%' }}>
-              <div className="viewer-slide is-active" style={{ width: '100%', minWidth: '100%' }}>
-                <img
-                  src={src}
-                  alt={title || '照片预览'}
-                  className="viewer-carousel-img viewer-img--open-zoom"
-                />
-              </div>
-            </div>
+  return createPortal(
+    <div className="viewer-overlay viewer-overlay--workspace is-open" role="dialog" aria-modal="true" aria-label="照片预览" onClick={onClose}>
+      <div className={`viewer-wrap${detailsVisible ? ' has-details' : ''}`}>
+        <div className="viewer-topbar" onClick={event => event.stopPropagation()}>
+          <div className="viewer-topbar-left">
+            <button type="button" className="viewer-topbar-close" aria-label="关闭预览" onClick={onClose}><IconClose /></button>
+            <strong className="viewer-topbar-title">{title || '照片预览'}</strong>
           </div>
-
-          <div className="viewer-chip viewer-chip--left">
-            {title || '照片预览'}
+        </div>
+        <div className="viewer-img-wrap">
+          <div className="viewer-img-stage" onClick={event => event.stopPropagation()}>
+            <div className="viewer-carousel" style={{ width: '100%' }}><div className="viewer-slide is-active" style={{ width: '100%' }}>
+              <img src={src} alt={title || '照片预览'} className="viewer-carousel-img" />
+            </div></div>
           </div>
-
-          <div
-            className="viewer-info-card"
-            style={{ background: 'rgba(0,0,0,0.45)', color: '#fff' }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div style={{ pointerEvents: 'none' }}>
-              <div style={{ marginBottom: safeTags.length > 0 ? 8 : 0, fontSize: 14 }}>
-                {description || '暂无描述'}
-              </div>
-              {safeTags.length > 0 ? (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {safeTags.map((tag, i) => (
-                    <span key={`${tag}-${i}`} style={{ background: 'rgba(255,255,255,0.22)', border: '1px solid rgba(255,255,255,0.4)', padding: '3px 10px', borderRadius: 999, whiteSpace: 'nowrap', fontSize: 12 }}>
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-              ) : (
-                <div style={{ fontSize: 12, opacity: 0.78 }}>暂无标签</div>
-              )}
+        </div>
+        <div className="viewer-dock" onClick={event => event.stopPropagation()}>
+          <aside className="viewer-details-panel" id="photo-preview-details" aria-label="媒体信息" hidden={!detailsVisible}>
+            <div className="viewer-sidebar-head"><div><span>照片信息</span><strong>{originalFilename || title || '未命名'}</strong></div>
+              <button type="button" title="关闭信息" aria-label="关闭信息" onClick={() => setDetailsVisible(false)}><IconClose /></button>
             </div>
+            <div className="viewer-info-card">
+              <p className="viewer-description">{description || '暂无描述'}</p>
+              {!!safeTags.length && <div className="viewer-semantic-tags">{safeTags.map((tag, index) => <span className="viewer-semantic-tag" key={`${tag}-${index}`}>{tag}</span>)}</div>}
+            </div>
+          </aside>
+          <div className="viewer-dock-actions" role="toolbar" aria-label="媒体操作">
+            <button type="button" className={`viewer-dock-btn viewer-dock-btn--info${detailsVisible ? ' is-active' : ''}`} aria-label={detailsVisible ? '隐藏信息' : '显示信息'} aria-expanded={detailsVisible} aria-controls="photo-preview-details"
+              title={detailsVisible ? '隐藏信息' : '显示信息'} onClick={() => setDetailsVisible(value => !value)}><IconListView /><span>信息</span></button>
           </div>
         </div>
       </div>
-    </div>
+    </div>, document.body,
   );
 }
 

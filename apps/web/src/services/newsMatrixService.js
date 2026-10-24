@@ -9,7 +9,7 @@ const CHANNELS = [
   { key: 'wechat_article', name: '公众号推文', desc: '800-1800字图文报道', defaultFor: ['campus'] },
   { key: 'xiaohongshu',    name: '小红书笔记', desc: '第一人称短文+话题', defaultFor: ['campus'] },
   { key: 'press_release',  name: '新闻稿',     desc: '官网/校网正式报道' },
-  { key: 'report_brief',   name: '通讯稿',     desc: '上级报送公文体' },
+  { key: 'report_brief',   name: '工作简报',   desc: '上级报送简报' },
   { key: 'weibo',          name: '微博',       desc: '140字短讯+话题' },
 ];
 
@@ -26,8 +26,8 @@ async function startBatch(payload) {
 
 // 查询批次状态（含每个渠道 job 的状态与已完成的结果），用于 2.5s 轮询。
 // resp: { batchId, status, jobs: [{ jobId, channelKey, status, error, result }] }
-async function getBatch(batchId) {
-  return request(`/api/ai/news/batches/${encodeURIComponent(batchId)}`, { method: 'GET' });
+async function getBatch(batchId, options = {}) {
+  return request(`/api/ai/news/batches/${encodeURIComponent(batchId)}`, { method: 'GET', signal: options.signal });
 }
 
 // 单个失败渠道重试：复用原 prompt 重新入队，返回 { jobId, status: 'pending' }。

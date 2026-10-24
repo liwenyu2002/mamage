@@ -82,6 +82,7 @@ function segmentActionNarrative(segment, canonicalObject = '') {
 function normalizeProvider(value) {
   const raw = String(value || '').trim().toLowerCase();
   if (!raw) return 'dashscope';
+  if (raw === 'zgcai' || raw === 'hub') return 'zgcai';
   if (raw === 'local' || raw === 'ollama' || raw === 'qwen' || raw === 'qwen-local') return 'ollama';
   if (raw === 'dashscope' || raw === 'aliyun' || raw === 'cloud') return 'dashscope';
   if (raw === 'off' || raw === 'disabled' || raw === 'none') return 'off';
@@ -98,6 +99,7 @@ function fallbackProvider(primary) {
 }
 
 function visionModel(provider) {
+  if (provider === 'zgcai') return process.env.ZGCAI_VISION_MODEL || 'qwen';
   if (provider === 'ollama') {
     return process.env.OLLAMA_VISION_MODEL || process.env.LOCAL_VISION_MODEL || DEFAULT_OLLAMA_MODEL;
   }
@@ -288,6 +290,13 @@ function createVideoTextClient(apiKey, baseURL) {
 
 async function callVisionProvider(provider, imageJpeg, prompt) {
   if (provider === 'off') return { available: false, provider: 'off', model: null, raw: '' };
+  if (provider === 'zgcai') {
+    const result = await require('../../lib/hub_inference').vision({
+      images: [`data:image/jpeg;base64,${imageJpeg.toString('base64')}`], prompt,
+      maxTokens: Number(process.env.VIDEO_SEMANTIC_VISION_MAX_TOKENS) || 2400,
+    });
+    return { available: true, provider, model: result.model, raw: result.content };
+  }
   if (provider === 'ollama') {
     const raw = await callOllamaGenerate(prompt, imageJpeg.toString('base64'));
     return { available: true, provider, model: visionModel(provider), raw };

@@ -3,7 +3,7 @@ const express = require('express');
 const actions = [];
 const mock = (name, exports) => { const id=require.resolve(name);require.cache[id]={id,filename:id,loaded:true,exports}; };
 mock('../db',{pool:{query:async sql=>{
-  if(sql.includes('face_search_grants'))return [[{college_wide:1}]];
+  if(sql.includes('face_search_grants'))return [[{college_wide:1,can_manage:1}]];
   if(sql.includes('organization_access_audit'))return [{}];
   throw new Error('Photo query must not run before ACL: '+sql);
 }}});
@@ -22,7 +22,8 @@ const server=app.listen(0,'127.0.0.1',async()=>{
     assert.equal((await fetch(url)).status,404);
     assert.equal((await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:'{"faces":[]}'})).status,404);
     assert.equal((await fetch(url+'?detect=1')).status,404);
-    assert.deepEqual(actions,['read','edit','edit']);
+    assert.equal((await fetch(url+'/observations')).status,404);
+    assert.deepEqual(actions,['read','edit','edit','read']);
     console.log('PASS: photo route parameters enforce face read/edit ACL before queries or mutations');
   }catch(error){console.error(error);process.exitCode=1;}finally{server.close();}
 });

@@ -31,6 +31,7 @@ let catalogIds = [1,2,3];
 const db = { async query(sql, params) {
   calls.push({sql,params});
   if(sql.startsWith('SET TRANSACTION ISOLATION LEVEL'))return [{}];
+  if (/^\s*SELECT (?:s\.project_id AS projectId|link\.project_id AS projectId|fs\.source_folder_id AS folderId)/.test(sql)) return [[]];
   if(sql.startsWith('INSERT'))return [{}];
   if(sql.startsWith('SELECT p.id')) {
     assert(sql.includes('p.organization_id = ? AND p.unit_id = ?'));
@@ -52,9 +53,14 @@ const stub=(name,exports)=>{require.cache[require.resolve(name)]={id:require.res
 stub('../db',{pool:{...db,async getConnection(){return db}}});
 stub('../lib/permissions',{requirePermission:()=> (req,res,next)=>{req.user={id:12,organization_id:7,role:'admin'};next()}});
 stub('../lib/media_access',{buildMediaUrl:value=>value});
+stub('../lib/shared_albums',{listSharedAlbums:async()=>[]});
+stub('../lib/folder_shares',{listFolderShares:async()=>[],syncFolderShares:async()=>{}});
 stub('../lib/workspace_access',{
-  resolveWorkspace:async req=>({enabled:true,userId:12,orgId:7,unitId:9,collegeAdmin:false,role:req.get('x-test-role') || 'editor'}),
-  projectListScope:()=>({sql:'p.unit_id = ?',params:[9]}),unitRoleAllows:role=>role==='editor',sendWorkspaceError:()=>false,
+  resolveWorkspace:async req=>({enabled:req.get('x-test-legacy')!=='1',userId:12,orgId:7,unitId:9,
+    userRole:req.get('x-test-account-role') || 'admin',collegeAdmin:req.get('x-test-college-admin')==='1',role:req.get('x-test-role') || 'editor'}),
+  projectListScope:()=>({sql:'p.unit_id = ?',params:[9]}),
+  metadataEditScope:workspace=>workspace.collegeAdmin?'organization':workspace.role==='manager'?'unit':'own',
+  unitRoleAllows:(role,action)=>action==='manage'?role==='manager':['editor','manager'].includes(role),sendWorkspaceError:()=>false,
 });
 const express=require('express');const app=express();app.use(express.json());app.use('/desktop',require('../routes/album_desktop'));
 const server=app.listen(0,'127.0.0.1',async()=>{
@@ -64,13 +70,27 @@ const server=app.listen(0,'127.0.0.1',async()=>{
   const ok=await put({groups,preferences,workspaceRevision:2,userRevision:4});
   assert.equal(ok.status,200);assert.deepEqual(await ok.json(),{workspaceRevision:3,userRevision:5});assert(committed);
   const count=calls.filter(c=>c.sql.startsWith('UPDATE')).length;
+  assert.equal((await put({groups:[],workspaceRevision:2,canDeleteFolders:true})).status,403,'ordinary editors must not delete folders by omitting them from a full-state save');
+  assert.equal(calls.filter(c=>c.sql.startsWith('UPDATE')).length,count,'denied folder deletion must not write shared or personal state');
+  const desktop=await(await fetch(endpoint.replace('/state',''))).json();
+  assert.equal(desktop.canOrganize,true);assert.equal(desktop.canDeleteFolders,false);
+  assert.equal((await put({groups:[],workspaceRevision:2},{'x-test-role':'manager'})).status,200);
+  assert.equal((await put({groups:[],workspaceRevision:2},{'x-test-college-admin':'1'})).status,200);
+  assert.equal((await put({groups:[],workspaceRevision:2},{'x-test-legacy':'1','x-test-account-role':'editor'})).status,403);
+  assert.equal((await put({groups:[],workspaceRevision:2},{'x-test-legacy':'1','x-test-account-role':'superadmin'})).status,200);
+  const afterAdminWrites=calls.filter(c=>c.sql.startsWith('UPDATE')).length;
   assert.equal((await put({groups,workspaceRevision:1})).status,409);assert(rolledBack);
-  assert.equal(calls.filter(c=>c.sql.startsWith('UPDATE')).length,count);
+  assert.equal(calls.filter(c=>c.sql.startsWith('UPDATE')).length,afterAdminWrites);
   assert.equal((await put({groups,workspaceRevision:2},{'x-test-role':'member'})).status,403);
   assert.equal((await put({preferences,userRevision:4},{'x-test-role':'member'})).status,200);
   assert.equal((await put({groups:[{id:'foreign',name:'越权',projectIds:[99]}],workspaceRevision:2})).status,403);
   assert.equal((await put({preferences,userRevision:4,scope:{userId:99,organizationId:7,unitId:9}})).status,409);
   shared.state = { groups: branch };
+  const beforeNestedDelete=calls.filter(c=>c.sql.startsWith('UPDATE')).length;
+  assert.equal((await put({groups:branch.slice(0,-1),workspaceRevision:2})).status,403,'deleting a nested folder must also require manager access');
+  assert.equal((await put({groups:[{id:'replacement',name:'Replacement'}],workspaceRevision:2})).status,403,'replacing all folder IDs must not bypass deletion authorization');
+  assert.equal((await put({groups:branch.slice(0,-1),preferences:{pins:[]},workspaceRevision:2,userRevision:4})).status,403);
+  assert.equal(calls.filter(c=>c.sql.startsWith('UPDATE')).length,beforeNestedDelete);
   const legacyGroups = branch.map(({ parentId, ...group }) => group);
   assert.equal((await put({groups:legacyGroups,workspaceRevision:2})).status,200);
   const savedTree = JSON.parse(calls.filter(call=>call.sql.startsWith('UPDATE album_desktop_workspaces')).at(-1).params[0]).groups;

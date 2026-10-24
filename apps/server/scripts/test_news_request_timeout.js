@@ -25,7 +25,7 @@ async function main() {
     const content = mode === 'format' && requests === 1
       ? 'invalid JSON'
       : JSON.stringify({ title: 'Test', subtitle: '', markdown: 'A complete news article.', photos: [] });
-    res.end(JSON.stringify({ choices: [{ message: { content } }], usage: { total_tokens: 30 } }));
+    res.end(JSON.stringify({ choices: [{ message: { content }, finish_reason: mode === 'truncated' ? 'length' : 'stop' }], usage: { total_tokens: 30 } }));
   });
   server.on('connection', socket => {
     sockets.add(socket);
@@ -52,6 +52,9 @@ async function main() {
     assert.equal(requests, 2, 'Malformed JSON can still be regenerated');
     assert.equal(result.title, 'Test');
     assert.equal(body.thinking?.type, 'disabled', 'DeepSeek news writing should not spend time on hidden thinking');
+    mode = 'truncated'; requests = 0;
+    await assert.rejects(generateFromPrompt({ prompt: 'Test news', options: {} }), /截断/);
+    assert.equal(requests, 1, 'Truncated output must fail explicitly, not regenerate the same oversized article');
     console.log('News request timeout, cancellation, authentication and JSON retry: PASS');
   } finally {
     for (const socket of sockets) socket.destroy();

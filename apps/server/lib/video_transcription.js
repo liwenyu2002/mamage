@@ -25,6 +25,8 @@ function transcriptConfig() {
   const enabled = String(process.env.VIDEO_TRANSCRIPT_ENABLED || '1') !== '0';
   return {
     enabled,
+    serviceURL: String(process.env.VIDEO_TRANSCRIPT_SERVICE_URL || '').replace(/\/+$/, ''),
+    serviceToken: process.env.VIDEO_TRANSCRIPT_SERVICE_TOKEN || '',
     cli,
     model,
     language: String(process.env.VIDEO_TRANSCRIPT_LANGUAGE || 'zh').trim() || 'zh',
@@ -36,7 +38,37 @@ function transcriptConfig() {
 
 function isTranscriptAvailable() {
   const config = transcriptConfig();
-  return Boolean(config.enabled && fs.existsSync(config.cli) && fs.existsSync(config.model));
+  return Boolean(config.enabled && (config.serviceURL ? config.serviceToken.length >= 32 : fs.existsSync(config.cli) && fs.existsSync(config.model)));
+}
+
+async function requestRemoteTranscript(audioPath, config, timeoutMs) {
+  const body = fs.createReadStream(audioPath);
+  try {
+    const response = await fetch(`${config.serviceURL}/transcribe`, {
+      method: 'POST', body, duplex: 'half', signal: AbortSignal.timeout(timeoutMs),
+      headers: { 'Content-Type': 'audio/wav', 'Content-Length': String((await fs.promises.stat(audioPath)).size),
+        Authorization: `Bearer ${config.serviceToken}`, 'X-MaMage-Language': config.language },
+    });
+    if (!response.ok) {
+      await response.body?.cancel();
+      throw new Error(`remote transcription HTTP ${response.status}`);
+    }
+    const reader = response.body.getReader();
+    const chunks = [];
+    let length = 0;
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        length += value.length;
+        if (length > 16 * 1024 * 1024) throw new Error('remote transcription response too large');
+        chunks.push(value);
+      }
+    } finally { await reader.cancel().catch(() => {}); }
+    const payload = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    if (!Array.isArray(payload.transcription)) throw new Error('invalid remote transcription response');
+    return payload;
+  } finally { body.destroy(); }
 }
 
 function commandError(label, code, signal, stderr, timedOut) {
@@ -131,7 +163,7 @@ async function transcribeVideoAudio(input, duration = 0, options = {}) {
   const config = transcriptConfig();
   const fullDuration = Math.max(0, Number(duration) || 0);
   if (!config.enabled || options.enabled === false) return { status: 'disabled', segments: [], text: '' };
-  if (!fs.existsSync(config.cli) || !fs.existsSync(config.model)) {
+  if (!isTranscriptAvailable()) {
     return {
       status: 'unavailable',
       provider: 'whisper.cpp',
@@ -159,7 +191,11 @@ async function transcribeVideoAudio(input, duration = 0, options = {}) {
       '-map', '0:a:0', '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le',
       audioPath,
     ], { label: '提取视频音轨', timeoutMs: transcriptionTimeoutMs(Math.min(coverageDuration, 900)) });
-    await runCommand(config.cli, [
+    let payload;
+    if (config.serviceURL) {
+      payload = await requestRemoteTranscript(audioPath, config, transcriptionTimeoutMs(coverageDuration));
+    } else {
+      await runCommand(config.cli, [
       '-m', config.model,
       '-f', audioPath,
       '-l', config.language,
@@ -168,9 +204,9 @@ async function transcribeVideoAudio(input, duration = 0, options = {}) {
       '-of', outputBase,
       '-np',
       ...(config.prompt ? ['--prompt', config.prompt] : []),
-    ], { label: '本地声音转写', timeoutMs: transcriptionTimeoutMs(coverageDuration) });
-    const raw = await fs.promises.readFile(outputJsonPath, 'utf8');
-    const payload = JSON.parse(raw);
+      ], { label: '本地声音转写', timeoutMs: transcriptionTimeoutMs(coverageDuration) });
+      payload = JSON.parse(await fs.promises.readFile(outputJsonPath, 'utf8'));
+    }
     const segments = normalizeWhisperSegments(payload, coverageDuration);
     const text = segments.map((segment) => segment.text).join('\n').slice(0, 300000);
     return {
@@ -213,4 +249,5 @@ module.exports = {
   isTranscriptAvailable,
   transcriptConfig,
   transcribeVideoAudio,
+  requestRemoteTranscript,
 };

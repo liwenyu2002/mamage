@@ -1,7 +1,7 @@
 import { request } from './request';
 
 export const loadAlbumDesktop = () => request('/api/album-desktop', { timeoutMs: 20000 });
-export const saveAlbumDesktop = (data, scope) => request('/api/album-desktop/state', { method: 'PUT', data: { ...data, scope },
+export const saveAlbumDesktop = (data, scope) => request('/api/album-desktop/state', { method: 'PUT', data: { ...data, scope, sharedReferencesVersion: 1 },
   headers: scope ? { 'x-mamage-unit-id': scope.unitId ? String(scope.unitId) : 'legacy' } : undefined, timeoutMs: 20000 });
 
 // Coalesce fast interactions, serialize writes, and never overwrite another tab's revision.

@@ -2,7 +2,9 @@ const { pool } = require('../db');
 const jwt = require('jsonwebtoken');
 const keys = require('../config/keys');
 const JWT_SECRET = keys.JWT_SECRET;
-const { resolveWorkspace, unitRoleAllows, sendWorkspaceError } = require('./workspace_access');
+const { resolveWorkspace, sendWorkspaceError } = require('./workspace_access');
+const { workspacePermission } = require('./access_policy');
+const { getFacePermissions } = require('./face_access');
 
 async function getRoleByUserId(userId) {
   const [rows] = await pool.query('SELECT role FROM users WHERE id = ? LIMIT 1', [userId]);
@@ -85,28 +87,13 @@ function requirePermission(permission) {
       }
 
       let ok = await hasPermissionForRole(role, permission);
-      const unitActions = {
-        'projects.create': 'create',
-        'projects.update': 'read',
-        'projects.delete': 'manage',
-        'upload.photo': 'upload',
-        'photos.edit': 'read',
-        'photos.delete': 'delete',
-        'ai.generate': 'edit',
-      };
-      if (Object.hasOwn(unitActions, permission) || permission.startsWith('users.')) {
+      const scoped = ['projects.create', 'projects.update', 'projects.delete', 'upload.photo', 'photos.edit', 'photos.delete', 'ai.generate'];
+      if (scoped.includes(permission) || permission.startsWith('users.') || permission.startsWith('faces.')) {
         const workspace = await resolveWorkspace(req);
-        if (workspace.enabled) {
-          if (permission.startsWith('users.')) {
-            ok = ok && workspace.collegeAdmin;
-          } else if (permission === 'projects.create') {
-            ok = Boolean(workspace.unitId && (workspace.collegeAdmin || unitRoleAllows(workspace.role, 'create')));
-          } else if (workspace.unitId) {
-            ok = workspace.collegeAdmin || unitRoleAllows(workspace.role, unitActions[permission]);
-          } else {
-            ok = workspace.collegeAdmin && permission !== 'upload.photo';
-          }
-        }
+        if (permission.startsWith('faces.')) {
+          const faces = req.facePermissions || await getFacePermissions(workspace);
+          ok = permission === 'faces.view' ? faces.search : faces.manage;
+        } else ok = workspacePermission(workspace, permission, ok);
       }
       if (!ok) {
         try {

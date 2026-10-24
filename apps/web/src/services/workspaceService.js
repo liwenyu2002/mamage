@@ -1,12 +1,14 @@
 import { request } from './request';
+import { clearDirectMediaUrlCache } from './directStorage';
 
 export const fetchWorkspaces = () => request('/api/workspaces');
 export const listWorkspaceAlbums = () => request('/api/workspaces/albums');
 
-export const setActiveWorkspace = (unitId) => request('/api/workspaces/active', {
-  method: 'POST',
-  data: { unitId },
-});
+export const setActiveWorkspace = async (unitId) => {
+  const result = await request('/api/workspaces/active', { method: 'POST', data: { unitId } });
+  clearDirectMediaUrlCache();
+  return result;
+};
 
 export const listReceivedShares = () => request('/api/internal-shares/received');
 export const listSentShares = () => request('/api/internal-shares/sent');
@@ -15,6 +17,12 @@ export const getInternalShare = (id, offset = 0) => request(`/api/internal-share
 });
 export const createInternalShare = (data) => request('/api/internal-shares', { method: 'POST', data });
 export const revokeInternalShare = (id) => request(`/api/internal-shares/${id}/revoke`, { method: 'POST' });
+export const listReceivedFolderShares = () => request('/api/folder-shares/received');
+export const listSentFolderShares = () => request('/api/folder-shares/sent');
+export const getFolderShare = (id) => request(`/api/folder-shares/${id}`, { timeoutMs: 20000 });
+export const createFolderShare = (data) => request('/api/folder-shares', { method: 'POST', data });
+export const revokeFolderShare = (id) => request(`/api/folder-shares/${id}/revoke`, { method: 'POST' });
+export const retryFolderCopy = (id) => request(`/api/folder-shares/${id}/copy`, { method: 'POST' });
 export const getCopyJob = (id) => request(`/api/internal-shares/copy-jobs/${id}`);
 export const retryInternalCopy = (shareId) => request(`/api/internal-shares/${shareId}/copy`, { method: 'POST' });
 export const listUnitMembers = (unitId) => request(`/api/workspaces/${unitId}/members`);
@@ -27,8 +35,8 @@ export const removeUnitMember = (unitId, userId) => request(`/api/workspaces/${u
   method: 'DELETE',
 });
 export const listFaceGrants = () => request('/api/workspaces/face-search/grants');
-export const grantFaceSearch = (userId) => request(`/api/workspaces/face-search/${userId}`, {
-  method: 'PUT', data: { collegeWide: true },
+export const grantFaceSearch = (userId, canManage = false) => request(`/api/workspaces/face-search/${userId}`, {
+  method: 'PUT', data: { collegeWide: true, canManage },
 });
 export const revokeFaceSearch = (userId) => request(`/api/workspaces/face-search/${userId}`, {
   method: 'DELETE',

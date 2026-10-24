@@ -7,6 +7,8 @@ Run:
   uvicorn scripts.face_embed_service:app --host 0.0.0.0 --port 8009
 """
 
+import base64
+import binascii
 import os
 import threading
 from typing import Dict, List, Optional
@@ -44,6 +46,7 @@ def _normalize(v: np.ndarray) -> np.ndarray:
 
 
 class DetectRequest(BaseModel):
+    imageBase64: Optional[str] = Field(default=None, max_length=6 * 1024 * 1024)
     imageUrl: Optional[str] = None
     imagePath: Optional[str] = None
     backend: str = "auto"
@@ -105,6 +108,19 @@ class FaceRuntime:
             return app
 
     def _read_image(self, req: DetectRequest):
+        if sum(bool(value) for value in (req.imageBase64, req.imagePath, req.imageUrl)) != 1:
+            raise HTTPException(status_code=400, detail="exactly one image source is required")
+        if req.imageBase64:
+            try:
+                data = base64.b64decode(req.imageBase64, validate=True)
+            except (ValueError, binascii.Error):
+                raise HTTPException(status_code=400, detail="invalid image bytes")
+            if not data or len(data) > 4 * 1024 * 1024:
+                raise HTTPException(status_code=413, detail="image bytes too large")
+            img = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
+            if img is None:
+                raise HTTPException(status_code=400, detail="failed to decode image bytes")
+            return img, "inline-selfie", "bytes"
         if req.imagePath:
             p = req.imagePath
             if not os.path.exists(p):
@@ -268,6 +284,8 @@ class FaceRuntime:
 
 runtime = FaceRuntime()
 app = FastAPI(title="MaMage Face Service", version="0.1.0")
+from scripts.transcription_service import router as transcription_router
+app.include_router(transcription_router)
 
 
 @app.get("/health")

@@ -69,7 +69,8 @@ const fakeStorage = {
   },
   abortMultipartUpload: async () => null,
   deleteObjects: async (keys) => ({ deleted: keys || [], errors: [], skipped: [] }),
-  headObject: async (key) => ({ ContentLength: fakeStorage.headSize || 0 }),
+  headObject: async (key) => fakeStorage.completedUploads.some(upload => upload.key === key)
+    ? { ContentLength: fakeStorage.headSize || 0 } : null,
   signedPost: async (key) => ({ key, postUrl: `${fakeStorage.endpointUrl}/${key}`, fields: { key }, publicUrl: '', expiresIn: 900 }),
   signedUploadPartUrl: async (key, uploadId, partNumber) => ({ partNumber, signedUrl: `${fakeStorage.endpointUrl}/${key}?partNumber=${partNumber}&uploadId=${uploadId}`, expiresIn: 900 }),
 };
@@ -84,6 +85,37 @@ require.cache[dbPath] = { id: dbPath, filename: dbPath, loaded: true, exports: {
 require.cache[cosPath] = { id: cosPath, filename: cosPath, loaded: true, exports: fakeStorage };
 
 const express = require('express');
+const statePath = require.resolve(path.join(ROOT, 'lib/shared_runtime_state'));
+const originalState = require(statePath);
+let holdRelease = null;
+let releaseEntered = null;
+const videoSessions = new Map();
+let stateQueue = Promise.resolve();
+const durableSessionStore = {
+  get: async key => structuredClone(videoSessions.get(key)),
+  set: async (key, value) => videoSessions.set(key, structuredClone(value)),
+  delete: async key => videoSessions.delete(key),
+  entries: async () => [...videoSessions].map(([key, value]) => [key, structuredClone(value)]),
+  withLock: async (key, callback) => {
+    const next = stateQueue.catch(() => {}).then(() => callback(null));
+    stateQueue = next;
+    return next;
+  },
+  mutate: async (key, callback) => durableSessionStore.withLock(key, async () => {
+    const value = await durableSessionStore.get(key);
+    const leases = Object.keys(value?.partLeases || {}).length;
+    const result = await callback(value);
+    if (holdRelease && Object.keys(value?.partLeases || {}).length < leases) {
+      releaseEntered();
+      await holdRelease;
+    }
+    if (value) await durableSessionStore.set(key, value);
+    return result;
+  }),
+};
+require.cache[statePath].exports = {...originalState,
+  createSharedStore: (namespace, options) => namespace === 'video-upload'
+    ? durableSessionStore : originalState.createSharedStore(namespace, options)};
 const uploadRouter = require(path.join(ROOT, 'routes/upload.js'));
 
 function signToken(payload) {
@@ -194,10 +226,23 @@ async function main() {
 
     // 7) 完成直传：head 校验大小一致 → 落库 → 返回媒体记录
     fakeStorage.headSize = 12 * 1024 * 1024;
-    const good2 = await call(server, 'PUT', `/api/upload/video/direct/part-proxy/${sessionId}/2`, {
+    let release;
+    holdRelease = new Promise(resolve => { release = resolve; });
+    const entered = new Promise(resolve => { releaseEntered = resolve; });
+    const lastPart = call(server, 'PUT', `/api/upload/video/direct/part-proxy/${sessionId}/2`, {
       token, rawBody: Buffer.alloc(4 * 1024 * 1024),
     });
+    let acknowledged = false;
+    lastPart.then(() => { acknowledged = true; });
+    await entered;
+    try {
+      // Model the durable state write lag, not a shared in-memory object mutation.
+      await new Promise(resolve => setTimeout(resolve, 50));
+      assert.strictEqual(acknowledged, false, 'part acknowledged before its durable upload lease was released');
+    } finally { release(); holdRelease = null; }
+    const good2 = await lastPart;
     assert.strictEqual(good2.status, 200);
+    assert.strictEqual(Object.keys((await durableSessionStore.get(sessionId)).partLeases || {}).length, 0);
     const complete = await call(server, 'POST', '/api/upload/video/direct/complete', {
       token, body: { sessionId, parts: [good1.json.etag, good2.json.etag].map((etag, i) => ({ partNumber: i + 1, etag })) },
     });

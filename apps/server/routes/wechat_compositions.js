@@ -213,7 +213,9 @@ router.get('/', requirePermission('ai.generate'), async (req, res) => {
 const AI_FILL_BUCKETS = new Map(); // userId -> { count, resetAt }
 const AI_FILL_WINDOW_MS = 5 * 60 * 1000;
 const AI_FILL_MAX = 10;
-function aiFillRateAllow(userId) {
+const sharedAiFillRate = require('../lib/shared_rate_limit').createRateLimit('ai-fill');
+async function aiFillRateAllow(userId) {
+  if (require('../lib/shared_runtime_state').distributed()) return (await sharedAiFillRate.take(userId, AI_FILL_MAX, AI_FILL_WINDOW_MS)).allowed;
   const now = Date.now();
   if (AI_FILL_BUCKETS.size > 2000) AI_FILL_BUCKETS.clear();
   const b = AI_FILL_BUCKETS.get(userId);
@@ -228,7 +230,7 @@ function aiFillRateAllow(userId) {
 
 router.post('/ai-fill', requirePermission('ai.generate'), async (req, res) => {
   try {
-    if (!aiFillRateAllow(req.user.id)) {
+    if (!await aiFillRateAllow(req.user.id)) {
       return res.status(429).json({ error: 'TOO_MANY_REQUESTS', message: 'AI 填充太频繁，请 5 分钟后再试' });
     }
     const { aiFillArticleTemplate } = require('../lib/wechat_ai_fill');

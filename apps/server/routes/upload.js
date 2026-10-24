@@ -1,5 +1,6 @@
 // routes/upload.js
 const express = require('express');
+const { normalizeOriginalFilename } = require('../lib/original_filename');
 const router = express.Router();
 const fs = require('fs');
 const os = require('os');
@@ -113,7 +114,9 @@ const DIRECT_VIDEO_PROXY_PART_SIZE = Math.max(
   envNumber(process.env.DIRECT_VIDEO_PROXY_PART_SIZE_MB, 8) * 1024 * 1024
 );
 const DIRECT_VIDEO_PROXY_MAX_INFLIGHT = Math.max(1, Math.min(16, envNumber(process.env.DIRECT_VIDEO_PROXY_MAX_INFLIGHT, 4)));
-const directVideoUploads = new Map();
+const { createSharedStore } = require('../lib/shared_runtime_state');
+const { coordinator, distributed } = require('../lib/distributed_runtime');
+const directVideoUploads = createSharedStore('video-upload');
 let directVideoCleanupTimer = null;
 
 function parseEnvBoolean(value) {
@@ -190,13 +193,21 @@ function resolveDirectVideoTransport(req) {
   return 'direct';
 }
 
-function cleanupDirectVideoUploads() {
+async function cleanupDirectVideoUploads() {
   const now = Date.now();
-  for (const [id, session] of directVideoUploads) {
+  for (const [id, session] of await directVideoUploads.entries()) {
     if (!session || session.expiresAt > now) continue;
-    directVideoUploads.delete(id);
-    if (session.storageUploadId) cosStorage.abortMultipartUpload(session.originalKey, session.storageUploadId).catch(() => null);
-    else cosStorage.deleteObjects([session.originalKey]).catch(() => null);
+    await directVideoUploads.withLock(id, async () => {
+      const current = await directVideoUploads.get(id);
+      if (!current || current.expiresAt > now) return;
+      // Completed sessions retain the response for idempotent retries, not cleanup rights.
+      const [committed] = await pool.query('SELECT id FROM photos WHERE url = ? LIMIT 1', [current.relPath]);
+      if (current.status !== 'done' && !committed.length) {
+        if (current.storageUploadId) await cosStorage.abortMultipartUpload(current.originalKey, current.storageUploadId).catch(() => null);
+        else await cosStorage.deleteObjects([current.originalKey]).catch(() => null);
+      }
+      await directVideoUploads.delete(id);
+    });
   }
 }
 
@@ -209,10 +220,9 @@ function getDirectVideoSessionTtlMs(fileSize) {
   );
 }
 
-function getDirectVideoSession(req, sessionId) {
-  cleanupDirectVideoUploads();
-  const session = directVideoUploads.get(String(sessionId || ''));
-  if (!session) return null;
+async function getDirectVideoSession(req, sessionId) {
+  const session = await directVideoUploads.get(String(sessionId || ''));
+  if (!session || session.expiresAt <= Date.now()) return null;
   const orgId = getOrgId(req);
   if (Number(session.userId) !== Number(req.user && req.user.id) || Number(session.orgId) !== Number(orgId)) return null;
   return session;
@@ -220,10 +230,10 @@ function getDirectVideoSession(req, sessionId) {
 
 function scheduleDirectVideoCleanup() {
   if (directVideoCleanupTimer) return;
-  directVideoCleanupTimer = setTimeout(() => {
+  directVideoCleanupTimer = setTimeout(async () => {
     directVideoCleanupTimer = null;
-    cleanupDirectVideoUploads();
-    if (directVideoUploads.size) scheduleDirectVideoCleanup();
+    try { await cleanupDirectVideoUploads(); } catch (error) { console.warn('[upload-cleanup]', error.message); }
+    if (!backgroundStopping) scheduleDirectVideoCleanup();
   }, Math.min(5 * 60 * 1000, DIRECT_VIDEO_SESSION_TTL_MS));
   if (directVideoCleanupTimer && typeof directVideoCleanupTimer.unref === 'function') directVideoCleanupTimer.unref();
 }
@@ -266,7 +276,7 @@ try {
 
 // 启动清扫：进程崩溃/pm2 restart 会把 multer 原件和转码半成品留在 tmp 目录，
 // 超过 24h 的一律清掉（in-flight 任务不会活这么久）
-(async () => {
+async function sweepStaleVideoTemps() {
   const maxAgeMs = Math.max(1, envNumber(process.env.VIDEO_TMP_SWEEP_HOURS, 24)) * 3600 * 1000;
   try {
     const entries = await fs.promises.readdir(VIDEO_UPLOAD_TMP_DIR);
@@ -283,7 +293,8 @@ try {
     }
     if (removed) console.log(`[upload.video] tmp sweep removed ${removed} stale file(s)`);
   } catch (e) { /* 目录不可读则跳过 */ }
-})();
+}
+if (!distributed()) void sweepStaleVideoTemps();
 
 const videoStorage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, VIDEO_UPLOAD_TMP_DIR),
@@ -465,9 +476,10 @@ const playbackJobsWaiting = [];
 // 下载版与视频转码分开排队：图片压缩只跑一条，避免和人脸/视频任务争抢 CPU 与内存。
 let publicDownloadJobsActive = 0;
 const publicDownloadJobsWaiting = [];
+let backgroundStopping = false;
 
 function drainPlaybackQueue() {
-  while (playbackJobsActive < VIDEO_PLAYBACK_CONCURRENCY && playbackJobsWaiting.length) {
+  while (!backgroundStopping && playbackJobsActive < VIDEO_PLAYBACK_CONCURRENCY && playbackJobsWaiting.length) {
     const job = playbackJobsWaiting.shift();
     playbackJobsActive += 1;
     Promise.resolve()
@@ -481,7 +493,7 @@ function drainPlaybackQueue() {
 }
 
 function drainPublicDownloadQueue() {
-  while (publicDownloadJobsActive < PUBLIC_DOWNLOAD_CONCURRENCY && publicDownloadJobsWaiting.length) {
+  while (!backgroundStopping && publicDownloadJobsActive < PUBLIC_DOWNLOAD_CONCURRENCY && publicDownloadJobsWaiting.length) {
     const job = publicDownloadJobsWaiting.shift();
     publicDownloadJobsActive += 1;
     Promise.resolve()
@@ -501,10 +513,12 @@ function buildPublicDownloadKeyFromOriginalKey(originalKey) {
   return `${path.posix.dirname(normalized)}/public/public_${stem}.jpg`;
 }
 
-function enqueuePublicDownloadDerivative({ insertedId, sourceKey, publicDownloadKey, publicDownloadRel }) {
+function enqueuePublicDownloadDerivative({ insertedId, sourceKey, publicDownloadKey, publicDownloadRel }, execute = false) {
+  if (backgroundStopping) return false;
   if (!PUBLIC_DOWNLOAD_ENABLED || !insertedId || !sourceKey || !publicDownloadKey || !publicDownloadRel) return false;
 
-  publicDownloadJobsWaiting.push(async () => {
+  if (distributed() && !execute) return coordinator.enqueue('public-download', insertedId, { insertedId, sourceKey, publicDownloadKey, publicDownloadRel });
+  const work = async () => {
     let uploaded = false;
     try {
       const source = await cosStorage.getObject(sourceKey);
@@ -537,8 +551,11 @@ function enqueuePublicDownloadDerivative({ insertedId, sourceKey, publicDownload
     } catch (err) {
       if (uploaded) await cosStorage.deleteObjects([publicDownloadKey]).catch(() => null);
       console.error('[upload.public-download] failed:', insertedId, err && err.stack ? err.stack : err);
+      if (execute) throw err;
     }
-  });
+  };
+  if (execute) return work();
+  publicDownloadJobsWaiting.push(work);
   drainPublicDownloadQueue();
   return true;
 }
@@ -552,11 +569,13 @@ async function tmpDirFreeBytes() {
   }
 }
 
-function enqueueVideoPlaybackTranscode({ sourceFilePath, cleanupPaths, playbackKey, playbackRel, insertedId }) {
+function enqueueVideoPlaybackTranscode({ sourceFilePath, cleanupPaths, playbackKey, playbackRel, insertedId }, execute = false) {
+  if (backgroundStopping) return false;
   if (!VIDEO_PLAYBACK_ENABLED || !sourceFilePath || !playbackKey || !playbackRel || !insertedId) return false;
   const cleanupSet = Array.from(new Set((cleanupPaths || []).filter(Boolean)));
 
-  playbackJobsWaiting.push(async () => {
+  if (distributed() && !execute) return coordinator.enqueue('video-playback', insertedId, { sourceFilePath, cleanupPaths, playbackKey, playbackRel, insertedId });
+  const work = async () => {
     let playbackVideo = null;
     try {
       playbackVideo = await createVideoPlaybackForWeb(sourceFilePath);
@@ -578,13 +597,13 @@ function enqueueVideoPlaybackTranscode({ sourceFilePath, cleanupPaths, playbackK
         );
       } catch (dbErr) {
         // 列不存在/DB 瞬时故障：回收刚上传的对象再抛出（key 确定性，之后 backfill 会重建）
-        await cosStorage.deleteObjects([playbackKey]).catch(() => null);
+        const [rows] = await pool.query('SELECT playback_url FROM photos WHERE id = ?', [insertedId]);
+        if (rows[0]?.playback_url !== playbackRel) await cosStorage.deleteObjects([playbackKey]).catch(() => null);
         throw dbErr;
       }
       if (!updateResult || !updateResult.affectedRows) {
-        // 转码期间照片已被删除：回收刚上传的对象，避免 COS 孤儿
-        console.warn('[upload.video] playback update matched no row, deleting object:', insertedId, playbackKey);
-        await cosStorage.deleteObjects([playbackKey]).catch(() => null);
+        const [rows] = await pool.query('SELECT playback_url FROM photos WHERE id = ?', [insertedId]);
+        if (rows[0]?.playback_url !== playbackRel) await cosStorage.deleteObjects([playbackKey]).catch(() => null);
         return;
       }
       console.log('[upload.video] playback ready', {
@@ -598,11 +617,14 @@ function enqueueVideoPlaybackTranscode({ sourceFilePath, cleanupPaths, playbackK
     } catch (err) {
       console.error('[upload.video] playback job failed:', insertedId, err && err.stack ? err.stack : err);
       await enableVideoSemanticAnalysis({ insertedId }).catch(() => null);
+      if (execute) throw err;
     } finally {
       if (playbackVideo && playbackVideo.filePath) unlinkFileQuiet(playbackVideo.filePath);
-      cleanupSet.forEach(unlinkFileQuiet);
+      if (!execute) cleanupSet.forEach(unlinkFileQuiet);
     }
-  });
+  };
+  if (execute) return work().then(() => { cleanupSet.forEach(unlinkFileQuiet); });
+  playbackJobsWaiting.push(work);
   drainPlaybackQueue();
 
   return true;
@@ -610,9 +632,11 @@ function enqueueVideoPlaybackTranscode({ sourceFilePath, cleanupPaths, playbackK
 
 // 直传视频先落对象存储，随后才由 Mac Mini 从内网对象存储取回做 faststart、封面和播放转码。
 // 这样用户上传不再经过本机临时盘；本机磁盘只承担受并发队列限制的后处理工作区。
-function enqueueDirectVideoPostProcess({ sourceKey, mimeType, thumbKey, thumbRel, playbackKey, playbackRel, insertedId }) {
+function enqueueDirectVideoPostProcess({ sourceKey, mimeType, thumbKey, thumbRel, playbackKey, playbackRel, insertedId }, execute = false) {
+  if (backgroundStopping) return false;
   if (!insertedId || !sourceKey || (!VIDEO_PREVIEW_ENABLED && !VIDEO_PLAYBACK_ENABLED)) return false;
-  playbackJobsWaiting.push(async () => {
+  if (distributed() && !execute) return coordinator.enqueue('video-postprocess', insertedId, { sourceKey, mimeType, thumbKey, thumbRel, playbackKey, playbackRel, insertedId });
+  const work = async () => {
     const ext = path.extname(String(sourceKey || '')).toLowerCase() || '.mp4';
     const sourcePath = path.join(VIDEO_UPLOAD_TMP_DIR, `${uuidv4()}-direct-source${ext}`);
     let preparedVideo = null;
@@ -622,7 +646,7 @@ function enqueueDirectVideoPostProcess({ sourceKey, mimeType, thumbKey, thumbRel
       const head = await cosStorage.headObject(sourceKey);
       const sourceBytes = Number(head && head.ContentLength) || 0;
       const freeBytes = await tmpDirFreeBytes();
-      const requiredBytes = Math.max(sourceBytes * 2, VIDEO_TMP_MIN_FREE_BYTES);
+      const requiredBytes = sourceBytes * 3 + VIDEO_TMP_MIN_FREE_BYTES;
       if (freeBytes !== null && freeBytes < requiredBytes) throw new Error('INSUFFICIENT_STORAGE_FOR_VIDEO_PROCESSING');
 
       const source = await cosStorage.getObject(sourceKey);
@@ -654,7 +678,10 @@ function enqueueDirectVideoPostProcess({ sourceKey, mimeType, thumbKey, thumbRel
             'UPDATE photos SET thumb_url = ? WHERE id = ? AND (thumb_url IS NULL OR thumb_url = \'\')',
             [thumbRel, insertedId]
           );
-          if (!posterUpdate || !posterUpdate.affectedRows) await cosStorage.deleteObjects([thumbKey]).catch(() => null);
+          if (!posterUpdate || !posterUpdate.affectedRows) {
+            const [rows] = await pool.query('SELECT thumb_url FROM photos WHERE id = ?', [insertedId]);
+            if (rows[0]?.thumb_url !== thumbRel) await cosStorage.deleteObjects([thumbKey]).catch(() => null);
+          }
         }
       }
 
@@ -668,7 +695,10 @@ function enqueueDirectVideoPostProcess({ sourceKey, mimeType, thumbKey, thumbRel
             'UPDATE photos SET playback_url = ? WHERE id = ? AND (playback_url IS NULL OR playback_url = \'\')',
             [playbackRel, insertedId]
           );
-          if (!playbackUpdate || !playbackUpdate.affectedRows) await cosStorage.deleteObjects([playbackKey]).catch(() => null);
+          if (!playbackUpdate || !playbackUpdate.affectedRows) {
+            const [rows] = await pool.query('SELECT playback_url FROM photos WHERE id = ?', [insertedId]);
+            if (rows[0]?.playback_url !== playbackRel) await cosStorage.deleteObjects([playbackKey]).catch(() => null);
+          }
         }
       }
       // Queue only after faststart/preview/playback work has released the heavy
@@ -678,13 +708,16 @@ function enqueueDirectVideoPostProcess({ sourceKey, mimeType, thumbKey, thumbRel
     } catch (err) {
       console.error('[upload.video] direct post-process failed:', insertedId, err && err.stack ? err.stack : err);
       await enableVideoSemanticAnalysis({ insertedId }).catch(() => null);
+      if (execute) throw err;
     } finally {
       if (playbackVideo && playbackVideo.filePath) unlinkFileQuiet(playbackVideo.filePath);
       if (posterImage && posterImage.filePath) unlinkFileQuiet(posterImage.filePath);
       if (preparedVideo && preparedVideo.cleanupPath) unlinkFileQuiet(preparedVideo.cleanupPath);
       unlinkFileQuiet(sourcePath);
     }
-  });
+  };
+  if (execute) return work();
+  playbackJobsWaiting.push(work);
   drainPlaybackQueue();
   return true;
 }
@@ -894,8 +927,8 @@ async function createPhotoRecord(payload) {
     try {
       [result] = await conn.query(
         `INSERT INTO photos
-          (uuid, project_id, timeline_section_id, url, thumb_url, playback_url, title, description, tags, ai_status, ai_error, type, photographer_id, organization_id, unit_id)
-         VALUES (UUID(), ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)`,
+          (uuid, project_id, timeline_section_id, url, thumb_url, playback_url, title, description, tags, ai_status, ai_error, type, photographer_id, organization_id, unit_id, original_filename)
+         VALUES (UUID(), ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)`,
         [
           payload.projectId || null,
           payload.timelineSectionId || null,
@@ -910,15 +943,17 @@ async function createPhotoRecord(payload) {
           payload.photographerId || null,
           payload.orgId,
           unitId,
+          normalizeOriginalFilename(payload.originalFilename),
         ]
       );
     } catch (err) {
       if (err && (err.code === 'ER_BAD_FIELD_ERROR' || String(err.message || '').includes('Unknown column'))) {
+        if (String(err.message || '').includes('original_filename')) throw err;
         if (String(err.message || '').includes('playback_url')) {
           [result] = await conn.query(
             `INSERT INTO photos
-              (uuid, project_id, timeline_section_id, url, thumb_url, title, description, tags, ai_status, ai_error, type, photographer_id, organization_id, unit_id)
-             VALUES (UUID(), ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)`,
+              (uuid, project_id, timeline_section_id, url, thumb_url, title, description, tags, ai_status, ai_error, type, photographer_id, organization_id, unit_id, original_filename)
+             VALUES (UUID(), ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)`,
             [
               payload.projectId || null,
               payload.timelineSectionId || null,
@@ -932,13 +967,14 @@ async function createPhotoRecord(payload) {
               payload.photographerId || null,
               payload.orgId,
               unitId,
+              normalizeOriginalFilename(payload.originalFilename),
             ]
           );
         } else {
           [result] = await conn.query(
             `INSERT INTO photos
-              (uuid, project_id, url, thumb_url, title, description, tags, type, photographer_id)
-             VALUES (UUID(), ?, ?, ?, ?, ?, ?, ?, ?)`,
+              (uuid, project_id, url, thumb_url, title, description, tags, type, photographer_id, original_filename)
+             VALUES (UUID(), ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               payload.projectId || null,
               payload.relPath,
@@ -948,6 +984,7 @@ async function createPhotoRecord(payload) {
               payload.tags ? JSON.stringify(payload.tags) : null,
               payload.type,
               payload.photographerId || null,
+              normalizeOriginalFilename(payload.originalFilename),
             ]
           );
         }
@@ -961,6 +998,7 @@ async function createPhotoRecord(payload) {
     }
 
     const insertedId = result.insertId;
+    if (distributed()) await persistPhotoTasks(conn, { ...payload, insertedId });
     await conn.commit();
     return insertedId;
   } catch (err) {
@@ -968,6 +1006,35 @@ async function createPhotoRecord(payload) {
     throw err;
   } finally {
     if (!payload.connection) conn.release();
+  }
+}
+
+async function persistPhotoTasks(connection, { insertedId, relPath, thumbRel, type, photographerId, backgroundPriority }) {
+  // The photo and its processing intents commit together: no upload can be
+  // acknowledged with its only analysis/transcode task living in process memory.
+  require('../lib/ai_tags_worker');
+  require('../lib/face_auto_worker');
+  const sourceKey = cosStorage.keyFromUrlOrPath(relPath);
+  if (type === 'video') {
+    if (VIDEO_PREVIEW_ENABLED || VIDEO_PLAYBACK_ENABLED) {
+      const dir = path.posix.dirname(sourceKey);
+      const stem = path.posix.basename(sourceKey, path.posix.extname(sourceKey));
+      const thumbKey = `${dir}/previews/poster_${stem}.jpg`;
+      const playbackKey = `${dir}/playback/playback_${stem}.mp4`;
+      await coordinator.enqueue('video-postprocess', insertedId, { insertedId, sourceKey,
+        mimeType: inferVideoMime('', sourceKey) || 'video/mp4', thumbKey, thumbRel: `/${thumbKey}`,
+        playbackKey, playbackRel: `/${playbackKey}` }, { connection, priority: 10 });
+    } else await coordinator.enqueue('semantic', insertedId, { id: insertedId, isVideo: true, priority: 'low' }, { connection, priority: 100 });
+    return;
+  }
+  const options = { connection, priority: backgroundPriority === 'low' ? 10 : 0 };
+  await coordinator.enqueue('semantic', insertedId, { id: insertedId, relPath: thumbRel }, options);
+  await coordinator.enqueue('image-similarity', insertedId, { insertedId, thumbRel }, options);
+  await coordinator.enqueue('face', insertedId, { photoId: insertedId, uploaderId: photographerId || null }, options);
+  if (PUBLIC_DOWNLOAD_ENABLED) {
+    const publicDownloadKey = buildPublicDownloadKeyFromOriginalKey(sourceKey);
+    await coordinator.enqueue('public-download', insertedId, { insertedId, sourceKey, publicDownloadKey,
+      publicDownloadRel: `/${publicDownloadKey}` }, { connection });
   }
 }
 
@@ -1198,7 +1265,13 @@ function drainSimilarityQueue() {
   }
 }
 
-function enqueuePostUploadJobs({ insertedId, thumbRel, thumbBuffer, photographerId, priority = 'normal' }) {
+async function enqueuePostUploadJobs({ insertedId, thumbRel, thumbBuffer, photographerId, priority = 'normal' }) {
+  if (distributed()) {
+    await require('../lib/ai_tags_worker').enqueue({ id: insertedId, relPath: thumbRel, priority });
+    await coordinator.enqueue('image-similarity', insertedId, { insertedId, thumbRel }, { priority: priority === 'low' ? 10 : 0 });
+    await require('../lib/face_auto_worker').enqueueFaceAutoJob({ photoId: insertedId, uploaderId: photographerId || null, priority });
+    return;
+  }
   try {
     const aiWorker = require('../lib/ai_tags_worker');
     aiWorker.enqueue({ id: insertedId, relPath: thumbRel, priority });
@@ -1230,8 +1303,7 @@ function enqueueVideoSemanticAnalysis({ insertedId }) {
   try {
     const aiWorker = require('../lib/ai_tags_worker');
     // 视频直接从对象存储上的源文件做连续时段语义理解；照片和人脸任务始终优先。
-    aiWorker.enqueue({ id: insertedId, isVideo: true, priority: 'low' });
-    return true;
+    return aiWorker.enqueue({ id: insertedId, isVideo: true, priority: 'low' }) || true;
   } catch (err) {
     console.error('[upload.video] enqueue semantic analysis failed:', err && err.message ? err.message : err);
     return false;
@@ -1241,6 +1313,13 @@ function enqueueVideoSemanticAnalysis({ insertedId }) {
 async function enableVideoSemanticAnalysis({ insertedId }) {
   if (!insertedId) return false;
   try {
+    if (distributed()) {
+      const [photos] = await pool.query('SELECT ai_status FROM photos WHERE id = ? AND type = \'video\'', [insertedId]);
+      if (!photos.length) return false;
+      if (photos[0].ai_status === 'done') return true;
+      const [tasks] = await pool.query("SELECT status FROM runtime_tasks WHERE kind = 'semantic' AND dedupe_key = ?", [String(insertedId)]);
+      if (tasks.length) return ['queued', 'running'].includes(tasks[0].status);
+    }
     const [result] = await pool.query(
       `UPDATE photos
        SET ai_status = 'pending', ai_error = NULL, ai_started_at = NULL, ai_finished_at = NULL
@@ -1255,7 +1334,7 @@ async function enableVideoSemanticAnalysis({ insertedId }) {
   }
 }
 
-function makeResponsePayload({ insertedId, projectId, timelineSectionId, relPath, thumbRel, playbackRel, playbackQueued, title, type, mediaType, aiStatus, photographerId, photographerName }) {
+function makeResponsePayload({ insertedId, projectId, timelineSectionId, relPath, thumbRel, playbackRel, playbackQueued, title, originalFilename, type, mediaType, aiStatus, photographerId, photographerName }) {
   const isVideo = type === 'video' || mediaType === 'video';
   const resolvedAiStatus = aiStatus || (isVideo ? 'skipped' : 'pending');
   // 只有真正排了转码任务才报 transcoding，否则（如 VIDEO_PLAYBACK_ENABLED=0）前端会白等占位
@@ -1271,6 +1350,7 @@ function makeResponsePayload({ insertedId, projectId, timelineSectionId, relPath
     fullUrl: buildMediaUrl(relPath, { userId: photographerId, photoId: insertedId }),
     fullThumbUrl: thumbRel ? buildMediaUrl(thumbRel, { userId: photographerId, photoId: insertedId }) : null,
     title,
+    originalFilename: normalizeOriginalFilename(originalFilename),
     type,
     mediaType: mediaType || (isVideo ? 'video' : 'image'),
     media_type: mediaType || (isVideo ? 'video' : 'image'),
@@ -1339,6 +1419,7 @@ async function processUpload(req, res) {
       });
     }
 
+    const originalFilename = normalizeOriginalFilename(req.file.originalname, { multipart: true });
     // 浏览器显示不了的图片格式(HEIC/HEIF/TIFF) → 高质量 JPEG。失败给明确错误，不让后续 sharp 撞墙。
     try {
       const heicStartMs = nowMs();
@@ -1352,6 +1433,7 @@ async function processUpload(req, res) {
     }
 
     const metadata = readPhotoMetadata(req.body || {});
+    metadata.originalFilename = originalFilename;
     const photographerId = req.user && req.user.id ? req.user.id : null;
     const orgId = getOrgId(req);
     const scopedProject = await ensureProjectInScope(pool, metadata.projectId, orgId, req);
@@ -1417,8 +1499,10 @@ async function processUpload(req, res) {
     }
 
     const photographerName = await getPhotographerName(photographerId);
-    enqueuePostUploadJobs({ insertedId, thumbRel, thumbBuffer, photographerId });
-    enqueuePublicDownloadDerivative({ insertedId, sourceKey: originalKey, publicDownloadKey, publicDownloadRel });
+    if (!distributed()) {
+      await enqueuePostUploadJobs({ insertedId, thumbRel, thumbBuffer, photographerId });
+      enqueuePublicDownloadDerivative({ insertedId, sourceKey: originalKey, publicDownloadKey, publicDownloadRel });
+    }
     setImmediate(() => {
       appendPhotoIdToProjectBestEffort(metadata.projectId, insertedId).catch((err) => {
         console.warn('[upload] project photo_ids async sync failed:', err && err.message ? err.message : err);
@@ -1445,6 +1529,7 @@ async function processUpload(req, res) {
       relPath,
       thumbRel,
       title: metadata.title,
+      originalFilename: metadata.originalFilename,
       type: metadata.type,
       photographerId,
       photographerName,
@@ -1476,6 +1561,7 @@ async function processVideoUpload(req, res) {
 
     const metadata = readPhotoMetadata(req.body || {});
     metadata.type = 'video';
+    metadata.originalFilename = normalizeOriginalFilename(req.file.originalname, { multipart: true });
     const photographerId = req.user && req.user.id ? req.user.id : null;
     const orgId = getOrgId(req);
     const scopedProject = await ensureProjectInScope(pool, metadata.projectId, orgId, req);
@@ -1485,7 +1571,7 @@ async function processVideoUpload(req, res) {
     if (!mimeType) return res.status(415).json({ error: 'UNSUPPORTED_VIDEO_TYPE' });
     // 磁盘防线：faststart 产物 + playback 转码产物最多再占约 2 倍原件大小
     const freeBytes = await tmpDirFreeBytes();
-    const requiredBytes = Math.max(req.file.size * 2, VIDEO_TMP_MIN_FREE_BYTES);
+    const requiredBytes = req.file.size * 3 + VIDEO_TMP_MIN_FREE_BYTES;
     if (freeBytes !== null && freeBytes < requiredBytes) {
       console.error('[upload.video] insufficient disk space:', { freeBytes, requiredBytes });
       return res.status(507).json({ error: 'INSUFFICIENT_STORAGE', message: 'Server disk space low, try later' });
@@ -1547,7 +1633,7 @@ async function processVideoUpload(req, res) {
     });
 
     const photographerName = await getPhotographerName(photographerId);
-    playbackJobScheduled = enqueueVideoPlaybackTranscode({
+    playbackJobScheduled = distributed() ? (VIDEO_PREVIEW_ENABLED || VIDEO_PLAYBACK_ENABLED) : enqueueVideoPlaybackTranscode({
       sourceFilePath: uploadFilePath,
       cleanupPaths: [filePath, processedVideo && processedVideo.cleanupPath],
       playbackKey,
@@ -1577,6 +1663,7 @@ async function processVideoUpload(req, res) {
       playbackRel: webPlaybackRel,
       playbackQueued: playbackJobScheduled,
       title: metadata.title,
+      originalFilename: metadata.originalFilename,
       type: 'video',
       mediaType: 'video',
       aiStatus: playbackThumbRel ? 'pending' : 'skipped',
@@ -1591,7 +1678,7 @@ async function processVideoUpload(req, res) {
     if (posterImage && posterImage.filePath) {
       unlinkFileQuiet(posterImage.filePath);
     }
-    if (!playbackJobScheduled) {
+    if (!playbackJobScheduled || distributed()) {
       if (processedVideo && processedVideo.cleanupPath && processedVideo.cleanupPath !== filePath) {
         unlinkFileQuiet(processedVideo.cleanupPath);
       }
@@ -1622,6 +1709,7 @@ router.post('/photo/direct/init', requirePermission('upload.photo'), async (req,
     await ensureTimelineSectionInProject(pool, metadata.projectId, orgId, metadata.timelineSectionId);
 
     const fileName = trimText(req.body && req.body.fileName, 255) || 'photo.jpg';
+    metadata.originalFilename = normalizeOriginalFilename(req.body && req.body.fileName);
     const fileSize = Number(req.body && req.body.fileSize);
     if (!Number.isFinite(fileSize) || fileSize <= 0) {
       return res.status(400).json({ error: 'INVALID_FILE_SIZE' });
@@ -1697,8 +1785,8 @@ router.post('/photo/direct/complete', requirePermission('upload.photo'), async (
     const { insertedId } = result;
 
     const photographerName = await getPhotographerName(photographerId);
-    if (result.created) {
-      enqueuePostUploadJobs({ insertedId, thumbRel: `/${thumbKey}`, thumbBuffer: null, photographerId });
+    if (result.created && !distributed()) {
+      await enqueuePostUploadJobs({ insertedId, thumbRel: `/${thumbKey}`, thumbBuffer: null, photographerId });
       const publicDownloadKey = buildPublicDownloadKeyFromOriginalKey(originalKey);
       enqueuePublicDownloadDerivative({ insertedId, sourceKey: originalKey, publicDownloadKey,
         publicDownloadRel: `/${publicDownloadKey}` });
@@ -1716,6 +1804,7 @@ router.post('/photo/direct/complete', requirePermission('upload.photo'), async (
       relPath: `/${originalKey}`,
       thumbRel: `/${thumbKey}`,
       title: metadata.title,
+      originalFilename: metadata.originalFilename,
       type: metadata.type,
       photographerId,
       photographerName,
@@ -1759,6 +1848,7 @@ router.post('/video/direct/init', requirePermission('upload.photo'), async (req,
     const scopedProject = await ensureProjectInScope(pool, metadata.projectId, orgId, req);
     await ensureTimelineSectionInProject(pool, metadata.projectId, orgId, metadata.timelineSectionId);
     const fileName = trimText(req.body && req.body.fileName, 255) || 'video.mp4';
+    metadata.originalFilename = normalizeOriginalFilename(req.body && req.body.fileName);
     const fileSize = Number(req.body && req.body.fileSize);
     const mimeType = inferVideoMime(req.body && req.body.mimeType, fileName);
     if (!mimeType) return res.status(415).json({ error: 'UNSUPPORTED_VIDEO_TYPE' });
@@ -1790,7 +1880,7 @@ router.post('/video/direct/init', requirePermission('upload.photo'), async (req,
         await cosStorage.abortMultipartUpload(originalKey, multipart.uploadId).catch(() => null);
         return res.status(413).json({ error: 'VIDEO_TOO_MANY_PARTS', maxParts: DIRECT_VIDEO_MAX_PARTS });
       }
-      directVideoUploads.set(sessionId, {
+      await directVideoUploads.set(sessionId, {
         ...commonSession,
         storageUploadId: multipart.uploadId,
         partCount,
@@ -1819,7 +1909,7 @@ router.post('/video/direct/init', requirePermission('upload.photo'), async (req,
       cacheControl: UPLOAD_CACHE_CONTROL,
       maxBytes: fileSize,
     });
-    directVideoUploads.set(sessionId, {
+    await directVideoUploads.set(sessionId, {
       ...commonSession,
       storageUploadId: null,
       partCount: 1,
@@ -1844,7 +1934,7 @@ router.post('/video/direct/init', requirePermission('upload.photo'), async (req,
 
 router.post('/video/direct/parts', requirePermission('upload.photo'), async (req, res) => {
   try {
-    const session = getDirectVideoSession(req, req.body && req.body.sessionId);
+    const session = await getDirectVideoSession(req, req.body && req.body.sessionId);
     if (!session || session.status !== 'uploading') return res.status(404).json({ error: 'DIRECT_VIDEO_SESSION_NOT_FOUND' });
     if (!session.storageUploadId) return res.status(400).json({ error: 'DIRECT_VIDEO_MULTIPART_NOT_ENABLED' });
     const requested = Array.from(new Set(Array.isArray(req.body && req.body.partNumbers) ? req.body.partNumbers.map(Number) : []))
@@ -1870,7 +1960,7 @@ router.put(
   requirePermission('upload.photo'),
   express.raw({ type: () => true, limit: DIRECT_VIDEO_PROXY_PART_SIZE + 1024 * 1024 }),
   async (req, res) => {
-    const session = getDirectVideoSession(req, req.params.sessionId);
+    const session = await getDirectVideoSession(req, req.params.sessionId);
     if (!session || session.status !== 'uploading') return res.status(404).json({ error: 'DIRECT_VIDEO_SESSION_NOT_FOUND' });
     if (session.transport !== 'proxy' || !session.storageUploadId || !session.partSize) {
       return res.status(400).json({ error: 'DIRECT_VIDEO_PROXY_NOT_ENABLED' });
@@ -1884,33 +1974,66 @@ router.put(
     if (!body || body.length !== expectedBytes) {
       return res.status(400).json({ error: 'DIRECT_VIDEO_PART_SIZE_MISMATCH', expectedBytes });
     }
-    if ((session.proxyInflight || 0) >= DIRECT_VIDEO_PROXY_MAX_INFLIGHT) {
+    const reservation = uuidv4();
+    const reserved = await directVideoUploads.mutate(session.id, current => {
+      if (!current || current.status !== 'uploading' || current.expiresAt <= Date.now()) return false;
+      const leases = Object.entries(current.partLeases || {}).filter(([, expiry]) => expiry > Date.now());
+      if (leases.length >= DIRECT_VIDEO_PROXY_MAX_INFLIGHT) return false;
+      current.partLeases = Object.fromEntries([...leases, [reservation, Date.now() + 10 * 60 * 1000]]);
+      return true;
+    });
+    if (!reserved) {
       res.set('Retry-After', '1');
       return res.status(429).json({ error: 'DIRECT_VIDEO_PROXY_BUSY' });
     }
-    session.proxyInflight = (session.proxyInflight || 0) + 1;
+    let uploaded;
     try {
-      const uploaded = await cosStorage.uploadPart(session.originalKey, session.storageUploadId, partNumber, body, {
+      uploaded = await cosStorage.uploadPart(session.originalKey, session.storageUploadId, partNumber, body, {
         contentLength: body.length,
       });
-      // 显式覆盖，避免 express 给 JSON 响应自动生成的弱 ETag 被前端误当成分片 ETag。
-      res.set('ETag', uploaded.etag);
-      return res.json({ sessionId: session.id, partNumber, etag: uploaded.etag });
     } catch (err) {
       console.error('PUT /api/upload/video/direct/part-proxy error:', err && err.message ? err.message : err);
       return res.status(502).json({ error: 'DIRECT_VIDEO_PART_UPLOAD_FAILED' });
     } finally {
-      session.proxyInflight -= 1;
+      await directVideoUploads.mutate(session.id, current => {
+        if (current?.partLeases) delete current.partLeases[reservation];
+      });
     }
+    // Complete can follow this response immediately, so persist the released lease first.
+    res.set('ETag', uploaded.etag);
+    return res.json({ sessionId: session.id, partNumber, etag: uploaded.etag });
   }
 );
 
 router.post('/video/direct/complete', requirePermission('upload.photo'), async (req, res) => {
+  return directVideoUploads.withLock(String(req.body?.sessionId || ''), connection => completeDirectVideo(req, res, connection));
+});
+
+async function completeDirectVideo(req, res, connection) {
   let session = null;
   try {
-    session = getDirectVideoSession(req, req.body && req.body.sessionId);
-    if (!session || session.status !== 'uploading') return res.status(404).json({ error: 'DIRECT_VIDEO_SESSION_NOT_FOUND' });
+    session = await getDirectVideoSession(req, req.body && req.body.sessionId);
+    if (session) await ensureProjectInScope(pool, session.metadata.projectId, session.orgId, req);
+    if (!session || !['uploading', 'done'].includes(session.status)) return res.status(404).json({ error: 'DIRECT_VIDEO_SESSION_NOT_FOUND' });
+    const [committed] = await (connection || pool).query('SELECT id, thumb_url, playback_url, ai_status FROM photos WHERE url = ? AND organization_id <=> ? LIMIT 1', [session.relPath, session.orgId]);
+    if (committed.length) {
+      const row = committed[0];
+      session.status = 'done';
+      session.response = makeResponsePayload({ insertedId: row.id, projectId: session.metadata.projectId,
+        timelineSectionId: session.metadata.timelineSectionId, relPath: session.relPath, thumbRel: row.thumb_url,
+        playbackRel: row.playback_url, playbackQueued: !row.playback_url && (VIDEO_PREVIEW_ENABLED || VIDEO_PLAYBACK_ENABLED),
+        title: session.metadata.title, originalFilename: session.metadata.originalFilename === undefined ? session.fileName : session.metadata.originalFilename, type: 'video', mediaType: 'video', aiStatus: row.ai_status,
+        photographerId: session.userId, photographerName: await getPhotographerName(session.userId) });
+      await directVideoUploads.set(session.id, session);
+      return res.json(session.response);
+    }
+    if (session.status === 'done') return res.status(410).json({ error: 'DIRECT_VIDEO_COMMITTED_PHOTO_REMOVED' });
     session.status = 'completing';
+    if (Object.values(session.partLeases || {}).some(expiry => expiry > Date.now())) {
+      session.status = 'uploading';
+      return res.status(409).json({ error: 'DIRECT_VIDEO_PARTS_STILL_UPLOADING' });
+    }
+    await ensureTimelineSectionInProject(pool, session.metadata.projectId, session.orgId, session.metadata.timelineSectionId);
     if (session.storageUploadId) {
       const parts = Array.from(req.body && req.body.parts || [])
         .map((part) => ({
@@ -1926,7 +2049,11 @@ router.post('/video/direct/complete', requirePermission('upload.photo'), async (
         session.status = 'uploading';
         return res.status(400).json({ error: 'DIRECT_VIDEO_PARTS_INCOMPLETE' });
       }
-      await cosStorage.completeMultipartUpload(session.originalKey, session.storageUploadId, parts);
+      // A prior completion may have reached S3 before the API process restarted.
+      const existing = await cosStorage.headObject(session.originalKey).catch(() => null);
+      if (Number(existing?.ContentLength) !== Number(session.fileSize)) {
+        await cosStorage.completeMultipartUpload(session.originalKey, session.storageUploadId, parts);
+      }
     }
     const head = await cosStorage.headObject(session.originalKey);
     if (!head || Number(head.ContentLength) !== Number(session.fileSize)) throw new Error('DIRECT_VIDEO_SIZE_MISMATCH');
@@ -1934,46 +2061,54 @@ router.post('/video/direct/complete', requirePermission('upload.photo'), async (
     const photographerId = req.user && req.user.id ? req.user.id : null;
     let insertedId;
     try {
-      insertedId = await createPhotoRecordWithRetry({
+      const [existing] = await (connection || pool).query('SELECT id FROM photos WHERE url = ? AND organization_id <=> ? LIMIT 1', [session.relPath, session.orgId]);
+      insertedId = existing[0]?.id || await createPhotoRecordWithRetry({
         // The source is already in object storage. Keep the semantic state visible
         // while the low-priority post-process waits for its playback slot.
-        ...session.metadata, relPath: session.relPath, thumbRel: null, playbackRel: null, aiStatus: 'pending', photographerId, orgId: session.orgId, req,
+        ...session.metadata, originalFilename: session.metadata.originalFilename === undefined ? session.fileName : session.metadata.originalFilename, relPath: session.relPath, thumbRel: null, playbackRel: null, aiStatus: 'pending', photographerId, orgId: session.orgId, req, connection,
       });
     } catch (dbErr) {
-      await cosStorage.deleteObjects([session.originalKey]).catch(() => null);
       throw dbErr;
     }
-    directVideoUploads.delete(session.id);
     setImmediate(() => appendPhotoIdToProjectBestEffort(session.metadata.projectId, insertedId).catch((err) => console.warn('[upload.video] project photo_ids async sync failed:', err && err.message ? err.message : err)));
     const photographerName = await getPhotographerName(photographerId);
-    const playbackQueued = enqueueDirectVideoPostProcess({
+    const playbackQueued = distributed() ? (VIDEO_PREVIEW_ENABLED || VIDEO_PLAYBACK_ENABLED) : enqueueDirectVideoPostProcess({
       sourceKey: session.originalKey, mimeType: session.mimeType, thumbKey: session.thumbKey, thumbRel: session.thumbRel,
       playbackKey: session.playbackKey, playbackRel: session.playbackRel, insertedId,
     });
     if (!playbackQueued) await enableVideoSemanticAnalysis({ insertedId });
-    return res.json(makeResponsePayload({
+    const response = makeResponsePayload({
       insertedId, projectId: session.metadata.projectId, timelineSectionId: session.metadata.timelineSectionId,
       relPath: session.relPath, thumbRel: null, playbackRel: null, playbackQueued,
-      title: session.metadata.title, type: 'video', mediaType: 'video', aiStatus: 'pending', photographerId, photographerName,
-    }));
+      title: session.metadata.title, originalFilename: session.metadata.originalFilename === undefined ? session.fileName : session.metadata.originalFilename, type: 'video', mediaType: 'video', aiStatus: 'pending', photographerId, photographerName,
+    });
+    session.status = 'done';
+    session.response = response;
+    await directVideoUploads.set(session.id, session);
+    return res.json(response);
   } catch (err) {
     if (session) {
-      directVideoUploads.delete(session.id);
-      if (session.storageUploadId) await cosStorage.abortMultipartUpload(session.originalKey, session.storageUploadId).catch(() => null);
-      else await cosStorage.deleteObjects([session.originalKey]).catch(() => null);
+      // Preserve the source and session for a retry after a transient DB/S3 error.
+      session.status = 'uploading';
+      await directVideoUploads.set(session.id, session).catch(() => null);
     }
     console.error('POST /api/upload/video/direct/complete error:', err && err.stack ? err.stack : err);
     return res.status(err.status || 500).json({ error: err.message || 'DIRECT_VIDEO_COMPLETE_FAILED' });
   }
-});
+}
 
 router.post('/video/direct/abort', requirePermission('upload.photo'), async (req, res) => {
-  const session = getDirectVideoSession(req, req.body && req.body.sessionId);
+  return directVideoUploads.withLock(String(req.body?.sessionId || ''), async () => {
+  const session = await getDirectVideoSession(req, req.body && req.body.sessionId);
   if (!session) return res.json({ ok: true });
-  directVideoUploads.delete(session.id);
+  if (session.status === 'done') return res.json({ ok: true, committed: true, photoId: session.response.id });
+  const [committed] = await pool.query('SELECT id FROM photos WHERE url = ? AND organization_id <=> ? LIMIT 1', [session.relPath, session.orgId]);
+  if (committed.length) return res.json({ ok: true, committed: true, photoId: committed[0].id });
+  await directVideoUploads.delete(session.id);
   if (session.storageUploadId) await cosStorage.abortMultipartUpload(session.originalKey, session.storageUploadId).catch(() => null);
   else await cosStorage.deleteObjects([session.originalKey]).catch(() => null);
   return res.json({ ok: true });
+  });
 });
 
 router.post('/photo', requirePermission('upload.photo'), handleUploadMiddleware, processUpload);
@@ -1988,4 +2123,25 @@ router.buildObjectKeys = buildObjectKeys;
 router.enqueuePostUploadJobs = enqueuePostUploadJobs;
 router.enqueuePublicDownloadDerivative = enqueuePublicDownloadDerivative;
 
+coordinator.register('public-download', 'derivative', payload => enqueuePublicDownloadDerivative(payload, true));
+coordinator.register('video-playback', 'video', payload => enqueueVideoPlaybackTranscode(payload, true));
+coordinator.register('video-postprocess', 'video', payload => enqueueDirectVideoPostProcess(payload, true));
+coordinator.register('image-similarity', 'similarity', async item => {
+  const imageSim = require('../lib/image_similarity');
+  const buffer = await fetchBuffer(buildInternalMediaUrl(item.thumbRel),
+    Number(process.env.IMAGE_SIMILARITY_FETCH_MAX_BYTES || 5 * 1024 * 1024),
+    Number(process.env.IMAGE_SIMILARITY_FETCH_TIMEOUT_MS || 15000));
+  await imageSim.saveEmbedding(item.insertedId, await imageSim.encodeImageFromBuffer(buffer));
+});
+
+router.startSharedCleanup = async () => {
+  await sweepStaleVideoTemps();
+  scheduleDirectVideoCleanup();
+};
+
+router.stopBackgroundTasks = async () => {
+  backgroundStopping = true;
+  clearTimeout(directVideoCleanupTimer);
+  await require('../lib/runtime_lifecycle').waitForIdle(() => playbackJobsActive === 0 && publicDownloadJobsActive === 0);
+};
 module.exports = router;

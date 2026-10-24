@@ -30,7 +30,9 @@ const DIRECT_ASSET_UPLOAD_ESTIMATED_BYTES_PER_SECOND = Math.max(
   Number(process.env.VIDEO_DIRECT_UPLOAD_ESTIMATED_BYTES_PER_SECOND || 768 * 1024)
 );
 const DIRECT_ASSET_UPLOAD_FINISHING_BUFFER_SECONDS = 10 * 60;
-const directAssetUploads = new Map();
+const { createSharedStore } = require('../lib/shared_runtime_state');
+const { coordinator, distributed } = require('../lib/distributed_runtime');
+const directAssetUploads = createSharedStore('editor-upload');
 let directAssetCleanupTimer = null;
 
 const upload = multer({
@@ -52,6 +54,7 @@ const upload = multer({
 const activeRenders = new Map();
 const renderQueue = [];
 let runningRenderCount = 0;
+let backgroundStopping = false;
 const renderConcurrency = Math.max(1, Math.min(4, Number(process.env.VIDEO_RENDER_CONCURRENCY) || 1));
 const parseJson = (value, fallback) => {
   if (value == null) return fallback;
@@ -138,29 +141,34 @@ function scheduleDirectAssetCleanup() {
   directAssetCleanupTimer = setTimeout(async () => {
     directAssetCleanupTimer = null;
     const now = Date.now();
-    const expired = [...directAssetUploads.values()].filter((session) => session.expiresAt <= now);
-    expired.forEach((session) => directAssetUploads.delete(session.id));
-    await Promise.all(expired.map((session) => cosStorage.deleteObjects([session.key]).catch(() => null)));
-    if (directAssetUploads.size) scheduleDirectAssetCleanup();
+    try {
+      const expired = (await directAssetUploads.values()).filter(session => session.expiresAt <= now);
+      for (const session of expired) await directAssetUploads.withLock(session.id, async () => {
+        const [committed] = await pool.query('SELECT id FROM video_editor_assets WHERE storage_path = ? LIMIT 1', [session.key]);
+        if (!committed.length) await cosStorage.deleteObjects([session.key]);
+        await directAssetUploads.delete(session.id);
+      });
+    } catch (error) { console.warn('[asset-cleanup]', error.message); }
+    if (!backgroundStopping) scheduleDirectAssetCleanup();
   }, Math.min(DIRECT_ASSET_UPLOAD_TTL_MS, 5 * 60 * 1000));
   if (typeof directAssetCleanupTimer.unref === 'function') directAssetCleanupTimer.unref();
 }
 
-function getDirectAssetSession(req, sessionId) {
-  const session = directAssetUploads.get(String(sessionId || ''));
+async function getDirectAssetSession(req, sessionId) {
+  const session = await directAssetUploads.get(String(sessionId || ''));
   if (!session || session.userId !== req.user.id || session.expiresAt <= Date.now()) return null;
   return session;
 }
 
-async function createAssetRecord({ user, unitId, metadata, key }) {
-  const [result] = await pool.query(
+async function createAssetRecord({ user, unitId, metadata, key, db = pool }) {
+  const [result] = await db.query(
     `INSERT INTO video_editor_assets
      (user_id, org_id, unit_id, name, storage_path, public_url, mime_type, file_size, duration_seconds, width, height, has_audio)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [user.id, user.organization_id || null, unitId, metadata.name, key, null, metadata.mimeType, metadata.size,
       metadata.duration, metadata.width, metadata.height, metadata.hasAudio ? 1 : 0]
   );
-  const [rows] = await pool.query('SELECT * FROM video_editor_assets WHERE id = ? AND user_id = ? LIMIT 1', [result.insertId, user.id]);
+  const [rows] = await db.query('SELECT * FROM video_editor_assets WHERE id = ? AND user_id = ? LIMIT 1', [result.insertId, user.id]);
   return rows[0];
 }
 const assetDto = (row) => ({
@@ -276,7 +284,7 @@ router.post('/assets/direct/init', requirePermission('ai.generate'), async (req,
       maxBytes: metadata.size,
     });
     const id = crypto.randomUUID();
-    directAssetUploads.set(id, {
+    await directAssetUploads.set(id, {
       id,
       userId: req.user.id,
       unitId: workspace.enabled ? workspace.unitId : null,
@@ -305,39 +313,46 @@ router.post('/assets/direct/init', requirePermission('ai.generate'), async (req,
 });
 
 router.post('/assets/direct/complete', requirePermission('ai.generate'), async (req, res) => {
+  return directAssetUploads.withLock(String(req.body?.sessionId || ''), connection => completeDirectAsset(req, res, connection));
+});
+
+async function completeDirectAsset(req, res, connection) {
   let session = null;
   try {
-    session = getDirectAssetSession(req, req.body && req.body.sessionId);
+    session = await getDirectAssetSession(req, req.body && req.body.sessionId);
     if (!session) return res.status(404).json({ error: 'DIRECT_VIDEO_SESSION_NOT_FOUND' });
     const workspace = await resolveWorkspace(req);
     if (workspace.enabled && workspace.unitId !== session.unitId) {
       return res.status(403).json({ error: 'VIDEO_ASSET_UNIT_CHANGED' });
     }
+    const [existing] = await pool.query('SELECT * FROM video_editor_assets WHERE storage_path = ? AND user_id = ? AND unit_id <=> ? LIMIT 1', [session.key, req.user.id, session.unitId]);
+    if (existing.length) return res.status(201).json({ asset: assetDto(existing[0]) });
     const head = await cosStorage.headObject(session.key);
     if (!head || Number(head.ContentLength) !== Number(session.metadata.size)) {
       const error = new Error('DIRECT_VIDEO_SIZE_MISMATCH');
       error.status = 400;
       throw error;
     }
-    const asset = await createAssetRecord({ user: req.user, unitId: session.unitId, metadata: session.metadata, key: session.key });
-    directAssetUploads.delete(session.id);
+    const asset = await createAssetRecord({ user: req.user, unitId: session.unitId, metadata: session.metadata, key: session.key, db: connection || pool });
+    session.committed = true;
+    await directAssetUploads.set(session.id, session);
     return res.status(201).json({ asset: assetDto(asset) });
   } catch (error) {
-    if (session) {
-      directAssetUploads.delete(session.id);
-      await cosStorage.deleteObjects([session.key]).catch(() => null);
-    }
     if (sendWorkspaceError(res, error)) return;
     return res.status(error.status || 500).json({ error: error.code || error.message || 'DIRECT_VIDEO_COMPLETE_FAILED' });
   }
-});
+}
 
 router.post('/assets/direct/abort', requirePermission('ai.generate'), async (req, res) => {
-  const session = getDirectAssetSession(req, req.body && req.body.sessionId);
+  return directAssetUploads.withLock(String(req.body?.sessionId || ''), async () => {
+  const session = await getDirectAssetSession(req, req.body && req.body.sessionId);
   if (!session) return res.json({ ok: true });
-  directAssetUploads.delete(session.id);
+  const [committed] = await pool.query('SELECT id FROM video_editor_assets WHERE storage_path = ? AND user_id = ? LIMIT 1', [session.key, req.user.id]);
+  if (committed.length) return res.json({ ok: true, committed: true });
+  await directAssetUploads.delete(session.id);
   await cosStorage.deleteObjects([session.key]).catch(() => null);
   return res.json({ ok: true });
+  });
 });
 
 router.post('/assets/:assetId/analyze', requirePermission('ai.generate'), async (req, res) => {
@@ -535,8 +550,22 @@ async function runRender(jobId, userId, projectRow, options) {
   const signalRef = { child: null, canceled: false };
   let workDir = null;
   activeRenders.set(String(jobId), signalRef);
+  let cancelPolling = false;
+  const cancelTimer = distributed() ? setInterval(async () => {
+    if (cancelPolling) return;
+    cancelPolling = true;
+    try {
+      const [rows] = await pool.query('SELECT status FROM video_render_jobs WHERE id = ?', [jobId]);
+      if (!rows.length || rows[0].status === 'canceled') {
+        signalRef.canceled = true;
+        signalRef.child?.kill('SIGTERM');
+      }
+    } catch (error) { signalRef.canceled = true; signalRef.child?.kill('SIGTERM'); }
+    finally { cancelPolling = false; }
+  }, 1000) : null;
   try {
-    await pool.query("UPDATE video_render_jobs SET status = 'running', progress = 1, stage = '准备素材', started_at = NOW() WHERE id = ?", [jobId]);
+    const [claim] = await pool.query("UPDATE video_render_jobs SET status = 'running', progress = 1, stage = '准备素材', started_at = NOW() WHERE id = ? AND status IN ('queued','running')", [jobId]);
+    if (!claim.affectedRows) return;
     const project = parseJson(projectRow.project_json, {});
     const sourceIds = referencedSourceIds(project);
     const renderSources = (Array.isArray(project.sources) ? project.sources : [])
@@ -571,21 +600,23 @@ async function runRender(jobId, userId, projectRow, options) {
       await videoStorage.deleteObject(stored.key).catch(() => null);
       return;
     }
-    await pool.query(
-      "UPDATE video_render_jobs SET status = 'completed', progress = 100, stage = '导出完成', output_path = ?, output_url = NULL, finished_at = NOW() WHERE id = ?",
+    const [completed] = await pool.query(
+      "UPDATE video_render_jobs SET status = 'completed', progress = 100, stage = '导出完成', output_path = ?, output_url = NULL, finished_at = NOW() WHERE id = ? AND status = 'running'",
       [stored.key, jobId]
     );
+    if (!completed.affectedRows) await videoStorage.deleteObject(stored.key).catch(() => null);
   } catch (error) {
     const status = signalRef.canceled ? 'canceled' : 'failed';
-    await pool.query('UPDATE video_render_jobs SET status = ?, stage = ?, error_text = ?, finished_at = NOW() WHERE id = ?', [status, status === 'canceled' ? '已取消' : '导出失败', String(error.message || error).slice(0, 4000), jobId]);
+    await pool.query('UPDATE video_render_jobs SET status = ?, stage = ?, error_text = ?, finished_at = NOW() WHERE id = ? AND status = \'running\'', [status, status === 'canceled' ? '已取消' : '导出失败', String(error.message || error).slice(0, 4000), jobId]);
   } finally {
     activeRenders.delete(String(jobId));
+    clearInterval(cancelTimer);
     await videoStorage.removeWorkDir(workDir).catch(() => null);
   }
 }
 
 function drainRenderQueue() {
-  while (runningRenderCount < renderConcurrency && renderQueue.length) {
+  while (!backgroundStopping && runningRenderCount < renderConcurrency && renderQueue.length) {
     const task = renderQueue.shift();
     runningRenderCount += 1;
     runRender(task.jobId, task.userId, task.projectRow, task.options)
@@ -598,6 +629,8 @@ function drainRenderQueue() {
 }
 
 function enqueueRender(task) {
+  if (backgroundStopping) return;
+  if (distributed()) return coordinator.enqueue('video-render', task.jobId, task);
   const id = String(task.jobId);
   if (activeRenders.has(id) || renderQueue.some((queued) => String(queued.jobId) === id)) return;
   renderQueue.push(task);
@@ -616,12 +649,12 @@ async function recoverInterruptedRenders() {
       ORDER BY j.created_at ASC
       LIMIT 100`
   );
-  rows.forEach((row) => enqueueRender({
+  for (const row of rows) await enqueueRender({
     jobId: row.job_id,
     userId: row.job_user_id,
     projectRow: row,
     options: parseJson(row.render_options, {}),
-  }));
+  });
   if (rows.length) console.log(`[video-render] recovered ${rows.length} queued job(s)`);
 }
 
@@ -636,12 +669,21 @@ router.post('/:id/render', requirePermission('ai.generate'), async (req, res) =>
     return res.status(error.status || 503).json({ error: error.code || 'VIDEO_STORAGE_NOT_CONFIGURED', message: error.message });
   }
   const options = req.body && typeof req.body === 'object' ? req.body : {};
-  const [result] = await pool.query(
+  const connection = await pool.getConnection();
+  let result;
+  try {
+  await connection.beginTransaction();
+  [result] = await connection.query(
     "INSERT INTO video_render_jobs (project_id, user_id, status, progress, stage, render_options) VALUES (?, ?, 'queued', 0, '等待渲染', ?)",
     [req.params.id, req.user.id, JSON.stringify(options)]
   );
+  if (distributed()) await coordinator.enqueue('video-render', result.insertId,
+    { jobId: result.insertId, userId: req.user.id, projectRow: projects[0], options }, { connection });
+  await connection.commit();
+  } catch (error) { await connection.rollback(); throw error; }
+  finally { connection.release(); }
   const [rows] = await pool.query('SELECT * FROM video_render_jobs WHERE id = ? LIMIT 1', [result.insertId]);
-  enqueueRender({ jobId: result.insertId, userId: req.user.id, projectRow: projects[0], options });
+  if (!distributed()) await enqueueRender({ jobId: result.insertId, userId: req.user.id, projectRow: projects[0], options });
   res.status(202).json({ job: renderDto(rows[0]) });
 });
 
@@ -667,9 +709,20 @@ router.use((error, _req, res, _next) => {
   res.status(500).json({ error: 'VIDEO_EDITOR_SERVER_ERROR', message: error.message || '视频编辑服务异常' });
 });
 
+router.stopBackgroundTasks = async () => {
+  backgroundStopping = true;
+  clearTimeout(directAssetCleanupTimer);
+  await require('../lib/runtime_lifecycle').waitForIdle(() => runningRenderCount === 0);
+};
 module.exports = router;
+coordinator.register('video-render', 'render', task => runRender(task.jobId, task.userId, task.projectRow, task.options));
+router.recoverInterruptedRenders = recoverInterruptedRenders;
+router.startSharedCleanup = async () => {
+  await videoStorage.sweepStaleWorkDirs();
+  scheduleDirectAssetCleanup();
+};
 
-if (String(process.env.VIDEO_RENDER_RECOVER_ON_BOOT || '1') !== '0') {
+if (!distributed() && String(process.env.VIDEO_RENDER_RECOVER_ON_BOOT || '1') !== '0') {
   const recoveryTimer = setTimeout(() => recoverInterruptedRenders().catch((error) => {
     console.warn('[video-render] startup recovery skipped:', error.message || error);
   }), 3000);

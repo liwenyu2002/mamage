@@ -16,6 +16,7 @@ const {
   verifyAndConsumeVerificationCode,
 } = require('../lib/email_verification');
 const { clientIpFromReq } = require('../lib/client_ip');
+const { registerInvitationManagement, inviteBelongsToOrganization } = require('../lib/invitation_management');
 
 // validation
 const emailRegex = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
@@ -31,9 +32,12 @@ const LOGIN_RATE_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_RATE_MAX_FAILURES = 10;
 const LOGIN_RATE_MAX_BUCKETS = 5000;
 const loginRateBuckets = new Map(); // ip -> { count, resetAt }
+const sharedLoginRate = require('../lib/shared_rate_limit').createRateLimit('login');
+const { distributed } = require('../lib/shared_runtime_state');
 
 
-function loginRateCheck(ip) {
+async function loginRateCheck(ip) {
+  if (distributed()) return sharedLoginRate.take(ip, LOGIN_RATE_MAX_FAILURES, LOGIN_RATE_WINDOW_MS);
   const now = Date.now();
   // 顺手清理过期桶，超量整表重置（粗暴防内存泄漏，同 find_me 的做法）
   if (loginRateBuckets.size > LOGIN_RATE_MAX_BUCKETS) loginRateBuckets.clear();
@@ -52,6 +56,7 @@ function loginRateCheck(ip) {
 }
 
 function loginRateRecordFailure(ip) {
+  if (distributed()) return; // Attempts were reserved atomically before bcrypt.
   const now = Date.now();
   const bucket = loginRateBuckets.get(ip);
   if (!bucket || bucket.resetAt <= now) {
@@ -61,7 +66,8 @@ function loginRateRecordFailure(ip) {
   bucket.count += 1;
 }
 
-function loginRateReset(ip) {
+async function loginRateReset(ip) {
+  if (distributed()) return sharedLoginRate.reset(ip);
   loginRateBuckets.delete(ip);
 }
 
@@ -313,6 +319,10 @@ router.post('/register', async (req, res) => {
         const [rows] = await conn.query('SELECT * FROM invitations WHERE code = ? FOR UPDATE', [invite_code]);
         if (!rows || rows.length === 0) { await conn.rollback(); conn.release(); return res.status(400).json({ error: 'INVALID_INVITE', message: '邀请码无效' }); }
         const inv = rows[0];
+        if (!await inviteBelongsToOrganization(conn, inv.created_by, organizationId)) {
+          await conn.rollback(); conn.release();
+          return res.status(400).json({ error: 'INVALID_INVITE', message: '邀请码不属于当前组织' });
+        }
         if (inv.revoked) { await conn.rollback(); conn.release(); return res.status(400).json({ error: 'INVALID_INVITE', message: '邀请码已被撤销' }); }
         if (inv.expires_at && new Date(inv.expires_at) <= new Date()) { await conn.rollback(); conn.release(); return res.status(400).json({ error: 'INVALID_INVITE', message: '邀请码已过期' }); }
         if (inv.max_uses !== null && inv.uses >= inv.max_uses) { await conn.rollback(); conn.release(); return res.status(400).json({ error: 'INVALID_INVITE', message: '邀请码已使用完' }); }
@@ -401,7 +411,7 @@ router.post('/login', async (req, res) => {
     if ((!email && !student_no) || !password) return res.status(400).json({ error: 'email/student_no and password are required' });
 
     const ip = clientIpFromReq(req);
-    const rate = loginRateCheck(ip);
+    const rate = await loginRateCheck(ip);
     if (!rate.allowed) {
       res.set('Retry-After', String(rate.retryAfterSec));
       return res.status(429).json({
@@ -424,7 +434,7 @@ router.post('/login', async (req, res) => {
       loginRateRecordFailure(ip);
       return res.status(401).json({ error: 'invalid credentials' });
     }
-    loginRateReset(ip);
+    await loginRateReset(ip);
     const token = signToken({ id: user.id, role: user.role });
     // load permissions for this role
     let perms = [];
@@ -445,33 +455,13 @@ router.post('/login', async (req, res) => {
 // 获取当前用户信息
 router.get('/me', authMiddleware, async (req, res) => {
   try {
-    const { resolveWorkspace, unitRoleAllows } = require('../lib/workspace_access');
+    const { resolveWorkspace } = require('../lib/workspace_access');
+    const { userAccessProfile } = require('../lib/access_policy');
+    const { getFacePermissions } = require('../lib/face_access');
     const workspace = await resolveWorkspace(req);
-    if (!workspace.enabled) return res.json(req.user);
-    const permissions = new Set(req.user.permissions || []);
-    const scoped = ['projects.create', 'projects.update', 'projects.delete',
-      'photos.edit', 'photos.delete', 'upload.photo', 'ai.generate', 'faces.label', 'faces.merge'];
-    scoped.forEach((permission) => permissions.delete(permission));
-    if (workspace.unitId) {
-      if (workspace.collegeAdmin || unitRoleAllows(workspace.role, 'upload')) permissions.add('upload.photo');
-      if (workspace.collegeAdmin || unitRoleAllows(workspace.role, 'edit')) {
-        ['projects.create', 'projects.update', 'photos.edit', 'photos.delete', 'ai.generate'].forEach((permission) => permissions.add(permission));
-      }
-      if (workspace.collegeAdmin || unitRoleAllows(workspace.role, 'manage')) permissions.add('projects.delete');
-    } else if (workspace.collegeAdmin) {
-      ['projects.update', 'projects.delete', 'photos.edit', 'photos.delete', 'ai.generate'].forEach((permission) => permissions.add(permission));
-    }
-    const [faceGrants] = await pool.query(
-      'SELECT college_wide FROM face_search_grants WHERE organization_id = ? AND user_id = ? LIMIT 1',
-      [workspace.orgId, workspace.userId]
-    );
-    if (faceGrants.length) {
-      if ((req.user.permissions || []).includes('faces.label')) permissions.add('faces.label');
-      if ((req.user.permissions || []).includes('faces.merge')) permissions.add('faces.merge');
-    }
-    res.json({ ...req.user, permissions: [...permissions], activeUnitId: workspace.unitId,
-      unitRole: workspace.role, collegeAdmin: workspace.collegeAdmin,
-      faceSearchAllowed: faceGrants.length > 0 });
+    const faces = await getFacePermissions(workspace);
+    res.json({ ...req.user, ...userAccessProfile(workspace, req.user.permissions, faces), activeUnitId: workspace.unitId,
+      unitRole: workspace.role, collegeAdmin: workspace.collegeAdmin, workspaceEnabled: workspace.enabled });
   } catch (err) {
     console.error('[users.me]', err);
     res.status(500).json({ error: 'INTERNAL_ERROR' });
@@ -554,6 +544,7 @@ router.put('/me/password', authMiddleware, async (req, res) => {
 
 // POST /api/users/invitations  (admin 创建邀请码)
 const { requirePermission } = require('../lib/permissions');
+registerInvitationManagement(router, { pool, authMiddleware, requirePermission });
 
 router.post('/invitations', authMiddleware, requirePermission('users.invitations.create'), async (req, res) => {
   try {
@@ -580,6 +571,10 @@ router.post('/me/invite', authMiddleware, async (req, res) => {
     const [rows] = await conn.query('SELECT * FROM invitations WHERE code = ? FOR UPDATE', [invite_code]);
     if (!rows || rows.length === 0) { await conn.rollback(); conn.release(); return res.status(400).json({ error: 'INVALID_INVITE' }); }
     const inv = rows[0];
+    if (!await inviteBelongsToOrganization(conn, inv.created_by, req.user.organization_id)) {
+      await conn.rollback(); conn.release();
+      return res.status(400).json({ error: 'INVALID_INVITE', message: '邀请码不属于当前组织' });
+    }
     if (inv.revoked) { await conn.rollback(); conn.release(); return res.status(400).json({ error: 'INVALID_INVITE' }); }
     if (inv.expires_at && new Date(inv.expires_at) <= new Date()) { await conn.rollback(); conn.release(); return res.status(400).json({ error: 'INVALID_INVITE' }); }
     if (inv.max_uses !== null && inv.uses >= inv.max_uses) { await conn.rollback(); conn.release(); return res.status(400).json({ error: 'INVALID_INVITE' }); }

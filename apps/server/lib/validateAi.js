@@ -37,6 +37,15 @@ async function validateTextModel() {
 
 async function validateVisionModel() {
   const provider = String(process.env.AI_VISION_PROVIDER || 'dashscope').trim().toLowerCase();
+  if (provider === 'zgcai' || provider === 'hub') {
+    try {
+      const sharp = require('sharp');
+      const image = await sharp({ create: { width: 32, height: 32, channels: 3, background: '#888' } }).jpeg().toBuffer();
+      const result = await require('./hub_inference').vision({ images: [`data:image/jpeg;base64,${image.toString('base64')}`],
+        prompt: '请用几个字描述图中颜色。', maxTokens: 128 }, { timeoutMs: 10000 });
+      return { ok: true, provider: 'zgcai', model: result.model };
+    } catch (error) { return { ok: false, provider: 'zgcai', reason: error.code || 'HUB_VALIDATION_FAILED' }; }
+  }
   if (provider === 'ollama' || provider === 'local' || provider === 'qwen' || provider === 'qwen-local') {
     return validateOllamaVisionModel();
   }

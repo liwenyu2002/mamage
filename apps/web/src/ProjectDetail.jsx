@@ -1,8 +1,11 @@
 ﻿// src/ProjectDetail.jsx
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { Typography, Button, Tag, Spin, Empty, Modal, MotionModal, Input, DatePicker, DateTimePicker, TextArea, Toast, HexLoader } from './ui';
 import AlbumDetailsFields from './AlbumDetailsFields';
 import AlbumActionBar from './AlbumActionBar';
+import PhotoDescription from './PhotoDescription';
+import SearchFeedback, { SearchSkeleton } from './SearchFeedback';
 import {
   IconAIStrokedLevel1,
   IconClose,
@@ -28,12 +31,17 @@ import {
   IconGroupRescue,
 } from './ui/icons';
 import './ProjectDetail.css';
+import './mediaViewer.css';
+import useMediaViewerDialog from './useMediaViewerDialog';
 import { getProjectById, updateProject, deleteProject, createTimelineSection, updateTimelineSection, deleteTimelineSection, reorderTimelineSections } from './services/projectService';
+import { canEditMetadata } from './utils/metadataEditPermissions';
 import { getToken } from './services/authService';
-import { fetchRandomByProject, searchPhotos, getPhotoById, updatePhoto, assignPhotosTimelineSection, getFacePersonInfo, getFaceAvatar, getFacePersonPhotos, labelFacePerson, renameFacePerson, uploadPhotoFiles, warmUploadApiProbe, deletePhotos, getPhotoFaces, getUploadFileLimitError, FRONTEND_MAX_VIDEO_UPLOAD_TEXT, runGroupRescueJob, isBrowserUndisplayableImage, isNeverBrowserPreviewable, undisplayableFormatLabel, getPersonFaces, previewPersonSplit, splitPerson } from './services/photoService';
+import { fetchRandomByProject, searchPhotos, getPhotoById, getPhotoPersonObservations, updatePhoto, assignPhotosTimelineSection, getFacePersonInfo, getFaceAvatar, getFacePersonPhotos, labelFacePerson, renameFacePerson, uploadPhotoFiles, warmUploadApiProbe, deletePhotos, getPhotoFaces, getUploadFileLimitError, FRONTEND_MAX_VIDEO_UPLOAD_TEXT, runGroupRescueJob, isBrowserUndisplayableImage, isNeverBrowserPreviewable, undisplayableFormatLabel, getPersonFaces, previewPersonSplit, splitPerson } from './services/photoService';
 import { resolveAssetUrl, BASE_URL } from './services/request';
 import { findProjectPreviewIndex } from './utils/projectPreviewPhotos';
-import { getDirectMediaUrl } from './services/directStorage';
+import { buildPhotoFocusUrl, readPhotoFocusIntent, consumePhotoFocusIntent, focusPhotoCard } from './utils/photoFocus';
+import { getDirectMediaUrl, downloadOriginalMedia } from './services/directStorage';
+import { batchVideoDownload } from './services/batchVideoDownload';
 import FindMeModal from './FindMeModal';
 import FacePersonMerge from './FacePersonMerge';
 import UploadProgressSummary from './UploadProgressSummary';
@@ -53,6 +61,7 @@ import {
 } from './utils/photoAdjustments';
 import { sectionTimeToInputValue, inputValueToSectionTime } from './utils/sectionTime';
 import { getFaceBoxStyle } from './utils/faceGeometry';
+import { canDeletePhoto, getPhotoDeleteErrorMessage, isPhotoUploadedBy } from './utils/photoDeletePermissions';
 import ViewerToneImage, { requestRenderedToneBlob } from './ProjectTonePreview';
 import {
   createInitialUploadProgress,
@@ -625,12 +634,16 @@ function ProjectDetail({
   initialOpenPhotoId,
   initialOpenPhotoSrc,
   onInitialOpenPhotoHandled,
+  initialOpenUpload = false,
+  onInitialUploadHandled,
   readOnly = false,
+  currentUser = null,
   galleryMode: controlledGalleryMode,
   onGalleryModeChange,
   onProjectHeaderChange,
   onShareAlbum,
   shareUnitId,
+  searchRequest,
 }) {
   const DISABLE_UPLOAD_FEATURE = !!readOnly;
   const DISABLE_DELETE_FEATURE = !!readOnly;
@@ -640,9 +653,26 @@ function ProjectDetail({
   const [photoMetas, setPhotoMetas] = React.useState(() => (initialProject?.images ? initialProject.images.map(normalizeProjectImageMeta) : []));
   const [loading, setLoading] = React.useState(() => !!projectId);
   const [error, setError] = React.useState(null);
+  const [focusPhotoId, setFocusPhotoId] = React.useState(null);
+  const [highlightedPhotoId, setHighlightedPhotoId] = React.useState(null);
+  const photoFocusControllerRef = React.useRef(null);
+  React.useEffect(() => () => {
+    photoFocusControllerRef.current?.cleanup();
+    photoFocusControllerRef.current = null;
+  }, [projectId, focusPhotoId]);
+  React.useEffect(() => {
+    const readFocus = () => {
+      const intent = readPhotoFocusIntent(window.location.href);
+      setFocusPhotoId(intent?.projectId === String(projectId) ? intent.photoId : null);
+    };
+    readFocus();
+    window.addEventListener('popstate', readFocus);
+    return () => window.removeEventListener('popstate', readFocus);
+  }, [projectId]);
 
   // upload / staging
   const [uploadMode, setUploadMode] = React.useState(false);
+  const uploadLinkHandled = React.useRef(false);
   const [stagingFiles, setStagingFiles] = React.useState([]); // File objects
   const [stagingPreviews, setStagingPreviews] = React.useState([]); // object URLs
   const [stagingSectionIds, setStagingSectionIds] = React.useState([]);
@@ -700,6 +730,29 @@ function ProjectDetail({
   const [selectedCount, setSelectedCount] = React.useState(0);
   const [allSelected, setAllSelected] = React.useState(false);
   const [deletingPhotos, setDeletingPhotos] = React.useState(false);
+  const ownPhotosOnly = currentUser?.photoDeleteScope === 'own';
+  const canDeleteItem = React.useCallback(meta => canDeletePhoto(meta, currentUser, {
+    readOnly, projectUnitId: project?.unitId,
+  }), [currentUser, readOnly, project?.unitId]);
+  const canEditItem = React.useCallback(meta => canEditMetadata(meta, currentUser, {
+    readOnly, unitId: project?.unitId,
+  }), [currentUser, readOnly, project?.unitId]);
+  const canEditAlbumInfo = canEditMetadata(project || initialProject, currentUser, { kind: 'album', readOnly });
+  const hasPerm = React.useCallback((key) => userPermissions.includes(key) || canAny(key), [userPermissions]);
+  const canUpdateProject = hasPerm('projects.update') && canEditAlbumInfo;
+  const canUploadPhotos = !DISABLE_UPLOAD_FEATURE && (hasPerm('photos.upload') || hasPerm('upload.photo'));
+  const canDeletePhotos = !DISABLE_DELETE_FEATURE && hasPerm('photos.delete')
+    && ['own', 'unit', 'organization'].includes(currentUser?.photoDeleteScope);
+  const canDeleteProject = !DISABLE_DELETE_FEATURE && hasPerm('projects.delete');
+  const canEditTags = hasPerm('tags.edit');
+  const canEditPhotos = hasPerm('photos.edit');
+  const canPackDownload = readOnly || hasPerm('photos.zip');
+  const canEditFacePersonName = hasPerm('faces.label');
+  const canSplitFacePerson = hasPerm('faces.merge');
+  const canDeleteSelection = React.useMemo(() => {
+    const selected = Object.keys(selectedMap || {});
+    return selected.length > 0 && selected.every(index => canDeleteItem(photoMetas?.[Number(index)]));
+  }, [selectedMap, photoMetas, canDeleteItem]);
 
   const fileInputRef = React.useRef(null);
   const dragPreviewRef = React.useRef(null);
@@ -719,7 +772,9 @@ function ProjectDetail({
   const timelineDefaultModeProjectRef = React.useRef(null);
   // image viewer
   const [viewerVisible, setViewerVisible] = React.useState(false);
+  const [viewerDetailsVisible, setViewerDetailsVisible] = React.useState(() => typeof window !== 'undefined' && window.innerWidth > 900);
   const [viewerIndex, setViewerIndex] = React.useState(0);
+  const currentViewerIsVideo = React.useMemo(() => isVideoMeta(photoMetas?.[viewerIndex]), [photoMetas, viewerIndex]);
   // 限定翻页序列（photoMetas 索引数组）：拍照找我等场景只在命中集合内切换；null=整册顺序
   const [viewerSeq, setViewerSeq] = React.useState(null);
   const [viewerEnableOpenZoom, setViewerEnableOpenZoom] = React.useState(false);
@@ -778,7 +833,9 @@ function ProjectDetail({
   // AI quality labels (recommended/medium/rejected) indexed by photo ID
   const [photoAILabelMap, setPhotoAILabelMap] = React.useState({});
   // viewer-based photo edit (tags & description)
-  const [viewerEditVisible, setViewerEditVisible] = React.useState(false);
+  const [viewerEditSaving, setViewerEditSaving] = React.useState(false);
+  const [viewerEditError, setViewerEditError] = React.useState('');
+  const viewerEditPhotoRef = React.useRef(null);
   const [viewerEditTags, setViewerEditTags] = React.useState([]);
   const [viewerEditTagInput, setViewerEditTagInput] = React.useState('');
   const [viewerEditDescription, setViewerEditDescription] = React.useState('');
@@ -815,9 +872,18 @@ function ProjectDetail({
   const [searching, setSearching] = React.useState(false);
   const [searchError, setSearchError] = React.useState('');
   const [searchMeta, setSearchMeta] = React.useState(null);
+  const [searchPhase, setSearchPhase] = React.useState('idle');
+  const [searchRefresh, setSearchRefresh] = React.useState(0);
+  const [searchRelated, setSearchRelated] = React.useState(false);
   const [searchOpen, setSearchOpen] = React.useState(false);
+  const [searchPage, setSearchPage] = React.useState(1);
+  const [searchHasMore, setSearchHasMore] = React.useState(false);
+  const [searchTotal, setSearchTotal] = React.useState(null);
+  const searchResultsRef = React.useRef([]);
   const [actionSheetOpen, setActionSheetOpen] = React.useState(false);
   const [mediaFilter, setMediaFilter] = React.useState('all'); // all | image | video
+  const [onlyOwnUploads, setOnlyOwnUploads] = React.useState(false);
+  React.useEffect(() => { setOnlyOwnUploads(false); }, [projectId, currentUser?.id]);
   const searchReqSeqRef = React.useRef(0);
   const hasSearchedRef = React.useRef(false);
 
@@ -1445,13 +1511,14 @@ function ProjectDetail({
     };
   }, [projectId, loading, images.length, buildImagesAndMetas]);
 
-  const reloadGalleryFromServer = React.useCallback(async () => {
+  const reloadGalleryFromServer = React.useCallback(async ({ isCurrent } = {}) => {
     if (!projectId) return;
     const detail = await getProjectById(projectId, {
       demo: readOnly,
       includeFaces: false,
       timeoutMs: PROJECT_DETAIL_TIMEOUT_MS,
     });
+    if (isCurrent && !isCurrent()) return;
     setProject(detail);
     const built = buildImagesAndMetas(detail);
     setImages(built.images);
@@ -1464,6 +1531,7 @@ function ProjectDetail({
   }, 0), [photoMetas]);
 
   const appendImportedPhotos = React.useCallback((photos) => {
+    if (hasSearchedRef.current) return;
     if (!photos?.length) return;
     const current = photoMetasRef.current || [];
     const ids = new Set(current.map((photo) => String(photo?.id)));
@@ -1702,23 +1770,6 @@ function ProjectDetail({
     return Boolean(playbackSrc);
   }, [applyGalleryMetas]);
 
-  // 轮询超时（转码失败/任务丢失）时清掉 processing 状态，
-  // 让视频解除锁定并回退播放原始文件，而不是永久"转码中"。
-  const clearVideoProcessingState = React.useCallback((photoId) => {
-    const currentMetas = Array.isArray(photoMetasRef.current) ? photoMetasRef.current : [];
-    const nextMetas = currentMetas.map((meta) => {
-      if (String(getPhotoRecordId(meta) || '') !== String(photoId)) return meta;
-      return {
-        ...(meta || {}),
-        processingStatus: null,
-        processing_status: null,
-        uploadState: null,
-        upload_state: null,
-      };
-    });
-    applyGalleryMetas(nextMetas);
-  }, [applyGalleryMetas]);
-
   const scheduleVideoPlaybackPolling = React.useCallback((photoId) => {
     const key = String(photoId || '').trim();
     if (!key) return;
@@ -1730,7 +1781,7 @@ function ProjectDetail({
       try {
         const photo = await getPhotoById(key);
         const ready = mergeVideoPlaybackResult(photo);
-        if (ready) {
+        if (ready || getVideoUploadState(photo) === 'failed') {
           clearVideoPlaybackPollTimer(key);
           return;
         }
@@ -1749,14 +1800,13 @@ function ProjectDetail({
 
       if (attempts >= VIDEO_PLAYBACK_POLL_MAX_ATTEMPTS) {
         clearVideoPlaybackPollTimer(key);
-        clearVideoProcessingState(key);
         return;
       }
       videoPlaybackPollTimersRef.current[key] = setTimeout(poll, VIDEO_PLAYBACK_POLL_INTERVAL_MS);
     };
 
     videoPlaybackPollTimersRef.current[key] = setTimeout(poll, VIDEO_PLAYBACK_POLL_INITIAL_DELAY_MS);
-  }, [clearVideoPlaybackPollTimer, clearVideoProcessingState, mergeVideoPlaybackResult]);
+  }, [clearVideoPlaybackPollTimer, mergeVideoPlaybackResult]);
 
   React.useEffect(() => {
     const metas = Array.isArray(photoMetas) ? photoMetas : [];
@@ -1799,24 +1849,48 @@ function ProjectDetail({
     setSearchKeyword('');
     setSearchError('');
     setSearchMeta(null);
+    setSearchRelated(false);
+    setSearchPhase('idle');
+    setSearchPage(1); setSearchHasMore(false); setSearchTotal(null); searchResultsRef.current = [];
     setSearching(false);
     searchReqSeqRef.current = 0;
     hasSearchedRef.current = false;
   }, [projectId]);
 
   React.useEffect(() => {
+    if (!searchRequest || String(searchRequest.projectId) !== String(projectId)) return;
+    setSearchRelated(false);
+    setSearchPage(1);
+    setSearchKeyword(searchRequest.q);
+    setSearchOpen(Boolean(searchRequest.q));
+    setSearchRefresh(value => value + 1);
+  }, [searchRequest, projectId]);
+
+  React.useEffect(() => {
+    const controller = new AbortController();
+    const seq = searchReqSeqRef.current + 1;
+    searchReqSeqRef.current = seq;
+    const base = searchPage > 1 ? searchResultsRef.current : [];
+    if (String(searchKeyword || '').trim() && projectId) {
+      setSearching(true); setSearchPhase('starting'); setSearchError(''); setSearchMeta(null);
+      if (searchPage === 1) {
+        setImages([]); setPhotoMetas([]); searchResultsRef.current = []; setSearchTotal(null); setSearchHasMore(false);
+      }
+      hasSearchedRef.current = true;
+      setDeleteMode(false); setSelectedMap({}); setSelectedCount(0); setAllSelected(false);
+    }
     const timer = setTimeout(async () => {
       const q = String(searchKeyword || '').trim();
-      const seq = searchReqSeqRef.current + 1;
-      searchReqSeqRef.current = seq;
 
       if (!q) {
+        setSearchHasMore(false); setSearchTotal(null); searchResultsRef.current = [];
         setSearchError('');
         setSearchMeta(null);
-        if (!hasSearchedRef.current) return;
+        setSearchPhase('idle');
+        if (!hasSearchedRef.current) { setSearching(false); return; }
         setSearching(true);
         try {
-          await reloadGalleryFromServer();
+          await reloadGalleryFromServer({ isCurrent: () => !controller.signal.aborted && searchReqSeqRef.current === seq });
           if (searchReqSeqRef.current === seq) {
             hasSearchedRef.current = false;
           }
@@ -1833,18 +1907,13 @@ function ProjectDetail({
       setSearching(true);
       setSearchError('');
       setSearchMeta(null);
-      try {
-        const resp = await searchPhotos({
-          q,
-          projectId,
-          page: 1,
-          pageSize: 200,
-          sort: 'relevance',
-          smart: true,
-          demo: readOnly,
-        });
-        if (searchReqSeqRef.current !== seq) return;
-        const list = Array.isArray(resp?.list) ? resp.list : [];
+      let received = false;
+      const applyResponse = resp => {
+        if (controller.signal.aborted || searchReqSeqRef.current !== seq) return;
+        const list = [...new Map([...base, ...(Array.isArray(resp?.list) ? resp.list : [])].map(photo => [String(photo.id), photo])).values()];
+        searchResultsRef.current = list;
+        setSearchHasMore(Boolean(resp?.hasMore)); setSearchTotal(resp?.total ?? null);
+        received = received || list.length > 0;
         setSearchMeta(resp?.search || null);
         const nextMetas = list.map((it) => {
           const thumbSrc = resolveAssetUrl(getPhotoThumbCandidate(it));
@@ -1873,24 +1942,38 @@ function ProjectDetail({
           setPhotoAdjustmentsMap((prev) => ({ ...(prev || {}), ...adjustmentsPatch }));
         }
 
-        setDeleteMode(false);
-        setSelectedMap({});
-        setSelectedCount(0);
-        setAllSelected(false);
         setImages(nextImages);
         setPhotoMetas(nextMetas);
         hasSearchedRef.current = true;
+      };
+      try {
+        const resp = await searchPhotos({ q, projectId, page: searchPage, pageSize: 200, sort: 'relevance', smart: true,
+          demo: readOnly, related: searchRelated, signal: controller.signal,
+          onProgress: event => {
+            if (controller.signal.aborted || searchReqSeqRef.current !== seq) return;
+            if (event.type === 'results') { applyResponse(event.data); setSearchPhase('receiving'); }
+            else if (event.type === 'status') { setSearchPhase(event.phase); if (event.search) setSearchMeta(event.search); }
+          },
+        });
+        applyResponse(resp);
+        if (!controller.signal.aborted && searchReqSeqRef.current === seq) setSearchPhase('complete');
       } catch (err) {
+        if (controller.signal.aborted) return;
         if (searchReqSeqRef.current !== seq) return;
-        setSearchMeta(null);
+        if (!received || [401,403,404].includes(Number(err?.status))) {
+          setSearchMeta(null);
+          if ([401,403,404].includes(Number(err?.status))) { setImages([]); setPhotoMetas([]); searchResultsRef.current = []; }
+        }
+        setSearchPhase('error');
+        setSearchHasMore(false);
         setSearchError(err?.body || err?.message || '搜索失败');
       } finally {
-        if (searchReqSeqRef.current === seq) setSearching(false);
+        if (!controller.signal.aborted && searchReqSeqRef.current === seq) setSearching(false);
       }
-    }, 520);
+    }, 360);
 
-    return () => clearTimeout(timer);
-  }, [searchKeyword, projectId, reloadGalleryFromServer, readOnly]);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [searchKeyword, searchRelated, searchRefresh, searchPage, projectId, reloadGalleryFromServer, readOnly]);
 
   React.useEffect(() => {
     setUserPermissions(getPermissions());
@@ -2016,6 +2099,13 @@ function ProjectDetail({
   }, [stagingPreviews]);
 
   // 上传执行核心：staging 确认与"直接拖文件上传"共用
+  React.useEffect(() => {
+    if (!uploading) return undefined;
+    const warnBeforeLeaving = (event) => { event.preventDefault(); event.returnValue = ''; };
+    window.addEventListener('beforeunload', warnBeforeLeaving);
+    return () => window.removeEventListener('beforeunload', warnBeforeLeaving);
+  }, [uploading]);
+
   const performUploadGroups = React.useCallback(async (groupedFiles, filesForProgress) => {
     if (!projectId) return;
     setUploading(true);
@@ -2071,9 +2161,7 @@ function ProjectDetail({
           .then((detail) => {
             setProject(detail);
             const built = buildImagesAndMetas(detail);
-            // 项目详情接口不返回 processingStatus（DB 无此字段）：
-            // 对仍无 playback 的视频保留旧 meta 里的转码中/失败状态，
-            // 否则刷新几秒后占位被抹掉、查看器提前回退播还在转码的原片
+            // Only legacy APIs omit task state; never override a fresh authoritative state.
             const prevById = new Map(
               (Array.isArray(photoMetasRef.current) ? photoMetasRef.current : [])
                 .map((m) => [String(getPhotoRecordId(m) || ''), m])
@@ -2081,6 +2169,7 @@ function ProjectDetail({
             );
             const mergedMetas = built.metas.map((meta) => {
               if (!isVideoMeta(meta) || getVideoPlaybackCandidate(meta)) return meta;
+              if (meta.processingStatus !== undefined || meta.processing_status !== undefined) return meta;
               const prev = prevById.get(String(getPhotoRecordId(meta) || ''));
               if (!prev || !getVideoUploadState(prev)) return meta;
               return {
@@ -2158,6 +2247,7 @@ function ProjectDetail({
 
 
   const openEdit = React.useCallback(() => {
+    if (!canEditAlbumInfo) return;
     const p = project || {};
     setEditTitle(p.title || p.projectName || '');
     setEditDescription(p.description || '');
@@ -2168,9 +2258,10 @@ function ProjectDetail({
     const normalized = Array.isArray(incomingTags) ? incomingTags.map((t) => (typeof t === 'string' ? t : String(t))).filter(Boolean) : (typeof incomingTags === 'string' ? incomingTags.split(/[;,\n]/).map(s => s.trim()).filter(Boolean) : []);
     setEditTags(normalized);
     setEditVisible(true);
-  }, [project]);
+  }, [project, canEditAlbumInfo]);
 
   const saveEdit = React.useCallback(async () => {
+    if (!canEditAlbumInfo) return Toast.warning('只能修改自己创建或获共同编辑授权的相册');
     if (!projectId) return;
     if (!editTitle.trim()) return Toast.warning('相册名称为必填项');
     setEditSaving(true);
@@ -2209,7 +2300,9 @@ function ProjectDetail({
     } catch (err) {
       console.error('saveEdit error', err);
       const status = err && err.status ? err.status : (err && err.cause && err.cause.status) ? err.cause.status : null;
-      if (status === 401 || status === 403) {
+      if (status === 403) {
+        Toast.error('没有修改权限，请联系相册创建人或管理员');
+      } else if (status === 401) {
         try { localStorage.removeItem('mamage_jwt_token'); } catch (e) { }
         Toast.error('请重新登录管理员账号');
         try { window.history.pushState({}, '', '/login'); } catch (e) { window.location.href = '/login'; }
@@ -2224,7 +2317,7 @@ function ProjectDetail({
     } finally {
       setEditSaving(false);
     }
-  }, [projectId, editTitle, editDescription, editEventDate, editTags, userPermissions, readOnly]);
+  }, [projectId, editTitle, editDescription, editEventDate, editTags, userPermissions, readOnly, canEditAlbumInfo]);
 
   // ===== 时间线环节编辑 =====
   const refreshProjectDetail = React.useCallback(async () => {
@@ -2241,6 +2334,7 @@ function ProjectDetail({
   }, [projectId, readOnly, buildImagesAndMetas]);
 
   const openTimelineEdit = React.useCallback(() => {
+    if (!canEditAlbumInfo) return;
     const edits = {};
     (uploadTimelineSections || []).forEach((s) => {
       if (s && s.id) edits[String(s.id)] = { name: s.name || '', sectionTime: s.sectionTime || '' };
@@ -2249,10 +2343,10 @@ function ProjectDetail({
     setTimelineDraftName('');
     setTimelineDraftTime('');
     setTimelineEditVisible(true);
-  }, [uploadTimelineSections]);
+  }, [uploadTimelineSections, canEditAlbumInfo]);
 
   const runTimelineAction = React.useCallback(async (fn, successText) => {
-    if (timelineBusy) return;
+    if (timelineBusy || !canEditAlbumInfo) return;
     setTimelineBusy(true);
     try {
       await fn();
@@ -2267,7 +2361,7 @@ function ProjectDetail({
     } finally {
       setTimelineBusy(false);
     }
-  }, [timelineBusy, refreshProjectDetail]);
+  }, [timelineBusy, refreshProjectDetail, canEditAlbumInfo]);
 
   const handleAddSection = React.useCallback(() => {
     const name = String(timelineDraftName || '').trim();
@@ -2334,6 +2428,7 @@ function ProjectDetail({
   const handleAssignSelectedToSection = React.useCallback(async (sectionId) => {
     if (assigningSection) return;
     const idxs = Object.keys(selectedMap || {}).map((k) => Number(k)).sort((a, b) => a - b);
+    if (idxs.some(index => !canEditItem(photoMetas?.[index]))) return Toast.warning('所选内容包含无权修改的照片或视频');
     const photoIds = idxs
       .map((idx) => getPhotoRecordId(photoMetas?.[idx]))
       .map((v) => Number(v))
@@ -2361,7 +2456,7 @@ function ProjectDetail({
     } finally {
       setAssigningSection(false);
     }
-  }, [assigningSection, selectedMap, photoMetas, refreshProjectDetail]);
+  }, [assigningSection, selectedMap, photoMetas, refreshProjectDetail, canEditItem]);
 
   // 系统文件直接拖入：免打开上传弹窗，落点决定所属环节
   const handleDirectFileDrop = React.useCallback((e, sectionId) => {
@@ -2394,33 +2489,6 @@ function ProjectDetail({
 
   React.useEffect(() => { directFileDropRef.current = handleDirectFileDrop; }, [handleDirectFileDrop]);
 
-  React.useEffect(() => {
-    let raf = 0;
-    let attempts = 0;
-    const measure = () => {
-      const el = railRef.current;
-      if (!el) {
-        // nav 可能晚于分组数据挂载（等 galleryPrepared），rAF 重试直到出现
-        if (attempts < 30) { attempts += 1; raf = requestAnimationFrame(measure); }
-        return;
-      }
-      setRailOverflow(el.scrollWidth > el.clientWidth + 4 || el.scrollHeight > el.clientHeight + 4);
-      const spans = el.querySelectorAll('.detail-timeline-rail-text span');
-      let truncated = false;
-      spans.forEach((sp) => { if (sp.scrollWidth > sp.clientWidth + 1) truncated = true; });
-      setRailNameTruncated(truncated);
-    };
-    measure();
-    window.addEventListener('resize', measure);
-    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => measure()) : null;
-    if (ro && railRef.current) ro.observe(railRef.current);
-    return () => {
-      if (raf) cancelAnimationFrame(raf);
-      window.removeEventListener('resize', measure);
-      if (ro) ro.disconnect();
-    };
-  }, [timelineGalleryGroups, railExpanded, railWide, useTimelineGallery]);
-
   // 拖拽照片放到左侧环节导航：批量移入该环节（未归类=移出）；拖入系统文件则直接上传到该环节
   const handleRailDrop = React.useCallback(async (e, group) => {
     if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
@@ -2440,6 +2508,9 @@ function ProjectDetail({
     const items = Array.isArray(payload) ? payload : (payload ? [payload] : []);
     const photoIds = items.map((it) => Number(it && (it.id || it.photoId))).filter((n) => Number.isFinite(n) && n > 0);
     if (!photoIds.length) return;
+    if (photoIds.some(id => !canEditItem(photoMetas?.find(meta => Number(meta.id || meta.photoId) === id)))) {
+      return Toast.warning('拖动内容包含无权修改的照片或视频');
+    }
     const sectionId = group && group.id ? Number(group.id) : null;
     setAssigningSection(true);
     try {
@@ -2452,7 +2523,7 @@ function ProjectDetail({
     } finally {
       setAssigningSection(false);
     }
-  }, [assigningSection, refreshProjectDetail, handleDirectFileDrop]);
+  }, [assigningSection, refreshProjectDetail, handleDirectFileDrop, canEditItem, photoMetas]);
 
   // 窗口级文件拖入侦测：进入相册页任意位置即提示可上传；
   // 无环节相册整页即落点，带环节相册在窗口级 drop 仅收尾（各环节区/导航各自处理）
@@ -2542,13 +2613,24 @@ function ProjectDetail({
     const indexes = [];
     for (let i = 0; i < total; i += 1) {
       const meta = photoMetas?.[i] || {};
+      if (onlyOwnUploads && !isPhotoUploadedBy(meta, currentUser?.id)) continue;
       const isVideo = isVideoMeta(meta);
       if (mediaFilter === 'video' && !isVideo) continue;
       if (mediaFilter === 'image' && isVideo) continue;
       indexes.push(i);
     }
     return indexes;
-  }, [images, photoMetas, mediaFilter]);
+  }, [images, photoMetas, mediaFilter, onlyOwnUploads, currentUser?.id]);
+
+  const toggleOwnUploadFilter = React.useCallback(() => {
+    const next = !onlyOwnUploads;
+    setOnlyOwnUploads(next);
+    if (next) {
+      const selected = Object.fromEntries(Object.entries(selectedMap).filter(([index]) => isPhotoUploadedBy(photoMetas?.[Number(index)], currentUser?.id)));
+      setSelectedMap(selected);setSelectedCount(Object.keys(selected).length);setAllSelected(false);
+    }
+    setActionSheetOpen(false);
+  }, [onlyOwnUploads, selectedMap, photoMetas, currentUser?.id]);
 
   const toggleDeleteMode = React.useCallback(() => {
     const turningOff = !!deleteMode;
@@ -2586,6 +2668,13 @@ function ProjectDetail({
     setSelectedCount(Object.keys(map).length);
     setAllSelected(!everyVisibleSelected);
   }, [getMediaFilteredIndexes, selectedMap]);
+
+  const selectOwnUploads = React.useCallback(() => {
+    const indexes = getMediaFilteredIndexes().filter(index => canDeleteItem(photoMetas?.[index]));
+    setSelectedMap(Object.fromEntries(indexes.map(index => [String(index), true])));
+    setSelectedCount(indexes.length);
+    setAllSelected(indexes.length > 0 && indexes.length === getMediaFilteredIndexes().length);
+  }, [getMediaFilteredIndexes, canDeleteItem, photoMetas]);
 
   const getTimelineSectionSelectionIndexes = React.useCallback((sectionId) => {
     const normalizedSectionId = sectionId === null || sectionId === undefined ? '' : String(sectionId);
@@ -2627,7 +2716,10 @@ function ProjectDetail({
       return;
     }
     const indexes = Object.keys(selectedMap || {}).map(k => Number(k));
-    if (!indexes.length) return Toast.warning('鏈€夋嫨鐓х墖');
+    if (!indexes.length) return Toast.warning('请先选择照片或视频');
+    if (indexes.some(index => !canDeleteItem(photoMetas?.[index]))) {
+      return Toast.warning('只能删除自己上传的照片和视频，请取消其他人的选择');
+    }
     const ids = indexes.map(i => {
       const meta = (photoMetas && photoMetas[i]) || null;
       if (!meta) return null;
@@ -2637,7 +2729,7 @@ function ProjectDetail({
 
     Modal.confirm({
       title: '确认删除所选照片',
-      content: `删除后不可恢复，确定要删除 ${ids.length} 张照片吗？`,
+      content: `删除后不可恢复，确定要删除所选的 ${ids.length} 项照片或视频吗？`,
       onOk: async () => {
         setDeletingPhotos(true);
         try {
@@ -2678,20 +2770,20 @@ function ProjectDetail({
           const body = err && err.body ? err.body : null;
           if (status === 400) {
             Toast.warning('请选择至少一张照片');
-          } else if (status === 401 || status === 403) {
+          } else if (status === 401) {
             // clear token and redirect to login
             try { localStorage.removeItem('mamage_jwt_token'); } catch (e) { }
             Toast.error('权限不足或登录已过期，请重新登录或联系管理员');
             try { window.history.pushState({}, '', '/login'); } catch (e) { window.location.href = '/login'; }
           } else {
-            Toast.error('服务器异常，请稍后重试');
+            Toast.error(getPhotoDeleteErrorMessage(err));
           }
         } finally {
           setDeletingPhotos(false);
         }
       }
     });
-  }, [selectedMap, images, projectId, DISABLE_DELETE_FEATURE]);
+  }, [selectedMap, photoMetas, canDeleteItem, projectId, readOnly, DISABLE_DELETE_FEATURE]);
 
   // ========== Download helpers ==========
   const getSelectedIndexes = React.useCallback(() => Object.keys(selectedMap || {}).map((k) => Number(k)).sort((a, b) => a - b), [selectedMap]);
@@ -2712,10 +2804,18 @@ function ProjectDetail({
   }, []);
 
   const buildDownloadBaseName = React.useCallback((meta, index) => {
+    if (isVideoMeta(meta)) {
+      const parts = [...new Set([project?.name || project?.title || initialProject?.name || initialProject?.title,
+        meta?.timelineSectionName, meta?.title || meta?.name].filter(Boolean)
+        .map(value => String(value).replace(/\.[a-z0-9]{2,8}$/i, '')))];
+      const chars = Array.from(parts.join('_').replace(/[\u0000-\u001f\u007f\\/:*?"<>|]/g, '_').replace(/^[. ]+|[. ]+$/g, ''));
+      while (new TextEncoder().encode(chars.join('')).byteLength > 180) chars.pop();
+      return `${chars.join('') || 'MaMage_video'}_${meta?.id || index + 1}`;
+    }
     return String(meta?.title || meta?.name || `photo-${meta?.id || index + 1}`)
       .replace(/[\\/:*?"<>|]/g, '_')
       .slice(0, 64) || `photo-${index + 1}`;
-  }, []);
+  }, [project, initialProject]);
 
   const triggerBlobDownload = React.useCallback((blob, filename) => {
     const objectUrl = URL.createObjectURL(blob);
@@ -2729,27 +2829,6 @@ function ProjectDetail({
     } finally {
       window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
     }
-  }, []);
-
-  const triggerUrlDownload = React.useCallback((url, filename) => {
-    const isSameOrigin = (() => {
-      try {
-        const u = new URL(String(url || ''), window.location.origin);
-        return u.origin === window.location.origin;
-      } catch (e) {
-        return false;
-      }
-    })();
-    const a = document.createElement('a');
-    a.href = url;
-    if (!isSameOrigin) {
-      a.target = '_blank';
-      a.rel = 'noopener';
-    }
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
   }, []);
 
   const canvasToBlob = React.useCallback((canvas, type = 'image/jpeg', quality = 0.94) => new Promise((resolve, reject) => {
@@ -2790,16 +2869,7 @@ function ProjectDetail({
 
     if (isVideoMeta(meta) || options.forceOriginal || isDefaultPhotoAdjustments(adjustments)) {
       const photoId = getPhotoRecordId(meta);
-      let downloadUrl = url;
-      if (photoId) {
-        try {
-          const directUrl = await getDirectMediaUrl(photoId, 'original', { download: true });
-          if (directUrl) downloadUrl = directUrl;
-        } catch (e) {
-          // 校园网直连失败时无感回退到本站媒体代理。
-        }
-      }
-      triggerUrlDownload(downloadUrl, `${baseName}${inferDownloadExt(url)}`);
+      await downloadOriginalMedia({ photoId, url, filename: `${baseName}${inferDownloadExt(url)}` });
       return { rendered: false };
     }
 
@@ -2838,7 +2908,6 @@ function ProjectDetail({
     images,
     inferDownloadExt,
     triggerBlobDownload,
-    triggerUrlDownload,
   ]);
 
   const downloadCurrentPhoto = React.useCallback(async () => {
@@ -2938,20 +3007,27 @@ function ProjectDetail({
 
 
   const packDownloadSelected = React.useCallback(() => {
-    const count = getSelectedIndexes().length;
-    if (!count) return Toast.warning('未选择照片');
+    const selectedIndexes = getSelectedIndexes();
+    const count = selectedIndexes.length;
+    if (!count) return Toast.warning('未选择照片或视频');
+    if (count > 1) {
+      if (batchVideoDownload.isRunning()) return Toast.info('已有下载任务，请先查看下载进度');
+      const ids = selectedIndexes.map(i => getPhotoRecordId(photoMetas[i]));
+      if (ids.some(id => !id)) return Toast.error('无法获取媒体信息，请刷新相册后重试');
+      const videosOnly = selectedIndexes.every(i => isVideoMeta(photoMetas?.[i]));
+      void batchVideoDownload.start(ids, { mediaKind: videosOnly ? 'video' : 'mixed', forceZip: !videosOnly });
+      return;
+    }
     Modal.confirm({
       title: '确认直接下载',
-      content: count > 1
-        ? `将直接下载 ${count} 张照片（不打包）。若浏览器拦截多文件下载，请在浏览器里允许该站点“多文件下载”。`
-        : '将直接下载当前选中照片。',
+      content: '将直接下载当前选中的照片或视频。',
       okText: '开始下载',
       cancelText: '取消',
       onOk: () => {
         downloadSelectedIndividually();
       },
     });
-  }, [getSelectedIndexes, downloadSelectedIndividually]);
+  }, [getSelectedIndexes, downloadSelectedIndividually, photoMetas]);
 
   const resolvedProject = project || initialProject;
 
@@ -3084,15 +3160,18 @@ function ProjectDetail({
     (images || []).forEach((src, idx) => {
       if (!src) return;
       const meta = photoMetas?.[idx] || {};
+      if (onlyOwnUploads && !isPhotoUploadedBy(meta, currentUser?.id)) return;
       if (isVideoMeta(meta)) video += 1;
       else image += 1;
     });
     return { image, video, total: image + video };
-  }, [photoMetas, images]);
+  }, [photoMetas, images, onlyOwnUploads, currentUser?.id]);
+  const ownUploadCount = React.useMemo(() => (photoMetas || []).filter(meta => isPhotoUploadedBy(meta, currentUser?.id)).length,
+    [photoMetas, currentUser?.id]);
 
   React.useEffect(() => {
     setGalleryRenderLimit(GALLERY_INITIAL_RENDER_LIMIT);
-  }, [projectId, searchKeyword, mediaFilter]);
+  }, [projectId, searchKeyword, mediaFilter, onlyOwnUploads]);
 
   const mediaFilteredIndexes = React.useMemo(() => getMediaFilteredIndexes(), [getMediaFilteredIndexes]);
   const visiblePhotoCount = Math.min(mediaFilteredIndexes.length, Math.max(GALLERY_INITIAL_RENDER_LIMIT, galleryRenderLimit));
@@ -3105,7 +3184,38 @@ function ProjectDetail({
   );
   const hasMoreGalleryPhotos = visiblePhotoCount < mediaFilteredIndexes.length;
   const searchKeywordTrimmed = String(searchKeyword || '').trim();
-  const useTimelineGallery = Boolean(uploadTimelineEnabled && uploadTimelineSections.length);
+  React.useEffect(() => {
+    if (!focusPhotoId || loading || error || String(project?.id || '') !== String(projectId)) return undefined;
+    if (viewerVisible || initialOpenPhotoId) {
+      photoFocusControllerRef.current?.cleanup();
+      photoFocusControllerRef.current = null;
+      return undefined;
+    }
+    if (photoFocusControllerRef.current) return undefined;
+    if (mediaFilter !== 'all' || onlyOwnUploads || searchKeywordTrimmed) {
+      setMediaFilter('all'); setOnlyOwnUploads(false); setSearchKeyword('');
+      return undefined;
+    }
+    const finish = () => {
+      consumePhotoFocusIntent(projectId, focusPhotoId);
+      setFocusPhotoId(previous => previous === focusPhotoId ? null : previous);
+    };
+    const position = mediaFilteredIndexes.findIndex(index => String(getPhotoRecordId(photoMetas?.[index]) || '') === focusPhotoId);
+    if (position < 0) {
+      Toast.warning('这张照片不在当前可见相册中');
+      finish();
+      return undefined;
+    }
+    if (position >= visiblePhotoCount) {
+      setGalleryRenderLimit(previous => Math.max(previous, position + 1));
+      return undefined;
+    }
+    if (!galleryPrepared || !galleryRef.current) return undefined;
+    photoFocusControllerRef.current = { cleanup: focusPhotoCard(galleryRef.current, focusPhotoId, finish, setHighlightedPhotoId) };
+    return undefined;
+  }, [focusPhotoId, loading, error, project, projectId, viewerVisible, initialOpenPhotoId, mediaFilter, onlyOwnUploads,
+    searchKeywordTrimmed, mediaFilteredIndexes, visiblePhotoCount, galleryPrepared, photoMetas]);
+  const useTimelineGallery = Boolean(uploadTimelineEnabled && uploadTimelineSections.length && !searchKeywordTrimmed);
   const timelineGalleryGroups = React.useMemo(() => {
     if (!useTimelineGallery) return [];
     const normalizeDomIdPart = (value) => String(value || '')
@@ -3141,6 +3251,33 @@ function ProjectDetail({
   }, [useTimelineGallery, uploadTimelineSections, visiblePhotoItems, photoMetas, projectId]);
 
   React.useEffect(() => {
+    let raf = 0;
+    let attempts = 0;
+    const measure = () => {
+      const el = railRef.current;
+      if (!el) {
+        // nav 可能晚于分组数据挂载（等 galleryPrepared），rAF 重试直到出现
+        if (attempts < 30) { attempts += 1; raf = requestAnimationFrame(measure); }
+        return;
+      }
+      setRailOverflow(el.scrollWidth > el.clientWidth + 4 || el.scrollHeight > el.clientHeight + 4);
+      const spans = el.querySelectorAll('.detail-timeline-rail-text span');
+      let truncated = false;
+      spans.forEach((sp) => { if (sp.scrollWidth > sp.clientWidth + 1) truncated = true; });
+      setRailNameTruncated(truncated);
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => measure()) : null;
+    if (ro && railRef.current) ro.observe(railRef.current);
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      window.removeEventListener('resize', measure);
+      if (ro) ro.disconnect();
+    };
+  }, [timelineGalleryGroups, railExpanded, railWide, useTimelineGallery]);
+
+  React.useEffect(() => {
     if (!projectId || !useTimelineGallery) return;
     const key = String(projectId);
     if (timelineDefaultModeProjectRef.current === key) return;
@@ -3153,7 +3290,9 @@ function ProjectDetail({
   }, [controlledGalleryMode, onGalleryModeChange, projectId, useTimelineGallery]);
   const detailSearchVisible = Boolean(searchOpen || searching || searchError || searchKeywordTrimmed);
   const mediaFilterLabel = mediaFilter === 'video' ? '视频' : (mediaFilter === 'image' ? '照片' : '全部');
-  const compactCountText = mediaFilter === 'all'
+  const compactCountText = onlyOwnUploads
+    ? `我上传的${mediaFilter === 'all' ? '照片和视频' : mediaFilterLabel} ${mediaFilteredIndexes.length} 项，已显示 ${visiblePhotoCount}`
+    : mediaFilter === 'all'
     ? (hasMoreGalleryPhotos ? `${count} 张，已显示 ${visiblePhotoCount}` : `${count} 张照片`)
     : `${mediaFilterLabel} ${mediaFilteredIndexes.length} 个，已显示 ${visiblePhotoCount}`;
   const mediaFilterOptions = React.useMemo(() => ([
@@ -3407,7 +3546,6 @@ function ProjectDetail({
 
   const currentViewerMeta = React.useMemo(() => photoMetas?.[viewerIndex] || null, [photoMetas, viewerIndex]);
   const currentViewerPhotoId = React.useMemo(() => getMetaPhotoId(currentViewerMeta), [currentViewerMeta, getMetaPhotoId]);
-  const currentViewerIsVideo = React.useMemo(() => isVideoMeta(currentViewerMeta), [currentViewerMeta]);
   const currentViewerVideoAnalysis = React.useMemo(() => {
     if (!currentViewerIsVideo || !currentViewerPhotoId) return null;
     return viewerVideoAnalysisMap[currentViewerPhotoId] || getVideoSemanticAnalysis(currentViewerMeta);
@@ -3562,11 +3700,11 @@ function ProjectDetail({
   }, []);
 
   const openToneEditor = React.useCallback(() => {
+    if (!canEditItem(photoMetas?.[viewerIndex])) return;
     if (!currentViewerPhotoId) return Toast.warning('无法获取照片 ID');
-    setViewerEditVisible(false);
     setViewerToneDraft(currentViewerAdjustment);
     setViewerToneVisible((prev) => !prev);
-  }, [currentViewerAdjustment, currentViewerPhotoId]);
+  }, [currentViewerAdjustment, currentViewerPhotoId, canEditItem, photoMetas, viewerIndex]);
 
   const updateToneDraft = React.useCallback((key, value) => {
     setViewerToneDraft((prev) => buildPhotoAdjustments({ ...normalizePhotoAdjustments(prev), [key]: Number(value) }, 'manual'));
@@ -3592,6 +3730,7 @@ function ProjectDetail({
   }, [analyzeViewerTone, currentViewerToneSrc]);
 
   const saveViewerTone = React.useCallback(async () => {
+    if (!canEditItem(photoMetas?.[viewerIndex])) return Toast.warning('没有修改这张照片的权限');
     if (!currentViewerPhotoId) return Toast.warning('无法获取照片 ID');
     try {
       setViewerToneSaving(true);
@@ -3607,7 +3746,7 @@ function ProjectDetail({
     } finally {
       setViewerToneSaving(false);
     }
-  }, [currentViewerPhotoId, patchPhotoAdjustmentState, viewerToneDraft]);
+  }, [currentViewerPhotoId, patchPhotoAdjustmentState, viewerToneDraft, canEditItem, photoMetas, viewerIndex]);
 
   const resetViewerTone = React.useCallback(() => {
     setViewerToneDraft(buildPhotoAdjustments(DEFAULT_PHOTO_ADJUSTMENTS, 'manual'));
@@ -4120,6 +4259,7 @@ function ProjectDetail({
     const hitIdx = targetId ? (photoMetas || []).findIndex((m) => String(getMetaPhotoId(m) || '') === targetId) : -1;
     if (hitIdx >= 0) {
       closeFacePersonModal();
+      if (targetId) setFocusPhotoId(targetId);
       setViewerEnableOpenZoom(false);
       setViewerShowOriginal(false);
       setViewerIndex(hitIdx);
@@ -4132,8 +4272,10 @@ function ProjectDetail({
         url.searchParams.set('projectId', targetProjectId);
         if (targetId) {
           url.searchParams.set('photoId', targetId);
+          url.searchParams.set('focusPhotoId', targetId);
         } else {
           url.searchParams.delete('photoId');
+          url.searchParams.delete('focusPhotoId');
         }
         window.history.pushState({}, '', url);
         try {
@@ -4264,6 +4406,7 @@ function ProjectDetail({
   }, [viewerIndex, closeFacePersonModal]);
 
   const viewerCount = images.length || 0;
+  const activeViewerSeq = viewerSeq || (onlyOwnUploads ? mediaFilteredIndexes : null);
   const normalizeViewerIndex = React.useCallback((idx) => {
     if (!viewerCount) return 0;
     return (idx + viewerCount) % viewerCount;
@@ -4317,18 +4460,17 @@ function ProjectDetail({
     const direction = step > 0 ? 1 : -1;
     // 限定序列(拍照找我结果)时只在序列内环绕切换；否则整册顺序
     let nextIndex;
-    if (viewerSeq && viewerSeq.length > 1) {
-      const pos = viewerSeq.indexOf(viewerIndex);
+    if (activeViewerSeq) {
+      if (activeViewerSeq.length <= 1) return;
+      const pos = activeViewerSeq.indexOf(viewerIndex);
       if (pos < 0) return;
-      nextIndex = viewerSeq[(pos + direction + viewerSeq.length) % viewerSeq.length];
+      nextIndex = activeViewerSeq[(pos + direction + activeViewerSeq.length) % activeViewerSeq.length];
     } else {
       nextIndex = normalizeViewerIndex(viewerIndex + direction);
     }
     if (nextIndex === viewerIndex) return;
-    // 切换照片时关闭编辑面板，避免把上一张的标签/描述保存到当前这张
-    setViewerEditVisible(false);
     setViewerIndex(nextIndex);
-  }, [viewerVisible, viewerCount, normalizeViewerIndex, viewerIndex, viewerSeq]);
+  }, [viewerVisible, viewerCount, normalizeViewerIndex, viewerIndex, activeViewerSeq]);
 
   const openViewerAt = React.useCallback((index, immediateSrc = '') => {
     if (index < 0) return;
@@ -4380,14 +4522,17 @@ function ProjectDetail({
 
   const closeViewer = React.useCallback(() => {
     setViewerVisible(false);
+    setViewerToneVisible(false);
     setViewerEnableOpenZoom(false);
     setViewerShowOriginal(false);
   }, []);
+  useMediaViewerDialog(viewerVisible, closeViewer);
 
   // viewer keyboard navigation
   React.useEffect(() => {
     if (!viewerVisible) return undefined;
     const onKey = (e) => {
+      if (e.target instanceof Element && e.target.closest('input, textarea, select, [contenteditable="true"], video')) return;
       if (e.key === 'ArrowRight') {
         navigateViewer(1);
       } else if (e.key === 'ArrowLeft') {
@@ -4401,6 +4546,7 @@ function ProjectDetail({
   }, [viewerVisible, closeViewer, navigateViewer]);
 
   const handleViewerPointerDown = React.useCallback((e) => {
+    if (e.target instanceof Element && e.target.closest('video, button, input, a')) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     viewerPointerRef.current = {
       active: true,
@@ -4424,16 +4570,13 @@ function ProjectDetail({
     viewerPointerRef.current = { active: false, pointerId: null, startX: 0, startY: 0 };
   }, []);
 
-  const hasPerm = React.useCallback((key) => userPermissions.includes(key) || canAny(key), [userPermissions]);
-  const canUpdateProject = hasPerm('projects.update');
-  const canUploadPhotos = !DISABLE_UPLOAD_FEATURE && (hasPerm('photos.upload') || hasPerm('upload.photo'));
-  const canDeletePhotos = !DISABLE_DELETE_FEATURE && hasPerm('photos.delete');
-  const canDeleteProject = !DISABLE_DELETE_FEATURE && hasPerm('projects.delete');
-  const canEditTags = hasPerm('tags.edit');
-  const canEditPhotos = hasPerm('photos.edit');
-  const canPackDownload = readOnly || hasPerm('photos.zip');
-  const canEditFacePersonName = hasPerm('faces.label');
-  const canSplitFacePerson = hasPerm('faces.merge');
+  React.useEffect(() => {
+    if (!initialOpenUpload || uploadLinkHandled.current || loading) return;
+    uploadLinkHandled.current = true;
+    if (!error && project && canUploadPhotos) setUploadMode(true);
+    else if (!error) Toast.warning('当前账号没有该相册的上传权限');
+    onInitialUploadHandled?.();
+  }, [initialOpenUpload, loading, error, project, canUploadPhotos, onInitialUploadHandled]);
 
   React.useEffect(() => {
     if (!canUploadPhotos) return;
@@ -4441,56 +4584,38 @@ function ProjectDetail({
   }, [canUploadPhotos]);
 
   // ========== Photo Editing Handlers ==========
-  const openPhotoEditModal = React.useCallback(() => {
-    if (viewerIndex < 0) return;
-    const meta = (photoMetas && photoMetas[viewerIndex]) || {};
-    const id = meta.id;
-    // initialize editing fields from current maps / meta
-    setViewerEditTags((photoTagsMap[id] && Array.isArray(photoTagsMap[id])) ? [...photoTagsMap[id]] : (safeParseTags(meta.tags) || []));
-    setViewerEditDescription(photoDescMap[id] || meta.description || '');
+  const viewerSavedDescription = photoDescMap[currentViewerPhotoId] ?? currentViewerMeta?.description ?? '';
+  const viewerSavedTagsKey = JSON.stringify(photoTagsMap[currentViewerPhotoId] ?? safeParseTags(currentViewerMeta?.tags) ?? []);
+  const resetViewerPhotoEdit = React.useCallback(() => {
+    setViewerEditTags(JSON.parse(viewerSavedTagsKey));
+    setViewerEditDescription(viewerSavedDescription);
     setViewerEditTagInput('');
-    setViewerEditVisible(true);
-  }, [viewerIndex, photoMetas, photoTagsMap, photoDescMap]);
-
-  const handlePhotoEditSuccess = React.useCallback((updatedPhoto) => {
-    // 更新照片信息
-    const photoId = updatedPhoto.id;
-    const photoIndex = photoMetas?.findIndex(m => m.id === photoId) ?? -1;
-
-    if (photoIndex >= 0) {
-      // 更新 tags 和 description
-      const newTags = safeParseTags(updatedPhoto.tags);
-      const newDesc = updatedPhoto.description || '';
-
-      setPhotoTagsMap(prev => ({ ...prev, [photoId]: newTags }));
-      setPhotoDescMap(prev => ({ ...prev, [photoId]: newDesc }));
-
-      // 鍒锋柊椤圭洰鏁版嵁浠ヤ繚鎸佸悓姝?
-      getProjectById(projectId, {
-        demo: readOnly,
-        includeFaces: false,
-        timeoutMs: PROJECT_DETAIL_TIMEOUT_MS,
-      }).then(detail => {
-        setProject(detail);
-        const built = buildImagesAndMetas(detail);
-        setImages(built.images);
-        setPhotoMetas(built.metas);
-      }).catch(err => console.error('reload after photo edit failed', err));
-    }
-  }, [projectId, photoMetas, readOnly]);
+    setViewerEditError('');
+  }, [viewerSavedDescription, viewerSavedTagsKey]);
+  React.useEffect(() => {
+    viewerEditPhotoRef.current = viewerVisible ? currentViewerPhotoId : null;
+    resetViewerPhotoEdit();
+  }, [viewerVisible, currentViewerPhotoId, resetViewerPhotoEdit]);
+  const viewerDraftTags = Array.from(new Set([...viewerEditTags, viewerEditTagInput.trim()].filter(Boolean)));
+  const viewerEditDirty = viewerEditDescription !== viewerSavedDescription || JSON.stringify(viewerDraftTags) !== viewerSavedTagsKey;
 
   const saveViewerPhotoEdit = React.useCallback(async () => {
+    if (viewerEditSaving) return;
     const idx = viewerIndex;
     const meta = (photoMetas && photoMetas[idx]) || {};
+    if (!canEditItem(meta)) return Toast.warning('没有修改这张照片或视频的权限');
     const photoId = meta.id;
     if (!photoId) return Toast.warning('无法获取照片 ID');
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20000);
+    setViewerEditSaving(true);
+    setViewerEditError('');
     try {
       const token = getToken();
       if (!token) {
-        Toast.error('鏈櫥褰曪紝璇峰厛鐧诲綍');
-        return;
+        throw new Error('登录已失效，请重新登录后保存');
       }
-      const payload = { tags: viewerEditTags && viewerEditTags.length ? viewerEditTags : [], description: viewerEditDescription || '' };
+      const payload = { tags: Array.from(new Set([...viewerEditTags, viewerEditTagInput.trim()].filter(Boolean))), description: viewerEditDescription || '' };
       const url = `${BASE_URL || ''}/api/photos/${photoId}`;
       const res = await fetch(url, {
         method: 'PATCH',
@@ -4499,40 +4624,27 @@ function ProjectDetail({
           'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify(payload),
+        signal: controller.signal,
       });
       if (res.status === 401 || res.status === 403) {
-        Toast.error('权限不足，仅管理员可操作');
-        return;
+        throw new Error(res.status === 401 ? '登录已失效，请重新登录后保存' : '没有修改这张照片或视频的权限');
       }
       if (!res.ok) {
-        const txt = await res.text();
-        throw new Error(txt || '保存失败');
+        throw new Error('保存失败，请稍后重试');
       }
       const data = await res.json();
       const updatedTags = safeParseTags(data.tags);
       setPhotoTagsMap(prev => ({ ...prev, [photoId]: updatedTags }));
       setPhotoDescMap(prev => ({ ...prev, [photoId]: data.description || '' }));
-      Toast.success('已保存照片信息');
-      setViewerEditVisible(false);
-      // reload project detail to sync metas
-      try {
-        const detail = await getProjectById(projectId, {
-          demo: readOnly,
-          includeFaces: false,
-          timeoutMs: PROJECT_DETAIL_TIMEOUT_MS,
-        });
-        setProject(detail);
-        const built = buildImagesAndMetas(detail);
-        setImages(built.images);
-        setPhotoMetas(built.metas);
-      } catch (e) {
-        // ignore reload errors
-      }
+      setPhotoMetas(prev => prev.map(item => String(item.id) === String(photoId) ? { ...item, tags: updatedTags, description: data.description || '' } : item));
+      Toast.success('已保存信息');
     } catch (err) {
-      console.error('saveViewerPhotoEdit error', err);
-      Toast.error('保存失败');
+      if (viewerEditPhotoRef.current === String(photoId)) setViewerEditError(err.name === 'AbortError' ? '保存超时，请重试' : err.message || '保存失败，请重试');
+    } finally {
+      clearTimeout(timeout);
+      setViewerEditSaving(false);
     }
-  }, [viewerIndex, viewerEditTags, viewerEditDescription, projectId, photoMetas, readOnly]);
+  }, [viewerIndex, viewerEditTags, viewerEditTagInput, viewerEditDescription, viewerEditSaving, photoMetas, canEditItem]);
 
   // 打开 / 关闭 鐩镐技鍒嗙粍寮圭獥骞跺姞杞芥暟鎹?
   // 相似分组加载（弹窗与查看器合影救场共用）：返回 {groups, photos}，缓存命中直接回吐 state
@@ -4599,6 +4711,7 @@ function ProjectDetail({
   }, []);
 
   const toggleSimSelect = React.useCallback((id) => {
+    if (!canDeleteItem(simPhotos[id])) return;
     setSimSelectedMap((prev) => {
       const next = Object.assign({}, prev || {});
       if (next[id]) delete next[id]; else next[id] = true;
@@ -4606,10 +4719,14 @@ function ProjectDetail({
       setSimSelectedCount(count);
       return next;
     });
-  }, []);
+  }, [canDeleteItem, simPhotos]);
 
   // 相似弹窗删除公共例程：批量与单张共用（同步剪除分组/元数据/主画廊/选中态）
   const performSimDelete = React.useCallback(async (ids) => {
+    if (ids.some(id => !canDeleteItem(simPhotos[id]))) {
+      Toast.warning('只能删除自己上传的照片和视频');
+      return false;
+    }
     try {
       setSimDeleting(true);
       const res = await deletePhotos(ids);
@@ -4635,12 +4752,12 @@ function ProjectDetail({
       return true;
     } catch (e) {
       console.error('sim delete failed', e);
-      Toast.error('删除失败，请稍后重试');
+      Toast.error(getPhotoDeleteErrorMessage(e));
       return false;
     } finally {
       setSimDeleting(false);
     }
-  }, [photoMetas, setPhotoMetas]);
+  }, [photoMetas, setPhotoMetas, canDeleteItem, simPhotos]);
 
   const confirmSimDelete = React.useCallback(() => {
     if (DISABLE_DELETE_FEATURE) {
@@ -4678,8 +4795,8 @@ function ProjectDetail({
     let tags = p.tags;
     if (typeof tags === 'string') { try { tags = JSON.parse(tags); } catch (e) { tags = []; } }
     if (Array.isArray(tags)) {
-      if (tags.includes('AI recommended')) return 'recommended';
       if (tags.includes('AI rejected')) return 'rejected';
+      if (tags.includes('AI recommended')) return 'recommended';
       if (tags.includes('AI medium')) return 'medium';
     }
     const s = getPhotoAiScore(p);
@@ -4695,12 +4812,12 @@ function ProjectDetail({
       const next = Object.assign({}, prev || {});
       (group || []).map((id) => String(id)).forEach((id) => {
         if (id === bestId) delete next[id];
-        else next[id] = true;
+        else if (canDeleteItem(simPhotos[id])) next[id] = true;
       });
       setSimSelectedCount(Object.keys(next).length);
       return next;
     });
-  }, []);
+  }, [canDeleteItem, simPhotos]);
 
   // 一键合影救场（查看器入口）：AI 语义识别为"合影"的照片才在 dock 浮现入口，
   // 打开确认层后自动定位这张照片所在的连拍相似组；关层不打断后台任务
@@ -4789,20 +4906,21 @@ function ProjectDetail({
   const toggleSimSelectGroup = React.useCallback((group) => {
     setSimSelectedMap((prev) => {
       const next = Object.assign({}, prev || {});
-      const ids = (group || []).map((id) => String(id));
+      const ids = (group || []).map((id) => String(id)).filter(id => canDeleteItem(simPhotos[id]));
       const allSelected = ids.length > 0 && ids.every((id) => next[id]);
       if (allSelected) ids.forEach((id) => delete next[id]);
       else ids.forEach((id) => { next[id] = true; });
       setSimSelectedCount(Object.keys(next).length);
       return next;
     });
-  }, []);
+  }, [canDeleteItem, simPhotos]);
 
   // 鎺ㄨ崘鏍囪锛氭坊鍔?鎺ㄨ崘"鏍囩
   const addRecommendationTag = React.useCallback(async () => {
     if (viewerIndex < 0 || !photoMetas || !photoMetas[viewerIndex]) return;
 
     const currentMeta = photoMetas[viewerIndex];
+    if (!canEditItem(currentMeta)) return Toast.warning('没有修改这张照片的权限');
     const photoId = getPhotoRecordId(currentMeta);
     if (!photoId) {
       Toast.warning('无法获取照片 ID');
@@ -4855,7 +4973,7 @@ function ProjectDetail({
       console.error('add recommendation failed:', err);
       Toast.error(`操作失败: ${err.message}`);
     }
-  }, [viewerIndex, photoMetas, photoTagsMap]);
+  }, [viewerIndex, photoMetas, photoTagsMap, canEditItem]);
 
   const masonryBuckets = React.useMemo(() => {
     const cols = Math.max(1, masonryColumns);
@@ -5016,11 +5134,13 @@ function ProjectDetail({
     const adjustmentStyle = getPhotoAdjustmentStyle(adjustments);
     const useExactThumbnailTone = !isDefaultPhotoAdjustments(adjustments);
     const rippleStyle = getRippleStyle(overallIndex) || {};
-    const itemStyle = galleryMode === 'grid'
+    const itemStyle = galleryMode === 'grid' || searchKeywordTrimmed
       ? { ...rippleStyle, aspectRatio: '1 / 1' }
       : rippleStyle;
     return (
-    <div className="detail-photo-item" key={overallIndex} style={itemStyle}>
+    <div className={`detail-photo-item${searchKeywordTrimmed ? ' search-result-enter' : ''}${String(getPhotoRecordId(meta) || '') === highlightedPhotoId ? ' is-photo-focused' : ''}`} key={meta.id || overallIndex}
+      data-photo-id={getPhotoRecordId(meta) || undefined} tabIndex={-1}
+      style={{ ...itemStyle, '--search-order': overallIndex % 8 }}>
       <div className="detail-photo">
         <div style={{ position: 'relative' }}>
           {isVideo ? (
@@ -5208,7 +5328,7 @@ function ProjectDetail({
       </div>
     </div>
     );
-  }, [title, handlePhotoDragStart, handlePhotoDragEnd, handleImageLoad, deleteMode, photoMetas, images, hoveredPhotoIdx, photoTagsMap, showAILabels, photoAILabelMap, selectedMap, toggleSelect, project, initialProject, getRippleStyle, openViewerAt, detailImageReadyMap, imageRatios, galleryMode, getPhotoSemanticState, getAdjustmentForPhoto, uploadTimelineSections]);
+  }, [title, handlePhotoDragStart, handlePhotoDragEnd, handleImageLoad, deleteMode, photoMetas, images, hoveredPhotoIdx, photoTagsMap, showAILabels, photoAILabelMap, selectedMap, toggleSelect, project, initialProject, getRippleStyle, openViewerAt, detailImageReadyMap, imageRatios, galleryMode, searchKeywordTrimmed, highlightedPhotoId, getPhotoSemanticState, getAdjustmentForPhoto, uploadTimelineSections]);
 
   return (
     <div className="detail-page">
@@ -5232,21 +5352,16 @@ function ProjectDetail({
       {detailSearchVisible ? (
         <div className="detail-header detail-header--search-only">
           <div className="detail-header-inner">
+            <div className="scoped-search-heading"><strong>当前相册内检索</strong></div>
             <div className="detail-search-row">
               <Input
                 className="detail-search-input"
                 value={searchKeyword}
-                onChange={(v) => setSearchKeyword(v)}
+                onChange={(v) => { setSearchPage(1); setSearchRelated(false); setSearchKeyword(v); }}
                 placeholder="描述画面、人物或质量要求"
                 prefix={<IconSearch />}
                 showClear
               />
-              <div className="detail-search-status">
-                {searching ? <Text type="tertiary">搜索中</Text> : null}
-                {searchKeywordTrimmed ? (
-                  <Text type="tertiary">{`${images.length} 张`}</Text>
-                ) : null}
-              </div>
               <Button
                 className="detail-search-close"
                 icon={<IconClose />}
@@ -5263,13 +5378,17 @@ function ProjectDetail({
               <div className="detail-search-insight" aria-label="智能搜索理解结果">
                 <span className={`detail-search-insight-mode${searchMeta.aiUsed ? ' is-ai' : ''}`}>
                   <IconSparkleAI />
-                  {searchMeta.aiUsed ? 'AI 已理解' : '智能匹配'}
+                  {searchMeta.visual ? '视觉核验' : searchMeta.aiUsed ? 'AI 解析' : '条件匹配'}
                 </span>
                 <div className="detail-search-insight-chips">
                   {searchMeta.chips.map((chip) => <span key={chip}>{chip}</span>)}
                 </div>
               </div>
             ) : null}
+            <SearchFeedback search={searchMeta} loading={searching}
+              phase={searchPhase} found={images.length}
+              onRefresh={() => { setSearchPage(1); setSearchRefresh(value=>value+1); }}
+              onRelated={() => { setSearchPage(1); setSearchRelated(true); }} onStrict={() => { setSearchPage(1); setSearchRelated(false); }} />
             {searchError ? (
               <Text type="danger" className="detail-search-error">{searchError}</Text>
             ) : null}
@@ -5331,7 +5450,7 @@ function ProjectDetail({
           />
         </div>
 
-        <div className="detail-media-filter" role="group" aria-label="媒体类型筛选">
+        <div className={`detail-media-filter${currentUser?.id && !readOnly ? ' has-owner-filter' : ''}`} role="group" aria-label="媒体类型筛选">
           {mediaFilterOptions.map((option) => (
             <button
               key={option.key}
@@ -5347,6 +5466,14 @@ function ProjectDetail({
               <strong>{option.count}</strong>
             </button>
           ))}
+          {currentUser?.id && !readOnly ? (
+            <label className="detail-media-owner-filter">
+              <span>只看我上传的</span>
+              <strong>{ownUploadCount}</strong>
+              <input type="checkbox" checked={onlyOwnUploads} onChange={toggleOwnUploadFilter} aria-label="只看我上传的" />
+              <span className="detail-media-owner-switch" aria-hidden="true" />
+            </label>
+          ) : null}
         </div>
 
         <div className="detail-actions-grid">
@@ -5464,7 +5591,7 @@ function ProjectDetail({
             </span>
           </Button>
 
-          <IfCan perms={['projects.update']}>
+          {canUpdateProject && <IfCan perms={['projects.update']}>
             <Button
               className="detail-action-tile"
               theme="borderless"
@@ -5480,8 +5607,8 @@ function ProjectDetail({
                 <span className="detail-action-desc">标题/日期/标签</span>
               </span>
             </Button>
-          </IfCan>
-          <IfCan perms={['projects.update']}>
+          </IfCan>}
+          {canUpdateProject && <IfCan perms={['projects.update']}>
             <Button
               className="detail-action-tile"
               theme="borderless"
@@ -5497,7 +5624,7 @@ function ProjectDetail({
                 <span className="detail-action-desc">环节增删/排序/命名</span>
               </span>
             </Button>
-          </IfCan>
+          </IfCan>}
         </div>
 
         {(description || (tags && tags.length > 0) || startText || createdText || date) ? (
@@ -5543,7 +5670,7 @@ function ProjectDetail({
       ) : null}
 
       <div
-        className={`detail-gallery ${galleryMode === 'masonry' ? 'detail-gallery--masonry' : 'detail-gallery--grid'} ${useTimelineGallery ? 'detail-gallery--timeline' : ''} ${isGalleryPreparing ? 'is-preparing' : ''}`}
+        className={`detail-gallery ${galleryMode === 'masonry' && !searchKeywordTrimmed ? 'detail-gallery--masonry' : 'detail-gallery--grid'} ${useTimelineGallery ? 'detail-gallery--timeline' : ''} ${isGalleryPreparing ? 'is-preparing' : ''}`}
         ref={galleryRef}
       >
         {loading && (
@@ -5560,15 +5687,18 @@ function ProjectDetail({
           </div>
         )}
 
-        {!loading && !error && images.length === 0 && (
+        {!loading && !error && images.length === 0 && searching ? <SearchSkeleton square /> : null}
+        {!loading && !error && !searching && images.length === 0 && (
           <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '60px 0' }}>
-            <Empty description="该项目暂无图片" />
+            <Empty description={searchKeywordTrimmed ? (searchMeta?.visual && !searchMeta.visual.coverageComplete
+              ? '暂未确认符合条件的照片' : '没有匹配的照片') : '该项目暂无图片'} />
           </div>
         )}
 
         {!loading && !error && images.length > 0 && mediaFilteredIndexes.length === 0 && (
           <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '60px 0' }}>
-            <Empty description={mediaFilter === 'video' ? '当前相册暂无视频' : '当前相册暂无照片'} />
+            <Empty description={onlyOwnUploads ? (mediaFilter === 'all' ? '你还没有在这个相册上传照片或视频' : `没有你上传的${mediaFilterLabel}`)
+              : (mediaFilter === 'video' ? '当前相册暂无视频' : '当前相册暂无照片')} />
           </div>
         )}
 
@@ -5713,7 +5843,7 @@ function ProjectDetail({
                 })}
               </div>
             </div>
-          ) : galleryMode === 'masonry' ? (
+          ) : galleryMode === 'masonry' && !searchKeywordTrimmed ? (
             <div className="detail-masonry-columns" style={{ '--masonry-cols': masonryColumns }}>
               {masonryBuckets.map((bucket, colIdx) => (
                 <div className="detail-masonry-column" key={`masonry-col-${colIdx}`}>
@@ -5732,10 +5862,17 @@ function ProjectDetail({
             </Button>
           </div>
         ) : null}
+        {searchKeywordTrimmed && !hasMoreGalleryPhotos && searchHasMore ? <div className="detail-gallery-more">
+          <Button disabled={searching} loading={searching} onClick={() => setSearchPage(value => value + 1)}
+            aria-label="加载更多检索结果">加载更多检索结果{Number.isFinite(searchTotal) ? `（已检索 ${images.length} / ${searchTotal}）` : ''}</Button>
+        </div> : null}
         {deleteMode ? (
           <div className="detail-selection-inline is-expanded">
             <div className="detail-selection-actions">
               <Button className="detail-selection-btn detail-selection-btn--select" onClick={toggleSelectAll}>{allSelected ? '取消全选' : '全选'}</Button>
+              {canDeletePhotos && ownPhotosOnly ? (
+                <Button className="detail-selection-btn" onClick={selectOwnUploads} type="tertiary">仅选我上传的</Button>
+              ) : null}
               {canPackDownload ? <Button className="detail-selection-btn detail-selection-btn--download" onClick={packDownloadSelected} type="tertiary">直接下载</Button> : null}
               {uploadTimelineSections.length > 0 ? (
                 <IfCan perms={['photos.edit']}>
@@ -5756,10 +5893,11 @@ function ProjectDetail({
                 onClick={canDeletePhotos ? confirmDelete : undefined}
                 type="danger"
                 loading={deletingPhotos}
-                disabled={deletingPhotos || !canDeletePhotos || selectedCount <= 0}
-                title={!canDeletePhotos ? '当前账号没有删除照片权限' : (selectedCount > 0 ? `删除 ${selectedCount} 张照片` : '先选择照片')}
+                disabled={deletingPhotos || !canDeletePhotos || !canDeleteSelection}
+                title={!canDeletePhotos ? '当前账号没有删除权限' : (selectedCount > 0 && !canDeleteSelection
+                  ? '只能删除自己上传的照片和视频，请取消其他人的选择' : (selectedCount > 0 ? `删除 ${selectedCount} 项照片或视频` : '先选择照片或视频'))}
               >
-                删除{selectedCount > 0 ? ` (${selectedCount})` : ''}
+                {ownPhotosOnly ? '删除我的' : '删除'}{selectedCount > 0 ? ` (${selectedCount})` : ''}
               </Button>
             </div>
           </div>
@@ -5950,7 +6088,10 @@ function ProjectDetail({
                 ) : (
                   <>
                     <Button onClick={() => { setSimDeleteMode(false); setSimSelectedMap({}); setSimSelectedCount(0); }} type="tertiary">取消选择</Button>
-                    <PermButton perms={['photos.delete']} onClick={confirmSimDelete} type="danger" loading={simDeleting} disabled={simDeleting}>删除 ({simSelectedCount})</PermButton>
+                    <PermButton perms={['photos.delete']} onClick={confirmSimDelete} type="danger" loading={simDeleting}
+                      disabled={simDeleting || !simSelectedCount || Object.keys(simSelectedMap).some(id => !canDeleteItem(simPhotos[id]))}>
+                      {ownPhotosOnly ? '删除我的' : '删除'} ({simSelectedCount})
+                    </PermButton>
                   </>
                 )}
               </div>
@@ -5966,6 +6107,7 @@ function ProjectDetail({
             ) : (simGroups && simGroups.length) ? (
               <div className="similarity-list">
                 {simGroups.map((g, gi) => {
+                  const deletableGroup = g.filter(id => canDeleteItem(simPhotos[id]));
                   // 组内 AI 最高分 = 建议保留（至少两张有分才有比较意义）
                   const scoredIds = g
                     .map((id) => ({ id: String(id), score: getPhotoAiScore(simPhotos[id]) }))
@@ -5979,23 +6121,23 @@ function ProjectDetail({
                       <span>相似组 {gi + 1}</span>
                       <span className="similarity-group-head-side">
                         <span className="similarity-group-count">{g.length} 张照片</span>
-                        {canDeletePhotos && simDeleteMode && bestId ? (
+                        {canDeletePhotos && simDeleteMode && bestId && deletableGroup.length > 0 ? (
                           <button
                             type="button"
                             className="similarity-group-selectall similarity-group-keepbest"
-                            title="选中除 AI 最高分外的全部照片"
+                            title="选中有删除权限且非 AI 最高分的照片"
                             onClick={() => selectSimGroupExceptBest(g, bestId)}
                           >
                             仅留最佳
                           </button>
                         ) : null}
-                        {canDeletePhotos && simDeleteMode ? (
+                        {canDeletePhotos && simDeleteMode && deletableGroup.length > 0 ? (
                           <button
                             type="button"
                             className="similarity-group-selectall"
-                            onClick={() => toggleSimSelectGroup(g)}
+                            onClick={() => toggleSimSelectGroup(deletableGroup)}
                           >
-                            {g.length > 0 && g.every((id) => simSelectedMap[String(id)]) ? '取消全选' : '全选本组'}
+                            {deletableGroup.every((id) => simSelectedMap[String(id)]) ? '取消全选' : (ownPhotosOnly ? '全选我的' : '全选本组')}
                           </button>
                         ) : null}
                       </span>
@@ -6024,7 +6166,7 @@ function ProjectDetail({
                             ) : null}
                             {thumb ? (
                               <img src={thumb} alt={titleText} className="similarity-thumb-img" onClick={() => {
-                                if (simDeleteMode) {
+                                if (simDeleteMode && canDeleteItem(p)) {
                                   toggleSimSelect(String(id));
                                   return;
                                 }
@@ -6042,7 +6184,7 @@ function ProjectDetail({
                             ) : (
                               <div className="similarity-thumb-empty" />
                             )}
-                            {canDeletePhotos && simDeleteMode && (
+                            {canDeletePhotos && canDeleteItem(p) && simDeleteMode && (
                               <label className="similarity-select-mark" onClick={(event) => event.stopPropagation()}>
                                 <input type="checkbox" className="mamage-photo-check-input" checked={selected}
                                   onChange={() => toggleSimSelect(String(id))}
@@ -6052,7 +6194,7 @@ function ProjectDetail({
                             )}
                             <div className="similarity-thumb-foot">
                               <div className="similarity-thumb-title">{titleText}</div>
-                              {canDeletePhotos && !simDeleteMode && (
+                              {canDeletePhotos && canDeleteItem(p) && !simDeleteMode && (
                                 <button
                                   type="button"
                                   className="similarity-thumb-delete"
@@ -6379,7 +6521,7 @@ function ProjectDetail({
                         </Button>
                       </div>
                       {!canEditFacePersonName ? (
-                        <Text type="tertiary" size="small">你没有人物标注权限（faces.label）</Text>
+                        <Text type="tertiary" size="small">你没有人物档案维护权限</Text>
                       ) : null}
                     </div>
                   </div>
@@ -6594,8 +6736,8 @@ function ProjectDetail({
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   if (!item.projectId || typeof window === 'undefined') return;
-                                  const target = `/?projectId=${encodeURIComponent(String(item.projectId))}`;
-                                  window.open(target, '_blank', 'noopener,noreferrer');
+                                  const target = buildPhotoFocusUrl(item.projectId, item.id || item.photoId || item.photo_id);
+                                  if (target) window.open(target, '_blank', 'noopener,noreferrer');
                                 }}
                                 title="跳转相册"
                               >
@@ -6622,9 +6764,9 @@ function ProjectDetail({
         </Modal>
 
         {/* Image viewer overlay (no container) */}
-        {viewerVisible ? (
-        <div className="viewer-overlay viewer-overlay--immersive is-open" onClick={closeViewer} aria-hidden="false">
-            <div className="viewer-wrap">
+        {viewerVisible ? createPortal(
+        <div className="viewer-overlay viewer-overlay--workspace is-open" onClick={closeViewer} role="dialog" aria-modal="true" aria-label="媒体查看器">
+            <div className={`viewer-wrap${viewerDetailsVisible || viewerToneVisible ? ' has-details' : ''}`}>
               {/* 顶部状态栏：关闭+计数+摄影师·环节 | AI 分+推荐+原图开关（只读状态集中于此） */}
               <div className="viewer-topbar" onClick={(e) => e.stopPropagation()}>
                 <div className="viewer-topbar-left">
@@ -6632,10 +6774,13 @@ function ProjectDetail({
                     <IconClose />
                   </button>
                   <span className="viewer-topbar-counter">
-                    {(viewerSeq && viewerSeq.length && viewerSeq.indexOf(viewerIndex) >= 0)
-                      ? `${viewerSeq.indexOf(viewerIndex) + 1} / ${viewerSeq.length} · 找我结果`
+                    {(activeViewerSeq && activeViewerSeq.length && activeViewerSeq.indexOf(viewerIndex) >= 0)
+                      ? `${activeViewerSeq.indexOf(viewerIndex) + 1} / ${activeViewerSeq.length} · ${viewerSeq ? '找我结果' : '我上传的'}`
                       : `${Math.min(viewerIndex + 1, images.length)} / ${images.length}`}
                   </span>
+                  <strong className="viewer-topbar-title" title={photoMetas?.[viewerIndex]?.title || ''}>
+                    {photoMetas?.[viewerIndex]?.title || (currentViewerIsVideo ? '视频预览' : '照片预览')}
+                  </strong>
                   {(() => {
                     const meta = (photoMetas && photoMetas[viewerIndex]) || {};
                     const rawName = meta.photographerName || meta.photographer_name || meta.photographer || (meta.photographerId ? String(meta.photographerId) : null) || (meta.photographer_id ? String(meta.photographer_id) : null);
@@ -6686,24 +6831,17 @@ function ProjectDetail({
                   ) : null}
                 </div>
               </div>
-              {images.length > 1 ? (
-                <button
-                  type="button"
-                  className="viewer-nav viewer-nav-left"
-                  onClick={(e) => { e.stopPropagation(); navigateViewer(-1); }}
-                  aria-label="上一张"
-                >
-                  <IconChevronLeft />
-                </button>
-              ) : null}
-
               <div
                 className="viewer-img-wrap"
-                style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}
                 onPointerDown={handleViewerPointerDown}
                 onPointerUp={handleViewerPointerUp}
                 onPointerCancel={handleViewerPointerCancel}
               >
+                {images.length > 1 ? (
+                  <button type="button" className="viewer-nav viewer-nav-left" onClick={(e) => { e.stopPropagation(); navigateViewer(-1); }} aria-label="上一张" title="上一张">
+                    <IconChevronLeft />
+                  </button>
+                ) : null}
                 {photoMetas && photoMetas[viewerIndex] ? (
                   <>
                     <div className="viewer-img-stage" onClick={(e) => e.stopPropagation()}>
@@ -6817,6 +6955,11 @@ function ProjectDetail({
                       </div>
                     </div>
                 ) : null}
+                {images.length > 1 ? (
+                  <button type="button" className="viewer-nav viewer-nav-right" onClick={(e) => { e.stopPropagation(); navigateViewer(1); }} aria-label="下一张" title="下一张">
+                    <IconChevronRight />
+                  </button>
+                ) : null}
               </div>
 
               {viewerToneVisible && !currentViewerIsVideo && (photoMetas && photoMetas[viewerIndex]) ? (
@@ -6883,13 +7026,17 @@ function ProjectDetail({
 
               {/* 底部信息+操作坞：语义信息卡 + 一条图标操作栏，全部集中在此 */}
               <div className="viewer-dock" onClick={(e) => e.stopPropagation()}>
+                <aside className="viewer-details-panel" id="viewer-details-panel" aria-label="媒体信息" hidden={!viewerDetailsVisible || viewerToneVisible}>
+                  <div className="viewer-sidebar-head">
+                    <div><span>{currentViewerIsVideo ? '视频信息' : '照片信息'}</span><strong>{photoMetas?.[viewerIndex]?.originalFilename || photoMetas?.[viewerIndex]?.title || '未命名'}</strong></div>
+                    <button type="button" aria-label="关闭信息" title="关闭信息" onClick={() => setViewerDetailsVisible(false)}><IconClose /></button>
+                  </div>
                 {photoMetas && photoMetas[viewerIndex] ? (() => {
                        const meta = photoMetas[viewerIndex] || {};
                        const state = getPhotoSemanticState(meta);
                        const { description, tags, pending } = state;
                        const hasDesc = !!description;
                        const hasTags = tags.length > 0;
-                       const hasVerdict = !!getPhotoAiQuality(meta);
                        const videoAnalysis = currentViewerIsVideo ? currentViewerVideoAnalysis : null;
                        const videoGlobal = getVideoSemanticGlobal(videoAnalysis);
                        const videoTotalSemantic = String(videoGlobal.totalSemantic || videoAnalysis?.totalSemantic || videoAnalysis?.detailedSummary || '').trim();
@@ -6928,38 +7075,43 @@ function ProjectDetail({
                        const videoCoverage = videoAnalysis?.coverage || {};
                        const videoDuration = Number(videoCoverage.duration || videoCoverage.end || 0);
                        const videoPending = currentViewerIsVideo && !videoAnalysis && (pending || currentViewerVideoAnalysisLoading);
-                       if (!hasDesc && !hasTags && !pending && !viewerEditVisible && !hasVerdict && !videoAnalysis && !videoPending) return null;
+                       const editable = canEditItem(meta);
                        return (
                          <div
-                           className={`viewer-info-card${viewerEditVisible ? ' is-editing' : ''}${currentViewerIsVideo ? ' has-video-semantic' : ''}${currentViewerIsVideo && viewerVideoAnalysisExpanded ? ' is-expanded' : ''}`}
-                          onClick={viewerEditVisible || currentViewerIsVideo ? (e) => e.stopPropagation() : undefined}
+                           className={`viewer-info-card${editable ? ' is-editable' : ''}${currentViewerIsVideo ? ' has-video-semantic' : ''}${currentViewerIsVideo && viewerVideoAnalysisExpanded ? ' is-expanded' : ''}`}
+                          onClick={(e) => e.stopPropagation()}
                         >
-                          {viewerEditVisible ? (
-                            <div className="viewer-edit-panel">
-                              <TextArea className="viewer-edit-textarea" value={viewerEditDescription} onChange={(v) => setViewerEditDescription(v)} rows={4} placeholder="照片描述" />
-                              <div className="viewer-edit-label">照片标签（按回车添加）</div>
+                          {editable ? (
+                            <fieldset className="viewer-edit-panel" disabled={viewerEditSaving}>
+                              <label className="viewer-edit-label" htmlFor="viewer-description">描述</label>
+                              <textarea id="viewer-description" className="viewer-edit-textarea" value={viewerEditDescription} onChange={(e) => setViewerEditDescription(e.target.value)} rows={4} placeholder="添加描述" />
+                              <label className="viewer-edit-label" htmlFor="viewer-tag-input">标签</label>
                               <div className="viewer-edit-tags">
                                 {(viewerEditTags || []).map((t, i) => (
-                                  <Tag key={t + i} size="small" type="light">{t}
-                                    <button className="viewer-edit-tag-remove" onClick={(e) => { e.stopPropagation(); setViewerEditTags((s) => s.filter(x => x !== t)); }}>×</button>
-                                  </Tag>
+                                  <span key={t + i} className="viewer-edit-tag">{t}
+                                    <button type="button" className="viewer-edit-tag-remove" aria-label={`移除标签 ${t}`} title={`移除标签 ${t}`} onClick={() => setViewerEditTags((s) => s.filter(x => x !== t))}><IconClose /></button>
+                                  </span>
                                 ))}
-                                <input className="viewer-edit-tag-input" value={viewerEditTagInput} onChange={(e) => setViewerEditTagInput(e.target.value)} onKeyDown={(e) => {
-                                  if (e.key === 'Enter' || e.key === ',') {
+                                <input id="viewer-tag-input" className="viewer-edit-tag-input" value={viewerEditTagInput} onChange={(e) => setViewerEditTagInput(e.target.value)} onKeyDown={(e) => {
+                                  if (!e.nativeEvent.isComposing && (e.key === 'Enter' || e.key === ',')) {
                                     e.preventDefault();
                                     const v = (viewerEditTagInput || '').trim();
                                     if (v && !(viewerEditTags || []).includes(v)) setViewerEditTags((s) => [...(s || []), v]);
                                     setViewerEditTagInput('');
                                   }
-                                }} placeholder="输入标签并回车" />
-
-                                <div className="viewer-edit-actions">
-                                  <button type="button" className="viewer-original-btn viewer-action-primary" onClick={(e) => { e.stopPropagation(); saveViewerPhotoEdit(); }}>保存</button>
-                                  <button type="button" className="viewer-original-btn viewer-action-muted" onClick={(e) => { e.stopPropagation(); setViewerEditVisible(false); }}>取消</button>
-                                </div>
+                                }} placeholder="添加标签" />
                               </div>
-                            </div>
-                           ) : currentViewerIsVideo ? (
+                              {viewerEditDirty || viewerEditSaving || viewerEditError ? (
+                                <div className="viewer-edit-actions">
+                                  <span role="status">{viewerEditSaving ? '保存中' : '未保存'}</span>
+                                  <Button size="small" onClick={resetViewerPhotoEdit} disabled={viewerEditSaving}>撤销</Button>
+                                  <Button size="small" theme="solid" type="primary" onClick={saveViewerPhotoEdit} loading={viewerEditSaving}>保存</Button>
+                                </div>
+                              ) : null}
+                              {viewerEditError ? <p className="viewer-edit-error" role="alert">{viewerEditError}</p> : null}
+                            </fieldset>
+                          ) : null}
+                          {currentViewerIsVideo ? (
                              <div className="viewer-video-semantic">
                                <div className="viewer-video-semantic-head">
                                  <div className="viewer-video-semantic-title">
@@ -7086,8 +7238,8 @@ function ProjectDetail({
                                  </>
                                ) : (
                                  <>
-                                   {hasDesc ? <div className="viewer-description">{description}</div> : null}
-                                   {hasTags ? <div className="viewer-semantic-tags">{tags.map((tag, index) => <span key={index} className="viewer-semantic-tag">{tag}</span>)}</div> : null}
+                                   {!editable && hasDesc ? <div className="viewer-description">{description}</div> : null}
+                                   {!editable && hasTags ? <div className="viewer-semantic-tags">{tags.map((tag, index) => <span key={index} className="viewer-semantic-tag">{tag}</span>)}</div> : null}
                                  </>
                                )}
                              </div>
@@ -7099,10 +7251,17 @@ function ProjectDetail({
                                    语义分析中
                                  </div>
                                )}
-                               {hasDesc && (
-                                 <div className="viewer-description">{description}</div>
-                               )}
-                               {hasTags && (
+                               <PhotoDescription
+                                 key={state.photoId || viewerIndex}
+                                 photoId={state.photoId}
+                                 summary={editable ? '' : description}
+                                 initialDetail={meta.detailedDescription}
+                                 initialPeopleEnabled={meta.personObservationsEnabled}
+                                 analysisStatus={state.aiStatus}
+                                 loadPhoto={readOnly ? undefined : getPhotoById}
+                                 loadPeople={readOnly ? undefined : getPhotoPersonObservations}
+                               />
+                               {!editable && hasTags && (
                                  <div className="viewer-semantic-tags">
                                    {tags.map((tag, i) => (
                                      <span key={i} className="viewer-semantic-tag">{tag}</span>
@@ -7129,7 +7288,8 @@ function ProjectDetail({
                         </div>
                       );
                     })() : null}
-                <div className="viewer-dock-actions">
+                </aside>
+                <div className="viewer-dock-actions" role="toolbar" aria-label="媒体操作">
                   {!readOnly && !currentViewerIsVideo && (photoMetas && photoMetas[viewerIndex]) && (
                     <button
                       type="button"
@@ -7141,7 +7301,7 @@ function ProjectDetail({
                       <span>人脸框</span>
                     </button>
                   )}
-                  {!readOnly && !currentViewerIsVideo && canEditPhotos && (photoMetas && photoMetas[viewerIndex]) && (
+                  {!readOnly && !currentViewerIsVideo && canEditPhotos && canEditItem(photoMetas?.[viewerIndex]) && (
                     <button
                       type="button"
                       className={`viewer-dock-btn${viewerToneVisible ? ' is-active' : ''}`}
@@ -7152,23 +7312,24 @@ function ProjectDetail({
                       <span>调色</span>
                     </button>
                   )}
-                  {(photoMetas && photoMetas[viewerIndex]) && (
                     <button
                       type="button"
-                      className="viewer-dock-btn"
-                      title={currentViewerIsVideo ? '修改视频信息' : '修改照片信息'}
-                      onClick={(e) => { e.stopPropagation(); openPhotoEditModal(); }}
+                      className={`viewer-dock-btn viewer-dock-btn--info${viewerDetailsVisible && !viewerToneVisible ? ' is-active' : ''}`}
+                      aria-label={viewerDetailsVisible && !viewerToneVisible ? '隐藏信息' : '显示信息'}
+                      aria-expanded={viewerDetailsVisible && !viewerToneVisible}
+                      aria-controls="viewer-details-panel"
+                      title={viewerDetailsVisible && !viewerToneVisible ? '隐藏信息' : '显示信息'}
+                      onClick={() => { setViewerDetailsVisible(viewerToneVisible || !viewerDetailsVisible); setViewerToneVisible(false); }}
                     >
-                      <IconInfoEdit />
-                      <span>编辑信息</span>
+                      <IconListView />
+                      <span>信息</span>
                     </button>
-                  )}
                   {(() => {
                     const meta = photoMetas?.[viewerIndex];
                     if (!meta || !meta.id) return null;
                     const hasRecommendTag = (photoTagsMap[meta.id] || []).includes('推荐');
                     const hasAIRecommend = photoAILabelMap[meta.id] === 'recommended';
-                    if (!canEditTags || hasRecommendTag || hasAIRecommend) return null;
+                    if (!canEditTags || !canEditItem(meta) || hasRecommendTag || hasAIRecommend) return null;
                     return (
                       <button
                         type="button"
@@ -7207,19 +7368,9 @@ function ProjectDetail({
                 ) : null}
               </div>
 
-              {images.length > 1 ? (
-                <button
-                  type="button"
-                  className="viewer-nav viewer-nav-right"
-                  onClick={(e) => { e.stopPropagation(); navigateViewer(1); }}
-                  aria-label="下一张"
-                >
-                  <IconChevronRight />
-                </button>
-              ) : null}
             </div>
           </div>
-        ) : null}
+        , document.body) : null}
 
         {/* Inline viewer edit 鈥?replaced modal with inline editor under the photo */}
 

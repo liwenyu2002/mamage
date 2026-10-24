@@ -3,7 +3,7 @@ import React from 'react';
 import { createPortal } from 'react-dom';
 import { Button, MotionModal } from './ui';
 import { IconSearch, IconPlus, IconChevronLeft, IconChevronRight, IconGridView, IconListView,
-  IconClose, IconStar, IconSparkleAI, IconSimilarStack, IconTimelineFlow, IconSliders, IconMoreStroked, IconEditStroked } from './ui/icons';
+  IconClose, IconStar, IconSparkleAI, IconSimilarStack, IconTimelineFlow, IconSliders, IconMoreStroked, IconEditStroked, IconShare } from './ui/icons';
 import { LiquidGlassDefs } from './liquidGlass';
 import ProjectCard from './ProjectCard';
 import { resolveAssetUrl } from './services/request';
@@ -13,6 +13,10 @@ import { canAny } from './permissions/permissionStore';
 import AlbumActionBar from './AlbumActionBar';
 import { CollectionCard, AlbumShortcut, AlbumDirectory } from './folders/GlassFolders';
 import FolderColumns from './folders/FolderColumns';
+import ScopedPhotoSearch from './ScopedPhotoSearch';
+import SharedAlbums from './SharedAlbums';
+import AlbumSharingStatus from './AlbumSharingStatus';
+import SharedFolderView, { SharedFolders } from './SharedFolderView';
 import { folderPath, folderBranchHeight, folderMoveIssue, groupAlbums as treeAlbums, MAX_FOLDER_DEPTH, FOLDER_DEPTH_LIMIT_MESSAGE, ROOT_DROP_ID } from './folders/folderTree';
 import './AlbumDesktop.css';
 import './folders/folders.css';
@@ -73,13 +77,13 @@ function GroupSymbol({ group }) {
   return <Icon />;
 }
 
-function AlbumCard({ album, groups, onOpen, onOrganize, pinned, onPin, dragProps, canOrganize, importStatus, selecting, selected, onToggle, previewScope }) {
+function AlbumCard({ album, groups, onOpen, onOrganize, onShare, pinned, onPin, dragProps, canOrganize, importStatus, selecting, selected, onToggle, previewScope }) {
   const group = groups.find(g => album.groups.includes(g.id));
   const [menuOpen,setMenuOpen]=React.useState(false);
   const [position,setPosition]=React.useState({});
   const trigger=React.useRef(null), menu=React.useRef(null);
   const close=()=>{setMenuOpen(false);trigger.current?.focus({preventScroll:true})};
-  const open=()=>{window.scrollTo({top:window.scrollY,behavior:'instant'});const bounds=trigger.current.getBoundingClientRect(),scale=parseFloat(getComputedStyle(document.documentElement).zoom)||1;setPosition({left:Math.max(8,Math.min(innerWidth-204*scale,bounds.right-180*scale))/scale,top:Math.max(8,Math.min(innerHeight-110*scale,bounds.bottom+6))/scale});setMenuOpen(true)};
+  const open=()=>{window.scrollTo({top:window.scrollY,behavior:'instant'});const bounds=trigger.current.getBoundingClientRect(),scale=parseFloat(getComputedStyle(document.documentElement).zoom)||1;setPosition({left:Math.max(8,Math.min(innerWidth-204*scale,bounds.right-180*scale))/scale,top:Math.max(8,Math.min(innerHeight-160*scale,bounds.bottom+6))/scale});setMenuOpen(true)};
   React.useEffect(()=>{
     if(!menuOpen)return undefined;
     menu.current?.querySelector('button')?.focus({preventScroll:true});
@@ -103,12 +107,13 @@ function AlbumCard({ album, groups, onOpen, onOrganize, pinned, onPin, dragProps
     {menuOpen && createPortal(<div ref={menu} className="desktop-photo-menu acp-collection-actions" role="menu" aria-label={`相册操作 ${album.name}`} style={position}
       onKeyDown={event=>{if(!['ArrowDown','ArrowUp','Home','End'].includes(event.key))return;event.preventDefault();const items=[...menu.current.querySelectorAll('button')],index=items.indexOf(document.activeElement);items[event.key==='Home'?0:event.key==='End'?items.length-1:(index+(event.key==='ArrowDown'?1:-1)+items.length)%items.length]?.focus()}}>
         <button role="menuitemcheckbox" aria-checked={pinned} onClick={()=>action(()=>onPin(`album:${album.id}`))}><IconStar /><span>{pinned ? '取消置顶' : '置顶相册'}</span></button>
+        {onShare && !album.isShared && <button role="menuitem" onClick={()=>action(()=>onShare(album))}><IconShare /><span>共享相册</span></button>}
         {canOrganize && <button role="menuitem" onClick={()=>action(()=>onOrganize(album))}><IconListView /><span>整理到文件夹</span></button>}
       </div>,document.body)}
   </div>;
 }
 
-function DesktopContent({ initial, userId, workspaceName, organizationName, onOpen, onReload, sort, dateFilter, toolbar, projectPreviews, importStatuses, folderStyle, footer }) {
+function DesktopContent({ initial, userId, workspaceName, organizationName, onOpen, onShare, sharingOpen, onOpenSharedFolder, onReload, sort, dateFilter, toolbar, projectPreviews, importStatuses, folderStyle, footer, onSearchScopeChange, searchRequest }) {
   const [albums, setAlbums] = React.useState(() => initial.albums.map(a => ({ ...a, image: a.image ? resolveAssetUrl(a.image) : null, groups: initial.groups.filter(g => g.projectIds?.includes(a.id)).map(g=>g.id) })));
   const [groups, setGroups] = React.useState(initial.groups);
   const [pins, setPins] = React.useState(initial.preferences.pins);
@@ -123,13 +128,25 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
   const [movePicker, setMovePicker] = React.useState(null);
   const [folderDepthLimit, setFolderDepthLimit] = React.useState(null);
   const [orderModal, setOrderModal] = React.useState(null);
-  const [selected, setSelected] = React.useState('all');
+  const [selected, setSelected] = React.useState(() => {
+    const id = new URLSearchParams(window.location.search).get('folder');
+    return initial.groups.some(group => group.id === id) ? id : 'all';
+  });
   const [view, setView] = React.useState('all');
   const [activeSection, setActiveSection] = React.useState('desktop');
   const [jumpRequest, setJumpRequest] = React.useState(null);
   const mainRef = React.useRef(null);
   const [draftQuery, setDraftQuery] = React.useState('');
   const [query, setQuery] = React.useState('');
+  const [searchRun, setSearchRun] = React.useState(0);
+  const searchSubmissionRef = React.useRef(0);
+  const locationRef = React.useRef(selected);
+  locationRef.current = selected;
+  React.useEffect(() => {
+    const url = new URL(window.location.href);
+    if (selected === 'all') url.searchParams.delete('folder'); else url.searchParams.set('folder', selected);
+    window.history.replaceState(null, '', url);
+  }, [selected]);
   const [collapsed, setCollapsed] = React.useState([]);
   const [newGroup, setNewGroup] = React.useState(false);
   const [groupName, setGroupName] = React.useState('');
@@ -143,8 +160,14 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
     if (status === 'saved') setSaveError('');
   });
   const canOrganize = initial.canOrganize;
+  const canDeleteFolders = canOrganize && initial.canDeleteFolders === true;
+  const canEditFolder = group => Boolean(canOrganize && group && (canDeleteFolders || group.canEdit === true
+    || (group.canEdit === undefined && Number(group.createdBy) === Number(userId))));
   const [organizing, setOrganizing] = React.useState(null);
   const [checked, setChecked] = React.useState([]);
+  const [organizingNewFolder, setOrganizingNewFolder] = React.useState('');
+  const [organizingBusy, setOrganizingBusy] = React.useState(false);
+  const [organizingError, setOrganizingError] = React.useState('');
   const [notice, setNotice] = React.useState('');
   const [pinsModal, setPinsModal] = React.useState(false);
   const [appearance, setAppearance] = React.useState(null);
@@ -162,12 +185,13 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
   const [removingAlbums, setRemovingAlbums] = React.useState(false);
   const canCreateAlbum = canOrganize && canAny('projects.create');
   const canEditAlbum = canOrganize && canAny('projects.update');
+  const canEditAlbumInfo = album => Boolean(canEditAlbum && album?.canEdit === true);
   const scopeHeaders = initial.scope ? { 'x-mamage-unit-id': initial.scope.unitId ? String(initial.scope.unitId) : 'legacy' } : undefined;
   const mountedRef = React.useRef(true);
   React.useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
   const [accepted, setAccepted] = React.useState([]);
   const [dismissed, setDismissed] = React.useState(initial.preferences.dismissed);
-  const snapshot = () => ({ groups: groups.map(g => ({...g, projectIds: g.kind === 'smart' ? [] : albums.filter(a=>a.groups.includes(g.id)).map(a=>a.id)})), preferences: { pins, recentItems, colors: colorsByUser[userId] || {}, dismissed } });
+  const snapshot = (nextGroups = groups, nextAlbums = albums) => ({ groups: nextGroups.map(g => ({...g, projectIds: g.kind === 'smart' ? [] : nextAlbums.filter(a=>a.groups.includes(g.id)).map(a=>a.id)})), preferences: { pins, recentItems, colors: colorsByUser[userId] || {}, dismissed } });
   const snapshotRef = React.useRef(null);
   snapshotRef.current = snapshot();
   React.useEffect(() => {
@@ -249,15 +273,25 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
 
   const searchPlan = albumSearch(query);
   const isLibraryView = selected === 'all' && view === 'library';
-  const enrichedAlbums = React.useMemo(()=>albums.map(album=>{const preview=projectPreviews.find(p=>Number(p.id)===Number(album.id));return preview ? {...preview,...album,image:preview.coverSrc || album.image,images:preview.images || album.images,thumbnails:preview.thumbnails || album.thumbnails} : album}),[albums,projectPreviews]);
+  const displayGroups = React.useMemo(() => groups.map(group => ({ ...group,
+    sharing: initial.sharingStatuses ? initial.sharingStatuses.folders?.[group.id] || null : undefined })), [groups, initial.sharingStatuses]);
+  const enrichedAlbums = React.useMemo(()=>albums.map(album=>{const preview=projectPreviews.find(p=>Number(p.id)===Number(album.id));return {
+    ...(preview ? {...preview,...album,image:preview.coverSrc || album.image,images:preview.images || album.images,thumbnails:preview.thumbnails || album.thumbnails} : album),
+    sharing: initial.sharingStatuses ? initial.sharingStatuses.albums?.[album.id] || null : undefined,
+  }}),[albums,projectPreviews,initial.sharingStatuses]);
   const filtered = enrichedAlbums.filter((album) => (!query || ((!searchPlan.year || album.year === searchPlan.year) && (!searchPlan.group || album.groups.includes(searchPlan.group))
       && (!searchPlan.text || album.name.includes(searchPlan.text))
       && (!searchPlan.literal || `${album.name} ${album.groups.map((id) => groups.find((group) => group.id === id)?.name).join(' ')}`.includes(searchPlan.literal))))
+    && (!album.isShared || album.groups.length > 0)
     && (view !== 'unfiled' || !album.groups.length)
     && (!isLibraryView || !dateFilter?.from || String(album.eventDate || album.createdAt).slice(0,10) >= dateFilter.from)
     && (!isLibraryView || !dateFilter?.to || String(album.eventDate || album.createdAt).slice(0,10) <= dateFilter.to))
     .sort((a,b)=>{const key=sort?.key==='eventDate' ? 'eventDate' : 'createdAt';return ((Date.parse(a[key] || a.createdAt)||0)-(Date.parse(b[key] || b.createdAt)||0))*(sort?.order==='asc' ? 1:-1)});
   const currentGroup = groups.find((group) => group.id === selected);
+  React.useEffect(() => {
+    onSearchScopeChange?.(currentGroup ? { folderId: currentGroup.id, name: currentGroup.name } : null);
+    return () => onSearchScopeChange?.(null);
+  }, [currentGroup?.id, currentGroup?.name, onSearchScopeChange]);
   const currentPath = folderPath(currentGroup, groups);
   const childGroups = groups.filter(group => group.parentId === currentGroup?.id);
   const collectionAlbums = currentGroup ? groupAlbums(currentGroup, filtered) : [];
@@ -271,25 +305,29 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
   }, [selected, view, query, folderStyle]);
   const toggleAlbumSelection = id => setSelectedAlbumIds(old => old.includes(id) ? old.filter(value => value !== id) : [...old, id]);
   const editCollection = () => {
+    if (!canEditFolder(currentGroup)) return;
     setCollectionToolsOpen(false); setEditingGroup(currentGroup); setGroupName(currentGroup.name); setNewGroup(true);
   };
   const openAddAlbums = () => {
+    if (!canEditFolder(currentGroup)) return;
     setCollectionToolsOpen(false); setAddAlbumIds([]); setAddQuery(''); setAddLimit(60); setAddingAlbums(true);
   };
   const addExistingAlbums = () => {
-    if (!manualCollection || !canOrganize || !addAlbumIds.length) return;
+    if (!manualCollection || !canEditFolder(currentGroup) || !addAlbumIds.length) return;
     const ids = new Set(addAlbumIds);
     setAlbums(old => old.map(album => ids.has(album.id) ? { ...album, groups: [...new Set([...album.groups, currentGroup.id])] } : album));
     setAddingAlbums(false); setNotice(`已加入 ${ids.size} 个相册，原有归属保留`);
   };
   const removeSelectedAlbums = () => {
-    if (!manualCollection || !canOrganize || !selectedAlbums.length) return;
+    if (!manualCollection || !canEditFolder(currentGroup) || !selectedAlbums.length) return;
     const ids = new Set(selectedAlbums.map(album => album.id));
-    setAlbums(old => old.map(album => ids.has(album.id) ? { ...album, groups: album.groups.filter(id => id !== currentGroup.id) } : album));
+    setAlbums(old => old.map(album => ids.has(album.id) ? { ...album, groups: album.groups.filter(id => id !== currentGroup.id) } : album)
+      .filter(album => !album.isShared || album.groups.length));
     setRemovingAlbums(false); setSelectedAlbumIds([]); setNotice(`已移出 ${ids.size} 个相册，照片保留`);
   };
   const createInCollection = async payload => {
     const groupId = creatingInGroup.id;
+    if (groupId && !canEditFolder(groups.find(group => group.id === groupId))) throw new Error('没有修改这个文件夹的权限');
     const created = await createProject(payload, { headers: scopeHeaders });
     if (!created?.id || !mountedRef.current) return created;
     // Merge into the latest snapshot so unrelated changes made during creation are preserved.
@@ -354,7 +392,33 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
       animation?.cancel(); spotlight.classList.remove('is-located');
     };
   }, [home, jumpRequest]);
-  const organize = (album) => { if (!canOrganize) return; setOrganizing(album); setChecked(album.groups); };
+  const organize = (album) => {
+    if (!canOrganize || (!album.isShared && !groups.some(canEditFolder))) return;
+    const existing = albums.find(item => item.id === album.id);
+    setOrganizing({ ...album, groups: existing?.groups || album.groups || [] });
+    setChecked(existing?.groups || album.groups || []); setOrganizingNewFolder(''); setOrganizingError('');
+  };
+  const saveOrganization = async () => {
+    if (!organizing || !canOrganize || organizingBusy || !saverRef.current.canRetry()) return;
+    const name = organizingNewFolder.trim();
+    const id = name ? `group-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` : null;
+    const targets = [...new Set([...checked, ...(id ? [id] : [])])];
+    const existing = albums.find(album => album.id === organizing.id);
+    if (!existing && !targets.length) return;
+    const nextGroups = id ? [...groups, { ...COLORS[groups.length % COLORS.length], id, name, parentId: null, kind: 'manual',
+      createdBy: Number(userId), canEdit: true, layout: 'mosaic', symbol: 'grid', projectIds: [] }] : groups;
+    const placed = { ...(existing || organizing), image: organizing.image ? resolveAssetUrl(organizing.image) : null, groups: targets };
+    const nextAlbums = [...albums.filter(album => album.id !== placed.id), ...(!placed.isShared || targets.length ? [placed] : [])];
+    const next = snapshot(nextGroups, nextAlbums);
+    setOrganizingBusy(true); setOrganizingError(''); setGroups(nextGroups); setAlbums(nextAlbums);
+    setChecked(targets); setOrganizingNewFolder(''); snapshotRef.current = next;
+    const saved = await saverRef.current.save(next);
+    if (!mountedRef.current) return;
+    setOrganizingBusy(false);
+    if (saved) { setOrganizing(null); setNotice(organizing.isShared ? '已保存共享入口' : '已更新相册归类'); }
+    else setOrganizingError('保存未完成，请重试；如文件夹已在其他页面更新，请关闭后重新加载。');
+  };
+  const savedSharedIds = albums.filter(album => album.isShared && album.groups.length).map(album => album.id);
   const draggedAlbum = albums.find((album) => album.id === draggedAlbumId);
   const draggedFolder = groups.find(group => group.id === draggedFolderId);
   const movingFolder = groups.find(group => group.id === pendingFolderMove?.sourceId);
@@ -371,13 +435,13 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
     setFolderDepthLimit({ targetId, sourceId });
   };
   const requestFolderMove = (sourceId, targetId = null) => {
-    if (!canOrganize) return;
+    if (!canEditFolder(groups.find(group => group.id === sourceId))) return;
     const issue = folderMoveIssue(sourceId, targetId, groups);
     if (issue) { showFolderIssue(issue, targetId, sourceId); return; }
     setDirectoryOpen(false); setMovePicker(null); setPendingFolderMove({ sourceId, targetId });
   };
   const confirmFolderMove = () => {
-    if (!canOrganize) return;
+    if (!canEditFolder(movingFolder)) return;
     const issue = folderMoveIssue(pendingFolderMove?.sourceId, pendingFolderMove?.targetId, groups);
     if (issue) { setPendingFolderMove(null); showFolderIssue(issue, pendingFolderMove?.targetId, pendingFolderMove?.sourceId); return; }
     setGroups(old => old.map(group => group.id === movingFolder.id ? { ...group, parentId: pendingFolderMove.targetId } : group));
@@ -447,7 +511,7 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
   });
   const isAlbumDrag = (event) => draggedAlbumRef.current !== null && Array.from(event.dataTransfer.types).includes(ALBUM_DRAG_TYPE);
   const isFolderDrag = (event) => draggedFolderRef.current !== null && Array.from(event.dataTransfer.types).includes(FOLDER_DRAG_TYPE);
-  const getFolderDragProps = (group) => !canOrganize ? {} : ({
+  const getFolderDragProps = (group) => !canEditFolder(group) ? {} : ({
     draggable: true,
     'data-folder-dragging': draggedFolderId === group.id,
     onDragStart: event => {
@@ -461,6 +525,7 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
   });
   const hoverGroup = (event, group) => {
     const folderDrag = isFolderDrag(event);
+    if (!folderDrag && group && !canEditFolder(group)) { event.dataTransfer.dropEffect = 'none'; return; }
     if (!folderDrag && (!group || !isAlbumDrag(event))) return;
     event.preventDefault(); event.stopPropagation();
     clearSortTarget();
@@ -487,7 +552,7 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
         if (matchesSource) requestFolderMove(sourceId, group?.id || null);
         return;
       }
-      if (!group) return;
+      if (!canEditFolder(group)) return;
       if (!isAlbumDrag(event)) return;
       event.preventDefault(); event.stopPropagation();
       const albumId = draggedAlbumRef.current;
@@ -603,7 +668,7 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
     };
   };
   const confirmDrop = () => {
-    if (!canOrganize || !dropAlbum || !dropGroup || alreadyInTarget || dropGroup.kind === 'smart') return;
+    if (!canEditFolder(dropGroup) || !dropAlbum || alreadyInTarget || dropGroup.kind === 'smart') return;
     setAlbums((old) => old.map((album) => album.id === dropAlbum.id
       ? { ...album, groups: [...new Set([...album.groups, dropGroup.id])] } : album));
     setPendingDrop(null); setNotice(`已加入「${dropGroup.name}」，原有归属保留`);
@@ -622,8 +687,20 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
     setAppearance(null); setNotice('已更新我的文件夹外观');
   };
   const togglePin = (key) => setPins((old) => old.includes(key) ? old.filter((item) => item !== key) : [...old, key]);
-  const suggestions = canOrganize ? suggestCollections(albums, groups).filter(item => !dismissed.includes(item.id)) : [];
-  const search = (text) => { setDraftQuery(text); setQuery(text.trim()); setSelected('all'); setView('all'); };
+  const suggestions = canOrganize ? suggestCollections(albums, groups.filter(canEditFolder)).filter(item => !dismissed.includes(item.id)) : [];
+  const search = async (text) => {
+    const submission = ++searchSubmissionRef.current;
+    const location = selected;
+    setDraftQuery(text);
+    if (!text.trim()) { setQuery(''); return; }
+    // Folder membership may have just changed; search the saved server snapshot.
+    if (currentGroup && !await saverRef.current.save(snapshotRef.current)) return;
+    if (!mountedRef.current || submission !== searchSubmissionRef.current || locationRef.current !== location) return;
+    setQuery(text.trim()); setSearchRun(value => value + 1);
+  };
+  React.useEffect(() => {
+    if (searchRequest && searchRequest.folderId === selected) void search(searchRequest.q);
+  }, [searchRequest]);
   const beginCreateGroup = (parentId = null) => {
     if (!canOrganize) return;
     if (folderPath(groups.find(group => group.id === parentId), groups).length >= MAX_FOLDER_DEPTH) { showFolderIssue(FOLDER_DEPTH_LIMIT_MESSAGE, parentId); return; }
@@ -632,12 +709,13 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
   const createGroup = () => {
     if (!canOrganize || !groupName.trim()) return;
     if (editingGroup) {
+      if (!canEditFolder(editingGroup)) return;
       setGroups(old=>old.map(group=>group.id===editingGroup.id ? {...group,name:groupName.trim()} : group));
       setNewGroup(false);setEditingGroup(null);return;
     }
     if (folderPath(groups.find(group => group.id === newGroupParent), groups).length >= MAX_FOLDER_DEPTH) { showFolderIssue(FOLDER_DEPTH_LIMIT_MESSAGE, newGroupParent); return; }
     const id = `group-${Date.now()}`;
-    setGroups((old) => [...old, { id, parentId: newGroupParent, ...COLORS[old.length % COLORS.length], name: groupName.trim(), layout: 'mosaic', symbol: 'grid' }]);
+    setGroups((old) => [...old, { id, parentId: newGroupParent, createdBy: Number(userId), canEdit: true, ...COLORS[old.length % COLORS.length], name: groupName.trim(), layout: 'mosaic', symbol: 'grid' }]);
     setNewGroup(false); selectGroup(id);
   };
   const [gridPage, setGridPage] = React.useState(1);
@@ -649,14 +727,20 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
     const refresh=async()=>{try{if(document.visibilityState!=='hidden' && visibleIds){const ids=visibleIds.split(',');let statuses={};for(let i=0;i<ids.length;i+=50){const result=await fetchProjectImportStatuses(ids.slice(i,i+50));statuses={...statuses,...(result.statuses || {})};}if(active)setLiveImportStatuses(old=>({...old,...statuses}));}}catch(_){}finally{if(active)timer=setTimeout(refresh,15000);}};
     refresh();return()=>{active=false;clearTimeout(timer)};
   }, [visibleIds]);
-  const grid = (items) => items.length ? <div className="acp-albums">{items.slice(0,gridPage*24).map((album) => <AlbumCard key={album.id} album={album} groups={groups}
+  const shareAlbum = onShare ? album => onShare({ id: album.id, title: album.name, unitId: initial.scope.unitId }) : undefined;
+  const shareFolder = onShare ? async group => {
+    if (!await saverRef.current.save(snapshotRef.current)) return;
+    onShare({ id: group.id, title: group.name, kind: 'folder', unitId: initial.scope.unitId });
+  } : undefined;
+  const grid = (items) => items.length ? <div className="acp-albums">{items.slice(0,gridPage*24).map((album) => <AlbumCard key={album.id} album={album} groups={groups} onShare={shareAlbum}
     onOpen={setOpened} onOrganize={organize} pinned={pins.includes(`album:${album.id}`)} onPin={togglePin} dragProps={selectingAlbums ? { 'data-album-id': album.id } : getAlbumDragProps(album)}
     selecting={Boolean(currentGroup && selectingAlbums)} selected={selectedAlbumSet.has(album.id)} onToggle={toggleAlbumSelection}
-    canOrganize={canOrganize} importStatus={liveImportStatuses[album.id]} previewScope={initial.scope} />)}{items.length>gridPage*24 && <div className="desktop-load-more"><Button onClick={()=>setGridPage(page=>page+1)}>加载更多</Button></div>}</div> : <p className="acp-empty">这里还没有相册</p>;
-  const collection = (group) => <CollectionCard key={group.id} group={group} groups={groups} albums={albums} onSelect={selectGroup} onOpen={setOpened}
-    onMove={canOrganize ? group => setMovePicker({ sourceId: group.id }) : undefined}
+    canOrganize={canOrganize && groups.some(canEditFolder)} importStatus={liveImportStatuses[album.id]} previewScope={initial.scope} />)}{items.length>gridPage*24 && <div className="desktop-load-more"><Button onClick={()=>setGridPage(page=>page+1)}>加载更多</Button></div>}</div> : <p className="acp-empty">这里还没有相册</p>;
+  const collection = (group) => <CollectionCard key={group.id} group={displayGroups.find(item => item.id === group.id) || group} groups={displayGroups} albums={enrichedAlbums} onSelect={selectGroup} onOpen={setOpened}
+    onShare={shareFolder}
+    onMove={canEditFolder(group) ? group => setMovePicker({ sourceId: group.id }) : undefined}
     getFolderDragProps={getFolderDragProps} folderColors={myColors}
-    onManage={canOrganize ? group=>{setEditingGroup(group);setGroupName(group.name);setNewGroup(true)} : undefined}
+    onManage={canEditFolder(group) ? group=>{setEditingGroup(group);setGroupName(group.name);setNewGroup(true)} : undefined}
     pinned={pins.includes(`group:${group.id}`)} onPin={togglePin} onAppearance={editAppearance} surfaceColor={myColors[group.id] || DEFAULT_COLLECTION_COLOR}
     getAlbumDragProps={getAlbumDragProps} dropProps={{ ...getGroupDropProps(group), ...getSortDropProps('collections', group.id, group) }}
     sortDragProps={getFolderDragProps(group)} dropActive={dropTargetId === group.id} isAlbumDragging={draggedAlbumId !== null || draggedFolderId !== null || Boolean(sortSource)}
@@ -664,7 +748,7 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
   const libraryGroups = query ? groups.filter(group => group.name.includes(query)) : groups.filter(group => !group.parentId);
   const collectionsSection = <section className="acp-collections-section" id="collections" data-desktop-section="collections" aria-label="文件夹">
     <span className="acp-section-spotlight" aria-hidden="true" /><div className="acp-section-heading"><h2>文件夹</h2>
-      <div className="acp-section-controls"><span className="acp-caption">{libraryGroups.length} 个</span>{canOrganize && <button className="acp-icon" title="调整文件夹顺序" aria-label="调整文件夹顺序" onClick={() => setOrderModal('collections')}><IconSliders /></button>}</div>
+      <div className="acp-section-controls"><span className="acp-caption">{libraryGroups.length} 个</span>{canDeleteFolders && <button className="acp-icon" title="调整文件夹顺序" aria-label="调整文件夹顺序" onClick={() => setOrderModal('collections')}><IconSliders /></button>}</div>
     </div><div {...(canOrganize && !query ? getSortListProps('collections') : {})} className="acp-all-collections">{libraryGroups.map(collection)}</div>
     {!libraryGroups.length && <p className="acp-empty">{query ? '没有匹配的文件夹' : `还没有文件夹${canOrganize ? '，可以从左侧目录新建' : ''}`}</p>}
   </section>;
@@ -696,6 +780,16 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
     <p>{suggestions.map((item) => albums.find((album) => album.id === item.id)?.name).join('、')}</p>
     <button className="acp-suggestion-open" onClick={() => { setDirectoryOpen(false); setAccepted(suggestions.map((item) => item.id)); setReview(true); }}>查看建议 <IconChevronRight /></button>
   </section>;
+  const searchFolders = groups.filter(group => group.name.toLowerCase().includes(query.toLowerCase())
+    && (!currentGroup || (group.id !== currentGroup.id && folderPath(group, groups).some(parent => parent.id === currentGroup.id))));
+  const searchAlbums = currentGroup ? treeAlbums(currentGroup, filtered, groups) : filtered;
+  const photoResults = query ? <ScopedPhotoSearch key={`${selected}-${query}-${searchRun}`} query={query}
+    folderId={currentGroup?.id} scopeName={currentGroup?.name || workspaceName} unitId={initial.scope?.unitId} onOpen={setOpened}>
+    {(searchFolders.length > 0 || searchAlbums.length > 0) && <div className="scoped-search-resources" aria-label="同名相册与文件夹">
+      {searchFolders.map(group => <button type="button" key={group.id} onClick={() => selectGroup(group.id)}><IconGridView /><span>{group.name}</span><IconChevronRight /></button>)}
+      {searchAlbums.map(album => <button type="button" key={album.id} onClick={() => setOpened(album)}><IconSimilarStack /><span>{album.name}</span><IconChevronRight /></button>)}
+    </div>}
+  </ScopedPhotoSearch> : null;
 
   return <div className={`album-desktop acp-page acp-smart-page acp-layout-sidebar acp-refined acp-folders${columnBrowsing ? ' acp-column-mode' : ''}${draggedFolderId ? ' is-dragging-folder' : ''}${currentGroup ? ' has-collection-toolbar' : ''}${draggedAlbumId !== null ? ' is-dragging-album' : ''}${sortSource ? ' is-sorting' : ''}`}>
     <div className="acp-workspace">
@@ -704,47 +798,53 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
         {!columnBrowsing && <><div className="acp-page-heading"><div><div className="acp-breadcrumb">{workspaceName} <span>/</span> {currentGroup ? <button onClick={() => selectGroup('all')}>相册</button> : '素材库'}</div>
           <h1>{currentGroup?.name || (query ? '搜索结果' : view === 'unfiled' ? '未归类' : '小组空间')}<span>{currentGroup ? groupAlbums(currentGroup, albums).length : albums.length} 个相册</span></h1></div>
           <div className="acp-heading-actions">{canOrganize && <button className="acp-folder-create" title="新建文件夹" onClick={() => beginCreateGroup(currentGroup?.id || null)}><IconPlus /><span>新建文件夹</span></button>}<button className="acp-icon desktop-directory-trigger" title="相册目录" aria-label="打开相册目录" onClick={()=>setDirectoryOpen(true)}><IconListView /></button></div></div>
+        {currentGroup && <AlbumSharingStatus folderId={currentGroup.id} unitId={initial.scope.unitId} suspended={sharingOpen} />}
         <div className="acp-toolbar"><div className="acp-filters"><form className="acp-search" onSubmit={(event) => { event.preventDefault(); search(draftQuery); }}><IconSparkleAI />
-            <input aria-label="搜索相册或文件夹" placeholder="描述你想找的相册…" value={draftQuery} onChange={(event) => { setDraftQuery(event.target.value); if (!event.target.value) setQuery(''); }} />
+            <input aria-label={currentGroup ? '文件夹内智能检索' : '小组空间智能检索'} placeholder={currentGroup ? `在「${currentGroup.name}」内搜索照片、人物、场景` : '搜索照片、人物、场景…'} value={draftQuery} onChange={(event) => { setDraftQuery(event.target.value); if (!event.target.value) void search(''); }} />
             {draftQuery && <button className="acp-icon" type="button" title="清空搜索" onClick={() => { setDraftQuery(''); setQuery(''); }}><IconClose /></button>}
             <button className="acp-icon" type="submit" title="搜索" aria-label="搜索"><IconSearch /></button></form>
             {isLibraryView && toolbar}</div></div></>}
         {saveError && <div className="desktop-save-error" role="alert">{saveError}{saverRef.current.canRetry() && <Button onClick={() => saverRef.current.save(snapshotRef.current)}>重试保存</Button>}<Button onClick={onReload}>重新加载</Button></div>}
         <span className="desktop-save-status" role="status">{saveStatus === 'saving' ? '正在保存…' : saveStatus === 'error' ? '未保存' : ''}</span>
         <div className="acp-content" key={columnBrowsing ? 'columns' : `${selected}-${view}`}>
-          {columnBrowsing ? <FolderColumns footer={footer} groups={groups} albums={enrichedAlbums} path={currentPath} onSelect={selectGroup} onOpen={setOpened}
-            onCreate={beginCreateGroup} onCreateAlbum={canCreateAlbum ? parent => setCreatingInGroup({ id: parent?.id || null, name: parent?.name || '小组空间' }) : undefined}
+          {columnBrowsing ? <FolderColumns footer={footer} groups={displayGroups} albums={enrichedAlbums} sharedAlbums={initial.sharedAlbums} savedSharedIds={savedSharedIds}
+            sharedFolders={initial.sharedFolders} onOpenSharedFolder={onOpenSharedFolder} onShareAlbum={shareAlbum} onShareFolder={shareFolder}
+            onAddSharedAlbum={canOrganize ? organize : undefined} path={currentPath} onSelect={selectGroup} onOpen={setOpened}
+            onCreate={beginCreateGroup} onCreateAlbum={canCreateAlbum ? parent => { if (!parent || canEditFolder(parent)) setCreatingInGroup({ id: parent?.id || null, name: parent?.name || '小组空间' }); } : undefined}
             onPin={togglePin} pins={visiblePins} onAppearance={editAppearance} onMove={group => setMovePicker({ sourceId: group.id })}
-            onEditFolder={group => { setEditingGroup(group); setGroupName(group.name); setNewGroup(true); }} onEditAlbum={canEditAlbum ? setEditingAlbum : undefined}
+            onEditFolder={group => { if (!canEditFolder(group)) return; setEditingGroup(group); setGroupName(group.name); setNewGroup(true); }} onEditAlbum={canEditAlbum ? album => { if (canEditAlbumInfo(album)) setEditingAlbum(album); } : undefined}
             onOrganize={organize} onOrder={() => setOrderModal('collections')} colors={myColors} getFolderDragProps={getFolderDragProps}
             getAlbumDragProps={getAlbumDragProps} getGroupDropProps={getGroupDropProps} dropTargetId={dropTargetId} maxDepth={MAX_FOLDER_DEPTH}
-            query={query} draftQuery={draftQuery} onSearch={search} onDraftQuery={setDraftQuery} searchGroups={libraryGroups}
-            searchAlbums={filtered} view={view} onView={selectView} onManagePins={() => setPinsModal(true)} workspaceName={workspaceName} canOrganize={canOrganize} /> : home ? <>
+            query={query} draftQuery={draftQuery} onSearch={search} onDraftQuery={setDraftQuery} searchGroups={libraryGroups} searchResults={photoResults}
+            searchAlbums={filtered} view={view} onView={selectView} onManagePins={() => setPinsModal(true)} workspaceName={workspaceName} canOrganize={canOrganize}
+            canEditFolder={canEditFolder} canEditAlbum={canEditAlbumInfo} canReorderFolders={canDeleteFolders} /> : query ? photoResults : home ? <>
             {visiblePins.length > 0 && <section className="acp-pins-section" id="desktop-pins" data-desktop-section="pins"><span className="acp-section-spotlight" aria-hidden="true" /><div className="acp-section-heading"><div className="acp-section-name"><h2>我的置顶</h2><span className="acp-personal-label">仅自己可见</span></div><button className="acp-text-button" onClick={() => setPinsModal(true)}>管理 <IconSliders /></button></div>
               <div {...getSortListProps('pins')} className="acp-shortcuts-grid acp-pins-grid">{visiblePins.map((key) => {
                 const [type, id] = key.split(':');
-                if (type === 'group') { const group = groups.find((item) => item.id === id); return group ? <AlbumShortcut key={key} group={group} groups={groups} albums={albums} onSelect={selectGroup}
+                if (type === 'group') { const group = displayGroups.find((item) => item.id === id); return group ? <AlbumShortcut key={key} group={group} groups={displayGroups} albums={enrichedAlbums} onSelect={selectGroup}
                   sortDragProps={getSortDragProps('pins', key)} sortDropProps={getSortDropProps('pins', key, group)} dropTargetId={dropTargetId} /> : null; }
-                const album = albums.find((item) => String(item.id) === id);
-                return album ? <AlbumShortcut key={key} album={album} albums={albums} onOpen={setOpened}
+                const album = enrichedAlbums.find((item) => String(item.id) === id);
+                return album ? <AlbumShortcut key={key} album={album} albums={enrichedAlbums} onOpen={setOpened}
                   sortDragProps={getSortDragProps('pins', key, album)} sortDropProps={getSortDropProps('pins', key)} /> : null;
               })}</div></section>}
+            <SharedAlbums albums={initial.sharedAlbums} onOpen={setOpened} onAdd={canOrganize ? organize : undefined} savedIds={savedSharedIds} />
+            <SharedFolders folders={initial.sharedFolders} onOpen={onOpenSharedFolder} />
             {collectionsSection}
 
           </> : currentGroup ? <>
             <nav className="acp-folder-breadcrumb" aria-label="当前位置"><button onClick={() => selectGroup('all')} {...getGroupDropProps(null)}>小组空间</button>{currentPath.map(group => <React.Fragment key={group.id}><IconChevronRight /><button onClick={() => selectGroup(group.id)} {...getGroupDropProps(group)}>{group.name}</button></React.Fragment>)}</nav>
-            {childGroups.length > 0 && <section className="acp-collections-section acp-subfolders"><div className="acp-section-heading"><h2>子文件夹 <small>{childGroups.length}</small></h2>{canOrganize && <button className="acp-icon" title="调整子文件夹顺序" onClick={() => setOrderModal('collections')}><IconSliders /></button>}</div><div className="acp-all-collections">{childGroups.map(collection)}</div></section>}
+            {childGroups.length > 0 && <section className="acp-collections-section acp-subfolders"><div className="acp-section-heading"><h2>子文件夹 <small>{childGroups.length}</small></h2>{canDeleteFolders && <button className="acp-icon" title="调整子文件夹顺序" onClick={() => setOrderModal('collections')}><IconSliders /></button>}</div><div className="acp-all-collections">{childGroups.map(collection)}</div></section>}
             <section className="acp-folder-albums"><div className="acp-section-heading"><h2>本层相册 <small>{collectionAlbums.length}</small></h2></div>{grid(collectionAlbums)}</section>
           </> : <>{query && collectionsSection}{section(view === 'unfiled' ? '未归类' : '搜索结果', filtered, 'results')}</>}
         </div>
         <span className="acp-section-spotlight" aria-hidden="true" />
       </main>
     </div>
-    {currentGroup && !columnBrowsing && <AlbumActionBar label="文件夹底部操作" selecting={selectingAlbums} selectedCount={selectedAlbums.length}
+    {currentGroup && !columnBrowsing && !query && <AlbumActionBar label="文件夹底部操作" selecting={selectingAlbums} selectedCount={selectedAlbums.length}
       onSelect={() => { setSelectingAlbums(value => !value); setSelectedAlbumIds([]); setCollectionToolsOpen(false); }}
       onFunctions={() => setCollectionToolsOpen(true)} functionsOpen={collectionToolsOpen}
       primaryLabel={currentGroup.kind === 'smart' ? '智能文件夹按规则收录' : canCreateAlbum ? '在当前文件夹新建相册' : '新建相册不可用'}
-      primaryHint="新建" primaryDisabled={!canCreateAlbum || !manualCollection}
+      primaryHint="新建" primaryDisabled={!canCreateAlbum || !manualCollection || !canEditFolder(currentGroup)}
       primaryProps={{ onClick: () => setCreatingInGroup({ id: currentGroup.id, name: currentGroup.name }) }} />}
     {currentGroup && !columnBrowsing && selectingAlbums && createPortal(<div className="collection-selection-toolbar" role="toolbar" aria-label="所选相册操作">
       <Button disabled={!collectionAlbums.length} onClick={() => setSelectedAlbumIds(selectedAlbums.length === collectionAlbums.length ? [] : collectionAlbums.map(album => album.id))}>
@@ -753,16 +853,17 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
         const keys = selectedAlbums.map(album => `album:${album.id}`);
         setPins(old => keys.every(key => old.includes(key)) ? old.filter(key => !keys.includes(key)) : [...new Set([...old, ...keys])]);
       }}>{selectedAlbums.length > 0 && selectedAlbums.every(album => pins.includes(`album:${album.id}`)) ? '取消置顶' : '置顶'}</Button>
-      {canEditAlbum && <Button icon={<IconEditStroked />} disabled={selectedAlbums.length !== 1} onClick={() => setEditingAlbum(selectedAlbums[0])}>编辑</Button>}
-      {canOrganize && manualCollection && <Button icon={<IconClose />} disabled={!selectedAlbums.length} onClick={() => setRemovingAlbums(true)}>移出</Button>}
+      {canEditAlbum && <Button icon={<IconEditStroked />} disabled={selectedAlbums.length !== 1 || !canEditAlbumInfo(selectedAlbums[0])} onClick={() => setEditingAlbum(selectedAlbums[0])}>编辑</Button>}
+      {canEditFolder(currentGroup) && manualCollection && <Button icon={<IconClose />} disabled={!selectedAlbums.length} onClick={() => setRemovingAlbums(true)}>移出</Button>}
     </div>, document.body)}
     <MotionModal title={currentGroup?.name || '文件夹功能'} visible={Boolean(currentGroup && collectionToolsOpen)} onCancel={() => setCollectionToolsOpen(false)}
       width={430} className="collection-tools-modal" footer={null}>
       <div className="collection-tools-list">
-        {canCreateAlbum && manualCollection && <button onClick={() => { setCollectionToolsOpen(false); setCreatingInGroup({ id: currentGroup.id, name: currentGroup.name }); }}><IconPlus /><span>新建相册</span><IconChevronRight /></button>}
-        {canOrganize && manualCollection && <button onClick={openAddAlbums}><IconSimilarStack /><span>添加已有相册</span><IconChevronRight /></button>}
-        {canEditAlbum && <button disabled={selectedAlbums.length !== 1} onClick={() => { setCollectionToolsOpen(false); setEditingAlbum(selectedAlbums[0]); }}><IconEditStroked /><span>编辑所选相册</span><small>{selectedAlbums.length === 1 ? '' : '选择一个相册'}</small></button>}
-        {canOrganize && <button onClick={editCollection}><IconListView /><span>编辑文件夹</span><IconChevronRight /></button>}
+        {shareFolder && <button onClick={() => { setCollectionToolsOpen(false); void shareFolder(currentGroup); }}><IconShare /><span>共享文件夹</span><IconChevronRight /></button>}
+        {canCreateAlbum && manualCollection && canEditFolder(currentGroup) && <button onClick={() => { setCollectionToolsOpen(false); setCreatingInGroup({ id: currentGroup.id, name: currentGroup.name }); }}><IconPlus /><span>新建相册</span><IconChevronRight /></button>}
+        {canEditFolder(currentGroup) && manualCollection && <button onClick={openAddAlbums}><IconSimilarStack /><span>添加已有相册</span><IconChevronRight /></button>}
+        {canEditAlbum && <button disabled={selectedAlbums.length !== 1 || !canEditAlbumInfo(selectedAlbums[0])} onClick={() => { setCollectionToolsOpen(false); setEditingAlbum(selectedAlbums[0]); }}><IconEditStroked /><span>编辑所选相册</span><small>{selectedAlbums.length === 1 ? '' : '选择一个相册'}</small></button>}
+        {canEditFolder(currentGroup) && <button onClick={editCollection}><IconListView /><span>编辑文件夹</span><IconChevronRight /></button>}
         <button onClick={() => { setCollectionToolsOpen(false); editAppearance(currentGroup); }}><IconSliders /><span>我的外观</span><IconChevronRight /></button>
         <button onClick={() => { togglePin(`group:${currentGroup.id}`); setCollectionToolsOpen(false); }}><IconStar /><span>{pins.includes(`group:${currentGroup?.id}`) ? '取消置顶文件夹' : '置顶文件夹'}</span><IconChevronRight /></button>
       </div>
@@ -845,17 +946,24 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
       </div>}
     </MotionModal>
     <MotionModal title={editingGroup ? '编辑文件夹' : '新建文件夹'} visible={newGroup} onCancel={() => setNewGroup(false)} footer={null} width={460}>
-      <form className="acp-form" onSubmit={(event) => { event.preventDefault(); createGroup(); }}><label>名称<input autoFocus value={groupName} onChange={(event) => setGroupName(event.target.value)} placeholder="例如：2026 迎新季" maxLength={30} /></label><Button type="primary" theme="neu" onClick={createGroup} disabled={!groupName.trim()}>{editingGroup ? '保存名称' : '创建文件夹'}</Button>{editingGroup && <Button onClick={()=>{setNewGroup(false);setDeletingGroup(editingGroup)}}>删除文件夹</Button>}</form>
+      <form className="acp-form" onSubmit={(event) => { event.preventDefault(); createGroup(); }}><label>名称<input autoFocus value={groupName} onChange={(event) => setGroupName(event.target.value)} placeholder="例如：2026 迎新季" maxLength={30} /></label><Button type="primary" theme="neu" onClick={createGroup} disabled={!groupName.trim()}>{editingGroup ? '保存名称' : '创建文件夹'}</Button>{editingGroup && canDeleteFolders && <Button onClick={()=>{setNewGroup(false);setDeletingGroup(editingGroup)}}>删除文件夹</Button>}</form>
     </MotionModal>
-    <MotionModal title="删除文件夹" visible={Boolean(deletingGroup)} onCancel={()=>setDeletingGroup(null)} width={460} footer={null}>
+    <MotionModal title="删除文件夹" visible={canDeleteFolders && Boolean(deletingGroup)} onCancel={()=>setDeletingGroup(null)} width={460} footer={null}>
       <div className="acp-form"><p>删除「{deletingGroup?.name}」仅移除归类，不会删除相册或照片，子文件夹将移到上一级。</p><Button type="primary" theme="neu" onClick={()=>{
-        const id=deletingGroup.id;setGroups(old=>old.filter(g=>g.id!==id).map(g=>g.parentId===id ? {...g,parentId:deletingGroup.parentId || null} : g));setAlbums(old=>old.map(a=>({...a,groups:a.groups.filter(g=>g!==id)})));
+        if (!canDeleteFolders || !deletingGroup) return;
+        const id=deletingGroup.id;setGroups(old=>old.filter(g=>g.id!==id).map(g=>g.parentId===id ? {...g,parentId:deletingGroup.parentId || null} : g));setAlbums(old=>old.map(a=>({...a,groups:a.groups.filter(g=>g!==id)})).filter(a=>!a.isShared||a.groups.length));
         setPins(old=>old.filter(key=>key!==`group:${id}`));if(selected===id)selectGroup('all');setDeletingGroup(null);setEditingGroup(null);
       }}>确认删除文件夹</Button></div>
     </MotionModal>
-    <MotionModal title="整理到文件夹" visible={Boolean(organizing)} onCancel={() => setOrganizing(null)} width={460} footer={null}>
-      <div className="acp-form"><strong>{organizing?.name}</strong><div className="acp-checks">{groups.filter((group) => group.kind !== 'smart').map((group) => <label key={group.id}><input type="checkbox" checked={checked.includes(group.id)} onChange={(event) => setChecked((old) => event.target.checked ? [...old, group.id] : old.filter((id) => id !== group.id))} /><span>{group.name}</span></label>)}</div>
-        <Button type="primary" theme="neu" onClick={() => { setAlbums((old) => old.map((album) => album.id === organizing.id ? { ...album, groups: checked } : album)); setOrganizing(null); setNotice('已更新相册归类'); }}>保存</Button></div>
+    <MotionModal title={organizing?.isShared ? '添加到本组织文件夹' : '整理到文件夹'} visible={Boolean(organizing)} onCancel={() => { if (!organizingBusy) setOrganizing(null); }} width={460} footer={null}>
+      <div className="acp-form"><strong>{organizing?.name}</strong>
+        {organizing?.isShared && <div className="shared-folder-context"><span>来自 {organizing.originLabel}</span><span>{organizing.shareMode === 'collaborate' ? '共同编辑' : '只读'} · 实时共享 · 访问权限不变</span></div>}
+        <div className="acp-checks">{groups.filter((group) => group.kind !== 'smart').map((group) => <label key={group.id}><input type="checkbox" disabled={organizingBusy || !canEditFolder(group)} checked={checked.includes(group.id)} onChange={(event) => setChecked((old) => event.target.checked ? [...old, group.id] : old.filter((id) => id !== group.id))} /><span>{folderPath(group, groups).map(item => item.name).join(' / ')}</span></label>)}</div>
+        {organizing?.isShared && <label className="shared-folder-new">新建文件夹<input aria-label="新建目标文件夹名称" value={organizingNewFolder} disabled={organizingBusy}
+          onChange={event => setOrganizingNewFolder(event.target.value)} maxLength={30} placeholder="文件夹名称（可选）" /></label>}
+        {organizingError && <p className="shared-folder-error" role="alert">{organizingError}</p>}
+        <Button type="primary" theme="neu" onClick={saveOrganization} disabled={organizingBusy || !saverRef.current.canRetry()
+          || (!albums.some(album => album.id === organizing?.id) && !checked.length && !organizingNewFolder.trim())}>{organizingBusy ? '保存中…' : '保存'}</Button></div>
     </MotionModal>
     <MotionModal title="我的置顶" visible={pinsModal} onCancel={() => setPinsModal(false)} width={580} footer={null}>
       <div className="acp-personal-pins"><div className="acp-pins-order">{pins.map((key, index) => <div key={key}><IconStar /><strong>{pinOptions.find((item) => item.key === key)?.name}</strong>
@@ -888,19 +996,52 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
   </div>;
 }
 
-export default function AlbumDesktop({ currentUser, workspaceInfo, onOpen, sort, dateFilter, toolbar, projectPreviews = [], importStatuses = {}, folderStyle = 'glass', footer }) {
+export default function AlbumDesktop({ currentUser, workspaceInfo, onOpen, onShare, sharingOpen, sort, dateFilter, toolbar, projectPreviews = [], importStatuses = {}, folderStyle = 'glass', footer, onSearchScopeChange, searchRequest }) {
   const [initial, setInitial] = React.useState(null);
   const [error, setError] = React.useState('');
   const [reload, setReload] = React.useState(0);
+  const previousSharingOpen = React.useRef(sharingOpen);
+  const [sharedFolderId, setSharedFolderId] = React.useState(() => new URLSearchParams(window.location.search).get('sharedFolder'));
+  const openSharedFolder = id => {
+    const url = new URL(window.location.href); url.searchParams.set('sharedFolder', String(id)); url.searchParams.delete('folder');
+    window.history.pushState(null, '', url); setSharedFolderId(String(id));
+  };
+  const closeSharedFolder = () => {
+    const url = new URL(window.location.href); url.searchParams.delete('sharedFolder'); url.searchParams.delete('folder');
+    window.history.pushState(null, '', url); setSharedFolderId(null);
+  };
+  React.useEffect(() => {
+    const change = () => setSharedFolderId(new URLSearchParams(window.location.search).get('sharedFolder'));
+    window.addEventListener('popstate', change); return () => window.removeEventListener('popstate', change);
+  }, []);
   React.useEffect(() => {
     let active=true;setInitial(null);setError('');
     loadAlbumDesktop().then(data=>{if(active)setInitial(data)}).catch(err=>{if(active)setError(err?.message || '桌面加载失败')});
     return()=>{active=false};
   },[currentUser?.id,workspaceInfo?.activeUnitId,reload]);
+  React.useEffect(() => {
+    let active = true, sequence = 0;
+    const refresh = async () => {
+      if (sharingOpen || document.hidden) return;
+      const requestId = ++sequence;
+      try {
+        const data = await loadAlbumDesktop();
+        if (active && requestId === sequence) setInitial(old => old && Number(old.scope.userId) === Number(data.scope.userId)
+          && Number(old.scope.unitId || 0) === Number(data.scope.unitId || 0) ? { ...old, sharingStatuses: data.sharingStatuses } : old);
+      } catch (_) { /* Keep the last confirmed state if the workspace cannot be refreshed. */ }
+    };
+    if (previousSharingOpen.current && !sharingOpen) void refresh();
+    previousSharingOpen.current = sharingOpen;
+    document.addEventListener('visibilitychange', refresh);
+    return () => { active = false; document.removeEventListener('visibilitychange', refresh); };
+  }, [currentUser?.id, workspaceInfo?.activeUnitId, sharingOpen]);
   if(error)return <div className="desktop-load-state" role="alert"><p>{error}</p><Button onClick={()=>setReload(n=>n+1)}>重新加载</Button></div>;
   if(!initial)return <div className="desktop-load-state" role="status">正在加载小组空间…</div>;
+  if(sharedFolderId) return <SharedFolderView shareId={sharedFolderId} onOpen={onOpen} onBack={closeSharedFolder} folderStyle={folderStyle} />;
   const workspaceName=workspaceInfo?.units?.find(unit=>Number(unit.id)===Number(workspaceInfo.activeUnitId))?.name || '历史相册';
   return <DesktopContent footer={footer} key={`${currentUser.id}-${workspaceInfo?.activeUnitId || 'legacy'}-${reload}`} initial={initial} userId={String(currentUser.id)} workspaceName={workspaceName}
-    organizationName={currentUser.organizationName || currentUser.organization_name || '当前组织'} onOpen={onOpen} onReload={()=>setReload(n=>n+1)} sort={sort} dateFilter={dateFilter} toolbar={toolbar} projectPreviews={projectPreviews} importStatuses={importStatuses} folderStyle={folderStyle} />;
+    organizationName={currentUser.organizationName || currentUser.organization_name || '当前组织'} onOpen={onOpen} onShare={onShare} sharingOpen={sharingOpen} onOpenSharedFolder={openSharedFolder}
+    onReload={()=>setReload(n=>n+1)} sort={sort} dateFilter={dateFilter} toolbar={toolbar} projectPreviews={projectPreviews} importStatuses={importStatuses} folderStyle={folderStyle}
+    onSearchScopeChange={onSearchScopeChange} searchRequest={searchRequest} />;
 }
 

@@ -54,11 +54,11 @@ async function listApplied() {
   return new Set((rows || []).map((r) => r.filename));
 }
 
-function listMigrationFiles() {
-  if (!fs.existsSync(MIGRATIONS_DIR)) return [];
+function listMigrationFiles(directory = MIGRATIONS_DIR) {
+  if (!fs.existsSync(directory)) return [];
   return fs
-    .readdirSync(MIGRATIONS_DIR)
-    .filter((f) => f.toLowerCase().endsWith('.sql'))
+    .readdirSync(directory)
+    .filter((f) => !f.startsWith('.') && f.toLowerCase().endsWith('.sql'))
     .sort((a, b) => a.localeCompare(b));
 }
 
@@ -118,8 +118,9 @@ async function main() {
   }
 }
 
-main().catch((err) => {
+if (require.main === module) main().catch((err) => {
   console.error('[migrate] failed:', err && err.stack ? err.stack : err);
   process.exit(1);
 });
+module.exports = { listMigrationFiles, splitStatements };
 

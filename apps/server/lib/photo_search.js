@@ -1,7 +1,11 @@
 const { pool } = require('../db');
 const { buildMediaUrl } = require('./media_access');
-const { describePhotoSearchPlan, interpretPhotoSearch } = require('./ai_photo_search');
+const { describePhotoSearchPlan, interpretPhotoSearch, extractNegatedClothing, normalizePhotoSearchPlan } = require('./ai_photo_search');
 const { usableFaceSql } = require('./face_result_policy');
+const { resolveSearchIntent, equivalents, canResolvePhotoSearchLocally } = require('./photo_search_intent');
+const { compileVisualConditions } = require('./person_visual_evidence');
+const { visualSearchEnabled, reviewCandidates } = require('./search_visual_index');
+const { qualityFilterSql } = require('./photo_quality_policy');
 
 const MAX_PAGE_SIZE = 200;
 const MAX_QUERY_LEN = 160;
@@ -33,6 +37,10 @@ function tokenizeLiteralQuery(query) {
     .filter(Boolean), 8);
 }
 
+function isMediaFilenameQuery(query) {
+  return /^[^/\\\r\n]+\.(?:jpe?g|png|heic|heif|tiff?|webp|gif|bmp|avif|cr[23]|nef|arw|dng|raf|rw2|orf|pef|srw|mp4|mov|m4v|mkv|avi|mts|m2ts|webm|3gp)$/i.test(query);
+}
+
 function parseTags(raw) {
   if (!raw) return [];
   if (Array.isArray(raw)) return raw;
@@ -55,7 +63,9 @@ function textMatch(term, includeFaces = true) {
   return {
     sql: `(
       LOWER(COALESCE(p.title, '')) LIKE ? ESCAPE '#'
+      OR LOWER(COALESCE(p.original_filename, '')) LIKE ? ESCAPE '#'
       OR LOWER(COALESCE(p.description, '')) LIKE ? ESCAPE '#'
+      OR LOWER(COALESCE(p.detailed_description, '')) LIKE ? ESCAPE '#'
       OR LOWER(COALESCE(p.ocr_text, '')) LIKE ? ESCAPE '#'
       OR LOWER(COALESCE(CAST(p.tags AS CHAR), '')) LIKE ? ESCAPE '#'
       OR LOWER(COALESCE(pr.name, '')) LIKE ? ESCAPE '#'
@@ -72,16 +82,16 @@ function textMatch(term, includeFaces = true) {
           AND fp_text.organization_id = p.organization_id
           AND LOWER(COALESCE(fp_text.name, '')) LIKE ? ESCAPE '#'
       )` : ''}
-      OR EXISTS (
+      OR (LOWER(COALESCE(p.type, '')) = 'video' AND EXISTS (
         SELECT 1
         FROM photo_video_semantics pvs_text
         WHERE pvs_text.photo_id = p.id
           AND LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(pvs_text.analysis_json, '$.transcript.text')), '')) LIKE ? ESCAPE '#'
-      )
+      ))
     )`,
     params: includeFaces
-      ? [like, like, like, like, like, like, like, like, like, like, like]
-      : [like, like, like, like, like, like, like, like, like, like],
+      ? Array(13).fill(like)
+      : Array(12).fill(like),
   };
 }
 
@@ -95,29 +105,21 @@ function fieldGroupMatch(terms, sqlExpression) {
   return clauses.length ? { sql: `(${clauses.join(' OR ')})`, params } : null;
 }
 
-async function findPeople(orgId, terms) {
-  const candidates = uniqueStrings(terms, 12);
-  if (!candidates.length) return [];
+async function findPeople(orgId, query) {
+  if (!query) return [];
   const where = [orgId === null ? 'fp.organization_id IS NULL' : 'fp.organization_id = ?', "COALESCE(fp.name, '') <> ''"];
   const params = orgId === null ? [] : [orgId];
-  const nameClauses = [];
-  candidates.forEach((term) => {
-    nameClauses.push(`(
-      LOWER(fp.name) LIKE ? ESCAPE '#'
-      OR (CHAR_LENGTH(TRIM(fp.name)) >= 2 AND ? LIKE CONCAT('%', LOWER(TRIM(fp.name)), '%'))
-    )`);
-    params.push(`%${escapeLikeToken(term.toLowerCase())}%`, term.toLowerCase());
-  });
-  where.push(`(${nameClauses.join(' OR ')})`);
+  where.push('CHAR_LENGTH(TRIM(fp.name)) >= 2 AND LOCATE(LOWER(TRIM(fp.name)), ?) > 0');
+  params.push(query.toLowerCase());
   try {
     const [rows] = await pool.query(
       `SELECT fp.id, fp.person_no AS personNo, fp.name,
               (SELECT COUNT(*) FROM photo_faces pfc WHERE pfc.person_id = fp.id AND ${usableFaceSql('pfc')}) AS photoCount
        FROM face_persons fp
        WHERE ${where.join(' AND ')}
-         AND EXISTS (SELECT 1 FROM photo_faces active WHERE active.person_id = fp.id AND ${usableFaceSql('active')})
+       HAVING photoCount > 0
        ORDER BY photoCount DESC, fp.updated_at DESC
-       LIMIT 40`,
+       LIMIT 80`,
       params
     );
     return (rows || []).map((row) => ({
@@ -137,7 +139,7 @@ function rowsMatchingPersonTerm(rows, term) {
   if (!needle) return [];
   const exact = rows.filter((row) => row.name.toLowerCase() === needle);
   if (exact.length) return exact;
-  return rows.filter((row) => row.name.toLowerCase().includes(needle) || needle.includes(row.name.toLowerCase()));
+  return [];
 }
 
 function stripMatchedPersonNames(term, people) {
@@ -159,17 +161,21 @@ function buildScoreParts(terms, matchedPeople, includeFaces = true) {
     const weight = index < 8 ? 1 : 0.65;
     sql.push(`CASE WHEN LOWER(COALESCE(p.title, '')) LIKE ? ESCAPE '#' THEN ${Math.round(30 * weight)} ELSE 0 END`);
     params.push(prefix);
+    sql.push(`CASE WHEN LOWER(COALESCE(p.original_filename, '')) LIKE ? ESCAPE '#' THEN ${Math.round(36 * weight)} ELSE 0 END`);
+    params.push(prefix);
     sql.push(`CASE WHEN LOWER(COALESCE(pr.name, '')) LIKE ? ESCAPE '#' THEN ${Math.round(24 * weight)} ELSE 0 END`);
     params.push(prefix);
     sql.push(`CASE WHEN LOWER(COALESCE(pts.name, '')) LIKE ? ESCAPE '#' THEN ${Math.round(22 * weight)} ELSE 0 END`);
     params.push(prefix);
     sql.push(`CASE WHEN LOWER(COALESCE(p.description, '')) LIKE ? ESCAPE '#' THEN ${Math.round(16 * weight)} ELSE 0 END`);
     params.push(contain);
+    sql.push(`CASE WHEN LOWER(COALESCE(p.detailed_description, '')) LIKE ? ESCAPE '#' THEN ${Math.round(8 * weight)} ELSE 0 END`);
+    params.push(contain);
     sql.push(`CASE WHEN LOWER(COALESCE(CAST(p.tags AS CHAR), '')) LIKE ? ESCAPE '#' THEN ${Math.round(15 * weight)} ELSE 0 END`);
     params.push(contain);
     sql.push(`CASE WHEN LOWER(COALESCE(p.ocr_text, '')) LIKE ? ESCAPE '#' THEN ${Math.round(13 * weight)} ELSE 0 END`);
     params.push(contain);
-    sql.push(`CASE WHEN EXISTS (
+    sql.push(`CASE WHEN LOWER(COALESCE(p.type, '')) = 'video' AND EXISTS (
       SELECT 1
       FROM photo_video_semantics pvs_score
       WHERE pvs_score.photo_id = p.id
@@ -241,6 +247,9 @@ async function loadFaceNamesForPhotos(photoIds, orgId) {
 }
 
 async function searchPhotos(options = {}) {
+  const checkActive = () => options.signal?.throwIfAborted();
+  const notify = async event => { checkActive(); await options.onProgress?.(event); checkActive(); };
+  checkActive();
   const query = String(options.q || '').trim().slice(0, MAX_QUERY_LEN);
   const page = Math.max(1, Math.floor(Number(options.page) || 1));
   const pageSize = Math.max(1, Math.min(MAX_PAGE_SIZE, Math.floor(Number(options.pageSize) || 20)));
@@ -249,34 +258,20 @@ async function searchPhotos(options = {}) {
   const orgId = options.orgId === null ? null : Number(options.orgId);
   const unitId = Number(options.unitId) > 0 ? Number(options.unitId) : null;
   const faceSearchAllowed = options.faceSearchAllowed !== false;
-  // 零结果降级重查时直接注入放宽后的 plan，跳过 AI 解析
-  const interpreted = options._relaxPlan
-    ? { plan: options._relaxPlan, aiUsed: true, cached: false, fallbackReason: null, model: null }
-    : await interpretPhotoSearch(query, { enableAi: options.enableAi !== false });
-  const plan = faceSearchAllowed ? interpreted.plan : { ...interpreted.plan, people: [], peopleOnly: false };
+  const filenameQuery = isMediaFilenameQuery(query);
+  const peopleRows = faceSearchAllowed && !filenameQuery ? await findPeople(orgId, query) : [];
+  checkActive();
+  const localIntent = filenameQuery || canResolvePhotoSearchLocally(query, peopleRows);
+  await notify({ type: 'status', phase: localIntent ? 'searching' : 'understanding' });
+  const interpreted = filenameQuery
+    ? { plan: normalizePhotoSearchPlan({ mustTerms: [query], termGroups: [[query]] }, query), aiUsed: false, cached: false, fallbackReason: null }
+    : await interpretPhotoSearch(query, { enableAi: options.enableAi !== false && !localIntent });
+  checkActive();
+  const plan = filenameQuery
+    ? { ...interpreted.plan, unknownPeople: [], identityUncertain: false, faceSearchUnavailable: false }
+    : resolveSearchIntent(query, interpreted.plan, peopleRows, { faceSearchAllowed });
   const literalTokens = tokenizeLiteralQuery(query);
-
-  const personLookupTerms = uniqueStrings([
-    ...plan.people,
-    ...literalTokens.filter((term) => term.length <= 20),
-    ...(literalTokens.length <= 1 && query.length <= 20 ? [query] : []),
-  ], 12);
-  const peopleRows = faceSearchAllowed ? await findPeople(orgId, personLookupTerms) : [];
-  const explicitPersonTerms = plan.people.slice();
-  if (!explicitPersonTerms.length) {
-    literalTokens.forEach((term) => {
-      if (peopleRows.some((row) => row.name.toLowerCase() === term.toLowerCase())) explicitPersonTerms.push(term);
-    });
-    const normalizedQuery = query.toLowerCase();
-    peopleRows
-      .filter((row) => row.name.length >= 2 && normalizedQuery.includes(row.name.toLowerCase()))
-      .forEach((row) => {
-        if (!explicitPersonTerms.some((term) => term.toLowerCase() === row.name.toLowerCase())) {
-          explicitPersonTerms.push(row.name);
-        }
-      });
-  }
-
+  const explicitPersonTerms = plan.people;
   const personGroups = explicitPersonTerms.map((term) => rowsMatchingPersonTerm(peopleRows, term));
   const matchedPeople = [];
   personGroups.flat().forEach((person) => {
@@ -293,6 +288,7 @@ async function searchPhotos(options = {}) {
     12
   ).filter((term) => !matchedNames.has(term.toLowerCase()));
   const hasStructuredFilter = plan.mediaType !== 'all'
+    || plan.personCount === 1
     || plan.quality !== 'any'
     || plan.dateFrom
     || plan.dateTo
@@ -300,11 +296,16 @@ async function searchPhotos(options = {}) {
     || plan.timelineSections.length
     || plan.photographers.length
     || plan.excludeTerms.length;
-  // 该兜底会把整个查询按字面词搜；但 _relaxPlan（零结果降级）刚刚刻意清空了内容词，
-  // 不能在这里复活——否则无人物的查询降级后仍按原词过滤，永远 0 结果
-  if (!options._relaxPlan && !mustTerms.length && !shouldTerms.length && !explicitPersonTerms.length && !hasStructuredFilter && query) {
+  if (!mustTerms.length && !shouldTerms.length && !explicitPersonTerms.length && !hasStructuredFilter && query) {
     mustTerms = literalTokens.length ? literalTokens : [query];
   }
+  const relatedEligible = faceSearchAllowed && matchedPeople.length > 0 && !plan.unknownPeople.length
+    && !plan.identityUncertain && mustTerms.length > 0;
+  const showingRelated = options.related === true && relatedEligible;
+  const visualRequest = !filenameQuery && visualSearchEnabled(options) && plan.mediaType !== 'video' && !plan.faceSearchUnavailable && !plan.identityUncertain
+    && !plan.unknownPeople.length ? compileVisualConditions({ ...plan, mustTerms: showingRelated ? [] : mustTerms }, matchedPeople,
+      { semantic: process.env.SEARCH_VISUAL_SEMANTIC_ENABLED === '1', anonymous: process.env.PHOTO_PERSON_OBSERVATIONS_ENABLED === '1' }) : null;
+  let visual = null;
 
   const where = [];
   const whereParams = [];
@@ -316,8 +317,13 @@ async function searchPhotos(options = {}) {
   }
   if (options.workspaceEnabled) {
     if (unitId) {
-      where.push('COALESCE(pr.unit_id, p.unit_id) = ?');
+      const sharedIds = Array.isArray(options.sharedProjectIds)
+        && (options.scope?.type === 'workspace' || (options.scope?.type === 'folder' && Array.isArray(options.projectIds)))
+        ? [...new Set(options.sharedProjectIds.map(Number).filter(id => Number.isSafeInteger(id) && id > 0
+          && (options.scope.type === 'workspace' || options.projectIds.includes(id))))] : [];
+      where.push(sharedIds.length ? '(COALESCE(pr.unit_id, p.unit_id) = ? OR p.project_id IN (?))' : 'COALESCE(pr.unit_id, p.unit_id) = ?');
       whereParams.push(unitId);
+      if (sharedIds.length) whereParams.push(sharedIds);
     } else {
       where.push('COALESCE(pr.unit_id, p.unit_id) IS NULL');
     }
@@ -330,24 +336,21 @@ async function searchPhotos(options = {}) {
     where.push('p.project_id = ?');
     whereParams.push(projectId);
   }
+  if (Array.isArray(options.projectIds)) {
+    const ids = [...new Set(options.projectIds.map(Number).filter(id => Number.isSafeInteger(id) && id > 0))];
+    where.push(ids.length ? 'p.project_id IN (?)' : '1 = 0');
+    if (ids.length) whereParams.push(ids);
+  }
 
   if (plan.mediaType === 'video') where.push("LOWER(COALESCE(p.type, '')) = 'video'");
   if (plan.mediaType === 'image') where.push("LOWER(COALESCE(p.type, '')) <> 'video'");
-  if (plan.quality === 'recommended') {
-    where.push(`((p.ai_score >= 75 OR CAST(p.tags AS CHAR) LIKE '%AI recommended%' OR CAST(p.tags AS CHAR) LIKE '%推荐%')
-      AND CAST(COALESCE(p.tags, '[]') AS CHAR) NOT LIKE '%AI rejected%'
-      AND CAST(COALESCE(p.tags, '[]') AS CHAR) NOT LIKE '%不推荐%')`);
-  } else if (plan.quality === 'medium') {
-    where.push("((p.ai_score >= 55 AND p.ai_score < 75) OR CAST(p.tags AS CHAR) LIKE '%AI medium%' OR CAST(p.tags AS CHAR) LIKE '%中等%')");
-  } else if (plan.quality === 'rejected') {
-    where.push("(p.ai_score < 55 OR CAST(p.tags AS CHAR) LIKE '%AI rejected%' OR CAST(p.tags AS CHAR) LIKE '%不推荐%')");
-  }
+  if (['recommended', 'medium', 'rejected'].includes(plan.quality)) where.push(qualityFilterSql(plan.quality));
   if (plan.dateFrom) {
     where.push('COALESCE(p.capture_time, DATE(p.created_at)) >= ?');
     whereParams.push(plan.dateFrom);
   }
   if (plan.dateTo) {
-    where.push('COALESCE(p.capture_time, DATE(p.created_at)) <= ?');
+    where.push('COALESCE(p.capture_time, p.created_at) < DATE_ADD(?, INTERVAL 1 DAY)');
     whereParams.push(plan.dateTo);
   }
 
@@ -359,23 +362,50 @@ async function searchPhotos(options = {}) {
   if (photographerMatch) { where.push(photographerMatch.sql); whereParams.push(...photographerMatch.params); }
 
   mustTerms.forEach((term) => {
-    const match = textMatch(term, faceSearchAllowed);
-    where.push(match.sql);
-    whereParams.push(...match.params);
+    if (showingRelated) return;
+    if (visualRequest && !visualRequest.remainingMustTerms.includes(term)) return;
+    const group = plan.termGroups.find(values => values[0] === term) || equivalents(term);
+    const matches = group.map(value => textMatch(value, false));
+    where.push(`(${matches.map(match => match.sql).join(' OR ')})`);
+    matches.forEach(match => whereParams.push(...match.params));
   });
-  if (!mustTerms.length && shouldTerms.length && !explicitPersonTerms.length && !projectMatch && !timelineMatch && !photographerMatch) {
-    const matches = shouldTerms.map((term) => textMatch(term, faceSearchAllowed));
+  if (!visualRequest && !mustTerms.length && shouldTerms.length && !explicitPersonTerms.length && !projectMatch && !timelineMatch && !photographerMatch) {
+    const matches = shouldTerms.map((term) => textMatch(term, false));
     where.push(`(${matches.map((match) => match.sql).join(' OR ')})`);
     matches.forEach((match) => whereParams.push(...match.params));
   }
   plan.excludeTerms.forEach((term) => {
-    const match = textMatch(term, faceSearchAllowed);
-    where.push(`NOT ${match.sql}`);
-    whereParams.push(...match.params);
+    if (visualRequest && !visualRequest.remainingExcludeTerms.includes(term)) return;
+    const matches = equivalents(term).map(value => textMatch(value, false));
+    where.push(`NOT (${matches.map(match => match.sql).join(' OR ')})`);
+    matches.forEach(match => whereParams.push(...match.params));
   });
+  if (plan.faceSearchUnavailable || plan.identityUncertain) where.push('1 = 0');
+  if (faceSearchAllowed && plan.personCount === 1) {
+    where.push("LOWER(COALESCE(p.type, '')) <> 'video'");
+    if (!explicitPersonTerms.length) {
+      // A single detected face can still be surrounded by an audience facing away.
+      where.push(`COALESCE(JSON_CONTAINS(p.tags, '"单人"'), 0) = 1
+        AND COALESCE(JSON_CONTAINS(p.tags, '"多人"'), 0) = 0
+        AND COALESCE(JSON_CONTAINS(p.tags, '"合影"'), 0) = 0
+        AND COALESCE(JSON_CONTAINS(p.tags, '"无人"'), 0) = 0`);
+    }
+    where.push(`(SELECT COUNT(*) FROM photo_faces pf_count
+      WHERE pf_count.photo_id = p.id AND pf_count.organization_id = p.organization_id
+        AND ${usableFaceSql('pf_count')}) = ?`);
+    whereParams.push(1);
+  }
+  if (faceSearchAllowed && plan.excludePeople.length) {
+    const excludedIds = plan.excludePeople.flatMap(term => rowsMatchingPersonTerm(peopleRows, term)).map(person => person.id);
+    if (excludedIds.length) {
+      where.push(`NOT EXISTS (SELECT 1 FROM photo_faces pf_excluded WHERE pf_excluded.photo_id = p.id
+        AND pf_excluded.organization_id = p.organization_id AND pf_excluded.person_id IN (?) AND ${usableFaceSql('pf_excluded')})`);
+      whereParams.push(excludedIds);
+    }
+  }
 
-  if (explicitPersonTerms.length) {
-    if (personGroups.some((group) => group.length === 0)) {
+  if (faceSearchAllowed && explicitPersonTerms.length) {
+    if (!matchedPeople.length || (plan.peopleMode === 'all' && personGroups.some((group) => group.length === 0))) {
       where.push('1 = 0');
     } else if (plan.peopleMode === 'all') {
       personGroups.forEach((group) => {
@@ -406,12 +436,55 @@ async function searchPhotos(options = {}) {
     LEFT JOIN projects pr ON p.project_id = pr.id
     LEFT JOIN project_timeline_sections pts ON p.timeline_section_id = pts.id
   `;
+  if (visualRequest) {
+    await notify({ type: 'status', phase: 'verifying' });
+    where.push("COALESCE(p.type,'image') <> 'video'");
+    const limit = Math.max(20,Math.min(1000,Number(process.env.SEARCH_VISUAL_CANDIDATE_LIMIT)||128));
+    const [candidates] = visualRequest.anonymous ? [[]] : await pool.query(`SELECT p.id AS visualCandidateId ${baseFrom}
+      WHERE ${where.join(' AND ')} ORDER BY COALESCE(p.ai_score,0) DESC,p.created_at DESC,p.id DESC LIMIT ?`, [...whereParams,limit+1]);
+    checkActive();
+    try {
+      let reviewed;
+      if (visualRequest.anonymous) {
+        reviewed = { matchedIds: [],unknownIds: [],candidateCount: 0,rejected: 0,checked: 0,pending: 0,uncertain: 0,queued: 0,unavailable: false };
+        let cursor = 0;
+        for (;;) {
+          checkActive();
+          const [batch] = await pool.query(`SELECT p.id AS visualCandidateId ${baseFrom}
+            WHERE ${where.join(' AND ')} AND p.id > ? ORDER BY p.id ASC LIMIT ?`, [...whereParams,cursor,256]);
+          if (!batch.length) break;
+          const result = await reviewCandidates({ candidates: batch.map(row => ({ id: row.visualCandidateId })),
+            request: visualRequest,signal: options.signal,enqueue: false });
+          reviewed.matchedIds.push(...result.matchedIds);reviewed.unknownIds.push(...result.unknownIds);
+          for (const key of ['candidateCount','rejected','checked','uncertain']) reviewed[key] += Number(result[key]) || 0;
+          cursor = Number(batch.at(-1).visualCandidateId);
+          if (batch.length < 256) break;
+        }
+      } else reviewed = await reviewCandidates({ candidates: candidates.slice(0,limit).map(row=>({ id: row.visualCandidateId })),
+        request: visualRequest, signal: options.signal });
+      const { matchedIds, unknownIds, ...status } = reviewed;
+      const truncated = !visualRequest.anonymous && candidates.length>limit;
+      visual = { ...status, truncated, coverageComplete: !unknownIds.length && !truncated,
+        retryAfterMs: reviewed.pending>0 && !reviewed.unavailable ? 4000 : null,
+        source: visualRequest.anonymous ? 'photo-person-observations' : 'local-person-vision' };
+      where.push(matchedIds.length ? 'p.id IN (?)' : '1 = 0');
+      if (matchedIds.length) whereParams.push(matchedIds);
+    } catch (error) {
+      checkActive();
+      visual = { unavailable: true, pending: 0, uncertain: candidates.length, coverageComplete: false };
+      where.push('1 = 0');
+    }
+  }
   const whereSql = `WHERE ${where.join(' AND ')}`;
-  const [countRows] = await pool.query(`SELECT COUNT(*) AS total ${baseFrom} ${whereSql}`, whereParams);
-  const total = countRows && countRows[0] ? Number(countRows[0].total) || 0 : 0;
+  const countTotal = async () => {
+    checkActive();
+    const [countRows] = await pool.query(`SELECT COUNT(*) AS total ${baseFrom} ${whereSql}`, whereParams);
+    checkActive();
+    return countRows && countRows[0] ? Number(countRows[0].total) || 0 : 0;
+  };
 
-  const scoreTerms = uniqueStrings([...mustTerms, ...shouldTerms, ...plan.projects, ...plan.timelineSections, ...plan.photographers], 18);
-  const score = buildScoreParts(scoreTerms, matchedPeople, faceSearchAllowed);
+  const scoreTerms = uniqueStrings([...mustTerms, ...shouldTerms, ...plan.termGroups.flat(), ...plan.projects, ...plan.timelineSections, ...plan.photographers], 18);
+  const score = buildScoreParts(scoreTerms, matchedPeople, false);
   const requestedSort = String(options.sort || '').toLowerCase();
   const sort = plan.sort !== 'relevance' ? plan.sort : (requestedSort === 'newest' ? 'newest' : 'relevance');
   const orderBy = sort === 'newest'
@@ -420,77 +493,84 @@ async function searchPhotos(options = {}) {
       ? 'ORDER BY COALESCE(p.ai_score, 0) DESC, relevanceScore DESC, p.created_at DESC, p.id DESC'
       : 'ORDER BY relevanceScore DESC, COALESCE(p.ai_score, 0) DESC, p.created_at DESC, p.id DESC';
 
-  const [rows] = await pool.query(
-    `SELECT
-       p.id, p.uuid, p.project_id AS projectId, pr.name AS projectName,
-       p.timeline_section_id AS timelineSectionId, pts.name AS timelineSectionName,
-       pts.section_time AS timelineSectionTime, p.url, p.thumb_url AS thumbUrl,
-       p.playback_url AS playbackUrl, p.title, p.description, p.adjustments, p.tags,
-       p.ocr_text AS ocrText, p.ai_status AS aiStatus, p.ai_error AS aiError,
-       p.ai_started_at AS aiStartedAt, p.ai_finished_at AS aiFinishedAt,
-       p.ai_score AS aiScore, p.ai_quality AS aiQuality, p.type,
-       p.photographer_id AS photographerId,
-       COALESCE(NULLIF(u.name, ''), NULLIF(u.nickname, '')) AS photographerName,
-       p.capture_time AS captureTime, p.created_at AS createdAt, p.updated_at AS updatedAt,
-       ${score.sql || '0'} AS relevanceScore
-     ${baseFrom}
-     ${whereSql}
-     ${orderBy}
-     LIMIT ? OFFSET ?`,
-    [...score.params, ...whereParams, pageSize, offset]
-  );
+  const readBatch = async (limit, batchOffset) => {
+    checkActive();
+    const [rows] = await pool.query(
+      `SELECT
+         p.id, p.uuid, p.project_id AS projectId, pr.name AS projectName,
+         p.timeline_section_id AS timelineSectionId, pts.name AS timelineSectionName,
+         pts.section_time AS timelineSectionTime, p.url, p.thumb_url AS thumbUrl,
+         p.playback_url AS playbackUrl, p.title, p.original_filename AS originalFilename, p.description, p.adjustments, p.tags,
+         p.ocr_text AS ocrText, p.ai_status AS aiStatus, p.ai_error AS aiError,
+         p.ai_started_at AS aiStartedAt, p.ai_finished_at AS aiFinishedAt,
+         p.ai_score AS aiScore, p.ai_quality AS aiQuality, p.type,
+         p.photographer_id AS photographerId,
+         COALESCE(NULLIF(u.name, ''), NULLIF(u.nickname, '')) AS photographerName,
+         p.capture_time AS captureTime, p.created_at AS createdAt, p.updated_at AS updatedAt,
+         ${score.sql || '0'} AS relevanceScore
+       ${baseFrom}
+       ${whereSql}
+       ${orderBy}
+       LIMIT ? OFFSET ?`,
+      [...score.params, ...whereParams, limit, batchOffset]
+    );
+    checkActive();
 
-  const faceMap = faceSearchAllowed
-    ? await loadFaceNamesForPhotos((rows || []).map((row) => row.id), orgId)
-    : new Map();
-  const list = (rows || []).map((row) => {
-    const people = faceMap.get(Number(row.id)) || [];
-    return {
-      id: row.id,
-      uuid: row.uuid,
-      projectId: row.projectId,
-      projectName: row.projectName || null,
-      timelineSectionId: row.timelineSectionId || null,
-      timelineSectionName: row.timelineSectionName || null,
-      timelineSectionTime: row.timelineSectionTime || null,
-      url: row.url ? buildMediaUrl(row.url, { userId: options.userId, photoId: row.id }) : null,
-      thumbUrl: row.thumbUrl ? buildMediaUrl(row.thumbUrl, { userId: options.userId, photoId: row.id }) : null,
-      playbackUrl: row.playbackUrl ? buildMediaUrl(row.playbackUrl, { userId: options.userId, photoId: row.id }) : null,
-      playback_url: row.playbackUrl ? buildMediaUrl(row.playbackUrl, { userId: options.userId, photoId: row.id }) : null,
-      title: row.title || null,
-      description: row.description || null,
-      adjustments: parseJsonObject(row.adjustments),
-      tags: parseTags(row.tags),
-      ocrText: row.ocrText || null,
-      aiStatus: row.aiStatus || null,
-      aiError: row.aiError || null,
-      aiStartedAt: row.aiStartedAt || null,
-      aiFinishedAt: row.aiFinishedAt || null,
-      aiScore: row.aiScore === null || row.aiScore === undefined ? null : Number(row.aiScore),
-      aiQuality: parseJsonObject(row.aiQuality),
-      type: row.type,
-      photographerId: row.photographerId || null,
-      photographerName: row.photographerName || null,
-      captureTime: row.captureTime || null,
-      createdAt: row.createdAt,
-      updatedAt: row.updatedAt,
-      relevanceScore: Number(row.relevanceScore) || 0,
-      faceNames: people.map((person) => person.name),
-      personNames: people.map((person) => person.name),
-      people,
-    };
-  });
+    const faceMap = faceSearchAllowed
+      ? await loadFaceNamesForPhotos((rows || []).map((row) => row.id), orgId)
+      : new Map();
+    checkActive();
+    return (rows || []).map((row) => {
+      const people = faceMap.get(Number(row.id)) || [];
+      return {
+        id: row.id,
+        uuid: row.uuid,
+        projectId: row.projectId,
+        projectName: row.projectName || null,
+        timelineSectionId: row.timelineSectionId || null,
+        timelineSectionName: row.timelineSectionName || null,
+        timelineSectionTime: row.timelineSectionTime || null,
+        url: row.url ? buildMediaUrl(row.url, { userId: options.userId, photoId: row.id }) : null,
+        thumbUrl: row.thumbUrl ? buildMediaUrl(row.thumbUrl, { userId: options.userId, photoId: row.id }) : null,
+        playbackUrl: row.playbackUrl ? buildMediaUrl(row.playbackUrl, { userId: options.userId, photoId: row.id }) : null,
+        playback_url: row.playbackUrl ? buildMediaUrl(row.playbackUrl, { userId: options.userId, photoId: row.id }) : null,
+        title: row.title || null,
+        originalFilename: row.originalFilename || null,
+        description: row.description || null,
+        adjustments: parseJsonObject(row.adjustments),
+        tags: parseTags(row.tags),
+        ocrText: row.ocrText || null,
+        aiStatus: row.aiStatus || null,
+        aiError: row.aiError || null,
+        aiStartedAt: row.aiStartedAt || null,
+        aiFinishedAt: row.aiFinishedAt || null,
+        aiScore: row.aiScore === null || row.aiScore === undefined ? null : Number(row.aiScore),
+        aiQuality: parseJsonObject(row.aiQuality),
+        type: row.type,
+        photographerId: row.photographerId || null,
+        photographerName: row.photographerName || null,
+        captureTime: row.captureTime || null,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+        relevanceScore: Number(row.relevanceScore) || 0,
+        faceNames: people.map((person) => person.name),
+        personNames: people.map((person) => person.name),
+        people,
+      };
+    });
+  };
 
-  const result = {
+  const makeResult = (list, total) => ({
     list,
     page,
     pageSize,
     total,
-    hasMore: page * pageSize < total,
+    hasMore: total === null ? null : page * pageSize < total,
     q: query,
     tokens: mustTerms,
     sort,
     search: {
+      scope: options.scope || (projectId ? { type: 'album', id: projectId } : { type: 'workspace' }),
       mode: interpreted.aiUsed ? 'ai' : 'enhanced',
       aiUsed: interpreted.aiUsed,
       cached: interpreted.cached,
@@ -499,9 +579,12 @@ async function searchPhotos(options = {}) {
         mustTerms,
         shouldTerms,
         excludeTerms: plan.excludeTerms,
-        people: matchedPeople.map((row) => row.name),
+        termGroups: plan.termGroups,
+        people: explicitPersonTerms,
+        excludePeople: plan.excludePeople,
         peopleMode: plan.peopleMode,
         peopleOnly: plan.peopleOnly,
+        personCount: plan.personCount,
         photographers: plan.photographers,
         projects: plan.projects,
         timelineSections: plan.timelineSections,
@@ -515,51 +598,43 @@ async function searchPhotos(options = {}) {
       matchedPeople: matchedPeople.map((row) => ({
         id: String(row.id), name: row.name, photoCount: row.photoCount,
       })),
+      unknownPeople: faceSearchAllowed ? plan.unknownPeople : [],
+      relatedAvailable: total === 0 && relatedEligible && !showingRelated && !visualRequest,
+      ...(visual ? { visual } : {}),
+      matchType: showingRelated ? 'related' : 'strict',
+      relaxed: showingRelated,
+      relaxedHint: showingRelated ? `以下仅匹配人物与其他筛选条件，尚未确认「${mustTerms.join('、')}」` : null,
+      notice: plan.faceSearchUnavailable ? '当前账号未获授权使用人脸检索。'
+        : plan.unknownPeople.length && (!matchedPeople.length || plan.peopleMode === 'all') ? `人物库中未找到：${plan.unknownPeople.join('、')}`
+          : plan.identityUncertain ? '多人同框条件尚未完整识别，未自动放宽人物范围。'
+            : visual ? (visual.unavailable ? '视觉核验暂不可用，未将未知衣着作为匹配结果。'
+              : `${visualRequest.anonymous ? '按画面内人物已有衣着分析匹配' : '衣着按目标人物核验'}；${visual.pending || 0} 张待核验，${visual.uncertain || 0} 张暂不能确认。${visualRequest.remainingMustTerms.length || visualRequest.remainingExcludeTerms.length ? '其他内容条件仍参考已有描述。' : ''}${visual.truncated ? '当前仅核验部分候选，请缩小相册或日期范围。' : ''}`)
+            : matchedPeople.length && extractNegatedClothing(query).excludeTerms.length
+              ? '衣着排除基于已有照片描述；同框人物或描述缺失时仍需核对。'
+            : matchedPeople.length && mustTerms.length && list.length > 0 ? '人物与画面描述已匹配；同框时衣着、动作的归属仍需核对。' : null,
     },
-  };
+  });
 
-  // 零结果降级：严格条件全空时依次放宽（质量门槛 → 内容词 → 单人限制），
-  // 命中即返回并附 relaxedHint，让用户知道"放宽了什么"，而不是给一堵白墙。
-  if (result.total === 0 && !options._relaxPlan && explicitPersonTerms.length + mustTerms.length + (plan.quality !== 'any' ? 1 : 0) + (plan.peopleOnly ? 1 : 0) > 0) {
-    const relaxSteps = [];
-    if (plan.quality !== 'any') relaxSteps.push({ quality: 'any', dropped: ['quality'] });
-    if (mustTerms.length || shouldTerms.length) relaxSteps.push({ quality: 'any', mustTerms: [], shouldTerms: [], dropped: ['quality', 'terms'] });
-    if (plan.peopleOnly && explicitPersonTerms.length) relaxSteps.push({ quality: 'any', mustTerms: [], shouldTerms: [], peopleOnly: false, dropped: ['quality', 'terms', 'peopleOnly'] });
-
-    for (const step of relaxSteps) {
-      const dropped = new Set(step.dropped);
-      const relaxedPlan = {
-        ...plan,
-        quality: step.quality !== undefined ? step.quality : plan.quality,
-        mustTerms: dropped.has('terms') ? [] : plan.mustTerms,
-        shouldTerms: dropped.has('terms') ? [] : plan.shouldTerms,
-        peopleOnly: dropped.has('peopleOnly') ? false : plan.peopleOnly,
-      };
-      let relaxed;
-      try {
-        relaxed = await searchPhotos({ ...options, _relaxPlan: relaxedPlan });
-      } catch (e) {
-        break;
-      }
-      if (relaxed && relaxed.total > 0) {
-        const hintParts = [];
-        if (dropped.has('quality')) hintParts.push(`忽略了「${plan.quality === 'recommended' ? '推荐' : plan.quality === 'medium' ? '中等' : '不推荐'}」质量筛选`);
-        if (dropped.has('terms')) hintParts.push(`忽略了内容词（${[...mustTerms, ...shouldTerms].slice(0, 4).join('、') || '场景描述'}）`);
-        if (dropped.has('peopleOnly')) hintParts.push('忽略了"单人出镜"要求');
-        relaxed.search.relaxed = true;
-        relaxed.search.relaxedHint = `没有完全匹配的照片，已放宽条件：${hintParts.join('，')}`;
-        relaxed.search.originalPlan = {
-          quality: plan.quality,
-          mustTerms: plan.mustTerms,
-          shouldTerms: plan.shouldTerms,
-          peopleOnly: plan.peopleOnly,
-        };
-        return relaxed;
-      }
-    }
+  if (typeof options.onProgress !== 'function') {
+    const total = await countTotal();
+    return makeResult(total > 0 && offset < total ? await readBatch(pageSize, offset) : [], total);
   }
-
-  return result;
+  await notify({ type: 'status', phase: 'searching', search: makeResult([], null).search });
+  const list = [];
+  const seen = new Set();
+  // The first eight results bypass COUNT; later batches append without reranking visible cards.
+  for (let taken = 0; taken < pageSize;) {
+    const limit = Math.min(taken ? 64 : 8, pageSize - taken);
+    const batch = await readBatch(limit, offset + taken);
+    const fresh = batch.filter(photo => !seen.has(String(photo.id)));
+    fresh.forEach(photo => seen.add(String(photo.id)));
+    list.push(...fresh);
+    if (fresh.length) await notify({ type: 'results', data: makeResult(fresh, null) });
+    taken += batch.length;
+    if (batch.length < limit) break;
+  }
+  await notify({ type: 'status', phase: 'counting' });
+  return makeResult(list, await countTotal());
 }
 
 module.exports = {

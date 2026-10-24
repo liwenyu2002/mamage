@@ -6,6 +6,8 @@ import { warmProjectPreviewImages } from './services/projectPreviewWarmup';
 import { resolveAssetUrl } from './services/request';
 import { pickProjectPreviewSrc as pickThumbSrc, projectPreviewSourceKey, findProjectPreviewPhotoId } from './utils/projectPreviewPhotos';
 import { IconGridView, IconListView, IconSimilarStack, IconStar } from './ui/icons';
+import CardSharingStatus from './CardSharingStatus';
+import { cardSharingStatus, sharingStatusText } from './utils/sharingStatus';
 import './ProjectCard.css';
 
 const FALLBACK_THUMB_CACHE = new Map();
@@ -90,6 +92,9 @@ function ProjectCard({
   updatedAt,
   description,
   originLabel,
+  sharing,
+  isShared,
+  shareMode,
   count,
   pinned = false,
   images = [],
@@ -98,6 +103,7 @@ function ProjectCard({
   previewPhotos = [],
   importStatus,
   previewScope,
+  previewsEnabled = true,
   selectionMode = false,
   onClick,
   onPreviewOpen,
@@ -150,7 +156,7 @@ function ProjectCard({
   }, [id, previewRevision, previewScope?.userId, previewScope?.unitId, previewScope?.organizationId]);
 
   React.useEffect(() => {
-    if ((!isVisible && !previewExpanded) || selectionMode || !id || Number(count) === 0 || diverseThumbs !== null) return undefined;
+    if (!previewsEnabled || (!isVisible && !previewExpanded) || selectionMode || !id || Number(count) === 0 || diverseThumbs !== null) return undefined;
     let cancelled = false;
     const timer = setTimeout(() => {
       setPreviewLoading(true);
@@ -165,7 +171,7 @@ function ProjectCard({
       }).catch(() => {}).finally(() => { if (!cancelled) setPreviewLoading(false); });
     }, previewExpanded ? 0 : 240);
     return () => { cancelled = true; clearTimeout(timer); setPreviewLoading(false); };
-  }, [id, isVisible, selectionMode, count, previewExpanded, diverseThumbs, previewRevision, previewScope]);
+  }, [id, isVisible, selectionMode, count, previewExpanded, diverseThumbs, previewRevision, previewScope, previewsEnabled]);
 
   React.useLayoutEffect(() => {
     if (restorePreviewFocus.current === null) return;
@@ -190,7 +196,7 @@ function ProjectCard({
     let canceled = false;
     const availablePreviewCount = new Set([...normalizedThumbnails, ...normalizedImages, resolvedMain].filter(Boolean)).size;
     const expectedPreviewCount = Number(count) > 0 ? Math.min(4, Number(count)) : 4;
-    if (!id || !isVisible || (count != null && Number(count) === 0) || availablePreviewCount >= expectedPreviewCount) {
+    if (!previewsEnabled || !id || !isVisible || (count != null && Number(count) === 0) || availablePreviewCount >= expectedPreviewCount) {
       return undefined;
     }
 
@@ -238,7 +244,7 @@ function ProjectCard({
     return () => {
       canceled = true;
     };
-  }, [id, isVisible, count, normalizedThumbnails, normalizedImages, resolvedMain]);
+  }, [id, isVisible, count, normalizedThumbnails, normalizedImages, resolvedMain, previewsEnabled]);
 
   React.useEffect(() => {
     setHoverPreview(null);
@@ -415,11 +421,13 @@ function ProjectCard({
           <strong className="project-card__title" title={title}>{title}</strong>
           <span className="project-card__detail">
             {dateText && <span className="project-card__date" title={`${dateLabel} ${dateText}`}>{dateText}</span>}
-            {subtitle && <span className="project-card__tag" title={subtitle}><IconListView /><span>{subtitle}</span></span>}
+            {sharingStatusText(cardSharingStatus({ sharing, isShared, originLabel, shareMode }))
+              ? <CardSharingStatus item={{ sharing, isShared, originLabel, shareMode }} context={subtitle} className="project-card__sharing" />
+              : subtitle && <span className="project-card__tag" title={subtitle}><IconListView /><span>{subtitle}</span></span>}
           </span>
         </button>
         <ImportStatusBadge summary={importStatus} />
-        {originLabel ? <span className="project-card__origin" title={`来自 ${originLabel}`}>来自 {originLabel}</span> : null}
+        {originLabel && !isShared && !sharingStatusText(cardSharingStatus({ sharing, isShared, originLabel, shareMode })) ? <span className="project-card__origin" title={`来自 ${originLabel}`}>来自 {originLabel}</span> : null}
         {descText ? <span className="project-card__description" title={String(description)}>{descText}</span> : null}
       </div>
     </article>

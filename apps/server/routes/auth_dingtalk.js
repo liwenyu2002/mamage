@@ -10,7 +10,7 @@
 //
 // 环境变量：
 //   DINGTALK_CLIENT_ID / DINGTALK_CLIENT_SECRET   钉钉开放平台应用凭证（必填才激活）
-//   DINGTALK_REDIRECT_URI    默认 https://mamage.wenyuli.site/api/auth/dingtalk/callback
+//   DINGTALK_REDIRECT_URI    学校 HTTPS 域名下的 /api/auth/dingtalk/callback，须显式配置
 //   DINGTALK_DEFAULT_ORG_ID  新建用户归属组织 id（必填才允许自动建号，否则仅允许已绑定/邮箱匹配）
 //   DINGTALK_DEFAULT_ROLE    新建用户角色，默认 visitor
 
@@ -19,6 +19,8 @@ const jwt = require('jsonwebtoken');
 const fetch = require('node-fetch');
 const { pool } = require('../db');
 const keys = require('../config/keys');
+const crypto = require('node:crypto');
+const { schoolIntegrationReadiness } = require('../lib/school_integrations');
 
 const router = express.Router();
 const JWT_SECRET = keys.JWT_SECRET;
@@ -27,10 +29,10 @@ function getConfig() {
   const clientId = String(process.env.DINGTALK_CLIENT_ID || '').trim();
   const clientSecret = String(process.env.DINGTALK_CLIENT_SECRET || '').trim();
   return {
-    enabled: Boolean(clientId && clientSecret && JWT_SECRET),
+    enabled: Boolean(schoolIntegrationReadiness().dingtalk.configured && JWT_SECRET),
     clientId,
     clientSecret,
-    redirectUri: String(process.env.DINGTALK_REDIRECT_URI || 'https://mamage.wenyuli.site/api/auth/dingtalk/callback').trim(),
+    redirectUri: String(process.env.DINGTALK_REDIRECT_URI || '').trim(),
     defaultOrgId: Number(process.env.DINGTALK_DEFAULT_ORG_ID) || null,
     defaultRole: String(process.env.DINGTALK_DEFAULT_ROLE || 'visitor').trim() || 'visitor',
   };
@@ -53,7 +55,10 @@ router.get('/providers', (req, res) => {
 router.get('/dingtalk/login', (req, res) => {
   const cfg = getConfig();
   if (!cfg.enabled) return res.status(404).json({ error: 'dingtalk login not configured' });
-  const state = jwt.sign({ p: 'dtk' }, JWT_SECRET, { expiresIn: '10m' });
+  const nonce = crypto.randomBytes(32).toString('hex');
+  const state = jwt.sign({ p: 'dtk', nonce }, JWT_SECRET, { expiresIn: '10m' });
+  res.cookie('mamage_dingtalk_state', nonce, { httpOnly: true, secure: true, sameSite: 'lax',
+    path: '/api/auth/dingtalk', maxAge: 10 * 60 * 1000 });
   const url = 'https://login.dingtalk.com/oauth2/auth'
     + `?redirect_uri=${encodeURIComponent(cfg.redirectUri)}`
     + '&response_type=code'
@@ -133,7 +138,10 @@ router.get('/dingtalk/callback', async (req, res) => {
     if (!oauthCode) return redirectWithError(res, '缺少授权码');
     try {
       const parsed = jwt.verify(String(state || ''), JWT_SECRET);
-      if (!parsed || parsed.p !== 'dtk') throw new Error('bad state');
+      const nonce = String(req.headers.cookie || '').split(';').map(value => value.trim())
+        .find(value => value.startsWith('mamage_dingtalk_state='))?.slice('mamage_dingtalk_state='.length);
+      if (!parsed || parsed.p !== 'dtk' || !nonce || parsed.nonce !== nonce) throw new Error('bad state');
+      res.clearCookie('mamage_dingtalk_state', { httpOnly: true, secure: true, sameSite: 'lax', path: '/api/auth/dingtalk' });
     } catch (e) {
       return redirectWithError(res, '登录状态校验失败，请重试');
     }

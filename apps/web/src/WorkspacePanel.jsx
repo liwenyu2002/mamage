@@ -9,8 +9,11 @@ import {
   setUnitMember, removeUnitMember, listFaceGrants, grantFaceSearch, revokeFaceSearch,
   listPublicShares, createPublicShare, revokePublicShare, listPendingPublicPhotos, approvePublicPhotos,
   getAiWorkspaceStats,
+  listReceivedFolderShares, listSentFolderShares, createFolderShare, revokeFolderShare, retryFolderCopy,
 } from './services/workspaceService';
 import { publicEntryUrl } from './services/networkService';
+import { buildAlbumUploadUrl } from './utils/albumUploadLink';
+import { memberRoleLabel } from './utils/accessRoles';
 import './WorkspacePanel.css';
 
 const MODES = [
@@ -54,12 +57,15 @@ function expiryLabel(value) {
 }
 
 export default function WorkspacePanel({ visible, onClose, workspaceInfo, initialProjectId,
-  initialPhotoIds = [], albumShareProject = null, onOpenProject }) {
+  initialPhotoIds = [], albumShareProject = null, folderShareFolder = null, onOpenProject, onOpenFolder }) {
   const activeUnitId = workspaceInfo?.activeUnitId;
   const activeUnit = workspaceInfo?.units?.find((unit) => Number(unit.id) === Number(activeUnitId));
   const albumShareProjectId = Number(albumShareProject?.id) || null;
-  const canManage = Boolean(workspaceInfo?.collegeAdmin || activeUnit?.role === 'manager');
-  const canShare = Boolean(workspaceInfo?.collegeAdmin || ['editor', 'manager'].includes(activeUnit?.role));
+  const folderShareFolderId = folderShareFolder?.id || null;
+  const itemShare = Boolean(albumShareProjectId || folderShareFolderId);
+  const modes = MODES;
+  const canManage = workspaceInfo?.access?.canManageMembers ?? Boolean(workspaceInfo?.collegeAdmin || activeUnit?.role === 'manager');
+  const canShare = workspaceInfo?.access?.canShare ?? Boolean(workspaceInfo?.collegeAdmin || ['editor', 'manager'].includes(activeUnit?.role));
   const [tab, setTab] = React.useState('received');
   const [received, setReceived] = React.useState([]);
   const [sent, setSent] = React.useState([]);
@@ -79,7 +85,7 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
   const [candidateQuery, setCandidateQuery] = React.useState('');
   const [candidates, setCandidates] = React.useState([]);
   const [candidateId, setCandidateId] = React.useState('');
-  const [candidateRole, setCandidateRole] = React.useState('member');
+  const [candidateRole, setCandidateRole] = React.useState('editor');
   const [publicSync, setPublicSync] = React.useState('approval');
   const [publicExpiry, setPublicExpiry] = React.useState('30');
   const [pendingCode, setPendingCode] = React.useState('');
@@ -87,11 +93,13 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
   const [pendingIds, setPendingIds] = React.useState([]);
   const [closing, setClosing] = React.useState(false);
   const closeTimer = React.useRef(null);
+  const uploadLinkInput = React.useRef(null);
+  const uploadLink = albumShareProjectId ? buildAlbumUploadUrl(albumShareProjectId, activeUnitId, publicEntryUrl()) : '';
 
   React.useEffect(() => () => window.clearTimeout(closeTimer.current), []);
 
   const handleCancel = () => {
-    if (!albumShareProjectId) return onClose();
+    if (!itemShare) return onClose();
     if (closing) return;
     setClosing(true);
     closeTimer.current = window.setTimeout(onClose, 220);
@@ -99,37 +107,40 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
 
   const refreshLists = React.useCallback(async () => {
     const [inbox, outbox, publicLinks] = await Promise.all([
-      albumShareProjectId ? [] : listReceivedShares(), listSentShares(), listPublicShares(),
+      itemShare ? [] : Promise.all([listReceivedShares(), listReceivedFolderShares()]).then(rows => rows.flat()),
+      folderShareFolderId ? listSentFolderShares() : itemShare ? listSentShares()
+        : Promise.all([listSentShares(), listSentFolderShares()]).then(rows => rows.flat()),
+      listPublicShares(),
     ]);
     setReceived(Array.isArray(inbox) ? inbox : []);
     setSent(Array.isArray(outbox) ? outbox : []);
     setPublicShares(Array.isArray(publicLinks) ? publicLinks : []);
-  }, [albumShareProjectId]);
+  }, [albumShareProjectId, folderShareFolderId, itemShare]);
 
   React.useEffect(() => {
     if (!visible || !activeUnitId) return undefined;
     let live = true;
-    setTab(albumShareProjectId ? (canShare ? 'create' : 'sent')
+    setTab(itemShare ? (canShare ? 'create' : 'sent')
       : (initialPhotoIds.length || initialProjectId ? 'create' : 'received'));
     setProjectId(albumShareProjectId ? String(albumShareProjectId) : (initialProjectId ? String(initialProjectId) : ''));
     setDetail(null);
     Promise.all([
       refreshLists(),
-      albumShareProjectId ? null : listWorkspaceAlbums().then((rows) => {
+      itemShare ? null : listWorkspaceAlbums().then((rows) => {
         if (live) setProjects(rows || []);
       }),
-      !albumShareProjectId && canManage ? listUnitMembers(activeUnitId).then((rows) => { if (live) setMembers(rows || []); }) : null,
-      !albumShareProjectId && canManage ? getAiWorkspaceStats().then((data) => { if (live) setAiStats(data.rows || []); }) : null,
-      !albumShareProjectId && workspaceInfo?.collegeAdmin ? listFaceGrants().then((rows) => { if (live) setFaceGrants(rows || []); }) : null,
+      !itemShare && canManage ? listUnitMembers(activeUnitId).then((rows) => { if (live) setMembers(rows || []); }) : null,
+      !itemShare && canManage ? getAiWorkspaceStats().then((data) => { if (live) setAiStats(data.rows || []); }) : null,
+      !itemShare && workspaceInfo?.collegeAdmin ? listFaceGrants().then((rows) => { if (live) setFaceGrants(rows || []); }) : null,
     ]).catch((err) => { if (live) Toast.error(err.message || '工作空间加载失败'); });
     return () => { live = false; };
-  }, [visible, activeUnitId, initialProjectId, initialPhotoIds.length, albumShareProjectId, canManage, canShare,
+  }, [visible, activeUnitId, initialProjectId, initialPhotoIds.length, albumShareProjectId, folderShareFolderId, itemShare, canManage, canShare,
     workspaceInfo?.collegeAdmin, refreshLists]);
 
-  const visibleSent = albumShareProjectId
+  const visibleSent = folderShareFolderId ? sent.filter(share => share.folderId === folderShareFolderId && share.mode !== 'public') : albumShareProjectId
     ? sent.filter((share) => share.shareType === 'album' && Number(share.projectId) === albumShareProjectId)
-    : sent;
-  const visiblePublicShares = albumShareProjectId
+    : sent.filter(share => share.mode !== 'public');
+  const visiblePublicShares = folderShareFolderId ? publicShares.filter(share => share.folderId === folderShareFolderId) : albumShareProjectId
     ? publicShares.filter((share) => Number(share.projectId) === albumShareProjectId)
     : publicShares;
 
@@ -186,7 +197,7 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
   const submitShare = async () => {
     const selectedProjectId = albumShareProjectId || Number(projectId);
     if (!targetUnitId) return Toast.warning('请选择接收部门');
-    if (!initialPhotoIds.length && !selectedProjectId) return Toast.warning('请选择相册');
+    if (!folderShareFolderId && !initialPhotoIds.length && !selectedProjectId) return Toast.warning('请选择相册');
     setBusy(true);
     try {
       const body = {
@@ -196,7 +207,8 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
         mode,
         ...(expiry === 'permanent' ? { permanent: true } : { expiresInDays: Number(expiry) }),
       };
-      await createInternalShare(body);
+      if (folderShareFolderId) await createFolderShare({ ...body, shareType: 'folder', folderId: folderShareFolderId });
+      else await createInternalShare(body);
       await refreshLists();
       setTab('sent');
       Toast.success(mode === 'copy' ? '已开始生成独立副本' : '分享已创建');
@@ -207,7 +219,7 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
   const revoke = async (share) => {
     if (!window.confirm('撤销后，对方将不能继续访问此分享。确定撤销吗？')) return;
     setBusy(true);
-    try { await revokeInternalShare(share.id); await refreshLists(); Toast.success('分享已撤销'); }
+    try { await (share.shareType === 'folder' ? revokeFolderShare(share.id) : revokeInternalShare(share.id)); await refreshLists(); Toast.success('分享已撤销'); }
     catch (err) { Toast.error(err.message || '撤销失败'); }
     finally { setBusy(false); }
   };
@@ -215,7 +227,8 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
   const retryCopy = async (share) => {
     setBusy(true);
     try {
-      await retryInternalCopy(share.id);
+      if (share.shareType === 'folder') await retryFolderCopy(share.id);
+      else await retryInternalCopy(share.id);
       await refreshLists();
       Toast.success('已重新开始复制');
     } catch (err) { Toast.error(err.message || '重试失败'); }
@@ -237,14 +250,16 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
 
   const submitPublicShare = async () => {
     const selectedProjectId = albumShareProjectId || Number(projectId);
-    if (!selectedProjectId) return Toast.warning('请选择相册');
+    if (!folderShareFolderId && !selectedProjectId) return Toast.warning('请选择相册');
     setBusy(true);
     try {
-      const created = await createPublicShare({
+      const options = {
         shareType: 'project', projectId: selectedProjectId,
         syncMode: canManage ? publicSync : 'approval',
         expiresInSeconds: Number(publicExpiry) * 86400,
-      });
+      };
+      const created = folderShareFolderId ? await createFolderShare({ folderId: folderShareFolderId,
+        mode: 'public', syncMode: options.syncMode, expiresInDays: Number(publicExpiry) }) : await createPublicShare(options);
       await refreshLists();
       const link = `${publicEntryUrl()}/share/${created.code}`;
       if (navigator.clipboard?.writeText) {
@@ -278,35 +293,42 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
     finally { setBusy(false); }
   };
 
-  const changeFaceGrant = async (userId, granted) => {
+  const changeFaceGrant = async (userId, granted, canManage = false) => {
+    const previous = faceGrants;
+    setFaceGrants(current => [...current.filter(grant => Number(grant.userId) !== Number(userId)),
+      ...(granted ? [{ userId: Number(userId), collegeWide: 1, canManage }] : [])]);
     setBusy(true);
     try {
-      if (granted) await grantFaceSearch(userId);
+      if (granted) await grantFaceSearch(userId, canManage);
       else await revokeFaceSearch(userId);
       setFaceGrants(await listFaceGrants());
-      Toast.success(granted ? '已授权人脸检索' : '已取消人脸检索授权');
-    } catch (err) { Toast.error(err.message || '权限更新失败'); }
+      Toast.success(granted ? '人物权限已更新' : '人物权限已取消');
+    } catch (err) {
+      try { setFaceGrants(await listFaceGrants()); } catch (_) { setFaceGrants(previous); }
+      Toast.error(err.message === 'COLLEGE_ADMIN_REQUIRED' ? '只有学院管理员可以调整人物权限'
+        : err.message && !/^[A-Z0-9_]+$/.test(err.message) ? err.message : '权限更新失败，请刷新后重试');
+    }
     finally { setBusy(false); }
   };
 
-  const Dialog = albumShareProjectId ? MotionModal : Modal;
+  const Dialog = itemShare ? MotionModal : Modal;
 
   return (
-    <Dialog visible={visible && !closing} onCancel={handleCancel} title={albumShareProjectId ? '分享相册' : (activeUnit?.name || '工作空间')}
-      className={`workspace-dialog${albumShareProjectId ? ' is-album-share' : ''}`}
-      width={albumShareProjectId ? 700 : 920} bodyStyle={{ maxHeight: 'min(76vh, 760px)', overflowY: 'auto' }} footer={null}>
+    <Dialog visible={visible && !closing} onCancel={handleCancel} title={folderShareFolderId ? '分享文件夹' : albumShareProjectId ? '分享相册' : (activeUnit?.name || '工作空间')}
+      className={`workspace-dialog${itemShare ? ' is-album-share' : ''}`}
+      width={itemShare ? 700 : 920} bodyStyle={{ maxHeight: 'min(76vh, 760px)', overflowY: 'auto' }} footer={null}>
       {!activeUnitId ? <div className="workspace-empty">历史相册暂不支持部门分享，请先切换到一个部门。</div> : <>
-        {albumShareProjectId ? (
+        {itemShare ? (
           <div className="workspace-album-summary">
-            <span>当前相册</span>
-            <strong title={albumShareProject.title}>{albumShareProject.title || '未命名相册'}</strong>
+            <span>{folderShareFolderId ? '当前文件夹' : '当前相册'}</span>
+            <strong title={folderShareFolder?.title || albumShareProject?.title}>{folderShareFolder?.title || albumShareProject?.title || '未命名'}</strong>
             <span>{activeUnit?.name}</span>
           </div>
         ) : null}
-        {albumShareProjectId ? <SegmentedControl className="workspace-album-tabs" kind="tabs" label="相册分享方式"
+        {itemShare ? <SegmentedControl className="workspace-album-tabs" kind="tabs" label={folderShareFolderId ? '文件夹分享方式' : '相册分享方式'}
           value={tab} onChange={(next) => { setTab(next); setDetail(null); }}
           options={(canShare ? [
-            ['create', '部门分享'], ['public', '公开分享'], ['sent', '部门记录'],
+            ['create', '部门分享'], ['public', '公开分享'], ...(!folderShareFolderId ? [['upload', '邀请上传']] : []), ['sent', '部门记录'],
           ] : [['sent', '部门记录']]).map(([value, label]) => ({ value, label }))} />
           : <div className="workspace-tabs" role="tablist" aria-label="工作空间">
           {([
@@ -322,11 +344,33 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
           ))}
         </div>}
 
+        {tab === 'upload' && albumShareProjectId && canShare ? <div className="workspace-section">
+          <label className="workspace-field">
+            <span className="workspace-field-label">相册上传链接</span>
+            <input ref={uploadLinkInput} className="mamage-input-wrapper" aria-label="相册上传链接" value={uploadLink} readOnly onFocus={event => event.target.select()} />
+          </label>
+          <div className="workspace-album-actions">
+            <span>需要登录 · 沿用相册权限</span>
+            <Button icon={<IconShare />} theme="solid" onClick={async () => {
+              try {
+                try {
+                  if (!navigator.clipboard?.writeText) throw Error('clipboard-unavailable');
+                  await navigator.clipboard.writeText(uploadLink);
+                } catch {
+                  uploadLinkInput.current?.focus(); uploadLinkInput.current?.select();
+                  if (!document.execCommand('copy')) throw Error('clipboard-unavailable');
+                }
+                Toast.success('上传链接已复制');
+              } catch { Toast.warning('请长按或选中上方链接复制'); }
+            }}>复制上传链接</Button>
+          </div>
+        </div> : null}
+
         {tab === 'received' && <div className="workspace-section">
           {!received.length ? <div className="workspace-empty">暂无收到的分享</div> : received.map((share) => {
             const copy = parseCopyResult(share.copyResult);
             const origin = [share.sourceOrganizationName, share.sourceUnitName].filter(Boolean).join(' / ');
-            return <div className="workspace-row" key={share.id}>
+            return <div className="workspace-row" key={`${share.shareType}-${share.id}`}>
               <div className="workspace-row-main">
                 <strong>{share.albumName || (share.shareType === 'collection' ? '照片集合' : '相册')}</strong>
                 {origin ? <span className="workspace-share-origin">来自 {origin}</span> : null}
@@ -339,7 +383,11 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
               {copy?.projectId ? <button type="button" onClick={() => { onOpenProject(copy.projectId); onClose(); }}>打开副本</button>
                 : share.mode === 'copy' && share.copyStatus === 'failed'
                   ? <button type="button" disabled={busy} onClick={() => retryCopy(share)}>重试</button>
-                  : share.mode !== 'copy' ? <button type="button" disabled={busy} onClick={() => openDetail(share)}>查看</button> : null}
+                  : share.mode !== 'copy' ? <button type="button" disabled={busy} onClick={() => {
+                    if (share.shareType === 'folder') { onOpenFolder?.(share.id); onClose(); }
+                    else if (share.shareType === 'album' && share.projectId) { onOpenProject(share.projectId); onClose(); }
+                    else openDetail(share);
+                  }}>查看</button> : null}
             </div>;
           })}
           {detail && <div className="workspace-share-detail">
@@ -352,8 +400,8 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
               {detail.sharedByName ? ` · ${detail.sharedByName} 分享` : ''}
               {detail.createdAt ? ` · ${shortDate(detail.createdAt)}` : ''}
             </div>
-            {detail.mode === 'collaborate' && detail.projectId &&
-              <button type="button" onClick={() => { onOpenProject(detail.projectId); onClose(); }}>打开相册编辑</button>}
+            {detail.mode !== 'copy' && detail.projectId &&
+              <button type="button" onClick={() => { onOpenProject(detail.projectId); onClose(); }}>打开相册</button>}
             <div className="workspace-photo-grid">
               {(detail.photos || []).map((photo) => <a key={photo.id} href={photo.url} target="_blank" rel="noreferrer"
                 title={photo.title || '打开原片'}>
@@ -369,7 +417,7 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
 
         {tab === 'sent' && <div className="workspace-section">
           {!visibleSent.length ? <div className="workspace-empty">还没有发出的部门分享</div> : visibleSent.map((share) =>
-            <div className="workspace-row" key={share.id}>
+            <div className="workspace-row" key={`${share.shareType}-${share.id}`}>
               <div className="workspace-row-main">
                 <strong>{share.albumName || '照片集合'}</strong>
                 <span className="workspace-row-meta">
@@ -379,10 +427,11 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
                 </span>
               </div>
               {!share.revokedAt && <button type="button" disabled={busy} onClick={() => revoke(share)}>撤销</button>}
+              {!share.revokedAt && share.mode === 'copy' && share.copyStatus === 'failed' && <button type="button" disabled={busy} onClick={() => retryCopy(share)}>重试</button>}
             </div>)}
         </div>}
 
-        {tab === 'create' && canShare && (albumShareProjectId ? <div className="workspace-album-form">
+        {tab === 'create' && canShare && (itemShare ? <div className="workspace-album-form">
           <div className="workspace-album-fields">
             <GlassSelect label="接收部门" value={targetUnitId} placeholder="选择部门"
               options={(workspaceInfo?.shareTargets || [])
@@ -398,11 +447,12 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
           </div>
           <div className="workspace-album-mode">
             <span className="mamage-field-label">分享方式</span>
-            <SegmentedControl label="分享方式" options={MODES} value={mode} onChange={(next) => {
+            <SegmentedControl label="分享方式" options={modes} value={mode} onChange={(next) => {
               setMode(next);
               if (next === 'collaborate' && expiry === 'permanent') setExpiry('30');
             }} />
-            <p className="workspace-mode-help" key={mode}>{MODES.find((option) => option.value === mode)?.detail}</p>
+            <p className="workspace-mode-help" key={mode}>{MODES.find((option) => option.value === mode)?.detail.replace('源相册', folderShareFolderId ? '源文件夹' : '源相册')}</p>
+            {folderShareFolderId && <p className="workspace-mode-help">{mode === 'copy' ? '复制当前文件夹层级和本组非私密相册，之后独立保存。' : '包含本组文件夹及子文件夹中的非私密相册；新增、移入、移出实时同步。文件夹结构由来源部门维护。'}</p>}
           </div>
           <div className="workspace-album-actions">
             <GlassSelect label="有效期" value={expiry} upward
@@ -459,7 +509,7 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
         </div>)}
 
         {tab === 'public' && canShare && <div className="workspace-section">
-          {albumShareProjectId ? <div className="workspace-album-public-form">
+          {itemShare ? <div className="workspace-album-public-form">
             <div className="workspace-album-fields">
               <GlassSelect label="新增照片" value={publicSync} disabled={!canManage}
                 options={[
@@ -508,7 +558,7 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
             <button type="button" disabled={busy} onClick={async () => {
               if (!window.confirm('撤销这个公开链接吗？')) return;
               setBusy(true);
-              try { await revokePublicShare(share.code); await refreshLists(); Toast.success('链接已撤销'); }
+              try { await (share.folderShareId ? revokeFolderShare(share.folderShareId) : revokePublicShare(share.code)); await refreshLists(); Toast.success('链接已撤销'); }
               catch (err) { Toast.error(err.message || '撤销失败'); }
               finally { setBusy(false); }
             }}>撤销</button>
@@ -545,19 +595,27 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
               {candidates.map((person) => <option key={person.id} value={person.id}>{person.name} · {person.email}</option>)}
             </WorkspaceSelect>
             <WorkspaceSelect value={candidateRole} onChange={(event) => setCandidateRole(event.target.value)} aria-label="部门角色">
-              <option value="member">成员</option><option value="editor">编辑</option>
-              {workspaceInfo?.collegeAdmin && <option value="manager">负责人</option>}
+              <option value="viewer">访客</option><option value="editor">协作者</option>
+              {workspaceInfo?.collegeAdmin && <option value="manager">小组管理员</option>}
             </WorkspaceSelect>
             <button type="button" disabled={busy || !candidateId} onClick={addMember}>添加</button>
             {workspaceInfo?.collegeAdmin && candidateId && <button type="button" disabled={busy}
-              onClick={() => changeFaceGrant(candidateId, true)}>授权人脸检索</button>}
+              onClick={() => changeFaceGrant(candidateId, true,
+                faceGrants.some(grant => Number(grant.userId) === Number(candidateId) && Boolean(grant.canManage)))}>授权人物检索</button>}
           </div>
           {members.map((member) => <div className="workspace-row" key={member.id}>
-            <div className="workspace-row-main"><strong>{member.name}</strong><span>{member.email} · {member.role}</span></div>
-            {workspaceInfo?.collegeAdmin && <button type="button" disabled={busy}
-              onClick={() => changeFaceGrant(member.id, !faceGrants.some((grant) => Number(grant.userId) === Number(member.id)))}>
-              {faceGrants.some((grant) => Number(grant.userId) === Number(member.id)) ? '取消人脸授权' : '授权人脸检索'}
-            </button>}
+            <div className="workspace-row-main"><strong>{member.name}</strong><span>{member.email} · {memberRoleLabel(member.role)}</span></div>
+            {workspaceInfo?.collegeAdmin && <div className="workspace-face-permissions">
+              <label><input type="checkbox" disabled={busy}
+                aria-label={`人物检索 ${member.name}`}
+                checked={faceGrants.some(grant => Number(grant.userId) === Number(member.id))}
+                onChange={event => changeFaceGrant(member.id, event.target.checked, false)} />人物检索</label>
+              <label><input type="checkbox"
+                aria-label={`人物档案维护 ${member.name}`}
+                disabled={busy || !faceGrants.some(grant => Number(grant.userId) === Number(member.id))}
+                checked={faceGrants.some(grant => Number(grant.userId) === Number(member.id) && Boolean(grant.canManage))}
+                onChange={event => changeFaceGrant(member.id, true, event.target.checked)} />人物档案维护</label>
+            </div>}
             <button type="button" disabled={busy || (member.role === 'manager' && !workspaceInfo?.collegeAdmin)}
               onClick={async () => {
                 if (!window.confirm(`移除 ${member.name} 吗？`)) return;

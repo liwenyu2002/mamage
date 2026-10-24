@@ -7,6 +7,7 @@ const running = new Set();
 let started = false;
 let pumping = false;
 let ticker;
+let stopping = false;
 
 // job.user_id 不带组织信息；配额记账按组织维度，这里按需查一次 users 表。
 // 查不到（用户已删除/无 organization_id 列）时按 null 处理，recordTokens 会归到 org_id=0。
@@ -63,6 +64,10 @@ async function processJob(jobId, heldLock = null) {
     let result;
     try {
       result = await generateFromPrompt({ prompt: job.prompt_text, options });
+      if (options.purpose === 'paragraph-rewrite') {
+        result.markdown = require('./news_paragraphs').validateParagraphRewrite(result.markdown, options.rewrite || {});
+        result.title = ''; result.subtitle = ''; result.placeholders = [];
+      }
     } finally {
       release();
     }
@@ -107,12 +112,13 @@ async function processJob(jobId, heldLock = null) {
 }
 
 async function pump() {
-  if (pumping) return;
+  if (pumping || stopping) return;
   pumping = true;
   try {
     const limit = Math.max(1, Math.min(8, Number(process.env.AI_TEXT_CONCURRENCY) || 2));
     const [jobs] = await pool.query("SELECT id FROM ai_jobs WHERE status IN ('pending', 'running') ORDER BY id LIMIT 100");
     for (const job of jobs) {
+      if (stopping) break;
       if (running.size >= limit) break;
       if (running.has(job.id)) continue;
       const lock = await acquireJobLock(pool, `ai-news:${job.id}`);
@@ -125,11 +131,13 @@ async function pump() {
 }
 
 function wake() {
+  if (require('./distributed_runtime').distributed() && !require('./distributed_runtime').coordinator.isLeader()) return;
   setImmediate(() => pump().catch(error => console.error('[ai_job_worker] recovery failed', error.message)));
 }
 
 function start() {
-  if (started) return;
+  if (require('./distributed_runtime').distributed() && !require('./distributed_runtime').coordinator.isLeader()) return;
+  if (started || stopping) return;
   started = true;
   ticker = setInterval(wake, 5000);
   ticker.unref?.();
@@ -148,4 +156,10 @@ async function runJobNow(jobId) {
 
 // getOrgIdForUser 同时供 routes/ai_news.js 复用（GET /batches/:batchId 按 batch 创建者的组织取企业预设做禁用词校验），
 // 避免在两个文件里各写一份同样的 users 表查询。
-module.exports = { enqueueJob, runJobNow, processJob, getOrgIdForUser, start, pump };
+async function stop() {
+  stopping = true;
+  clearInterval(ticker);
+  await require('./runtime_lifecycle').waitForIdle(() => !pumping && running.size === 0);
+}
+
+module.exports = { enqueueJob, runJobNow, processJob, getOrgIdForUser, start, pump, stop };

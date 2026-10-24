@@ -1,0 +1,109 @@
+# Required: use a release commit tag or immutable digest, never latest.
+images:
+  api:
+    repository: mamage-api
+    tag: ""
+    digest: ""
+    pullPolicy: IfNotPresent
+  web:
+    repository: mamage-web
+    tag: ""
+    digest: ""
+    pullPolicy: IfNotPresent
+imagePullSecrets: []
+publicURL: ""
+existingSecret: mamage-runtime
+objectStorage:
+  endpoint: ""
+  region: us-east-1
+  forcePathStyle: true
+modelServices:
+  # Required for local-service face providers; leave empty for zgcai/hub.
+  faceURL: ""
+  # Override when a model outside the cluster cannot resolve Service DNS.
+  mediaCallbackURL: ""
+  # Optional Ollama service. Provider/model selection belongs in config below.
+  visionURL: ""
+api:
+  replicaCount: 1
+  strategy: Recreate
+  autoscaling: false
+  minReplicas: 2
+  maxReplicas: 4
+  targetCPUUtilizationPercentage: 70
+  terminationGracePeriodSeconds: 70
+  shutdownTimeoutSeconds: 55
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+      ephemeral-storage: 1Gi
+    limits:
+      cpu: "4"
+      memory: 4Gi
+      ephemeral-storage: 4Gi
+web:
+  replicaCount: 1
+  strategy: Recreate
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+      ephemeral-storage: 128Mi
+    limits:
+      cpu: "1"
+      memory: 256Mi
+      ephemeral-storage: 1Gi
+  serviceType: ClusterIP
+persistence:
+  data:
+    existingClaim: ""
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    size: 256Gi
+  webAssets:
+    existingClaim: ""
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    size: 2Gi
+backup:
+  enabled: false
+  schedule: "35 2 * * *"
+  timeZone: Asia/Shanghai
+  encryptionSecret: mamage-backup-key
+  prefix: backups/mamage/
+  workSize: 4Gi
+  databaseImage:
+    repository: mysql
+    tag: "8.4"
+    digest: ""
+    pullPolicy: IfNotPresent
+config:
+  OPERATIONS_MONITOR_ENABLED: "1"
+  REQUEST_LOGS: "0"
+  AI_REQUEUE_ON_BOOT: "1"
+  AI_VISION_PROVIDER: "off"
+  VIDEO_TRANSCRIPT_ENABLED: "0"
+  COS_TLS_REJECT_UNAUTHORIZED: "1"
+  LAN_DISCOVERY_ENABLED: "0"
+  DB_CONNECTION_LIMIT: "20"
+  DB_QUEUE_LIMIT: "200"
+  VIDEO_PLAYBACK_CONCURRENCY: "1"
+  VIDEO_RENDER_CONCURRENCY: "1"
+  IMAGE_SIMILARITY_CONCURRENCY: "1"
+  FACE_AUTO_WORKER_CONCURRENCY: "1"
+  RUNTIME_VISION_CONCURRENCY: "1"
+  PUBLIC_DOWNLOAD_CONCURRENCY: "1"
+  RUNTIME_MAX_ACTIVE: "6"
+  RUNTIME_POLL_INTERVAL_MS: "1000"
+  RUNTIME_MEMORY_HIGH_MB: "3072"
+  RUNTIME_HOST_RESERVE_MB: "1024"
+ingress:
+  enabled: false
+  className: ""
+  host: ""
+  tlsSecretName: ""
+  annotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

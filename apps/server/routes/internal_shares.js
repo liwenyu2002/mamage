@@ -9,47 +9,12 @@ const {
 
 const router = express.Router();
 const copyWorker = require('../lib/organization_copy_worker');
-const DAY = 24 * 60 * 60 * 1000;
+const { expirationFor, requireSourceEditor, requireTarget } = require('../lib/internal_share_policy');
 
 function sendError(res, err) {
   if (sendWorkspaceError(res, err)) return;
   console.error('[internal-shares]', err && err.stack ? err.stack : err);
   res.status(500).json({ error: 'INTERNAL_ERROR' });
-}
-
-function expirationFor(mode, body) {
-  if (mode !== 'collaborate' && body.permanent === true) return null;
-  const days = body.expiresInDays === undefined ? 30 : Number(body.expiresInDays);
-  const maxDays = mode === 'collaborate' ? 90 : 365;
-  if (!Number.isInteger(days) || days < 1 || days > maxDays) {
-    throw new WorkspaceAccessError('INVALID_EXPIRATION', 400);
-  }
-  return new Date(Date.now() + days * DAY);
-}
-
-async function requireSourceEditor(workspace, unitId, db = pool) {
-  if (!workspace.enabled || !unitId || workspace.unitId !== unitId) {
-    throw new WorkspaceAccessError('UNIT_FORBIDDEN');
-  }
-  if (workspace.collegeAdmin || ['editor', 'manager'].includes(workspace.role)) return;
-  throw new WorkspaceAccessError('UNIT_EDITOR_REQUIRED');
-}
-
-async function requireTarget(workspace, targetUnitId, targetUserId, db = pool) {
-  const [units] = await db.query(
-    'SELECT id FROM organization_units WHERE id = ? AND organization_id = ? AND archived_at IS NULL LIMIT 1',
-    [targetUnitId, workspace.orgId]
-  );
-  if (!units.length || targetUnitId === workspace.unitId) throw new WorkspaceAccessError('INVALID_TARGET_UNIT', 400);
-  if (targetUserId) {
-    const [members] = await db.query(
-      `SELECT 1 FROM organization_unit_memberships m JOIN users u ON u.id = m.user_id
-       WHERE m.unit_id = ? AND m.user_id = ? AND m.removed_at IS NULL
-         AND u.organization_id = ? LIMIT 1`,
-      [targetUnitId, targetUserId, workspace.orgId]
-    );
-    if (!members.length) throw new WorkspaceAccessError('TARGET_USER_NOT_IN_UNIT', 400);
-  }
 }
 
 router.post('/', requirePermission('photos.view'), async (req, res) => {
@@ -176,6 +141,7 @@ router.get('/received', requirePermission('photos.view'), async (req, res) => {
        LEFT JOIN users sharer ON sharer.id = s.created_by
        LEFT JOIN projects p ON p.id = s.project_id
        WHERE s.organization_id = ? AND s.target_unit_id = ?
+         AND s.folder_share_id IS NULL
          AND (s.target_user_id IS NULL OR s.target_user_id = ?)
          AND s.revoked_at IS NULL AND (s.expires_at IS NULL OR s.expires_at > NOW())
        ORDER BY s.created_at DESC LIMIT 200`,
@@ -201,6 +167,7 @@ router.get('/sent', requirePermission('photos.view'), async (req, res) => {
        LEFT JOIN users recipient ON recipient.id = s.target_user_id
        LEFT JOIN projects p ON p.id = s.project_id
        WHERE s.organization_id = ? AND s.source_unit_id = ?
+         AND s.folder_share_id IS NULL
        ORDER BY s.created_at DESC LIMIT 200`,
       [workspace.orgId, workspace.unitId]
     );
@@ -378,9 +345,10 @@ router.post('/:id/revoke', requirePermission('photos.view'), async (req, res) =>
     const workspace = await resolveWorkspace(req, conn);
     const id = positiveId(req.params.id);
     if (!id) throw new WorkspaceAccessError('INVALID_SHARE', 400);
-    const [rows] = await conn.query('SELECT source_unit_id FROM internal_shares WHERE id = ? AND organization_id = ? LIMIT 1',
+    const [rows] = await conn.query('SELECT source_unit_id, folder_share_id FROM internal_shares WHERE id = ? AND organization_id = ? LIMIT 1',
       [id, workspace.orgId]);
     if (!rows.length) throw new WorkspaceAccessError('SHARE_NOT_FOUND', 404);
+    if (rows[0].folder_share_id) throw new WorkspaceAccessError('REVOKE_FOLDER_SHARE_REQUIRED', 409);
     await requireSourceEditor(workspace, Number(rows[0].source_unit_id), conn);
     await conn.beginTransaction();
     await conn.query('UPDATE internal_shares SET revoked_at = NOW() WHERE id = ? AND revoked_at IS NULL', [id]);

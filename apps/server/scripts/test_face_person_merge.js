@@ -18,6 +18,7 @@ function person(id) {
 
 async function query(sql, params = []) {
   const statement = String(sql).replace(/\s+/g, ' ').trim();
+  if (statement.includes('FROM face_search_grants')) return [[{college_wide:1,can_manage:Number(params[1])===42?0:1}]];
   if (statement.startsWith('SELECT * FROM photo_faces')) return [[
     { id: 100, photo_id: 1, organization_id: 1, person_id: 10, normalized_embedding: [1, 0] },
     { id: 200, photo_id: 2, organization_id: 1, person_id: 20, normalized_embedding: [0.9, 0.1] },

@@ -5,7 +5,7 @@ import './Scenery.css';
 import { getToken } from './services/authService';
 import { Button, ButtonGroup } from './ui';
 
-export default function Scenery() {
+export default function Scenery({ currentUser = null }) {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState(null);
   const [project, setProject] = React.useState(null);
@@ -61,6 +61,7 @@ export default function Scenery() {
         <ProjectDetail
           projectId={project.id}
           initialProject={project}
+          currentUser={currentUser}
           onBack={() => { /* no-op for scenery */ }}
           galleryMode={galleryMode}
           onGalleryModeChange={setGalleryMode}

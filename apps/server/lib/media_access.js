@@ -94,13 +94,19 @@ async function authorizeMediaKey(key, token, db = pool) {
     if (matchingField === 'url') return false;
     if (photo.type === 'video' && matchingField === 'public_download_url') return false;
     const [shares] = await db.query(
-      `SELECT id, share_type, project_id, sync_mode FROM share_links
+      `SELECT id, share_type, project_id, sync_mode, folder_share_id, organization_id, unit_id FROM share_links
        WHERE id = ? AND organization_id = ? AND unit_id <=> ?
          AND revoked_at IS NULL AND expires_at > NOW() LIMIT 1`,
       [payload.sh, photo.organization_id, photo.unit_id]
     );
     const share = shares[0];
     if (!share) return false;
+    if (share.folder_share_id) {
+      const scope = require('./folder_shares').publicFolderPhotoScope(share);
+      const [memberships] = await db.query(`SELECT 1 FROM photos p WHERE p.id = ? AND ${scope.sql} LIMIT 1`, [photo.id, ...scope.params]);
+      if (!memberships.length) return false;
+      if (share.sync_mode === 'automatic') return true;
+    }
     if (share.share_type === 'project' && Number(share.project_id) !== Number(photo.project_id)) return false;
     if (share.share_type === 'project' && share.sync_mode === 'automatic') return true;
     const [items] = await db.query(

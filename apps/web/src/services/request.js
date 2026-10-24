@@ -14,6 +14,25 @@ const BASE_URL = typeof window !== 'undefined' && window.__MAMAGE_API_BASE__
 // Do NOT automatically fall back to DEFAULT_BASE_URL for relative asset paths —
 // when BASE_URL is empty (local dev with proxy), we should keep relative paths.
 const ABSOLUTE_API_BASE = BASE_URL || '';
+const GATEWAY_STATUSES = new Set([502, 503, 504]);
+
+function waitForGatewayRetry(signal) {
+  return new Promise((resolve, reject) => {
+    const abort = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
+      const error = new Error('Request cancelled');
+      error.name = 'AbortError';
+      reject(error);
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', abort);
+      resolve();
+    }, 600);
+    signal?.addEventListener('abort', abort, { once: true });
+    if (signal?.aborted) abort();
+  });
+}
 
 async function request(path, options = {}) {
   const method = (options.method || 'GET').toUpperCase();
@@ -107,6 +126,13 @@ async function request(path, options = {}) {
   let res;
   try {
     res = await fetch(url, fetchOpts);
+    // Only explicitly opted-in status reads can be replayed, never writes or streams.
+    if (options.retryGateway === true && method === 'GET' && !options.readResponse
+      && GATEWAY_STATUSES.has(res.status)) {
+      await res.body?.cancel();
+      await waitForGatewayRetry(fetchOpts.signal);
+      res = await fetch(url, fetchOpts);
+    }
   } catch (err) {
     if (err && err.name === 'AbortError') {
       const timeoutErr = new Error('请求超时，请稍后重试');
@@ -123,17 +149,25 @@ async function request(path, options = {}) {
     let detail = '';
     try {
       const parsed = text ? JSON.parse(text) : null;
-      detail = parsed && (parsed.message || parsed.error) ? String(parsed.message || parsed.error) : '';
+      const message = parsed && (parsed.message || parsed.error);
+      if (typeof message === 'string' && !/<[^>]*>|<!doctype/i.test(message)) detail = message.trim().slice(0, 300);
     } catch (e) {
-      detail = String(text || '').trim().slice(0, 300);
+      // Proxy HTML and infrastructure diagnostics belong in the body, not the UI.
     }
-    const err = new Error(detail || `Request failed ${res.status} ${res.statusText}`);
+    const fallback = GATEWAY_STATUSES.has(res.status) ? '服务暂时不可用，请稍后重试'
+      : res.status === 401 ? '登录已过期，请重新登录'
+        : res.status === 403 ? '没有操作权限'
+          : res.status === 404 ? '请求的内容不存在'
+            : res.status === 429 ? '请求过于频繁，请稍后重试'
+              : `请求失败（${res.status}），请稍后重试`;
+    const err = new Error(detail || fallback);
     err.status = res.status;
     err.body = text;
     throw err;
   }
 
   const ct = res.headers.get('content-type') || '';
+  if (typeof options.readResponse === 'function') return options.readResponse(res);
   if (ct.includes('application/json')) return rewriteMediaUrlsDeep(await res.json());
   return res.text();
 }

@@ -1,0 +1,18 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+const babel = require('@babel/core');
+const file = path.resolve(__dirname, '../src/services/networkService.js');
+const source = fs.readFileSync(file, 'utf8');
+const code = babel.transformSync(source, { filename: file, presets: [['@babel/preset-env', { targets: { node: 'current' } }]] }).code;
+const moduleExports = {};
+const window = { location: { origin: 'http://10.1.131.37' } };
+vm.runInNewContext(code, { exports: moduleExports, window });
+assert.equal(moduleExports.publicEntryUrl(), 'http://10.1.131.37');
+window.location.origin = 'http://127.0.0.1:5188';
+assert.equal(moduleExports.publicEntryUrl(), 'http://127.0.0.1:5188');
+assert.doesNotMatch(source, /mamage\.wenyuli\.site|mamage_token|3443|fetch\(/);
+const app = fs.readFileSync(path.resolve(__dirname, '../src/App.jsx'), 'utf8');
+assert.doesNotMatch(app, /handleSwitchNetworkEntry|checkLanEntryOffer|publicStayUrl|mamage_token/);
+console.log('PASS: intranet share links use current origin, with no public fallback or cross-origin token handoff');

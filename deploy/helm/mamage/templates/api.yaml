@@ -1,0 +1,144 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "mamage.name" . }}-api
+  labels:
+    {{- include "mamage.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.api.autoscaling }}
+  replicas: {{ .Values.api.replicaCount }}
+  {{- end }}
+  strategy:
+    type: {{ .Values.api.strategy }}
+    {{- if eq .Values.api.strategy "RollingUpdate" }}
+    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
+    {{- end }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name | quote }}
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mamage
+        app.kubernetes.io/instance: {{ .Release.Name | quote }}
+        app.kubernetes.io/component: api
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ .Values.api.terminationGracePeriodSeconds }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{ toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: api
+          image: {{ include "mamage.image" .Values.images.api | quote }}
+          imagePullPolicy: {{ .Values.images.api.pullPolicy }}
+          lifecycle:
+            preStop:
+              exec:
+                command: [node, -e, "setTimeout(() => {}, 5000)"]
+          ports: [{ name: http, containerPort: 8080 }]
+          envFrom:
+            - configMapRef: { name: {{ include "mamage.name" . }}-config }
+            - secretRef: { name: {{ .Values.existingSecret | quote }} }
+          env:
+            - { name: NODE_ENV, value: production }
+            - { name: MAMAGE_CONTAINER, value: "1" }
+            - { name: MAMAGE_DISTRIBUTED_RUNTIME, value: "1" }
+            - { name: HOME, value: /tmp }
+            - { name: TMPDIR, value: /tmp }
+            - { name: XDG_CACHE_HOME, value: /tmp/.cache }
+            - { name: PLAYWRIGHT_BROWSERS_PATH, value: /opt/playwright }
+            - { name: PORT, value: "8080" }
+            - { name: MAMAGE_PUBLIC_URL, value: {{ .Values.publicURL | quote }} }
+            - { name: ORGANIZATION_UNITS_ACTIVE, value: "1" }
+            - { name: MEDIA_URL_SIGNING, value: "1" }
+            - { name: AI_VALIDATE_ON_STARTUP, value: "0" }
+            - { name: FFMPEG_PATH, value: /usr/bin/ffmpeg }
+            - { name: FFPROBE_PATH, value: /usr/bin/ffprobe }
+            - { name: UPLOAD_ABS_DIR, value: /data/uploads }
+            - { name: VIDEO_WORK_DIR, value: /data/video-work }
+            - { name: UPLOAD_VIDEO_TMP_DIR, value: /data/video-uploads }
+            - { name: SHUTDOWN_TIMEOUT_MS, value: {{ mul .Values.api.shutdownTimeoutSeconds 1000 | quote }} }
+            - { name: UPLOAD_BASE_URL, value: {{ printf "%s/api/image" (trimSuffix "/" .Values.publicURL) | quote }} }
+            - { name: INTERNAL_UPLOAD_BASE_URL, value: {{ default (printf "http://%s-api:8080/api/image" (include "mamage.name" .)) .Values.modelServices.mediaCallbackURL | quote }} }
+            - { name: COS_BASE_URL, value: {{ .Values.objectStorage.endpoint | quote }} }
+            - { name: COS_REGION, value: {{ .Values.objectStorage.region | quote }} }
+            - { name: COS_FORCE_PATH_STYLE, value: {{ ternary "1" "0" .Values.objectStorage.forcePathStyle | quote }} }
+            {{- if not (has (default "local" .Values.config.FACE_INFERENCE_PROVIDER) (list "zgcai" "hub")) }}
+            - { name: FACE_DETECTOR_SERVICE_URL, value: {{ .Values.modelServices.faceURL | quote }} }
+            - { name: FACE_DETECTOR_USE_SERVICE, value: "1" }
+            - { name: FACE_DETECTOR_SERVICE_REQUIRED, value: "1" }
+            {{- else }}
+            - { name: FACE_DETECTOR_USE_SERVICE, value: "0" }
+            - { name: FACE_DETECTOR_SERVICE_REQUIRED, value: "0" }
+            {{- end }}
+            {{- if .Values.modelServices.visionURL }}
+            - { name: OLLAMA_BASE_URL, value: {{ .Values.modelServices.visionURL | quote }} }
+            {{- end }}
+            - { name: PYTHON_PATH, value: /opt/python/bin/python }
+            - { name: IMAGE_SIMILARITY_PYTHON_PATH, value: /opt/python/bin/python }
+            - { name: TORCH_HOME, value: /opt/mamage-models }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+            seccompProfile: { type: RuntimeDefault }
+          startupProbe:
+            httpGet: { path: /api/health/live, port: http }
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: { path: /api/health/ready, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 4
+            failureThreshold: 2
+          livenessProbe:
+            httpGet: { path: /api/health/live, port: http }
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources: {{ toYaml .Values.api.resources | nindent 12 }}
+          volumeMounts:
+            - { name: data, mountPath: /data }
+            - { name: tmp, mountPath: /tmp }
+            - { name: shm, mountPath: /dev/shm }
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ default (printf "%s-data" (include "mamage.name" .)) .Values.persistence.data.existingClaim | quote }}
+        - name: tmp
+          emptyDir: { sizeLimit: 1Gi }
+        - name: shm
+          emptyDir: { medium: Memory, sizeLimit: 256Mi }
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{ toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{ toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity: {{ toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "mamage.name" . }}-api
+  labels:
+    {{- include "mamage.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name | quote }}
+    app.kubernetes.io/component: api
+  ports: [{ name: http, port: 8080, targetPort: http }]

@@ -6,6 +6,7 @@ import {
   IconFaceScan, IconGridView, IconMasonryView,
 } from './ui/icons';
 import './ShareView.css';
+import { FolderShareBrowser } from './SharedFolderView';
 
 function formatDate(v) {
   const date = new Date(v);
@@ -56,7 +57,56 @@ function getSharePhotoSectionLabel(photo, sections) {
   return found ? found.name : '';
 }
 
-export default function ShareView({ share = {}, onBack }) {
+export default function ShareView(props) {
+  return props.share?.folder ? <PublicFolderView {...props} /> : <AlbumShareView {...props} />;
+}
+
+function PublicFolderView({ share, onBack }) {
+  const [data, setData] = React.useState(share), [album, setAlbum] = React.useState(null);
+  const [loading, setLoading] = React.useState(false), [error, setError] = React.useState('');
+  const sequence = React.useRef(0);
+  const code = share.shareCode || share.code;
+  React.useEffect(() => () => { sequence.current += 1; }, []);
+  React.useEffect(() => {
+    if (album) return undefined;
+    let active = true;
+    const refresh = async () => {
+      if (document.hidden) return;
+      const current = ++sequence.current;
+      try {
+        const response = await fetch(`/api/share/${encodeURIComponent(code)}?limit=100`, { cache: 'no-store' });
+        const next = rewriteMediaUrlsDeep(await response.json());
+        if (!active || current !== sequence.current) return;
+        if (!response.ok || !next.folder) { setError('分享已失效，或文件夹已移除'); return; }
+        setData(next);
+      } catch { /* Keep the last successful view during a transient network outage. */ }
+    };
+    const timer = setInterval(refresh, 30000);
+    document.addEventListener('visibilitychange', refresh);
+    return () => { active = false; clearInterval(timer); document.removeEventListener('visibilitychange', refresh); };
+  }, [album, code]);
+  const load = async projectId => {
+    const current = ++sequence.current;
+    setLoading(true); setError('');
+    try {
+      const response = await fetch(`/api/share/${encodeURIComponent(code)}?limit=100${projectId ? `&projectId=${encodeURIComponent(projectId)}` : ''}`);
+      const next = rewriteMediaUrlsDeep(await response.json());
+      if (current !== sequence.current) return;
+      if (!response.ok) throw new Error(response.status === 410 || response.status === 404 ? '分享已失效，或相册已移出文件夹' : '暂时无法加载，请重试');
+      if (projectId) setAlbum({ ...next, shareCode: code });
+      else { setData(next); setAlbum(null); }
+    } catch (err) { if (current === sequence.current) { setAlbum(null); setError(err.message); } }
+    finally { if (current === sequence.current) setLoading(false); }
+  };
+  if (loading) return <main className="share-page"><div className="desktop-load-state" role="status">正在加载…</div></main>;
+  if (error) return <main className="share-page"><div className="desktop-load-state" role="alert"><p>{error}</p><button onClick={() => load(null)}>重新加载文件夹</button></div></main>;
+  if (album) return <AlbumShareView key={album.projectId} share={album} onBack={() => load(null)} />;
+  return <main className="share-page"><div className="share-page-inner"><nav className="share-nav"><span className="share-brand">MaMage <span>公开分享</span></span></nav>
+    <FolderShareBrowser data={data.folder} onOpen={item => load(item.id)} onBack={onBack || (() => { window.location.href = '/'; })} />
+  </div></main>;
+}
+
+function AlbumShareView({ share = {}, onBack }) {
   const [viewMode, setViewMode] = React.useState('grid');
   const shareCode = share.shareCode || share.code || '';
   const [photos, setPhotos] = React.useState(() => (
@@ -100,7 +150,7 @@ export default function ShareView({ share = {}, onBack }) {
     setMoreLoading(true);
     setMoreError('');
     try {
-      const response = await fetch(`/api/share/${encodeURIComponent(shareCode)}?limit=${pageSize}&offset=${photos.length}`);
+      const response = await fetch(`/api/share/${encodeURIComponent(shareCode)}?limit=${pageSize}&offset=${photos.length}${share.projectId ? `&projectId=${encodeURIComponent(share.projectId)}` : ''}`);
       if (!response.ok) throw new Error('加载失败，请重试');
       const data = rewriteMediaUrlsDeep(await response.json());
       const next = Array.isArray(data.photos) ? data.photos : [];

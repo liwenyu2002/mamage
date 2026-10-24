@@ -19,5 +19,11 @@ jobs:
             apps/server/package-lock.json
             apps/web/package-lock.json
       - run: npm run setup
+      - run: npx playwright install --with-deps chromium
+        working-directory: apps/server
       - run: npm test
       - run: npm run build
+      - run: node scripts/install-helm.cjs
+      - run: npm run test:k8s
+        env:
+          HELM_BIN: ${{ github.workspace }}/.local/tools/linux-amd64/helm

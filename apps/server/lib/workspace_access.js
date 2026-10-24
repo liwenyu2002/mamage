@@ -1,4 +1,5 @@
 const { pool } = require('../db');
+const { unitRoleAllows, workspacePolicy } = require('./access_policy');
 
 class WorkspaceAccessError extends Error {
   constructor(code, status = 403) {
@@ -13,11 +14,20 @@ function positiveId(value) {
   return Number.isSafeInteger(id) && id > 0 ? id : null;
 }
 
-function unitRoleAllows(role, action) {
-  if (action === 'read' || action === 'upload') return ['member', 'editor', 'manager'].includes(role);
-  if (action === 'edit' || action === 'create' || action === 'delete') return ['editor', 'manager'].includes(role);
-  if (action === 'manage' || action === 'share-auto') return role === 'manager';
-  return false;
+function photoDeleteScope(workspace) {
+  return workspacePolicy(workspace).deleteScope;
+}
+
+function metadataEditScope(workspace) {
+  return workspacePolicy(workspace).metadataScope;
+}
+
+function assertPhotoDeleteOwnership(workspace, photos) {
+  const scope = photoDeleteScope(workspace);
+  if (scope === 'none' || (scope === 'own'
+    && photos.some(photo => positiveId(photo.photographer_id) !== workspace.userId))) {
+    throw new WorkspaceAccessError('PHOTO_DELETE_FORBIDDEN');
+  }
 }
 
 async function resolveWorkspace(req, db = pool) {
@@ -114,6 +124,13 @@ async function hasInternalShare(workspace, resource, action = 'read', db = pool)
 
 async function canAccessProject(workspace, project, action = 'read', db = pool) {
   if (!project || positiveId(project.organization_id) !== workspace.orgId) return false;
+  if (action === 'metadata') {
+    const scope = metadataEditScope(workspace);
+    if (scope === 'none' || !await canAccessProject(workspace, project, 'read', db)) return false;
+    if (scope === 'organization' || (scope === 'unit' && positiveId(project.unit_id) === workspace.unitId)
+      || (scope === 'own' && positiveId(project.admin_id) === workspace.userId)) return true;
+    return hasInternalShare(workspace, project, 'edit', db);
+  }
   if (!workspace.enabled) return !positiveId(project.unit_id);
   if (positiveId(project.restricted_to_user_id) && !workspace.collegeAdmin
     && positiveId(project.restricted_to_user_id) !== workspace.userId) return false;
@@ -127,7 +144,7 @@ async function canAccessProject(workspace, project, action = 'read', db = pool) 
 async function requireProjectAccess(req, projectId, action = 'read', db = pool) {
   const workspace = await resolveWorkspace(req, db);
   const [rows] = await db.query(
-    'SELECT id, organization_id, unit_id, restricted_to_user_id FROM projects WHERE id = ? LIMIT 1', [projectId]
+    'SELECT id, organization_id, unit_id, restricted_to_user_id, admin_id FROM projects WHERE id = ? LIMIT 1', [projectId]
   );
   if (!rows.length || !await canAccessProject(workspace, rows[0], action, db)) {
     throw new WorkspaceAccessError('PROJECT_NOT_FOUND', 404);
@@ -136,6 +153,10 @@ async function requireProjectAccess(req, projectId, action = 'read', db = pool) 
 }
 
 async function requirePhotoAccess(req, photoId, action = 'read', db = pool) {
+  if (action === 'delete' || action === 'metadata') {
+    const [photo] = await requirePhotosAccess(req, [photoId], action, db);
+    return { ...photo, photo_id: photo.id };
+  }
   const workspace = await resolveWorkspace(req, db);
   const [rows] = await db.query(
     `SELECT ph.id AS photo_id, ph.project_id, ph.organization_id,
@@ -169,7 +190,7 @@ async function requirePhotosAccess(req, photoIds, action = 'read', db = pool) {
   if (!ids.length || ids.length > 2000) throw new WorkspaceAccessError('INVALID_PHOTO_IDS', 400);
   const workspace = await resolveWorkspace(req, db);
   const [rows] = await db.query(
-    `SELECT ph.id, ph.project_id, ph.organization_id,
+    `SELECT ph.id, ph.project_id, ph.organization_id, ph.photographer_id,
             COALESCE(p.unit_id, ph.unit_id) AS unit_id,
             p.restricted_to_user_id
      FROM photos ph LEFT JOIN projects p ON p.id = ph.project_id
@@ -178,8 +199,16 @@ async function requirePhotosAccess(req, photoIds, action = 'read', db = pool) {
   if (rows.length !== ids.length || rows.some((row) => positiveId(row.organization_id) !== workspace.orgId)) {
     throw new WorkspaceAccessError('PHOTO_NOT_FOUND', 404);
   }
+  if (action === 'metadata' && metadataEditScope(workspace) === 'none') throw new WorkspaceAccessError('PHOTO_EDIT_FORBIDDEN');
   if (!workspace.enabled) {
     if (rows.some(row => positiveId(row.unit_id))) throw new WorkspaceAccessError('PHOTO_NOT_FOUND', 404);
+    if (action === 'delete') assertPhotoDeleteOwnership(workspace, rows);
+    if (action === 'metadata') {
+      const scope = metadataEditScope(workspace);
+      if (scope === 'none' || (scope === 'own' && rows.some(row => positiveId(row.photographer_id) !== workspace.userId))) {
+        throw new WorkspaceAccessError('PHOTO_EDIT_FORBIDDEN');
+      }
+    }
     return rows;
   }
   if (workspace.collegeAdmin) return rows;
@@ -190,11 +219,18 @@ async function requirePhotosAccess(req, photoIds, action = 'read', db = pool) {
   const unowned = rows.filter((row) => {
     const unitId = positiveId(row.unit_id);
     if (!unitId) return action !== 'read';
-    return unitId !== workspace.unitId || !unitRoleAllows(workspace.role, action);
+    const allowed = action === 'delete' ? photoDeleteScope(workspace) !== 'none'
+      : action === 'metadata' ? metadataEditScope(workspace) !== 'none' : unitRoleAllows(workspace.role, action);
+    if (action === 'metadata' && metadataEditScope(workspace) === 'own'
+      && positiveId(row.photographer_id) !== workspace.userId) return true;
+    return unitId !== workspace.unitId || !allowed;
   });
-  if (!unowned.length) return rows;
+  if (!unowned.length) {
+    if (action === 'delete') assertPhotoDeleteOwnership(workspace, rows);
+    return rows;
+  }
   const allowedModes = action === 'read' ? ['read', 'collaborate']
-    : action === 'edit' || action === 'upload' ? ['collaborate'] : [];
+    : ['edit', 'upload', 'metadata'].includes(action) ? ['collaborate'] : [];
   if (!allowedModes.length || !workspace.unitId) throw new WorkspaceAccessError('PHOTO_NOT_FOUND', 404);
   const [shares] = await db.query(
     `SELECT DISTINCT ph.id
@@ -237,6 +273,9 @@ module.exports = {
   WorkspaceAccessError,
   positiveId,
   unitRoleAllows,
+  photoDeleteScope,
+  metadataEditScope,
+  hasInternalShare,
   resolveWorkspace,
   projectListScope,
   canAccessProject,

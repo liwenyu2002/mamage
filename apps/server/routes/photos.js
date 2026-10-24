@@ -1,4 +1,5 @@
 const express = require('express');
+const { attachVideoProcessingState } = require('../lib/video_processing_state');
 const router = express.Router();
 const { pool, buildUploadUrl, buildInternalMediaUrl } = require('../db');
 const fs = require('fs');
@@ -37,16 +38,19 @@ const skipLocalFileCheck = (() => {
 // 如果挂在 /api/photos 下：GET /api/photos?projectId=1&limit=4&random=1&type=normal(可选)
 const { requirePermission, requireAdmin, hasPermissionForUserId } = require('../lib/permissions');
 const { searchPhotos: runPhotoSearch } = require('../lib/photo_search');
+const { recordSearchTelemetry } = require('../lib/search_telemetry');
+const { createPhotoSearchStream } = require('../lib/photo_search_stream');
+const { resolveFolderSearchScope, resolveWorkspaceSearchScope } = require('../lib/photo_search_scope');
 const {
   resolveWorkspace, requireProjectAccess, requirePhotoAccess, requirePhotosAccess, sendWorkspaceError,
-  assertNoActiveCopySource,
+  assertNoActiveCopySource, WorkspaceAccessError,
 } = require('../lib/workspace_access');
 
 router.param('id', async (req, res, next, value) => {
   try {
-    if (!/^\d+$/.test(String(value))) return next();
+    if (!/^\d+$/.test(String(value)) || !Number.isSafeInteger(Number(value)) || Number(value) <= 0) return res.status(400).json({ error: 'INVALID_PHOTO_ID' });
     await populateReqUserFromAuthIfPresent(req);
-    const action = req.method === 'PATCH' || req.method === 'DELETE' ? 'edit' : 'read';
+    const action = req.method === 'PATCH' ? 'metadata' : req.method === 'DELETE' ? 'edit' : 'read';
     await requirePhotoAccess(req, Number(value), action);
     next();
   } catch (err) {
@@ -56,6 +60,7 @@ router.param('id', async (req, res, next, value) => {
 const AI_SEARCH_RATE_WINDOW_MS = Math.max(10000, Number(process.env.AI_SEARCH_RATE_WINDOW_MS || 60000));
 const AI_SEARCH_RATE_MAX = Math.max(1, Number(process.env.AI_SEARCH_RATE_MAX || 20));
 const aiSearchRateBuckets = new Map();
+const sharedAiSearchRate = require('../lib/shared_rate_limit').createRateLimit('search');
 const MAX_DELETE_PHOTOS = Math.max(1, Number(process.env.PHOTO_DELETE_MAX_IDS || 200));
 // 与前端中转站容量(transferStore.MAX_COUNT)保持一致；不一致会出现"存得下却打不了包"(413)
 const MAX_ZIP_PHOTOS = Math.max(1, Number(process.env.PHOTO_ZIP_MAX_IDS || 1000));
@@ -66,7 +71,13 @@ const RENDER_SOURCE_TIMEOUT_MS = Math.max(1000, Number(process.env.PHOTO_RENDER_
 const RENDER_MAX_SOURCE_BYTES = Math.max(1024 * 1024, Number(process.env.PHOTO_RENDER_MAX_SOURCE_BYTES || 128 * 1024 * 1024));
 const TONE_ENGINE = 'mamage-tone-v2-acr-like';
 const ZIP_TICKET_TTL_MS = Math.max(15000, Number(process.env.PHOTO_ZIP_TICKET_TTL_MS || 2 * 60 * 1000));
-const zipDownloadTickets = new Map();
+const { createVideoDownloads, mediaFilename } = require('../lib/video_download');
+const videoDownloads = createVideoDownloads({
+  pool, storage: cosStorage, requirePhotosAccess, buildMediaUrl, maxIds: MAX_ZIP_PHOTOS,
+});
+const { createSharedStore } = require('../lib/shared_runtime_state');
+const { coordinator, distributed } = require('../lib/distributed_runtime');
+const zipDownloadTickets = createSharedStore('zip-ticket');
 const DIRECT_STORAGE_READ_ENABLED = String(process.env.DIRECT_STORAGE_READ_ENABLED || '1').trim() !== '0';
 const DIRECT_STORAGE_ALLOWED_HOSTS = new Set(String(
   process.env.DIRECT_STORAGE_ALLOWED_HOSTS || '10.100.83.67,10.100.65.147'
@@ -74,9 +85,12 @@ const DIRECT_STORAGE_ALLOWED_HOSTS = new Set(String(
 const DIRECT_ZIP_JOB_TTL_MS = Math.max(5 * 60 * 1000, Number(process.env.DIRECT_ZIP_JOB_TTL_MS || 30 * 60 * 1000));
 const DIRECT_ZIP_MAX_CONCURRENCY = Math.max(1, Number(process.env.DIRECT_ZIP_MAX_CONCURRENCY || 1));
 const DIRECT_ZIP_PREFIX = String(process.env.DIRECT_ZIP_PREFIX || 'mamage-temp-zips').replace(/^\/+|\/+$/g, '') || 'mamage-temp-zips';
-const directZipJobs = new Map();
+const directZipJobs = createSharedStore('zip-job');
 const directZipQueue = [];
 let activeDirectZipJobs = 0;
+let zipStopping = false;
+let sharedZipCleanupTimer = null;
+const zipCleanupTimers = new Set();
 
 function requestHostName(req) {
   const raw = String((req && req.get && req.get('host')) || '').trim().toLowerCase();
@@ -125,16 +139,18 @@ function sameDirectZipPhotoIds(left, right) {
   return a.length === b.length && a.every((id, index) => id === b[index]);
 }
 
-function getDirectZipQueueAhead(job) {
+async function getDirectZipQueueAhead(job) {
   if (!job || job.status !== 'queued') return 0;
+  if (distributed()) return (await directZipJobs.values()).filter(other =>
+    other.status === 'packing' || (other.status === 'queued' && other.createdAt < job.createdAt)).length;
   const index = directZipQueue.indexOf(job.id);
   // 当前正在执行的任务也会占用一个名额，因此第一个排队任务的前方至少有 active 个。
   return Math.max(0, activeDirectZipJobs) + (index >= 0 ? index : 0);
 }
 
-function findReusableDirectZipJob(userId, organizationId, photoIds) {
+async function findReusableDirectZipJob(userId, organizationId, photoIds) {
   const requestedOrg = organizationId === null || organizationId === undefined ? null : Number(organizationId);
-  for (const job of directZipJobs.values()) {
+  for (const job of await directZipJobs.values()) {
     const jobOrg = job.organizationId === null || job.organizationId === undefined ? null : Number(job.organizationId);
     if (Number(job.userId) !== Number(userId) || jobOrg !== requestedOrg) continue;
     if (!['queued', 'packing', 'ready'].includes(job.status)) continue;
@@ -143,9 +159,9 @@ function findReusableDirectZipJob(userId, organizationId, photoIds) {
   return null;
 }
 
-function getDirectZipPublicState(job) {
+async function getDirectZipPublicState(job) {
   if (!job) return null;
-  const queueAhead = getDirectZipQueueAhead(job);
+  const queueAhead = await getDirectZipQueueAhead(job);
   const result = {
     id: job.id,
     status: job.status,
@@ -163,7 +179,7 @@ function getDirectZipPublicState(job) {
 }
 
 async function getDirectZipResponse(job, req) {
-  const response = getDirectZipPublicState(job);
+  const response = await getDirectZipPublicState(job);
   if (job.status !== 'ready' || !job.objectKey) return response;
   if (req) await requirePhotosAccess(req, job.photoIds, 'read');
   const signed = await cosStorage.signedGetUrl(job.objectKey, {
@@ -173,12 +189,13 @@ async function getDirectZipResponse(job, req) {
   return { ...response, downloadUrl: signed.signedUrl, downloadExpiresIn: signed.expiresIn };
 }
 
-function cancelDirectZipJob(job) {
+async function cancelDirectZipJob(job) {
   if (!job || ['ready', 'failed', 'cancelled'].includes(job.status)) return false;
   job.cancelRequested = true;
   job.status = 'cancelled';
   job.updatedAt = Date.now();
   job.expiresAt = job.updatedAt + 2 * 60 * 1000;
+  await directZipJobs.set(job.id, job);
   const index = directZipQueue.indexOf(job.id);
   if (index >= 0) directZipQueue.splice(index, 1);
   if (job.abortController && typeof job.abortController.abort === 'function') {
@@ -189,13 +206,13 @@ function cancelDirectZipJob(job) {
   return true;
 }
 
-function cleanupDirectZipJobs() {
+async function cleanupDirectZipJobs() {
   const now = Date.now();
-  for (const [id, job] of directZipJobs) {
+  for (const [id, job] of await directZipJobs.entries()) {
     const stalePreparing = job.status !== 'ready' && job.status !== 'failed' && now - job.createdAt > (3 * 60 * 60 * 1000);
     const expired = job.expiresAt && job.expiresAt <= now;
     if (!stalePreparing && !expired) continue;
-    directZipJobs.delete(id);
+    await directZipJobs.delete(id);
     if (job.objectKey) {
       cosStorage.deleteObjects([job.objectKey]).catch((err) => {
         console.warn('[photos.zip-direct] temporary archive cleanup failed:', err && err.message ? err.message : err);
@@ -205,7 +222,12 @@ function cleanupDirectZipJobs() {
 }
 
 function scheduleDirectZipCleanup(delayMs = DIRECT_ZIP_JOB_TTL_MS + 1000) {
-  const timer = setTimeout(cleanupDirectZipJobs, Math.max(1000, delayMs));
+  if (zipStopping) return;
+  const timer = setTimeout(() => {
+    zipCleanupTimers.delete(timer);
+    void cleanupDirectZipJobs().catch(error => console.warn('[zip-cleanup]', error.message));
+  }, Math.max(1000, delayMs));
+  zipCleanupTimers.add(timer);
   // 任务只做清理，不应在正常停服时强行拖住 Node 进程。
   if (timer && typeof timer.unref === 'function') timer.unref();
 }
@@ -214,8 +236,23 @@ async function runDirectZipJob(job) {
   if (job.cancelRequested) return;
   job.status = 'packing';
   job.updatedAt = Date.now();
+  await directZipJobs.set(job.id, job);
   const abortController = new AbortController();
-  job.abortController = abortController;
+  let polling = false;
+  const checkpoint = async () => {
+    if (polling) return;
+    polling = true;
+    try {
+      await directZipJobs.mutate(job.id, current => {
+        if (!current || current.cancelRequested || current.status === 'cancelled') {
+          job.cancelRequested = true; abortController.abort(); return;
+        }
+        Object.assign(current, job);
+      });
+    } catch (error) { abortController.abort(); }
+    finally { polling = false; }
+  };
+  const checkpointTimer = setInterval(() => { void checkpoint(); }, 1000);
   const token = jwt.sign({ id: job.userId }, JWT_SECRET, { expiresIn: '20m' });
   const endpoint = `${getDirectZipLoopbackBaseUrl()}/api/photos/zip`;
   let response = null;
@@ -227,6 +264,7 @@ async function runDirectZipJob(job) {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
         'X-MaMage-Direct-Zip-Worker': '1',
+        ...(job.unitId ? { 'X-MaMage-Unit-Id': String(job.unitId) } : {}),
       },
       body: JSON.stringify({ photoIds: job.photoIds, zipName: job.zipName }),
       timeout: 0,
@@ -292,15 +330,19 @@ async function runDirectZipJob(job) {
     }
     console.error('[photos.zip-direct] job failed:', job.id, err && err.stack ? err.stack : err);
   } finally {
-    delete job.abortController;
+    clearInterval(checkpointTimer);
+    await require('../lib/runtime_lifecycle').waitForIdle(() => !polling);
+    await checkpoint();
+    if (job.cancelRequested && job.objectKey) await cosStorage.deleteObjects([job.objectKey]).catch(() => {});
   }
 }
 
-function scheduleDirectZipJobs() {
-  cleanupDirectZipJobs();
+async function scheduleDirectZipJobs() {
+  if (distributed() || zipStopping) return;
+  await cleanupDirectZipJobs();
   while (activeDirectZipJobs < DIRECT_ZIP_MAX_CONCURRENCY && directZipQueue.length) {
     const jobId = directZipQueue.shift();
-    const job = directZipJobs.get(jobId);
+    const job = await directZipJobs.get(jobId);
     if (!job || job.status !== 'queued') continue;
     activeDirectZipJobs += 1;
     runDirectZipJob(job)
@@ -314,8 +356,9 @@ function scheduleDirectZipJobs() {
   }
 }
 
-function allowAiSearchForUser(userId) {
+async function allowAiSearchForUser(userId) {
   if (!userId) return false;
+  if (distributed()) return (await sharedAiSearchRate.take(userId, AI_SEARCH_RATE_MAX, AI_SEARCH_RATE_WINDOW_MS)).allowed;
   const now = Date.now();
   const key = String(userId);
   let bucket = aiSearchRateBuckets.get(key);
@@ -788,6 +831,7 @@ router.get('/', requirePermission('photos.view'), async (req, res) => {
         p.thumb_url       AS thumbUrl,
         p.playback_url    AS playbackUrl,
         p.title,
+        p.original_filename AS originalFilename,
         p.description,
         p.adjustments,
         p.tags,
@@ -929,7 +973,7 @@ router.get('/', requirePermission('photos.view'), async (req, res) => {
       };
     });
 
-    res.json(mapped);
+    res.json(await attachVideoProcessingState(mapped, { db: pool }));
   } catch (err) {
     if (sendWorkspaceError(res, err)) return;
     console.error('GET /api/photos error:', err);
@@ -962,6 +1006,7 @@ router.get('/scenery/random', requirePermission('photos.view'), async (req, res)
         p.thumb_url       AS thumbUrl,
         p.playback_url    AS playbackUrl,
         p.title,
+        p.original_filename AS originalFilename,
         p.description,
         p.adjustments,
         p.tags,
@@ -1064,6 +1109,9 @@ router.get('/scenery/random', requirePermission('photos.view'), async (req, res)
 // 智能照片检索
 // GET /api/photos/search?q=xxx&page=1&pageSize=20&projectId=1&sort=relevance|newest&smart=1
 router.get('/search', async (req, res) => {
+  const startedAt = performance.now();
+  let telemetryContext = null;
+  let stream = null;
   try {
     await populateReqUserFromAuthIfPresent(req);
     const userId = req && req.user && req.user.id ? Number(req.user.id) : null;
@@ -1077,32 +1125,37 @@ router.get('/search', async (req, res) => {
     const hasProjectIdParam = req.query.projectId !== undefined && req.query.projectId !== null && String(req.query.projectId).trim() !== '';
     let projectId = null;
     if (hasProjectIdParam) {
-      projectId = parseInt(req.query.projectId, 10);
-      if (!Number.isFinite(projectId) || projectId <= 0) {
+      projectId = Number(req.query.projectId);
+      if (!Number.isSafeInteger(projectId) || projectId <= 0 || Array.isArray(req.query.projectId)) {
         return res.status(400).json({ error: 'invalid projectId' });
       }
     }
 
     const orgId = getScopedOrgIdFromReq(req);
     const workspace = await resolveWorkspace(req);
+    const hasFolderIdParam = req.query.folderId !== undefined;
+    if (hasFolderIdParam && hasProjectIdParam) return res.status(400).json({ error: 'SEARCH_SCOPE_CONFLICT' });
+    const searchScope = hasFolderIdParam ? await resolveFolderSearchScope(workspace, req.query.folderId)
+      : !hasProjectIdParam ? await resolveWorkspaceSearchScope(workspace) : null;
     const scopedProject = projectId && workspace.enabled
       ? await requireProjectAccess(req, projectId, 'read') : null;
-    let faceSearchAllowed = !workspace.enabled;
-    if (workspace.enabled) {
-      const [grants] = await pool.query(
-        'SELECT 1 FROM face_search_grants WHERE organization_id = ? AND user_id = ? LIMIT 1',
-        [workspace.orgId, workspace.userId]
-      );
-      faceSearchAllowed = grants.length > 0;
-    }
+    const faceSearchAllowed = (await require('../lib/face_access').getFacePermissions(workspace)).search;
     const smartRaw = String(req.query.smart || req.query.mode || '').trim().toLowerCase();
     const smart = smartRaw === '1' || smartRaw === 'true' || smartRaw === 'smart' || smartRaw === 'ai';
+    telemetryContext = { authorized: true, demo: isDemoRequest(req), q: req.query.q, page: req.query.page,
+      orgId, userId, unitId: scopedProject ? scopedProject.unit_id : workspace.unitId, projectId, smart };
+    if (req.query.stream === '1') {
+      stream = createPhotoSearchStream(res);
+      await stream.send({ type: 'status', phase: 'starting' });
+    }
     const result = await runPhotoSearch({
       q: req.query.q || '',
       page: req.query.page,
       pageSize: req.query.pageSize,
       projectId,
+      ...(searchScope || {}),
       sort: req.query.sort,
+      related: req.query.related === '1',
       orgId,
       userId,
       unitId: scopedProject ? scopedProject.unit_id : workspace.unitId,
@@ -1110,14 +1163,26 @@ router.get('/search', async (req, res) => {
       collegeAdmin: workspace.collegeAdmin,
       faceSearchAllowed,
       // 公开演示口禁用付费模型，登录用户显式 smart=1 才调用；无论如何都有增强检索兜底。
-      enableAi: Boolean(userId && smart && allowAiSearchForUser(userId)),
+      enableAi: Boolean(userId && smart && await allowAiSearchForUser(userId)),
+      ...(stream ? { signal: stream.signal, onProgress: stream.send } : {}),
     });
-    res.json(result);
+    if (stream) {
+      const { list, ...metadata } = result;
+      await stream.send({ type: 'complete', data: metadata });
+      stream.end();
+    } else res.json(result);
+    recordSearchTelemetry({ ...telemetryContext, result, durationMs: performance.now() - startedAt });
   } catch (err) {
-    if (sendWorkspaceError(res, err)) return;
-    console.error('GET /api/photos/search error:', err && err.stack ? err.stack : err);
-    res.status(500).json({ error: 'Internal server error' });
-  }
+    if (stream?.signal.aborted) return;
+    if (!stream && sendWorkspaceError(res, err)) return;
+    if (telemetryContext) recordSearchTelemetry({ ...telemetryContext,
+      errorCode: /TIMEOUT|TIMEDOUT/.test(String(err?.code || '')) ? 'SEARCH_TIMEOUT' : 'SEARCH_FAILED',
+      durationMs: performance.now() - startedAt });
+    console.error('GET /api/photos/search error:', /^[A-Z0-9_]{1,40}$/.test(err?.code || '') ? err.code : 'SEARCH_FAILED');
+    if (stream) {
+      try { await stream.send({ type: 'error', message: '检索暂时中断，请重试。' }); stream.end(); } catch { }
+    } else res.status(500).json({ error: 'Internal server error' });
+  } finally { stream?.dispose(); }
 });
 
 // 照片删除
@@ -1132,9 +1197,11 @@ router.post('/delete', requirePermission('photos.delete'), async (req, res) => {
       return res.status(400).json({ error: 'photoIds must be a non-empty array' });
     }
 
-    ids = ids
-      .map((n) => parseInt(n, 10))
-      .filter((n) => !Number.isNaN(n));
+    if (ids.some(value => !['number', 'string'].includes(typeof value)
+      || !/^\d+$/.test(String(value)) || !Number.isSafeInteger(Number(value)) || Number(value) <= 0)) {
+      return res.status(400).json({ error: 'INVALID_PHOTO_IDS' });
+    }
+    ids = ids.map(Number);
 
     ids = Array.from(new Set(ids));
 
@@ -1169,6 +1236,9 @@ router.post('/delete', requirePermission('photos.delete'), async (req, res) => {
         await conn.rollback();
         return res.json({ deletedIds: [], notFoundIds: ids });
       }
+
+      // Recheck current ownership after locking, not just the earlier read.
+      await requirePhotosAccess(req, ids, 'delete', conn);
 
       foundIds = rows.map((r) => r.id);
       notFoundIds = ids.filter((id) => !foundIds.includes(id));
@@ -1226,34 +1296,42 @@ router.post('/delete', requirePermission('photos.delete'), async (req, res) => {
 // 批量把照片移入/移出时间线环节。body: { photoIds: [1,2,3], timelineSectionId: 5 | null }
 // timelineSectionId 为 null/空 表示移出（回落"未归类"）
 router.post('/assign-section', requirePermission('photos.edit'), async (req, res) => {
+  let conn;
+  let committed = false;
   try {
-    const ids = Array.isArray(req.body && req.body.photoIds)
-      ? req.body.photoIds.map((v) => parseInt(v, 10)).filter((n) => Number.isFinite(n) && n > 0)
-      : [];
+    const submittedIds = req.body?.photoIds;
+    if (!Array.isArray(submittedIds) || submittedIds.some(value => !['number', 'string'].includes(typeof value)
+      || !/^\d+$/.test(String(value)) || !Number.isSafeInteger(Number(value)) || Number(value) <= 0)) {
+      return res.status(400).json({ error: 'INVALID_PHOTO_IDS' });
+    }
+    const ids = [...new Set(submittedIds.map(Number))];
     if (!ids.length) return res.status(400).json({ error: 'no valid photo id' });
     if (ids.length > 500) return res.status(413).json({ error: 'TOO_MANY_PHOTOS', maxPhotoIds: 500 });
-    await requirePhotosAccess(req, ids, 'edit');
+    await requirePhotosAccess(req, ids, 'metadata');
 
     const rawSection = req.body ? (req.body.timelineSectionId ?? req.body.timeline_section_id ?? req.body.sectionId ?? null) : null;
     const sectionId = rawSection === null || rawSection === undefined || String(rawSection).trim() === ''
       ? null
-      : parseInt(rawSection, 10);
-    if (sectionId !== null && (!Number.isFinite(sectionId) || sectionId <= 0)) {
+      : Number(rawSection);
+    if (sectionId !== null && (!/^\d+$/.test(String(rawSection)) || !Number.isSafeInteger(sectionId) || sectionId <= 0)) {
       return res.status(400).json({ error: 'INVALID_TIMELINE_SECTION' });
     }
 
     const orgId = req.user && (req.user.organization_id !== undefined && req.user.organization_id !== null) ? parseInt(req.user.organization_id, 10) : null;
+    conn = await pool.getConnection();
+    await conn.beginTransaction();
 
     let selSql = 'SELECT id, project_id AS projectId FROM photos WHERE id IN (?)';
     const selParams = [ids];
     if (orgId === null) selSql += ' AND organization_id IS NULL';
     else { selSql += ' AND organization_id = ?'; selParams.push(orgId); }
-    const [rows] = await pool.query(selSql, selParams);
+    const [rows] = await conn.query(selSql + ' FOR UPDATE', selParams);
     if (!rows || !rows.length) return res.status(404).json({ error: 'photos not found' });
+    await requirePhotosAccess(req, ids, 'metadata', conn);
 
     if (sectionId !== null) {
       // 环节必须存在，且所有照片与环节属于同一项目（同 org 作用域）
-      const [secRows] = await pool.query(
+      const [secRows] = await conn.query(
         `SELECT s.id, s.project_id AS projectId
          FROM project_timeline_sections s
          JOIN projects p ON p.id = s.project_id
@@ -1273,7 +1351,9 @@ router.post('/assign-section', requirePermission('photos.edit'), async (req, res
     const updParams = [sectionId, foundIds];
     if (orgId === null) updSql += ' AND organization_id IS NULL';
     else { updSql += ' AND organization_id = ?'; updParams.push(orgId); }
-    const [result] = await pool.query(updSql, updParams);
+    const [result] = await conn.query(updSql, updParams);
+    await conn.commit();
+    committed = true;
 
     return res.json({
       ok: true,
@@ -1285,6 +1365,11 @@ router.post('/assign-section', requirePermission('photos.edit'), async (req, res
     if (sendWorkspaceError(res, err)) return;
     console.error('POST /api/photos/assign-section error:', err);
     return res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    if (conn) {
+      if (!committed) await conn.rollback().catch(() => null);
+      conn.release();
+    }
   }
 });
 
@@ -1338,7 +1423,7 @@ router.get('/group-rescue/:jobId', requirePermission('photos.edit'), async (req,
 // 并把可下载范围严格钉死在该分享自身的照片里（下方 resolveShareZipScope）。
 async function resolveShareZipScope(code) {
   const [rows] = await pool.query(
-    'SELECT id, code, share_type, project_id, organization_id, expires_at, revoked_at FROM share_links WHERE code = ? LIMIT 1',
+    'SELECT id, code, share_type, project_id, organization_id, unit_id, sync_mode, folder_share_id, expires_at, revoked_at FROM share_links WHERE code = ? LIMIT 1',
     [String(code || '').trim()]
   );
   if (!rows || rows.length === 0) return { error: 'NOT_FOUND', status: 404 };
@@ -1347,7 +1432,13 @@ async function resolveShareZipScope(code) {
   if (s.expires_at && new Date(s.expires_at).getTime() <= Date.now()) return { error: 'EXPIRED', status: 410 };
 
   let allowed = [];
-  if (s.share_type === 'collection') {
+  if (s.folder_share_id) {
+    const scope = require('../lib/folder_shares').publicFolderPhotoScope(s);
+    const [items] = await pool.query(`SELECT p.id FROM photos p WHERE ${scope.sql}${s.sync_mode === 'approval'
+      ? ' AND EXISTS (SELECT 1 FROM share_link_items approved WHERE approved.share_id = ? AND approved.photo_id = p.id)' : ''}`,
+    [...scope.params, ...(s.sync_mode === 'approval' ? [s.id] : [])]);
+    allowed = items.map(row => Number(row.id));
+  } else if (s.share_type === 'collection') {
     const [items] = await pool.query('SELECT photo_id FROM share_link_items WHERE share_id = ?', [s.id]);
     allowed = (items || []).map((r) => Number(r.photo_id)).filter(Boolean);
   } else if (s.share_type === 'project') {
@@ -1366,6 +1457,16 @@ async function resolveShareZipScope(code) {
 // 内网 HTTP 不是 secure context，浏览器没有 showSaveFilePicker。先用带 Bearer 的 POST
 // 换一个短时、一次性票据，再让浏览器原生下载管理器通过 GET 边收边落盘，避免把数 GB ZIP
 // 全部堆进页面内存。票据只保存在本进程，过期或使用一次后立即失效。
+for (const [endpoint, handler] of [['manifest', videoDownloads.manifest], ['source', videoDownloads.source], ['summary', videoDownloads.summary]]) {
+  router.post(`/video-downloads/${endpoint}`, requirePermission('photos.view'), async (req, res) => {
+    try { await handler(req, res); }
+    catch (error) {
+      if (sendWorkspaceError(res, error)) return;
+      res.status(error.status || 500).json({ error: error.status ? error.message : 'VIDEO_DOWNLOAD_FAILED' });
+    }
+  });
+}
+
 router.post('/zip-ticket', requirePermission('photos.view'), async (req, res) => {
   const ids = Array.isArray(req.body && req.body.photoIds)
     ? Array.from(new Set(req.body.photoIds.map((n) => parseInt(n, 10)).filter((n) => !Number.isNaN(n))))
@@ -1382,11 +1483,11 @@ router.post('/zip-ticket', requirePermission('photos.view'), async (req, res) =>
   }
 
   const now = Date.now();
-  for (const [key, entry] of zipDownloadTickets) {
-    if (!entry || entry.expiresAt <= now) zipDownloadTickets.delete(key);
+  for (const [key, entry] of await zipDownloadTickets.entries()) {
+    if (!entry || entry.expiresAt <= now) await zipDownloadTickets.delete(key);
   }
   const ticket = crypto.randomBytes(24).toString('base64url');
-  zipDownloadTickets.set(ticket, {
+  await zipDownloadTickets.set(ticket, {
     expiresAt: now + ZIP_TICKET_TTL_MS,
     user: {
       id: req.user.id,
@@ -1396,7 +1497,9 @@ router.post('/zip-ticket', requirePermission('photos.view'), async (req, res) =>
     body: {
       photoIds: ids,
       zipName: req.body && req.body.zipName ? String(req.body.zipName) : undefined,
+      videoOnly: req.body?.videoOnly === true,
     },
+    unitId: req.get('x-mamage-unit-id') || null,
   });
   return res.json({ ticket, expiresInSeconds: Math.floor(ZIP_TICKET_TTL_MS / 1000) });
 });
@@ -1404,6 +1507,10 @@ router.post('/zip-ticket', requirePermission('photos.view'), async (req, res) =>
 // 校园网 HTTP 页面可直接从对象存储下载。先在服务端流式生成临时 ZIP，再给浏览器一条短时
 // 签名下载链接，避免最终下载回流经过 Mac mini 或堆积在浏览器内存。
 router.post('/zip-direct', requirePermission('photos.view'), async (req, res) => {
+  return directZipJobs.withLock('__create__', connection => createDirectZip(req, res, connection));
+});
+
+async function createDirectZip(req, res, lockConnection) {
   if (!canUseDirectStorage(req)) {
     return res.status(409).json({ error: 'DIRECT_STORAGE_UNAVAILABLE' });
   }
@@ -1421,9 +1528,9 @@ router.post('/zip-direct', requirePermission('photos.view'), async (req, res) =>
     return res.status(500).json({ error: 'INTERNAL_ERROR' });
   }
 
-  cleanupDirectZipJobs();
+  await cleanupDirectZipJobs();
   const organizationId = req.user.organization_id === undefined || req.user.organization_id === null ? null : Number(req.user.organization_id);
-  const reusable = findReusableDirectZipJob(req.user.id, organizationId, ids);
+  const reusable = await findReusableDirectZipJob(req.user.id, organizationId, ids);
   if (reusable) {
     try {
       return res.json({ ...(await getDirectZipResponse(reusable, req)), reused: true });
@@ -1432,7 +1539,9 @@ router.post('/zip-direct', requirePermission('photos.view'), async (req, res) =>
       return res.status(500).json({ error: 'DIRECT_ZIP_SIGN_FAILED' });
     }
   }
-  if (directZipQueue.length + activeDirectZipJobs >= 20) {
+  const queuedCount = distributed() ? (await directZipJobs.values()).filter(job => ['queued', 'packing'].includes(job.status)).length
+    : directZipQueue.length + activeDirectZipJobs;
+  if (queuedCount >= 20) {
     return res.status(429).json({ error: 'DIRECT_ZIP_QUEUE_BUSY', retryAfterSeconds: 20 });
   }
   const rawZipName = String((req.body && req.body.zipName) || `photos-${Date.now()}`).trim();
@@ -1442,6 +1551,7 @@ router.post('/zip-direct', requirePermission('photos.view'), async (req, res) =>
     id: getDirectZipJobKey(),
     userId: req.user.id,
     organizationId,
+    unitId: req.get('x-mamage-unit-id') || null,
     photoIds: ids,
     zipName,
     status: 'queued',
@@ -1455,30 +1565,40 @@ router.post('/zip-direct', requirePermission('photos.view'), async (req, res) =>
     objectKey: null,
     error: null,
   };
-  directZipJobs.set(job.id, job);
-  directZipQueue.push(job.id);
-  scheduleDirectZipJobs();
-  return res.status(202).json(getDirectZipPublicState(job));
-});
+  if (distributed()) {
+    const connection = lockConnection;
+    try {
+      await connection.beginTransaction();
+      await directZipJobs.set(job.id, job, { connection });
+      await coordinator.enqueue('zip', job.id, { id: job.id }, { connection });
+      await connection.commit();
+    } catch (error) { await connection.rollback(); throw error; }
+  } else {
+    await directZipJobs.set(job.id, job);
+    directZipQueue.push(job.id); await scheduleDirectZipJobs();
+  }
+  return res.status(202).json(await getDirectZipPublicState(job));
+}
 
-router.post('/zip-direct/:jobId/cancel', requirePermission('photos.view'), (req, res) => {
-  cleanupDirectZipJobs();
-  const job = directZipJobs.get(String(req.params.jobId || ''));
+router.post('/zip-direct/:jobId/cancel', requirePermission('photos.view'), async (req, res) => {
+  return directZipJobs.withLock(String(req.params.jobId || ''), async () => {
+  const job = await directZipJobs.get(String(req.params.jobId || ''));
   if (!job) return res.status(404).json({ error: 'DIRECT_ZIP_JOB_NOT_FOUND' });
   const userOrgId = req.user.organization_id === undefined || req.user.organization_id === null ? null : Number(req.user.organization_id);
   if (Number(job.userId) !== Number(req.user.id) || Number(job.organizationId) !== Number(userOrgId)) {
     return res.status(403).json({ error: 'DIRECT_ZIP_JOB_FORBIDDEN' });
   }
-  const cancelled = cancelDirectZipJob(job);
-  if (cancelled) scheduleDirectZipJobs();
-  return res.json({ ...getDirectZipPublicState(job), cancelled: job.status === 'cancelled' });
+  const cancelled = await cancelDirectZipJob(job);
+  if (cancelled) await scheduleDirectZipJobs();
+  return res.json({ ...(await getDirectZipPublicState(job)), cancelled: job.status === 'cancelled' });
+  });
 });
 
 // 刷新页面后由中转站自动接回当前用户的任务；任务仍在进程内，绝不因为页面刷新而重新排队。
 router.get('/zip-direct', requirePermission('photos.view'), async (req, res) => {
-  cleanupDirectZipJobs();
+  await cleanupDirectZipJobs();
   const userOrgId = req.user.organization_id === undefined || req.user.organization_id === null ? null : Number(req.user.organization_id);
-  const jobs = Array.from(directZipJobs.values())
+  const jobs = (await directZipJobs.values())
     .filter((job) => (
       Number(job.userId) === Number(req.user.id)
       && Number(job.organizationId) === Number(userOrgId)
@@ -1498,8 +1618,8 @@ router.get('/zip-direct', requirePermission('photos.view'), async (req, res) => 
 });
 
 router.get('/zip-direct/:jobId', requirePermission('photos.view'), async (req, res) => {
-  cleanupDirectZipJobs();
-  const job = directZipJobs.get(String(req.params.jobId || ''));
+  await cleanupDirectZipJobs();
+  const job = await directZipJobs.get(String(req.params.jobId || ''));
   if (!job) return res.status(404).json({ error: 'DIRECT_ZIP_JOB_NOT_FOUND' });
   const userOrgId = req.user.organization_id === undefined || req.user.organization_id === null ? null : Number(req.user.organization_id);
   if (Number(job.userId) !== Number(req.user.id) || Number(job.organizationId) !== Number(userOrgId)) {
@@ -1516,7 +1636,7 @@ router.get('/zip-direct/:jobId', requirePermission('photos.view'), async (req, r
 // GET 版（仅分享码场景）：给浏览器原生下载用——手机/内网 http 没有 showSaveFilePicker(需安全上下文),
 // 前端退化为 <a href> 直接交给浏览器下载管理器,立即可见下载条。登录态使用一次性票据，
 // Bearer token 不进入 URL。
-router.get('/zip', (req, res, next) => {
+router.get('/zip', async (req, res, next) => {
   const sc = req.query && req.query.shareCode ? String(req.query.shareCode).trim() : '';
   if (sc) {
     req.body = {
@@ -1528,12 +1648,12 @@ router.get('/zip', (req, res, next) => {
   }
 
   const ticket = req.query && req.query.ticket ? String(req.query.ticket).trim() : '';
-  const entry = ticket ? zipDownloadTickets.get(ticket) : null;
+  const entry = ticket ? await zipDownloadTickets.consume(ticket) : null;
   if (!entry) return res.status(401).json({ error: 'DOWNLOAD_TICKET_REQUIRED' });
-  zipDownloadTickets.delete(ticket);
   if (entry.expiresAt <= Date.now()) return res.status(410).json({ error: 'DOWNLOAD_TICKET_EXPIRED' });
   req.user = entry.user;
   req.body = entry.body;
+  if (entry.unitId) req.headers['x-mamage-unit-id'] = entry.unitId;
   return next();
 }, handleZipRequest);
 
@@ -1568,21 +1688,14 @@ async function handleZipRequest(req, res) {
     }
     if (!shareScope) await requirePhotosAccess(req, ids, 'read');
 
-    // 延迟 require archiver，这样在缺少依赖时能返回友好提示
-    let archiver;
-    try {
-      archiver = require('archiver');
-    } catch (e) {
-      console.error('archiver not installed:', e.message);
-      return res.status(500).json({ error: 'Server requires module "archiver". Run: npm install archiver' });
-    }
-
+    if (req.body.videoOnly === true) return await videoDownloads.stream(req, res, ids);
+    if (res.destroyed) return;
     // 查询照片及其 project_id
     // enforce organization scoping for zip：分享路径没有 req.user，用分享自身的组织，别让它落到 null 扫全库
     const orgId = shareScope
       ? shareScope.orgId
       : (req.user && (req.user.organization_id !== undefined && req.user.organization_id !== null) ? parseInt(req.user.organization_id, 10) : null);
-    let zipSql = `SELECT id, project_id AS projectId, timeline_section_id AS sectionId, url, thumb_url AS thumbUrl, title, adjustments FROM photos WHERE id IN (?)`;
+    let zipSql = `SELECT id, project_id AS projectId, timeline_section_id AS sectionId, url, thumb_url AS thumbUrl, title, type, adjustments FROM photos WHERE id IN (?)`;
     const zipParams = [ids];
     if (orgId === null) {
       zipSql += ' AND organization_id IS NULL';
@@ -1593,6 +1706,19 @@ async function handleZipRequest(req, res) {
     const [rows] = await pool.query(zipSql, zipParams);
 
     if (!rows || rows.length === 0) return res.status(404).json({ error: 'no photos found' });
+
+    // Unmodified storage originals share the lazy ZIP64 path, regardless of media type.
+    const streamOriginals = cosStorage.isConfigured() && rows.every(row => {
+      const key = cosStorage.keyFromUrlOrPath(row.url);
+      return key && cosStorage.isSafeKey(key) && key.startsWith('uploads/')
+        && (row.type === 'video' || !hasMeaningfulPhotoAdjustments(parsePhotoAdjustments(row.adjustments)));
+    });
+    if (streamOriginals) return await videoDownloads.stream(req, res, ids, { videosOnly: false });
+    if (res.destroyed) return;
+    const releaseZip = videoDownloads.reserve();
+    if (!releaseZip) { res.setHeader('Retry-After', '10'); return res.status(429).json({ error: 'VIDEO_DOWNLOAD_BUSY' }); }
+    res.once('close', releaseZip);
+    const archiver = require('archiver');
 
     // 查询相关项目名
     const projIds = [...new Set(rows.map(r => r.projectId).filter(Boolean))];
@@ -1623,42 +1749,28 @@ async function handleZipRequest(req, res) {
     const rawZipName = req.body.zipName && String(req.body.zipName).trim() ? String(req.body.zipName).trim() : `photos-${Date.now()}`;
     const safeZipBase = rawZipName.replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, '_').slice(0, 96) || `photos-${Date.now()}`;
     const zipName = safeZipBase.toLowerCase().endsWith('.zip') ? safeZipBase : `${safeZipBase}.zip`;
+    const zipFolder = zipName.slice(0, -4);
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(zipName)}"; filename*=UTF-8''${encodeURIComponent(zipName)}`);
     res.setHeader('X-Accel-Buffering', 'no');
 
-    // 总量预估：对每个对象 HEAD 一次(内网 S3,毫秒级,并发 10)求和,给前端进度条一个总量。
-    // store 模式 zip ≈ Σ文件大小 + 每文件 ~160B 头部开销;是估算值(调色照会重渲染变大小),
-    // 前端把它当参考画百分比。取不到(部分 HEAD 失败/非 S3 存储)就不发头,前端退回不定长动画条。
+    // Share bounded metadata/cache with the download summary; never label a partial sum as the full size.
+    const metadataController = new AbortController();
+    const abortMetadata = () => metadataController.abort();
+    res.once('close', abortMetadata);
     try {
       if (cosStorage.isConfigured && cosStorage.isConfigured()) {
-        const keys = rows
-          .map((r) => (r.url && !/^https?:\/\//i.test(String(r.url)) ? cosStorage.keyFromUrlOrPath(String(r.url)) : null))
-          .filter(Boolean);
-        let summed = 0;
-        let okCount = 0;
-        const queue = keys.slice();
-        const worker = async () => {
-          for (;;) {
-            const key = queue.shift();
-            if (!key) return;
-            try {
-              const head = await cosStorage.headObject(key);
-              const len = Number(head && head.ContentLength);
-              if (Number.isFinite(len) && len > 0) { summed += len; okCount += 1; }
-            } catch (e) { /* 单个失败不影响总量估算 */ }
-          }
-        };
-        await Promise.all(Array.from({ length: Math.min(10, keys.length) }, worker));
-        if (okCount > 0) {
-          const estimate = summed + okCount * 160 + 512;
+        const summary = await videoDownloads.estimateRows(rows, metadataController.signal);
+        if (summary.unknownSizeCount === 0) {
+          const estimate = summary.totalBytes + rows.length * 160 + 512;
           res.setHeader('X-Zip-Total-Bytes', String(estimate));
-          res.setHeader('X-Zip-Sized-Files', `${okCount}/${rows.length}`);
+          res.setHeader('X-Zip-Sized-Files', `${rows.length}/${rows.length}`);
         }
       }
     } catch (e) {
       console.warn('[photos.zip] total size estimate failed:', e.message);
-    }
+    } finally { res.removeListener('close', abortMetadata); }
+    if (res.destroyed) return;
 
     const archive = archiver('zip', { store: true, zlib: { level: 0 } });
     const activeRequests = new Set();
@@ -1688,19 +1800,9 @@ async function handleZipRequest(req, res) {
     // pipe archive to response
     archive.pipe(res);
 
-    // counters per project
-    const counters = {};
     let addedFileCount = 0;
 
-    const getExtFromUrl = (u) => {
-      try {
-        return path.extname(new URL(u).pathname) || '';
-      } catch (e) {
-        return path.extname(String(u || '')) || '';
-      }
-    };
-
-    const appendStorageObjectToArchive = async (source, nameInZip) => {
+    const appendStorageObjectToArchive = async (source, nameInZip, maxBytes = ZIP_MAX_REMOTE_BYTES) => {
       if (clientClosed || !cosStorage.isConfigured || !cosStorage.isConfigured()) return false;
       const objectKey = cosStorage.keyFromUrlOrPath(source);
       if (!objectKey) return false;
@@ -1714,7 +1816,7 @@ async function handleZipRequest(req, res) {
       }
 
       const contentLength = Number(object && object.ContentLength);
-      if (Number.isFinite(contentLength) && contentLength > ZIP_MAX_REMOTE_BYTES) {
+      if (Number.isFinite(contentLength) && contentLength > maxBytes) {
         console.warn('[photos.zip] storage object too large, skip:', objectKey, contentLength);
         if (object.Body && typeof object.Body.destroy === 'function') object.Body.destroy();
         return false;
@@ -1729,7 +1831,7 @@ async function handleZipRequest(req, res) {
       const sizeGuard = new Transform({
         transform(chunk, encoding, callback) {
           received += chunk.length;
-          if (received > ZIP_MAX_REMOTE_BYTES) {
+          if (received > maxBytes) {
             callback(new Error('REMOTE_FILE_TOO_LARGE'));
             return;
           }
@@ -1762,7 +1864,7 @@ async function handleZipRequest(req, res) {
       });
     };
 
-    const appendRemoteFileToArchive = async (remoteUrl, nameInZip) => {
+    const appendRemoteFileToArchive = async (remoteUrl, nameInZip, maxBytes = ZIP_MAX_REMOTE_BYTES) => {
       try {
         if (clientClosed) return false;
         // ⚠️ 必须走内网回环：照片已迁 S3、本地磁盘无文件，调用方给的是 buildUploadUrl 的公网地址，
@@ -1789,7 +1891,7 @@ async function handleZipRequest(req, res) {
             try { req.setTimeout(0); if (req.socket) req.socket.setTimeout(0); } catch (e) { /* ignore */ }
             if (response.statusCode >= 200 && response.statusCode < 300) {
               const contentLength = Number(response.headers['content-length'] || 0);
-              if (Number.isFinite(contentLength) && contentLength > ZIP_MAX_REMOTE_BYTES) {
+              if (Number.isFinite(contentLength) && contentLength > maxBytes) {
                 console.warn('[photos.zip] remote file too large, skip:', remoteUrl, contentLength);
                 response.destroy();
                 resolve(false);
@@ -1807,7 +1909,7 @@ async function handleZipRequest(req, res) {
               let received = 0;
               response.on('data', (chunk) => {
                 received += chunk.length;
-                if (received > ZIP_MAX_REMOTE_BYTES) {
+                if (received > maxBytes) {
                   console.warn('[photos.zip] remote stream exceeded max bytes, abort:', remoteUrl);
                   response.destroy(new Error('REMOTE_FILE_TOO_LARGE'));
                   passthrough.destroy(new Error('REMOTE_FILE_TOO_LARGE'));
@@ -1906,7 +2008,7 @@ async function handleZipRequest(req, res) {
       }
     };
 
-    // add files with project-based sequential naming
+    // All selected media live together under one archive directory.
     for (const r of rows) {
       if (clientClosed) break;
       try {
@@ -1916,30 +2018,21 @@ async function handleZipRequest(req, res) {
 
         const projId = r.projectId || 0;
         const rawProjName = projMap[projId] || `project-${projId}`;
-        // sanitize project name for file names
-        const safeProjName = String(rawProjName).replace(/[\\/:*?"<>|]/g, '').replace(/\s+/g, '_') || `project-${projId}`;
-        // 环节名（有才加）：文件名形如 相册-环节-序号.jpg；序号按"每个环节"各自从 1 开始
         const rawSecName = r.sectionId ? (sectionMap[r.sectionId] || '') : '';
-        const safeSecName = rawSecName ? (String(rawSecName).replace(/[\\/:*?"<>|]/g, '').replace(/\s+/g, '_')) : '';
-        const namePrefix = safeSecName ? `${safeProjName}-${safeSecName}` : safeProjName;
-
-        const counterKey = `${projId}:${r.sectionId || 0}`;
-        counters[counterKey] = (counters[counterKey] || 0) + 1;
-        const seq = counters[counterKey];
+        const originalNameInZip = `${zipFolder}/${mediaFilename({ ...r, projectName: rawProjName, sectionName: rawSecName })}`;
+        const maxBytes = r.type === 'video' ? 100 * 1024 ** 3 : ZIP_MAX_REMOTE_BYTES;
         const adjustments = parsePhotoAdjustments(r.adjustments);
-        const shouldRenderAdjusted = hasMeaningfulPhotoAdjustments(adjustments);
+        const shouldRenderAdjusted = r.type !== 'video' && hasMeaningfulPhotoAdjustments(adjustments);
+        const nameInZip = shouldRenderAdjusted ? originalNameInZip.replace(/\.[^/.]+$/, '.jpg') : originalNameInZip;
 
         // 如果是远程 URL（例如 COS 上的图片），通过 HTTP(S) 下载并把响应流追加到 zip
         if (/^https?:\/\//i.test(rawPath)) {
-          const ext = getExtFromUrl(rawPath);
-          const originalNameInZip = `${namePrefix}-${seq}${ext}`;
-          const nameInZip = shouldRenderAdjusted ? `${namePrefix}-${seq}.jpg` : originalNameInZip;
           if (shouldRenderAdjusted) {
             const sourceBuffer = await fetchRemoteFileBuffer(rawPath);
             if (sourceBuffer && await appendAdjustedBufferToArchive(sourceBuffer, adjustments, nameInZip)) continue;
           }
-          if (!await appendStorageObjectToArchive(rawPath, originalNameInZip)) {
-            await appendRemoteFileToArchive(rawPath, originalNameInZip);
+          if (!await appendStorageObjectToArchive(rawPath, originalNameInZip, maxBytes)) {
+            await appendRemoteFileToArchive(rawPath, originalNameInZip, maxBytes);
           }
         } else {
           // 本地文件处理（保留原有行为）
@@ -1950,15 +2043,12 @@ async function handleZipRequest(req, res) {
             // local miss -> fallback to remote original URL
             const fallbackRemoteUrl = buildUploadUrl(rawPath);
             if (/^https?:\/\//i.test(String(fallbackRemoteUrl || ''))) {
-              const ext = getExtFromUrl(fallbackRemoteUrl);
-              const originalNameInZip = `${namePrefix}-${seq}${ext}`;
-              const nameInZip = shouldRenderAdjusted ? `${namePrefix}-${seq}.jpg` : originalNameInZip;
               if (shouldRenderAdjusted) {
                 const sourceBuffer = await fetchRemoteFileBuffer(fallbackRemoteUrl);
                 if (sourceBuffer && await appendAdjustedBufferToArchive(sourceBuffer, adjustments, nameInZip)) continue;
               }
-              if (!await appendStorageObjectToArchive(rawPath, originalNameInZip)) {
-                await appendRemoteFileToArchive(fallbackRemoteUrl, originalNameInZip);
+              if (!await appendStorageObjectToArchive(rawPath, originalNameInZip, maxBytes)) {
+                await appendRemoteFileToArchive(fallbackRemoteUrl, originalNameInZip, maxBytes);
               }
               continue;
             }
@@ -1966,9 +2056,6 @@ async function handleZipRequest(req, res) {
             continue;
           }
 
-          const ext = path.extname(abs) || '';
-          const originalNameInZip = `${namePrefix}-${seq}${ext}`;
-          const nameInZip = shouldRenderAdjusted ? `${namePrefix}-${seq}.jpg` : originalNameInZip;
           if (shouldRenderAdjusted) {
             const stat = await fs.promises.stat(abs).catch(() => null);
             if (stat && stat.size <= ZIP_MAX_RENDER_SOURCE_BYTES) {
@@ -2117,6 +2204,8 @@ router.get('/:id/pixel-source', requirePermission('photos.view'), async (req, re
 // 内网对象存储直连：只在受控的 HTTP 校园网入口启用。公网 HTTPS 页面不能加载 HTTP
 // 对象存储，继续走本站代理，避免浏览器 mixed-content 拦截。
 router.get('/direct-status', requirePermission('photos.view'), (req, res) => {
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.vary('Authorization');
   const eligible = canUseDirectStorage(req);
   return res.json({
     eligible,
@@ -2125,6 +2214,8 @@ router.get('/direct-status', requirePermission('photos.view'), (req, res) => {
 });
 
 router.get('/:id/direct-url', requirePermission('photos.view'), async (req, res) => {
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.vary('Authorization');
   try {
     if (!canUseDirectStorage(req)) {
       return res.status(409).json({ error: 'DIRECT_STORAGE_UNAVAILABLE' });
@@ -2147,7 +2238,8 @@ router.get('/:id/direct-url', requirePermission('photos.view'), async (req, res)
     if (!key) return res.status(404).json({ error: 'photo source not found' });
 
     const download = String(req.query.download || '') === '1';
-    const fallbackName = `${String(row.title || `photo-${id}`).replace(/[\\/:*?"<>|]/g, '_') || `photo-${id}`}${getExtFromStorageKey(key)}`;
+    const fallbackName = download && row.type === 'video' ? await videoDownloads.filename(req, id)
+      : `${String(row.title || `photo-${id}`).replace(/[\\/:*?"<>|]/g, '_') || `photo-${id}`}${getExtFromStorageKey(key)}`;
     const signed = await cosStorage.signedGetUrl(key, {
       expires: cosStorage.keyFromUrlOrPath(raw).startsWith('uploads/units/')
         ? 60 : Math.max(60, Number(process.env.COS_SIGNED_READ_EXPIRES_SECONDS || 900)),
@@ -2186,7 +2278,9 @@ router.get('/:id', requirePermission('photos.view'), async (req, res) => {
         p.public_download_url AS publicDownloadUrl,
         p.playback_url AS playbackUrl,
         p.title,
+        p.original_filename AS originalFilename,
         p.description,
+        p.detailed_description AS detailedDescription,
         p.source_attribution AS sourceAttribution,
         p.adjustments,
         p.tags,
@@ -2236,7 +2330,7 @@ router.get('/:id', requirePermission('photos.view'), async (req, res) => {
     catch (_) { sourceAttribution = null; }
     if (sourceAttribution?.type === 'external_import' && sourceAttribution.sourceAlbumUrl) {
       try {
-        await requireProjectAccess(req, p.projectId, 'edit');
+        await requireProjectAccess(req, p.projectId, 'metadata');
         if (!await hasPermissionForUserId(req.user.id, 'projects.update')) throw new Error('NOT_EDITOR');
       }
       catch (_) {
@@ -2245,8 +2339,13 @@ router.get('/:id', requirePermission('photos.view'), async (req, res) => {
       }
     }
 
-    res.json({
+    let canEdit = false;
+    try { await requirePhotoAccess(req, id, 'metadata'); canEdit = true; }
+    catch (error) { if (!(error instanceof WorkspaceAccessError)) throw error; }
+
+    const response = {
       id: p.id,
+      canEdit,
       uuid: p.uuid,
       projectId: p.projectId,
       timelineSectionId: p.timelineSectionId || null,
@@ -2258,7 +2357,10 @@ router.get('/:id', requirePermission('photos.view'), async (req, res) => {
       playbackUrl: resolveUrl(p.playbackUrl),
       playback_url: resolveUrl(p.playbackUrl),
       title: p.title,
+      originalFilename: p.originalFilename || null,
       description: p.description || null,
+      detailedDescription: p.detailedDescription || null,
+      personObservationsEnabled: process.env.PHOTO_PERSON_OBSERVATIONS_ENABLED === '1',
       sourceAttribution,
       adjustments: parsePhotoAdjustments(p.adjustments),
       tags: parsedTags,
@@ -2274,7 +2376,9 @@ router.get('/:id', requirePermission('photos.view'), async (req, res) => {
       photographerName: p.photographerName || null,
       createdAt: p.createdAt,
       updatedAt: p.updatedAt
-    });
+    };
+    const [result] = await attachVideoProcessingState([response], { db: pool });
+    res.json(result);
   } catch (err) {
     console.error('GET /api/photos/:id error:', err && err.stack ? err.stack : err);
     res.status(500).json({ error: 'Internal server error' });
@@ -2286,8 +2390,8 @@ router.get('/:id', requirePermission('photos.view'), async (req, res) => {
 // PATCH /api/photos/:id
 router.patch('/:id', requirePermission('photos.edit'), async (req, res) => {
   try {
-    const id = parseInt(req.params.id, 10);
-    if (Number.isNaN(id)) return res.status(400).json({ error: 'invalid id' });
+    const id = Number(req.params.id);
+    if (!/^\d+$/.test(String(req.params.id)) || !Number.isSafeInteger(id) || id <= 0) return res.status(400).json({ error: 'invalid id' });
 
     const { description, tags, adjustments } = req.body || {};
 
@@ -2343,17 +2447,28 @@ router.patch('/:id', requirePermission('photos.edit'), async (req, res) => {
       ownershipSql += ' AND organization_id = ?';
       ownershipParams.push(orgId);
     }
-    const [ownRows] = await pool.query(ownershipSql, ownershipParams);
-    if (!ownRows || ownRows.length === 0) return res.status(404).json({ error: 'photo not found' });
-
     params.push(id);
     const sql = `UPDATE photos SET ${updates.join(', ')} WHERE id = ?`;
-    await pool.query(sql, params);
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const [ownRows] = await conn.query(ownershipSql + ' FOR UPDATE', ownershipParams);
+      if (!ownRows || ownRows.length === 0) {
+        await conn.rollback();
+        return res.status(404).json({ error: 'photo not found' });
+      }
+      await requirePhotoAccess(req, id, 'metadata', conn);
+      await conn.query(sql, params);
+      await conn.commit();
+    } catch (error) {
+      await conn.rollback().catch(() => null);
+      throw error;
+    } finally { conn.release(); }
 
     const [rows] = await pool.query(
       `SELECT p.id, p.project_id AS projectId, p.timeline_section_id AS timelineSectionId,
               pts.name AS timelineSectionName, pts.section_time AS timelineSectionTime,
-              p.url, p.thumb_url AS thumbUrl, p.public_download_url AS publicDownloadUrl, p.playback_url AS playbackUrl, p.title, p.description, p.adjustments, p.tags,
+              p.url, p.thumb_url AS thumbUrl, p.public_download_url AS publicDownloadUrl, p.playback_url AS playbackUrl, p.title, p.original_filename AS originalFilename, p.description, p.adjustments, p.tags,
               ai_status AS aiStatus, ai_error AS aiError,
               ai_started_at AS aiStartedAt, ai_finished_at AS aiFinishedAt
        FROM photos p
@@ -2380,6 +2495,7 @@ router.patch('/:id', requirePermission('photos.edit'), async (req, res) => {
       playbackUrl: p.playbackUrl ? buildMediaUrl(p.playbackUrl, { userId: req.user.id, photoId: p.id }) : null,
       playback_url: p.playbackUrl ? buildMediaUrl(p.playbackUrl, { userId: req.user.id, photoId: p.id }) : null,
       title: p.title,
+      originalFilename: p.originalFilename || null,
       description: p.description,
       adjustments: parsePhotoAdjustments(p.adjustments),
       tags: parsedTags,
@@ -2389,9 +2505,31 @@ router.patch('/:id', requirePermission('photos.edit'), async (req, res) => {
       aiFinishedAt: p.aiFinishedAt || null
     });
   } catch (err) {
+    if (sendWorkspaceError(res, err)) return;
     console.error('PATCH /api/photos/:id error:', err && err.stack ? err.stack : err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
 module.exports = router;
+coordinator.register('zip', 'zip', async ({ id }) => {
+  const job = await directZipJobs.get(id);
+  if (job && ['queued', 'packing'].includes(job.status)) await runDirectZipJob(job);
+});
+router.recoverSharedJobs = async () => {
+  await cleanupDirectZipJobs();
+  for (const job of await directZipJobs.values()) {
+    if (['queued', 'packing'].includes(job.status)) await coordinator.enqueue('zip', job.id, { id: job.id });
+  }
+  if (!sharedZipCleanupTimer) {
+    sharedZipCleanupTimer = setInterval(() => { void cleanupDirectZipJobs().catch(error => console.warn('[zip-cleanup]', error.message)); }, 60000);
+    sharedZipCleanupTimer.unref();
+  }
+};
+router.stopBackgroundTasks = async () => {
+  zipStopping = true;
+  clearInterval(sharedZipCleanupTimer);
+  for (const timer of zipCleanupTimers) clearTimeout(timer);
+  zipCleanupTimers.clear();
+  await require('../lib/runtime_lifecycle').waitForIdle(() => activeDirectZipJobs === 0);
+};

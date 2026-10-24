@@ -31,7 +31,7 @@ async function permissions(req, projectId) {
   await requireProjectAccess(req, projectId, 'read');
   let canSeeUrl = false;
   try {
-    await requireProjectAccess(req, projectId, 'edit');
+    await requireProjectAccess(req, projectId, 'metadata');
     canSeeUrl = await hasPermissionForUserId(req.user.id, 'projects.update');
   } catch (_) { /* album readers only see the source domain */ }
   const workspace = await resolveWorkspace(req);
@@ -39,7 +39,7 @@ async function permissions(req, projectId) {
   try { await requireProjectAccess(req, projectId, 'manage'); canManageProject = true; }
   catch (_) { /* shared readers cannot manage the source album */ }
   const canAdmin = workspace.collegeAdmin || (workspace.enabled && canManageProject)
-    || ['admin', 'superadmin'].includes(String(req.user.role));
+    || (!workspace.enabled && ['admin', 'superadmin'].includes(String(req.user.role)));
   return { canSeeUrl, canAdmin };
 }
 
@@ -231,7 +231,7 @@ router.post('/sources/:id/hide', requirePermission('projects.update'), async (re
   if (!id) return res.status(400).json({ error: 'INVALID_SOURCE' });
   try {
     const { job } = await findJob(req, id);
-    await requireProjectAccess(req, job.project_id, 'edit');
+    await requireProjectAccess(req, job.project_id, 'metadata');
     await pool.query(
       'UPDATE external_import_jobs SET attribution_visible = 0 WHERE project_id = ? AND source_url = ?',
       [job.project_id, job.source_url]

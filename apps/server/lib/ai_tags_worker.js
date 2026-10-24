@@ -1,8 +1,10 @@
-const { analyze, analyzePhoto, headRequest } = require('../ai_function/ai_for_tags/ai_for_tags');
+const { analyze, analyzePhoto, analyzeDescriptions, headRequest } = require('../ai_function/ai_for_tags/ai_for_tags');
 const { pool, buildInternalMediaUrl } = require('../db');
 const { analyzeVideo } = require('./video_analysis');
 const { probeVideo } = require('./video_render');
 const { resolveVideoAnalysisInput } = require('./video_semantic_source');
+const { coordinator, distributed } = require('./distributed_runtime');
+const { planFailure, taskError, errorDetails } = require('./background_task_failure');
 
 const CONCURRENCY = 1; // 串行处理，避免并发调用耗尽本地视觉模型
 const MAX_RETRIES = Math.max(0, Math.min(3, Number(process.env.AI_TAGS_MAX_RETRIES || 1)));
@@ -11,6 +13,8 @@ let queue = [];
 let lowPriorityQueue = [];
 let running = 0;
 const queuedIds = new Set(); // 队列中 + 处理中的 photo id，防重复入队（上传路径与启动恢复可能同时命中）
+let stopping = false;
+const retryTimers = new Set();
 
 async function updatePhotoAiStatus(photoId, status, options = {}) {
   if (!photoId || !status) return;
@@ -83,15 +87,18 @@ async function scheduleRetry(item, err) {
   const nextAttempt = currentAttempt + 1;
   const message = String((err && err.message) || err || 'temporary AI failure').slice(0, 180);
   await updatePhotoAiStatus(item.id, 'pending', { error: `temporary failure; retry ${nextAttempt}/${MAX_RETRIES}: ${message}` });
+  if (distributed()) throw err;
   const retryItem = { ...item, attempt: nextAttempt };
-  const timer = setTimeout(() => enqueue(retryItem), RETRY_DELAY_MS);
+  if (stopping) return true;
+  const timer = setTimeout(() => { retryTimers.delete(timer); enqueue(retryItem); }, RETRY_DELAY_MS);
+  retryTimers.add(timer);
   if (typeof timer.unref === 'function') timer.unref();
   console.warn(`[ai_tags_worker] retry scheduled for photo ${item.id}: ${nextAttempt}/${MAX_RETRIES}`);
   return true;
 }
 
 function isModelRequestFailure(err) {
-  return isRetryableAiError(err) || /http [45]\d\d/i.test(String((err && err.message) || ''));
+  return String(err?.code || '').startsWith('HUB_') || isRetryableAiError(err) || /http [45]\d\d/i.test(String((err && err.message) || ''));
 }
 
 function normalizeVideoSemanticTags(analysis) {
@@ -156,6 +163,10 @@ async function processVideoSemantic(item, row) {
 
 async function _processOne(item) {
   if (!item || !item.id) return;
+  if (distributed() && !item.force) {
+    const [rows] = await pool.query('SELECT ai_status FROM photos WHERE id = ?', [item.id]);
+    if (!rows.length || rows[0].ai_status === 'done') return;
+  }
 
   try {
     await updatePhotoAiStatus(item.id, 'running');
@@ -192,20 +203,23 @@ async function _processOne(item) {
     if (!imageUrl) {
       console.warn('[ai_tags_worker] no imageUrl for', item.id);
       await updatePhotoAiStatus(item.id, 'failed', { error: 'image url missing' });
+      if (distributed()) throw taskError('IMAGE_SOURCE_MISSING', { stage: 'source' });
       return;
     }
 
     // 先做 HEAD 检查
-    let head = null;
+    let head = null, headError;
     try {
       head = await headRequest(imageUrl);
     } catch (he) {
-      console.warn('[ai_tags_worker] headRequest failed for', imageUrl, he && he.message ? he.message : he);
+      headError = he;
     }
 
     const contentType = head && head.headers ? (head.headers['content-type'] || head.headers['Content-Type']) : null;
     if (!head || !contentType || !String(contentType).toLowerCase().startsWith('image')) {
-      console.warn('[ai_tags_worker] skipping analyze: not an image or inaccessible', imageUrl, head && head.statusCode, contentType);
+      if (distributed()) throw taskError(head?.statusCode === 200 ? 'IMAGE_SOURCE_INVALID' : 'IMAGE_SOURCE_UNAVAILABLE', {
+        stage: 'source', cause: headError, ...(head ? { httpStatus: head.statusCode } : {}),
+      });
       await updatePhotoAiStatus(item.id, 'failed', { error: `image inaccessible ${head && head.statusCode ? head.statusCode : ''}`.trim() });
       return;
     }
@@ -215,39 +229,22 @@ async function _processOne(item) {
     try {
       result = await analyzePhoto(imageUrl);
     } catch (scoreErr) {
-      console.warn('[ai_tags_worker] analyzePhoto failed, fallback to legacy analyze:', item.id, scoreErr && scoreErr.message ? scoreErr.message : scoreErr);
+      console.warn('[ai_tags_worker] analyzePhoto failed:', item.id, JSON.stringify(errorDetails(scoreErr)));
       // 本地模型超时/断连时，旧管线仍会调用同一模型；直接重试即可，避免一张图连续
       // 占用两次超时窗口而卡住后续队列。
       if (isModelRequestFailure(scoreErr)) throw scoreErr;
       try {
         result = await analyze(thumbUrl || imageUrl);
       } catch (aiErr) {
-      // 不再假定有数据库表：直接在终端打印尽可能详细的 AI 错误信息，便于即时调试
-      try {
-        console.error('[ai_tags_worker] ai analyze threw for photoId=', item.id);
-        console.error('  imageUrl=', imageUrl);
-        if (aiErr && aiErr.message) console.error('  message=', aiErr.message);
-        if (aiErr && aiErr.code) console.error('  code=', aiErr.code);
-        if (aiErr && (aiErr.requestID || aiErr.requestId)) console.error('  requestId=', aiErr.requestID || aiErr.requestId);
-        // 某些 SDK 会在 error.response 返回更多上下文
-        if (aiErr && aiErr.response) {
-          try {
-            console.error('  response.status=', aiErr.response.status);
-            console.error('  response.data=', JSON.stringify(aiErr.response.data).slice(0, 2000));
-          } catch (e) {
-            console.error('  response=', String(aiErr.response).slice(0, 2000));
-          }
-        }
-        console.error('  stack=', aiErr && aiErr.stack ? aiErr.stack : 'no stack');
-      } catch (logErr) {
-        console.error('[ai_tags_worker] failed to print ai error for', item.id, logErr && logErr.message ? logErr.message : logErr);
-      }
+      console.error('[ai_tags_worker] analyze failed:', item.id, JSON.stringify(errorDetails(aiErr)));
       throw aiErr;
       }
     }
 
     if (result) {
+      if (distributed() && result.descriptionReviewError) throw result.descriptionReviewError;
       const description = result.description || null;
+      const detailedDescription = result.detailedDescription || null;
       const tags = (result.tags && result.tags.length) ? JSON.stringify(result.tags) : null;
       const aiScore = Number.isFinite(result.score) ? Math.max(0, Math.min(100, Math.round(result.score))) : null;
       const aiQuality = result.quality ? JSON.stringify(result.quality) : null;
@@ -256,8 +253,7 @@ async function _processOne(item) {
       // 如果模型返回了空结果（没有 description 且没有 tags），在终端打印详细信息以便排查
       if (!description && !tags) {
         try {
-          console.warn('[ai_tags_worker] empty result from AI for photoId=', item.id, 'imageUrl=', imageUrl);
-          console.warn('  raw response (truncated)=', result.raw ? String(result.raw).slice(0, 2000) : '<empty>');
+          console.warn('[ai_tags_worker] empty result from AI for photoId=', item.id);
         } catch (logErr) {
           console.error('[ai_tags_worker] failed to print empty result for', item.id, logErr && logErr.message ? logErr.message : logErr);
         }
@@ -267,6 +263,7 @@ async function _processOne(item) {
         await pool.query(
           `UPDATE photos
            SET description = COALESCE(?, description),
+               detailed_description = ?,
                tags = COALESCE(?, tags),
                ai_score = COALESCE(?, ai_score),
                ai_quality = COALESCE(?, ai_quality),
@@ -275,10 +272,17 @@ async function _processOne(item) {
                ai_error = NULL,
                ai_finished_at = NOW()
            WHERE id = ?`,
-          [description, tags, aiScore, aiQuality, ocrText, item.id]
+          [description, detailedDescription, tags, aiScore, aiQuality, ocrText, item.id]
         );
         console.log('[ai_tags_worker] updated photo', item.id, aiScore !== null ? `score=${aiScore}` : '(no score)');
+        if (process.env.PHOTO_PERSON_OBSERVATIONS_ENABLED === '1') {
+          try { await require('./search_visual_worker').enqueuePhoto(item.id); }
+          catch { console.warn('[ai_tags_worker] person observation enqueue unavailable:', item.id); }
+        }
       } catch (dbErr) {
+        if (distributed()) throw taskError('AI_PERSIST_FAILED', { stage: 'persist', cause: dbErr });
+        // A missing new column must not silently discard the detailed result.
+        if (dbErr?.code === 'ER_BAD_FIELD_ERROR' && /detailed_description/i.test(String(dbErr.message))) throw dbErr;
         if (dbErr && (dbErr.code === 'ER_BAD_FIELD_ERROR' || String(dbErr.message || '').includes('Unknown column'))) {
           try {
             await pool.query(
@@ -300,9 +304,17 @@ async function _processOne(item) {
       await updatePhotoAiStatus(item.id, 'done');
     }
   } catch (err) {
+    if (distributed()) {
+      const plan = planFailure(err, { kind: 'semantic', attempt: (Number(item.attempt) || 0) + 1, random: () => 0 });
+      await updatePhotoAiStatus(item.id, plan.status === 'queued' ? 'pending' : 'failed', {
+        error: `${plan.diagnostic.stage}:${plan.diagnostic.code}${plan.diagnostic.causeCode ? ':' + plan.diagnostic.causeCode : ''}`,
+      });
+      throw err;
+    }
     try {
       if (await scheduleRetry(item, err)) return;
     } catch (retryErr) {
+      if (distributed()) throw retryErr;
       console.error('[ai_tags_worker] schedule retry failed for', item.id, retryErr && retryErr.stack ? retryErr.stack : retryErr);
     }
     await updatePhotoAiStatus(item.id, 'failed', { error: err && err.message ? err.message : err });
@@ -311,7 +323,7 @@ async function _processOne(item) {
 }
 
 function _drain() {
-  if (running >= CONCURRENCY) return;
+  if (stopping || running >= CONCURRENCY) return;
   // 正常照片任务永远压过全程视频语义任务；视频只利用空闲窗口，不能拖慢新上传照片。
   const item = queue.shift() || lowPriorityQueue.shift();
   if (!item) return;
@@ -328,6 +340,9 @@ function _drain() {
 
 function enqueue(item) {
   if (!item || !item.id) return;
+  if (distributed()) return coordinator.enqueue('semantic', item.id, item,
+    { priority: item.priority === 'low' || item.isVideo ? 100 : 0 });
+  if (stopping) return;
   const key = String(item.id);
   if (queuedIds.has(key)) return; // 已在队列/处理中，跳过
   queuedIds.add(key);
@@ -346,6 +361,7 @@ function queueLength() {
 // 启动恢复：队列纯内存，进程重启会把 ai_status 留在 pending/running 且永不重试。
 // 服务启动后扫描这类孤儿重新入队（串行消费，不会挤爆本地 Ollama）。
 async function requeueStuckPhotos({ limit = 200 } = {}) {
+  if (stopping) return 0;
   try {
     // 只捞"陈旧"孤儿：10 分钟内新建/开始的记录可能正被上传路径或
     // backfill 脚本（独立进程）处理，抢走会导致同一张照片双份分析
@@ -366,7 +382,7 @@ async function requeueStuckPhotos({ limit = 200 } = {}) {
     );
     for (const row of rows || []) {
       const isVideo = String(row.type || '').toLowerCase() === 'video';
-      enqueue({ id: row.id, relPath: row.thumbRel || row.url, isVideo, priority: isVideo ? 'low' : 'normal' });
+      await enqueue({ id: row.id, relPath: row.thumbRel || row.url, isVideo, priority: isVideo ? 'low' : 'normal' });
     }
     if (rows && rows.length) {
       console.log(`[ai_tags_worker] requeued ${rows.length} stuck media item(s) after restart`);
@@ -378,7 +394,26 @@ async function requeueStuckPhotos({ limit = 200 } = {}) {
   }
 }
 
-module.exports = { enqueue, queueLength, requeueStuckPhotos };
+async function stop() {
+  stopping = true;
+  for (const timer of retryTimers) clearTimeout(timer);
+  retryTimers.clear();
+  await require('./runtime_lifecycle').waitForIdle(() => running === 0);
+}
+
+module.exports = { enqueue, queueLength, requeueStuckPhotos, stop };
+coordinator.register('semantic', 'vision', (item, meta) => _processOne({ ...item, attempt: meta.attempt - 1 }));
+coordinator.register('photo-description', 'vision', async item => {
+  const [rows] = await pool.query("SELECT id,url,thumb_url FROM photos WHERE id=? AND COALESCE(type,'')<>'video'", [item.photoId]);
+  if (!rows.length) return;
+  const row = rows[0];
+  const source = row.thumb_url || row.url;
+  if (!source) throw new Error('DESCRIPTION_SOURCE_MISSING');
+  const result = await analyzeDescriptions(buildInternalMediaUrl(source));
+  await pool.query(`UPDATE photos SET description=?,detailed_description=?
+    WHERE id=? AND url <=> ? AND thumb_url <=> ?`,
+  [result.description,result.detailedDescription,row.id,row.url,row.thumb_url]);
+});
 
 // 确保用于记录 AI 错误的表存在（若不存在则创建）
 async function ensureAiErrorTable() {

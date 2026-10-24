@@ -1,0 +1,35 @@
+# syntax=docker/dockerfile:1
+ARG NODE_IMAGE=node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392
+FROM ${NODE_IMAGE}
+ENV NODE_ENV=production \
+    MAMAGE_CONTAINER=1 \
+    PORT=8080 \
+    PLAYWRIGHT_BROWSERS_PATH=/opt/playwright \
+    PYTHON_PATH=/opt/python/bin/python \
+    IMAGE_SIMILARITY_PYTHON_PATH=/opt/python/bin/python \
+    TORCH_HOME=/opt/mamage-models \
+    OMP_NUM_THREADS=2 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    TMPDIR=/tmp
+WORKDIR /app
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    rm -f /etc/apt/apt.conf.d/docker-clean \
+    && apt-get -o Acquire::Retries=5 update && apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
+    ca-certificates ffmpeg tini python3 python3-venv \
+    && rm -rf /var/lib/apt/lists/*
+COPY apps/server/package.json apps/server/package-lock.json ./
+RUN npm ci --omit=dev --no-audit --no-fund \
+    && npx playwright install --with-deps chromium \
+    && rm -rf /var/lib/apt/lists/* /root/.npm
+RUN python3 -m venv /opt/python \
+    && /opt/python/bin/pip install --no-cache-dir pip==25.3 \
+    && /opt/python/bin/pip install --no-cache-dir numpy==2.2.6 Pillow==11.3.0 \
+    && /opt/python/bin/pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch==2.8.0 torchvision==0.23.0 \
+    && /opt/python/bin/python -c 'from torchvision.models import resnet50, ResNet50_Weights; resnet50(weights=ResNet50_Weights.IMAGENET1K_V2)' \
+    && chmod -R a+rX /opt/mamage-models /opt/playwright
+COPY --chown=node:node apps/server/ ./
+USER node
+EXPOSE 8080
+STOPSIGNAL SIGTERM
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["node", "app.js"]

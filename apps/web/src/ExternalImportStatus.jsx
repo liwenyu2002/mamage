@@ -12,6 +12,9 @@ import {
 import './ExternalImportStatus.css';
 
 const ACTIVE = new Set(['queued', 'running', 'paused']);
+const pollingError = (error) => !error?.status || [408, 429, 502, 503, 504].includes(error.status)
+  ? '转存状态暂不可用，正在自动重试；相册照片不受影响'
+  : error.message || '转存状态暂不可用';
 const ISSUE_LABELS = {
   SOURCE_EXPIRED: '来源链接已过期', SOURCE_MISSING: '来源照片不存在',
   SOURCE_RATE_LIMIT: '来源网站限制访问', SOURCE_TOO_LARGE: '超过 500 MB',
@@ -29,7 +32,10 @@ function ExternalImportStatus({ projectId, loading, initialPhotoCursor, refreshK
   const [jobId, setJobId] = React.useState(null);
   const [job, setJob] = React.useState(null);
   const [sources, setSources] = React.useState([]);
-  const [error, setError] = React.useState('');
+  const [listError, setListError] = React.useState('');
+  const [jobError, setJobError] = React.useState('');
+  const [actionError, setActionError] = React.useState('');
+  const error = actionError || jobError || listError;
   const [busy, setBusy] = React.useState(false);
   const [showIssues, setShowIssues] = React.useState(false);
   const [issuesPage, setIssuesPage] = React.useState(null);
@@ -46,6 +52,9 @@ function ExternalImportStatus({ projectId, loading, initialPhotoCursor, refreshK
     setSources([]);
     setShowIssues(false);
     setIssuesPage(null);
+    setListError('');
+    setJobError('');
+    setActionError('');
     photoCursor.current = null;
   }, [projectId]);
 
@@ -59,7 +68,9 @@ function ExternalImportStatus({ projectId, loading, initialPhotoCursor, refreshK
         setSources(data.sources || []);
         const latest = data.jobs?.find((entry) => ACTIVE.has(entry.status)) || data.jobs?.[0];
         setJobId(latest?.id || null);
-      } catch (err) { if (alive) setError(err?.message || '转存状态暂不可用'); }
+        if (!latest) { setJob(null); setJobError(''); }
+        setListError('');
+      } catch (err) { if (alive) setListError(pollingError(err)); }
     };
     refresh();
     const timer = window.setInterval(refresh, 15000);
@@ -72,6 +83,7 @@ function ExternalImportStatus({ projectId, loading, initialPhotoCursor, refreshK
     let timer;
     setShowIssues(false);
     setIssuesPage(null);
+    setJobError('');
     photoCursor.current = latestCursor.current || 0;
     setDismissed(window.localStorage.getItem(`mamage-import-dismissed-${jobId}`) === '1');
     const poll = async () => {
@@ -82,7 +94,6 @@ function ExternalImportStatus({ projectId, loading, initialPhotoCursor, refreshK
         if (next.sourceTitle && (Number(next.reportedTotal) > 0 || next.scanStatus === 'completed')) {
           onSourceTitle?.(next.sourceTitle);
         }
-        setError('');
         if (!updatesBusy.current) {
           updatesBusy.current = true;
           try {
@@ -98,10 +109,12 @@ function ExternalImportStatus({ projectId, loading, initialPhotoCursor, refreshK
             }
           } finally { updatesBusy.current = false; }
         }
+        if (!alive) return;
+        setJobError('');
         timer = window.setTimeout(poll, ACTIVE.has(next.status) ? 2500 : 10000);
       } catch (err) {
         if (alive) {
-          setError(err?.message || '转存状态暂不可用');
+          setJobError(pollingError(err));
           timer = window.setTimeout(poll, 6000);
         }
       }
@@ -113,26 +126,29 @@ function ExternalImportStatus({ projectId, loading, initialPhotoCursor, refreshK
   const handleAction = async (action) => {
     if (!job || busy) return;
     setBusy(true);
+    setActionError('');
     try {
       if (action === 'stop') await cancelExternalImport(job.id);
       else await resumeExternalImport(job.id);
       setJob(await getExternalImport(job.id));
-    } catch (err) { setError(err?.message || '操作失败'); }
+    } catch (err) { setActionError(err?.message || '操作失败'); }
     finally { setBusy(false); }
   };
 
   const handleHideSource = async (id) => {
+    setActionError('');
     try {
       await hideExternalImportSource(id);
       const latest = await listExternalImports(projectId);
       setSources(latest.sources || []);
-    } catch (err) { setError(err?.message || '隐藏来源失败'); }
+    } catch (err) { setActionError(err?.message || '隐藏来源失败'); }
   };
 
   const toggleIssues = async () => {
     if (!showIssues && job) {
+      setActionError('');
       try { setIssuesPage(await getExternalImportIssues(job.id)); }
-      catch (err) { setError(err?.message || '读取失败详情失败'); }
+      catch (err) { setActionError(err?.message || '读取失败详情失败'); }
     }
     setShowIssues((value) => !value);
   };
@@ -140,10 +156,11 @@ function ExternalImportStatus({ projectId, loading, initialPhotoCursor, refreshK
   const loadMoreIssues = async () => {
     const previous = issuesPage?.issues || [];
     if (!job || !previous.length) return;
+    setActionError('');
     try {
       const next = await getExternalImportIssues(job.id, previous[previous.length - 1].id);
       setIssuesPage({ issues: [...previous, ...next.issues], hasMore: next.hasMore });
-    } catch (err) { setError(err?.message || '读取失败详情失败'); }
+    } catch (err) { setActionError(err?.message || '读取失败详情失败'); }
   };
 
   const done = Number(job?.counts?.done || 0);

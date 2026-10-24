@@ -1,0 +1,19 @@
+MaMage manifests prepared. This chart does not migrate or restore data.
+
+API supports multiple replicas with shared MySQL and ReadWriteMany storage.
+One elected API process coordinates durable background work. Web also supports replicas with shared webAssets.
+Apply the reviewed database migrations before upgrading; migrations are never automatic.
+Do not add an API HPA or deploy a second release against the same database/bucket.
+Existing uploads/multipart/ZIP memory sessions may require a restart after upgrade.
+
+Use an existing Secret named {{ .Values.existingSecret }} in {{ .Release.Namespace }}.
+Required keys: JWT_SECRET, DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME,
+COS_SECRET_ID, COS_SECRET_KEY, COS_BUCKET. Keep signing keys stable.
+
+MySQL, object storage, face service and optional vision/transcription services
+are managed separately. Verify their connectivity, model identity and backups.
+PVC retention is not a backup. Never automatically restore a DB on rollback.
+
+Browser URL: {{ .Values.publicURL }}
+Readiness: /api/health/ready; liveness: /api/health/live.
+Read docs/kubernetes.md before first migration.

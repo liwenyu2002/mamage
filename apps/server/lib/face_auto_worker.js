@@ -1,10 +1,23 @@
 const { detectAndClusterPhoto } = require('./face_auto_pipeline');
+const { coordinator, distributed } = require('./distributed_runtime');
+async function runFaceJob(options) {
+  const result = await detectAndClusterPhoto(options);
+  if (process.env.PHOTO_PERSON_OBSERVATIONS_ENABLED === '1') {
+    await require('./search_visual_worker').enqueuePhoto(options.photoId);
+  }
+  return result;
+}
+coordinator.register('face', 'face', job => runFaceJob({
+  photoId: job.photoId, uploaderId: job.uploaderId || null, force: Boolean(job.force),
+}));
 
 const queue = [];
 const pendingPhotoIds = new Set();
 let running = 0;
 let bullQueue = null;
 let bullWorker = null;
+let bullConnection = null;
+let stopping = false;
 
 function envBool(name, fallback) {
   const raw = process.env[name];
@@ -32,6 +45,7 @@ function initBullQueue() {
       maxRetriesPerRequest: null,
       enableReadyCheck: false,
     });
+    bullConnection = connection;
     const queueName = process.env.FACE_AUTO_QUEUE_NAME || 'face-auto-jobs';
 
     bullQueue = new Queue(queueName, { connection });
@@ -41,7 +55,7 @@ function initBullQueue() {
         async (job) => {
           const photoId = Number(job && job.data ? job.data.photoId : null);
           if (!Number.isFinite(photoId) || photoId <= 0) return;
-          const res = await detectAndClusterPhoto({
+          const res = await runFaceJob({
             photoId,
             uploaderId: job && job.data ? (job.data.uploaderId || null) : null,
             force: true,
@@ -61,20 +75,22 @@ function initBullQueue() {
     console.warn('[face_auto_worker] bullmq init failed, fallback to memory queue:', err && err.message ? err.message : err);
     bullQueue = null;
     bullWorker = null;
+    bullConnection?.disconnect();
+    bullConnection = null;
     return false;
   }
 }
 
 function processNext() {
   const concurrency = getConcurrency();
-  while (running < concurrency && queue.length > 0) {
+  while (!stopping && running < concurrency && queue.length > 0) {
     const job = queue.shift();
     running += 1;
     Promise.resolve()
       .then(async () => {
         const photoId = Number(job.photoId);
         if (!Number.isFinite(photoId) || photoId <= 0) return;
-        const res = await detectAndClusterPhoto({
+        const res = await runFaceJob({
           photoId,
           uploaderId: job.uploaderId || null,
           force: true,
@@ -95,6 +111,9 @@ function processNext() {
 function enqueueFaceAutoJob(job) {
   const photoId = Number(job && job.photoId);
   if (!Number.isFinite(photoId) || photoId <= 0) return false;
+  if (distributed()) return coordinator.enqueue('face', photoId, { photoId, uploaderId: job.uploaderId || null },
+    { priority: job.priority === 'low' ? 10 : 0 });
+  if (stopping) return false;
 
   if (initBullQueue() && bullQueue) {
     const payload = {
@@ -134,6 +153,14 @@ function queueLength() {
 }
 
 module.exports = {
+  start: () => { if (!stopping && !distributed()) initBullQueue(); },
   enqueueFaceAutoJob,
   queueLength,
+  async stop() {
+    stopping = true;
+    if (bullWorker) await bullWorker.close();
+    await require('./runtime_lifecycle').waitForIdle(() => running === 0);
+    if (bullQueue) await bullQueue.close();
+    if (bullConnection) await bullConnection.quit();
+  },
 };

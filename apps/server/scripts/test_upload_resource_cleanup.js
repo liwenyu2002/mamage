@@ -52,7 +52,7 @@ async function testDeletedVideoCleanup() {
   const context = {
     console: quiet, path, VIDEO_PREVIEW_ENABLED: true, VIDEO_PLAYBACK_ENABLED: true,
     VIDEO_UPLOAD_TMP_DIR: '/isolated-test', VIDEO_TMP_MIN_FREE_BYTES: 1, UPLOAD_CACHE_CONTROL: '',
-    uuidv4: () => 'test', playbackJobsWaiting: jobs, drainPlaybackQueue() {},
+    uuidv4: () => 'test', playbackJobsWaiting: jobs, backgroundStopping: false, drainPlaybackQueue() {}, distributed: () => false,
     tmpDirFreeBytes: async () => 100000,
     fs: { createWriteStream: () => ({}) }, pipeline: async () => {},
     prepareVideoForStreaming: async () => ({ fastStarted: true, filePath: '/isolated-test/fast.mp4', cleanupPath: '/isolated-test/fast.mp4', size: 10 }),
@@ -74,6 +74,15 @@ async function testDeletedVideoCleanup() {
   assert.equal(objects.size, 0, 'faststart must not recreate a deleted original');
   assert.equal(previewCalls, 0);
   assert.equal(removedTemps.length, 2);
+  context.tmpDirFreeBytes = async () => 25;
+  context.enableVideoSemanticAnalysis = async () => {};
+  context.cosStorage.getObject = async () => { throw Error('must not download a video when working space is insufficient'); };
+  await assert.rejects(context.enqueueDirectVideoPostProcess({ insertedId: 2, sourceKey: 'too-large.mp4' }, true),
+    /INSUFFICIENT_STORAGE_FOR_VIDEO_PROCESSING/);
+  assert.equal(deleted.length, 1, 'capacity rejection cannot delete the uploaded original');
+  context.backgroundStopping = true;
+  assert.equal(context.enqueueDirectVideoPostProcess({ insertedId: 2, sourceKey: 'second.mp4' }), false);
+  assert.equal(jobs.length, 1, 'shutdown must not accept another video processing task');
 }
 
 async function testZipCancellation() {

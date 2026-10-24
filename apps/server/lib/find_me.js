@@ -1,9 +1,5 @@
 // "拍照找我"：用户上传/拍摄单人照 → 热模型服务检测人脸 → 与相册/分享范围内的人脸做相似度匹配。
-// 隐私：自拍只落临时文件喂检测服务，用完即删，不入库不进对象存储。
-const os = require('os');
-const path = require('path');
-const crypto = require('crypto');
-const fsp = require('fs/promises');
+// 自拍在内存中压缩，不在 MaMage 入库/落盘；远程 provider 的日志留存需另行审核。
 const axios = require('axios');
 const sharp = require('sharp');
 const { pool } = require('../db');
@@ -60,22 +56,25 @@ async function normalizeSelfie(buffer) {
   }
 }
 
-// 检测：临时文件 → 热模型服务；返回人脸与模型版本，始终删除临时文件。
+// Send normalized bytes, not a host-local path: the model may run on another machine.
 async function detectSelfieFaces(buffer) {
+  if (process.env.FACE_INFERENCE_PROVIDER === 'zgcai') {
+    try {
+      require('./hub_inference').assertLegacyFaceCompatibility();
+      return await require('./hub_inference').detectFaces(buffer);
+    }
+    catch { throw new FindMeError(503, 'FACE_SERVICE_UNAVAILABLE'); }
+  }
   if (!SERVICE_URL) throw new FindMeError(503, 'FACE_SERVICE_UNAVAILABLE');
-  const tmp = path.join(os.tmpdir(), `findme_${crypto.randomBytes(8).toString('hex')}.jpg`);
-  await fsp.writeFile(tmp, buffer);
   try {
     const resp = await axios.post(`${SERVICE_URL}/detect`, {
-      imagePath: tmp, modelName: MODEL_NAME, backend: 'insightface',
+      imageBase64: buffer.toString('base64'), modelName: MODEL_NAME, backend: 'insightface',
     }, { timeout: SERVICE_TIMEOUT });
     const faces = resp && resp.data && Array.isArray(resp.data.faces) ? resp.data.faces : [];
     return { faces, modelName: resp.data.modelName || MODEL_NAME, modelVersion: resp.data.modelVersion || null };
   } catch (e) {
     if (e instanceof FindMeError) throw e;
     throw new FindMeError(503, 'FACE_SERVICE_UNAVAILABLE');
-  } finally {
-    try { await fsp.unlink(tmp); } catch (e) { /* 尽力删除 */ }
   }
 }
 
@@ -195,7 +194,9 @@ async function findMe(fileBuffer, scope) {
 
 // 简易内存限速（公开分享页也开放，防刷 CPU）：每 IP 每分钟 N 次
 const rateBuckets = new Map();
-function checkRateLimit(ip, maxPerMinute = 6) {
+const sharedFindMeRate = require('./shared_rate_limit').createRateLimit('find-me');
+async function checkRateLimit(ip, maxPerMinute = 6) {
+  if (require('./shared_runtime_state').distributed()) return (await sharedFindMeRate.take(ip, maxPerMinute, 60000)).allowed;
   const now = Date.now();
   const key = String(ip || 'unknown');
   const list = (rateBuckets.get(key) || []).filter((t) => now - t < 60000);

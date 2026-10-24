@@ -1,0 +1,21 @@
+.card-sharing-status { display: inline-flex; align-items: center; gap: 4px; min-width: 0; max-width: 100%; color: #52646b; font-size: 10px; font-weight: 500; line-height: 14px; letter-spacing: 0; }
+.card-sharing-status > svg { width: 11px; height: 11px; flex: 0 0 11px; }
+.card-sharing-status > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-card__sharing { flex: 0 1 auto; margin-left: auto; }
+.acp-collection-meta-line { display: flex; align-items: center; min-width: 0; gap: 8px; margin-top: 3px; }
+.acp-collection-meta-line > .acp-collection-meta { flex: 0 1 auto; min-width: 0; margin-top: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acp-collection-meta-line:has(.card-sharing-status) > .acp-collection-meta { flex: 1; }
+.acp-collection-meta-line > .card-sharing-status { flex: 0 0 auto; margin-left: auto; font-size: 10px; line-height: 14px; }
+.acp-collection-meta-line .card-sharing-status > svg { width: 10px; height: 10px; flex-basis: 10px; }
+.acp-shortcut-meta { display: flex; align-items: center; gap: 8px; min-width: 0; margin-top: 7px; }
+.acp-shortcut-copy .acp-shortcut-meta > small { margin-top: 0; }
+.acp-shortcut-meta:has(.card-sharing-status) > small { flex: 1; min-width: 0; }
+.acp-shortcut-meta > .card-sharing-status { flex: 0 1 auto; font-size: 10px; line-height: 14px; }
+.acp-column-row-copy { display: flex; flex: 1; align-items: center; min-width: 0; gap: 8px; }
+.acp-column-row-copy > .acp-column-row-name, .acp-column-row-copy > strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acp-column-row-copy > .card-sharing-status { flex: 0 0 auto; }
+.acp-column-row.is-selected .card-sharing-status { color: inherit; }
+.acp-column-album-preview > .card-sharing-status { display: flex; margin: 0 0 14px; }
+@media (max-width: 768px) {
+  .project-card__sharing { font-size: 10px; line-height: 14px; }
+}

@@ -7,7 +7,7 @@ let separationPairs = [];
 let feedbackRows = [];
 let queryVector = [1, 0];
 let detectorFails = false;
-const temporaryPaths = [];
+let inlineSelfies = 0;
 process.env.FACE_DETECTOR_SERVICE_URL = 'http://127.0.0.1:8009';
 
 const otherFace = [0.4, Math.sqrt(1 - (0.4 * 0.4))];
@@ -55,7 +55,11 @@ require.cache[axiosPath] = {
   id: axiosPath, filename: axiosPath, loaded: true,
   exports: { post: async (_url, payload) => {
     assert.equal(payload.backend, 'insightface', 'selfie identification cannot silently fall back to Haar');
-    temporaryPaths.push(payload.imagePath);
+    assert.equal(payload.imagePath, undefined, 'remote models cannot read API-local files');
+    assert.ok(typeof payload.imageBase64 === 'string');
+    const jpeg = Buffer.from(payload.imageBase64, 'base64');
+    assert.equal(jpeg.readUInt16BE(0), 0xffd8, 'only normalized JPEG bytes are sent');
+    inlineSelfies++;
     if (detectorFails) throw new Error('synthetic detector failure');
     return { data: { modelName: 'buffalo_l', modelVersion: null, faces: [{ normalizedEmbedding: queryVector }] } };
   } },
@@ -126,9 +130,7 @@ async function main() {
   await assert.rejects(findMe(image, { projectId: 86, orgId: 2 }), (error) => error.code === 'NO_EMBEDDING');
   detectorFails = true;
   await assert.rejects(findMe(image, { projectId: 86, orgId: 2 }), (error) => error.code === 'FACE_SERVICE_UNAVAILABLE');
-  for (const temporaryPath of temporaryPaths) {
-    await assert.rejects(require('fs/promises').access(temporaryPath), (error) => error.code === 'ENOENT');
-  }
+  assert.ok(inlineSelfies > 0);
   console.log('find me precision: scope, reference veto, ambiguity, per-face checks and model isolation passed');
 }
 

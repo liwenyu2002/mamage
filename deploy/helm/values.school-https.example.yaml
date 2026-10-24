@@ -1,0 +1,13 @@
+# Replace with the school's assigned name and existing trusted certificate Secret.
+# This file neither creates a domain/certificate nor exposes the service publicly.
+publicURL: https://gallery.example.edu.cn
+ingress:
+  enabled: true
+  className: school-gateway
+  host: gallery.example.edu.cn
+  tlsSecretName: mamage-school-tls
+  annotations: {}
+config:
+  DINGTALK_REDIRECT_URI: https://gallery.example.edu.cn/api/auth/dingtalk/callback
+# DINGTALK_CLIENT_ID and DINGTALK_CLIENT_SECRET belong in the existing runtime
+# Secret, never in Helm values. Test with scripts/check_school_integrations.js.

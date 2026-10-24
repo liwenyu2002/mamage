@@ -6,6 +6,45 @@ const { unitIdFromKey, authorizeMediaKey } = require('../lib/media_access');
 const router = express.Router();
 
 const DEFAULT_CACHE_CONTROL = process.env.IMAGE_PROXY_CACHE_CONTROL || 'public, max-age=31536000, immutable';
+const HEADERS_TIMEOUT_MS = Math.max(1000, Number(process.env.IMAGE_PROXY_HEADERS_TIMEOUT_MS) || 15000);
+const IDLE_TIMEOUT_MS = Math.max(1000, Number(process.env.IMAGE_PROXY_IDLE_TIMEOUT_MS) || 60000);
+
+function createTransfer(res) {
+  const controller = new AbortController();
+  let body, idleTimer, timedOut = false;
+  const clear = () => {
+    clearTimeout(headersTimer); clearTimeout(idleTimer);
+    res.off('close', disconnect); res.off('finish', clear);
+    body?.off('data', activity);
+  };
+  const disconnect = () => {
+    controller.abort();
+    body?.destroy?.();
+    clear();
+  };
+  const timeout = () => {
+    timedOut = true;
+    disconnect();
+    if (res.destroyed || res.writableEnded) return;
+    if (!res.headersSent) res.status(504).end();
+    else res.destroy();
+  };
+  const activity = () => { clearTimeout(idleTimer); idleTimer = setTimeout(timeout, IDLE_TIMEOUT_MS); idleTimer.unref?.(); };
+  const headersTimer = setTimeout(timeout, HEADERS_TIMEOUT_MS); headersTimer.unref?.();
+  // Register before S3 resolves: a late response still owns a socket after the browser leaves.
+  res.once('close', disconnect); res.once('finish', clear);
+  return {
+    signal: controller.signal,
+    get timedOut() { return timedOut; },
+    receive(stream) {
+      clearTimeout(headersTimer); body = stream;
+      if (controller.signal.aborted || res.destroyed || res.writableEnded) { body?.destroy?.(); clear(); return false; }
+      if (body?.on) { body.on('data', activity); activity(); }
+      return true;
+    },
+    fail() { disconnect(); },
+  };
+}
 
 // 与 db.js signMediaQuery 配对的校验开关/密钥（保持独立读取，避免循环依赖）
 const MEDIA_URL_SIGNING = String(process.env.MEDIA_URL_SIGNING || '') === '1';
@@ -144,11 +183,15 @@ router.use(async (req, res) => {
   };
   if (range && req.method === 'GET') requestOptions.range = range;
 
+  if (res.destroyed || res.writableEnded) return;
+  const transfer = createTransfer(res);
+  requestOptions.signal = transfer.signal;
   try {
     const object = req.method === 'HEAD'
       ? await cosStorage.headObject(key, requestOptions)
       : await cosStorage.getObject(key, requestOptions);
 
+    if (!transfer.receive(object.Body)) return;
     setObjectHeaders(res, key, object);
     const status = object && object.$metadata && object.$metadata.httpStatusCode === 206 ? 206 : 200;
     res.status(status);
@@ -156,18 +199,21 @@ router.use(async (req, res) => {
     if (req.method === 'HEAD') return res.end();
 
     const stream = object.Body;
-    if (!stream || typeof stream.pipe !== 'function') return res.end();
+    if (!stream || typeof stream.pipe !== 'function') { transfer.fail(); return res.end(); }
 
-    res.on('close', () => {
-      if (!res.writableEnded && typeof stream.destroy === 'function') stream.destroy();
-    });
     stream.on('error', (err) => {
+      transfer.fail();
+      if (res.destroyed || res.writableEnded) return;
       console.error('[image_proxy] stream error:', err && err.message ? err.message : err);
       if (!res.headersSent) return res.status(502).end();
       res.destroy(err);
     });
     return stream.pipe(res);
   } catch (err) {
+    const cancelled = transfer.signal.aborted;
+    transfer.fail();
+    if (res.destroyed || res.writableEnded || (cancelled && !transfer.timedOut)) return;
+    if (transfer.timedOut) return res.status(504).end();
     const status = statusFromStorageError(err);
     if (status === 304) return res.status(304).end();
     if (status === 404 || status === 412 || status === 416) return res.status(status).end();

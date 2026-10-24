@@ -70,4 +70,45 @@ function validatePreferences(value, groups, albumIds) {
     dismissed: [...new Set(Array.isArray(value.dismissed) ? value.dismissed.map(Number).filter(id => albumIds.has(id)) : [])] };
 }
 
-module.exports = { invalid, json, validateGroups, validatePreferences };
+function authorizeFolderChanges(stored, submitted, { userId, canManage, canDelete }) {
+  const ids = new Set([...stored, ...submitted].flatMap(group => group.projectIds || []).map(Number));
+  const previous = validateGroups(stored, ids);
+  const byId = new Map(stored.map(group => [group.id, group]));
+  const ownerId = group => {
+    const value = Number(group?.createdBy);
+    return Number.isSafeInteger(value) && value > 0 ? value : null;
+  };
+  const editable = group => canManage || ownerId(group) === userId;
+  const retained = new Set(submitted.map(group => group.id));
+  if (!canDelete && stored.some(group => !retained.has(group.id))) throw invalid('只有管理员可以删除文件夹', 403);
+  const comparable = group => JSON.stringify({ ...group, projectIds: [...group.projectIds].sort((a, b) => a - b) });
+  if (!canManage) {
+    const nextById = new Map(submitted.map(group => [group.id, group]));
+    for (const before of previous) {
+      if (!editable(byId.get(before.id)) && comparable(before) !== comparable(nextById.get(before.id))) {
+        throw invalid('只能修改自己创建的文件夹；历史文件夹请联系管理员', 403);
+      }
+    }
+    const protectedIds = stored.filter(group => !editable(group)).map(group => group.id);
+    const protectedSet = new Set(protectedIds);
+    if (JSON.stringify(submitted.filter(group => protectedSet.has(group.id)).map(group => group.id)) !== JSON.stringify(protectedIds)) {
+      throw invalid('不能调整其他人文件夹的顺序', 403);
+    }
+  }
+  const authorized = submitted.map(group => ({ ...group, createdBy: byId.has(group.id) ? ownerId(byId.get(group.id)) : userId,
+    ...(byId.get(group.id)?.restrictedToUserId ? { restrictedToUserId: byId.get(group.id).restrictedToUserId } : {}) }));
+  const parents = new Map(authorized.map(group => [group.id, group]));
+  for (const group of authorized) {
+    const visited = new Set([group.id]);
+    for (let parent = parents.get(group.parentId); parent; parent = parents.get(parent.parentId)) {
+      if (visited.has(parent.id)) throw invalid('文件夹不能移入自身或自己的子文件夹');
+      visited.add(parent.id);
+      if (!parent.restrictedToUserId) continue;
+      if (group.restrictedToUserId && Number(group.restrictedToUserId) !== Number(parent.restrictedToUserId)) throw invalid('不能合并不同接收人的私有文件夹', 403);
+      group.restrictedToUserId = Number(parent.restrictedToUserId);
+    }
+  }
+  return authorized;
+}
+
+module.exports = { invalid, json, validateGroups, validatePreferences, authorizeFolderChanges };

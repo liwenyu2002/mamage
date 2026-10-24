@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "people": [{"id":1,"name":"陈老师"},{"id":2,"name":"林同学"}],
+  "intents": [
+    {"id":"named-single","query":"陈老师单人照","people":["陈老师"],"excludePeople":[],"personCount":1},
+    {"id":"single-synonym","query":"林同学的独照","people":["林同学"],"excludePeople":[],"personCount":1},
+    {"id":"white-clothing","query":"林同学穿白色衣服","people":["林同学"],"excludePeople":[],"mustInclude":"白色衣服"},
+    {"id":"negated-black","query":"穿的不是黑衣服的陈老师","people":["陈老师"],"excludePeople":[],"excludeInclude":"黑色衣服","mustNotInclude":"黑色衣服"},
+    {"id":"exclude-identity","query":"不要林同学的照片","people":[],"excludePeople":["林同学"]},
+    {"id":"co-occurrence","query":"陈老师和林同学的合照","people":["陈老师","林同学"],"excludePeople":[]},
+    {"id":"speech-identity","query":"陈老师正在讲话","people":["陈老师"],"excludePeople":[],"mustInclude":"正在讲话"}
+  ],
+  "visual": [
+    {"id":"red-subject","positive":[{"kind":"color","value":"red"}],"negative":[],"evidence":{"binding":"clear","visibility":"clear","colors":["red"]},"expected":"match"},
+    {"id":"red-background-blue-subject","positive":[{"kind":"color","value":"red"}],"negative":[],"evidence":{"binding":"clear","visibility":"clear","colors":["blue"],"observation":"背景为红色，目标人物穿蓝色上衣"},"expected":"reject"},
+    {"id":"red-neighbour-white-subject","positive":[{"kind":"color","value":"red"}],"negative":[],"evidence":{"binding":"clear","visibility":"clear","colors":["white"],"observation":"目标人物穿白色，旁人穿红衣"},"expected":"reject"},
+    {"id":"missing-person-evidence","positive":[{"kind":"color","value":"red"}],"negative":[],"evidence":null,"expected":"unknown"},
+    {"id":"visible-non-black","positive":[],"negative":[{"kind":"color","value":"black"}],"evidence":{"binding":"clear","visibility":"clear","colors":["white"]},"expected":"match"},
+    {"id":"hidden-is-not-non-black","positive":[],"negative":[{"kind":"color","value":"black"}],"evidence":{"binding":"clear","visibility":"hidden","colors":["white"]},"expected":"unknown"},
+    {"id":"multicolor-ambiguity","positive":[],"negative":[{"kind":"color","value":"black"}],"evidence":{"binding":"clear","visibility":"clear","colors":["white","black"]},"expected":"unknown"},
+    {"id":"uncertain-binding","positive":[{"kind":"color","value":"red"}],"negative":[],"evidence":{"binding":"uncertain","visibility":"clear","colors":["red"]},"expected":"unknown"},
+    {"id":"speech-unknown","positive":[{"kind":"activity","value":"speech"}],"negative":[],"evidence":{"binding":"clear","visibility":"clear","colors":["green"],"activities":{"speech":"unknown"}},"expected":"unknown"},
+    {"id":"speech-confirmed","positive":[{"kind":"activity","value":"speech"}],"negative":[],"evidence":{"binding":"clear","visibility":"clear","colors":["green"],"activities":{"speech":"yes"}},"expected":"match"}
+  ]
+}

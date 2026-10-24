@@ -3,6 +3,7 @@ const router = express.Router();
 const { pool } = require('../db');
 const { buildMediaUrl } = require('../lib/media_access');
 const { requirePermission } = require('../lib/permissions');
+const { requireFaceAccess } = require('../lib/face_access');
 const {
   resolveWorkspace, requireProjectAccess, requirePhotoAccess, sendWorkspaceError,
 } = require('../lib/workspace_access');
@@ -47,16 +48,8 @@ router.use((req, res, next) => {
   if (req.path === '/faces/find-me' || req.path === '/faces/find-me/share') return next();
   return requirePermission('photos.view')(req, res, async () => {
     try {
-      const workspace = await resolveWorkspace(req);
-      if (!workspace.enabled) return next();
-      const [grants] = await pool.query(
-        `SELECT college_wide FROM face_search_grants
-         WHERE organization_id = ? AND user_id = ? LIMIT 1`,
-        [workspace.orgId, workspace.userId]
-      );
-      if (!grants.length || !grants[0].college_wide) {
-        return res.status(403).json({ error: 'FACE_SEARCH_GRANT_REQUIRED' });
-      }
+      const mutates = req.method !== 'GET' || ['1', 'true'].includes(String(req.query.detect));
+      const { workspace } = await requireFaceAccess(req, mutates ? 'manage' : 'search');
       const photoId = Number(req.params?.photoId || req.query?.photoId || req.body?.photoId);
       if (Number.isSafeInteger(photoId) && photoId > 0) await requirePhotoAccess(req, photoId, req.method === 'GET' ? 'read' : 'edit');
       await pool.query(
@@ -902,7 +895,7 @@ router.get('/faces/profile', requirePermission('photos.view'), async (req, res) 
   }
 });
 
-router.get('/persons', requirePermission('faces.merge'), async (req, res) => {
+router.get('/persons', requirePermission('faces.view'), async (req, res) => {
   try {
     const orgId = getOrgIdFromReq(req);
     if (!Number.isFinite(orgId) || orgId <= 0) {
@@ -1224,7 +1217,7 @@ async function getPersonRow(connOrPool, personId, orgId, lock = false) {
 }
 
 // 拆分选择器：该人物名下所有脸（分页 + 服务端裁好的头像），用于人工勾种子
-router.get('/persons/:personId/faces', requirePermission('faces.merge'), async (req, res) => {
+router.get('/persons/:personId/faces', requirePermission('faces.view'), async (req, res) => {
   try {
     const orgId = getOrgIdFromReq(req);
     const personId = Number(req.params.personId);
@@ -1550,6 +1543,22 @@ router.get('/persons/:personId/photos', requirePermission('photos.view'), async 
 });
 
 // Aliases for current frontend detection calls.
+// This path inherits the same photo access, face-search grant and audit checks as face records.
+router.get('/photos/:photoId/faces/observations', requirePermission('photos.view'), async (req, res) => {
+  try {
+    const profiles = require('../lib/photo_person_observations');
+    if (!profiles.enabled()) return res.json({ status: 'disabled', people: [] });
+    const photoId = Number(req.params.photoId);
+    const faces = await profiles.loadPhotoFaces([photoId]);
+    const observations = await profiles.readObservations(faces);
+    return res.json({ photoId, status: observations.size < faces.length ? 'incomplete' : 'done',
+      people: profiles.presentPeople(faces, observations) });
+  } catch (err) {
+    if (schemaErrorResponse(res, err, 'GET /api/photos/:photoId/faces/observations')) return;
+    return res.status(500).json({ error: 'PERSON_OBSERVATIONS_UNAVAILABLE' });
+  }
+});
+
 router.get('/photos/:photoId/faces', requirePermission('photos.view'), async (req, res) => {
   try {
     const orgId = getOrgIdFromReq(req);
@@ -1670,7 +1679,7 @@ router.post('/faces/find-me', requirePermission('photos.view'), (req, res) => {
   findMeUpload(req, res, async (mErr) => {
     if (mErr) return res.status(400).json({ error: mErr.code === 'LIMIT_FILE_SIZE' ? 'FILE_TOO_LARGE' : 'UPLOAD_FAILED' });
     try {
-      if (!checkRateLimit(req.ip)) return res.status(429).json({ error: 'RATE_LIMITED' });
+      if (!await checkRateLimit(req.ip)) return res.status(429).json({ error: 'RATE_LIMITED' });
       const projectId = Number(req.body && req.body.projectId);
       if (!Number.isFinite(projectId) || projectId <= 0) return res.status(400).json({ error: 'projectId is required' });
       const project = await requireProjectAccess(req, projectId, 'read');
@@ -1693,12 +1702,12 @@ router.post('/faces/find-me/share', (req, res) => {
   findMeUpload(req, res, async (mErr) => {
     if (mErr) return res.status(400).json({ error: mErr.code === 'LIMIT_FILE_SIZE' ? 'FILE_TOO_LARGE' : 'UPLOAD_FAILED' });
     try {
-      if (!checkRateLimit(req.ip)) return res.status(429).json({ error: 'RATE_LIMITED' });
+      if (!await checkRateLimit(req.ip)) return res.status(429).json({ error: 'RATE_LIMITED' });
       const code = String((req.body && req.body.shareCode) || '').trim();
       if (!code) return res.status(400).json({ error: 'shareCode is required' });
 
       const [rows] = await pool.query(
-        'SELECT id, share_type, project_id, organization_id, unit_id, sync_mode, expires_at, revoked_at FROM share_links WHERE code = ? LIMIT 1', [code]
+        'SELECT id, share_type, project_id, organization_id, unit_id, sync_mode, folder_share_id, expires_at, revoked_at FROM share_links WHERE code = ? LIMIT 1', [code]
       );
       if (!rows || !rows.length) return res.status(404).json({ error: 'NOT_FOUND' });
       const s = rows[0];
@@ -1706,7 +1715,13 @@ router.post('/faces/find-me/share', (req, res) => {
       if (s.expires_at && new Date(s.expires_at).getTime() <= Date.now()) return res.status(410).json({ error: 'EXPIRED' });
 
       let scope;
-      if (s.share_type === 'collection') {
+      if (s.folder_share_id) {
+        const condition = require('../lib/folder_shares').publicFolderPhotoScope(s, 'ph');
+        const [items] = await pool.query(`SELECT ph.id AS photo_id FROM photos ph WHERE ${condition.sql}${s.sync_mode === 'approval'
+          ? ' AND EXISTS (SELECT 1 FROM share_link_items approved WHERE approved.share_id = ? AND approved.photo_id = ph.id)' : ''}`,
+        [...condition.params, ...(s.sync_mode === 'approval' ? [s.id] : [])]);
+        scope = { photoIds: items.map(row => Number(row.photo_id)) };
+      } else if (s.share_type === 'collection') {
         const [items] = await pool.query(
           `SELECT si.photo_id FROM share_link_items si JOIN photos ph ON ph.id = si.photo_id
            WHERE si.share_id = ? AND ph.organization_id = ?

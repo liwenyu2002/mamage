@@ -1,0 +1,13 @@
+[mysqld]
+basedir=/usr/local/mysql
+datadir=/var/lib/mysql
+socket=/var/run/mysqld/mysqld.sock
+pid-file=/var/run/mysqld/mysqld.pid
+secure-file-priv=/var/lib/mysql-files
+skip-name-resolve
+user=mysql
+
+[client]
+socket=/var/run/mysqld/mysqld.sock
+
+!includedir /etc/mysql/conf.d/

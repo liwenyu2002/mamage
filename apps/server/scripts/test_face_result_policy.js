@@ -13,6 +13,8 @@ function stub(relative, exports) {
 
 async function query(sql, params = []) {
   const statement = String(sql).replace(/\s+/g, ' ').trim();
+  if (statement.includes('FROM face_search_grants')) return [[{college_wide:1,can_manage:1}]];
+  if (statement.startsWith('INSERT INTO organization_access_audit')) return [{}];
   if (statement.includes('FROM photos WHERE id = ?')) return [[{ id: params[0], organizationId: 1 }]];
   if (statement.includes('FROM face_persons WHERE id = ?')) return [[{ id: params[0], personNo: params[0] }]];
   if (statement.includes('FROM photo_faces')) {
@@ -31,7 +33,7 @@ stub('db', { pool: { query, getConnection: async () => { throw new Error('blocke
 stub('lib/permissions', { requirePermission: () => (req, _res, next) => {
   req.user = { id: 1, organization_id: 1 }; next();
 } });
-stub('lib/workspace_access', { resolveWorkspace: async () => ({ enabled: false }),
+stub('lib/workspace_access', { resolveWorkspace: async () => ({ enabled: false, orgId: 1, userId: 1 }),
   requireProjectAccess: async () => {}, requirePhotoAccess: async () => {}, sendWorkspaceError: () => false });
 stub('lib/face_avatar', { getFaceAvatarDataUrl: async () => null });
 stub('lib/media_access', { buildMediaUrl: (value) => value });

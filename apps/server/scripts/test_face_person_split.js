@@ -56,6 +56,7 @@ const feedback = { events: [], samples: [], pairs: [] };
 
 function rowsFor(sql, params) {
   sql = String(sql);
+  if (sql.includes('FROM face_search_grants')) return [[{college_wide:1,can_manage:Number(params?.[1])===42?0:1}]];
   if (sql.startsWith('INSERT INTO face_feedback_events')) { feedback.events.push(params); return [{ insertId: 8 }]; }
   if (sql.trim().startsWith('INSERT INTO face_identity_feedback')) { feedback.samples.push(...params[0]); return [{ affectedRows: params[0].length }]; }
   if (sql.trim().startsWith('INSERT INTO face_person_separations')) { feedback.pairs.push(params); return [{ affectedRows: 1 }]; }
@@ -203,10 +204,10 @@ async function main() {
     assert.strictEqual(noAuth.status, 401, 'no token should 401');
 
     const noPerm = await call(server, 'GET', '/api/persons/77/faces', { token: photographer });
-    assert.strictEqual(noPerm.status, 403, 'face list requires faces.merge');
+    assert.strictEqual(noPerm.status, 200, 'search-only grants allow face lists without maintenance');
 
     const noSearchPerm = await call(server, 'GET', '/api/persons?q=张三', { token: photographer });
-    assert.strictEqual(noSearchPerm.status, 403, 'person search requires faces.merge');
+    assert.strictEqual(noSearchPerm.status, 200, 'person search is independent of faces.merge');
 
     const ok = await call(server, 'GET', '/api/persons/77/faces?pageSize=12', { token: admin });
     assert.strictEqual(ok.status, 200, `expected 200 got ${ok.status}: ${ok.text}`);

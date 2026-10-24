@@ -30,15 +30,28 @@ async function main() {
   const token = jwt.sign({ id: 42 }, process.env.JWT_SECRET, { expiresIn: '5m' });
 
   const authenticated = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-  assert.equal(authenticated.status, 200);
+  assert.equal(authenticated.status, 410);
   const entry = await authenticated.json();
-  assert.equal(entry.ok, true);
-  assert.equal(entry.lanIp, '10.100.71.180');
-  assert.equal(entry.lanPort, 3443);
+  assert.equal(entry.ok, false);
+  assert.equal(entry.mode, 'intranet-only');
+  assert.equal(entry.lanIp, undefined);
+  assert.equal(entry.lanPort, undefined);
+
+  process.env.KUBERNETES_SERVICE_HOST = '10.96.0.1';
+  const podEntry = await (await fetch(url, { headers: { Authorization: `Bearer ${token}` } })).json();
+  assert.equal(podEntry.ok, false, 'must not publish a Pod IP as the campus entry');
+  process.env.LAN_ENTRY_HOST = 'gallery.campus.example';
+  const configured = await (await fetch(url, { headers: { Authorization: `Bearer ${token}` } })).json();
+  assert.equal(configured.lanIp, undefined, 'retired endpoints must never revive the old discovery flow');
+  delete process.env.LAN_ENTRY_HOST;
+  delete process.env.KUBERNETES_SERVICE_HOST;
 
   const anonymous = await fetch(url);
   assert.equal(anonymous.status, 401);
-  console.log('network manual entry tests passed');
+  const automatic = await fetch(url.replace('/manual', ''));
+  assert.equal(automatic.status, 410);
+  assert.equal((await automatic.json()).mode, 'intranet-only');
+  console.log('retired network entry tests passed');
 }
 
 main().catch((err) => {

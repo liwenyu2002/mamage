@@ -19,6 +19,7 @@ const errors=[];const saver=mod.exports.createDesktopSaver(initial,e=>errors.pus
  await new Promise(resolve=>setTimeout(resolve,1));
  saver.save({...initial,preferences:{pins:['album:2']}});
  await one;assert.equal(calls.length,2);assert.deepEqual(calls[1].preferences.pins,['album:2']);
+ assert.equal(calls[1].sharedReferencesVersion,1,'reference-aware writes must opt into intentional shared-entry removal');
  await saver.save({...initial,preferences:{pins:[]}});assert.equal(calls.length,3);
  workspaceRevision=8;
  await saver.save({...initial,preferences:{pins:['album:1']}});

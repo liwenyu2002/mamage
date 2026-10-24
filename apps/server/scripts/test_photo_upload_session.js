@@ -33,7 +33,7 @@ assert.throws(() => sessions.readSession(sessions.createSession(data, -1), user)
     if(sql.includes('FROM photos'))return [photos];
     throw new Error(sql);
   }, release(){} };
-  const ctx = { console, setImmediate:()=>{}, photoUploadSessions:sessions,
+  const ctx = { console, setImmediate:()=>{}, photoUploadSessions:sessions, distributed:()=>false,
     pool:{getConnection:async()=>connection},router:{post:(route,...args)=>{handlers[route]=args.at(-1);}},
     requirePermission:()=>()=>{},ensureProjectInScope:async()=>{},
     cosStorage:{headObject:async()=>({ContentLength:10}),deleteObjects:async keys=>{keys.forEach(key=>objects.delete(key));return{deleted:keys};}},

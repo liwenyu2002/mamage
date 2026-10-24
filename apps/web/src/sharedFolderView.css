@@ -1,0 +1,14 @@
+.shared-folder-view { min-width: 0; padding: 12px 16px 32px; }
+.shared-folder-view h1 { margin: 20px 0 8px; font-size: 26px; line-height: 1.35; overflow-wrap: anywhere; }
+.shared-folder-view .acp-all-collections { margin: 8px 0 24px; }
+.shared-folder-view .acp-albums { margin-top: 20px; }
+.shared-folder-view .acp-folder-breadcrumb { flex-wrap: wrap; }
+.shared-folder-view .acp-folder-breadcrumb button { display: inline-flex; align-items: center; gap: 6px; }
+.shared-folder-rows { display: grid; gap: 4px; margin: 16px 0; }
+.shared-folder-row { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px; border: 0; border-radius: 8px; background: rgba(255,255,255,.45); text-align: left; cursor: pointer; }
+.shared-folder-row:hover { background: rgba(224,237,242,.8); }
+.shared-folder-row strong { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 14px; }
+.shared-folder-row > svg { width: 16px; height: 16px; }
+.shared-folder-empty { display: grid; justify-items: center; padding: 48px 12px; color: #717b82; }
+.shared-folder-empty > svg { width: 32px; height: 32px; }
+@media (max-width: 600px) { .shared-folder-view { padding: 8px 0 24px; } .shared-folder-view h1 { font-size: 22px; } }

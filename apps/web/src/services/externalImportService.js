@@ -5,11 +5,11 @@ export const startExternalImport = (data) => request('/api/external-imports/jobs
 });
 
 export const listExternalImports = (projectId) => request('/api/external-imports/jobs', {
-  data: { projectId }, timeoutMs: 15000,
+  data: { projectId }, timeoutMs: 15000, retryGateway: true,
 });
 
 export const getExternalImport = (jobId) => request(`/api/external-imports/jobs/${jobId}`, {
-  timeoutMs: 15000,
+  timeoutMs: 15000, retryGateway: true,
 });
 
 export const cancelExternalImport = (jobId) => request(`/api/external-imports/jobs/${jobId}/cancel`, {
@@ -21,11 +21,11 @@ export const resumeExternalImport = (jobId) => request(`/api/external-imports/jo
 });
 
 export const getExternalImportUpdates = (jobId, afterPhotoId = 0) => request(`/api/external-imports/jobs/${jobId}/updates`, {
-  data: { afterPhotoId }, timeoutMs: 15000,
+  data: { afterPhotoId }, timeoutMs: 15000, retryGateway: true,
 });
 
 export const getExternalImportIssues = (jobId, afterItemId = 0) => request(`/api/external-imports/jobs/${jobId}/issues`, {
-  data: { afterItemId }, timeoutMs: 15000,
+  data: { afterItemId }, timeoutMs: 15000, retryGateway: true,
 });
 
 export const hideExternalImportSource = (sourceId) => request(`/api/external-imports/sources/${sourceId}/hide`, {

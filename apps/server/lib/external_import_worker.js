@@ -159,7 +159,7 @@ async function importItem(job, item) {
       );
       await pool.query("UPDATE external_import_items SET status = 'done', photo_id = ?, error_code = NULL WHERE id = ?", [existing[0].id, item.id]);
       try {
-        upload.enqueuePostUploadJobs({ insertedId: existing[0].id, thumbRel: `/${item.thumb_key}`, thumbBuffer: null, photographerId: job.requested_by, priority: 'low' });
+        await upload.enqueuePostUploadJobs({ insertedId: existing[0].id, thumbRel: `/${item.thumb_key}`, thumbBuffer: null, photographerId: job.requested_by, priority: 'low' });
       } catch (err) { console.warn('[external-import] post-upload retry failed:', err?.message); }
       return;
     }
@@ -186,9 +186,11 @@ async function importItem(job, item) {
       projectId: job.project_id,
       timelineSectionId: item.timeline_section_id || job.timeline_section_id,
       title: item.filename,
+      originalFilename: item.filename || null,
       description: null,
       tags: [],
       aiStatus: 'pending',
+      backgroundPriority: 'low',
       type: 'normal',
       photographerId: job.requested_by,
       orgId: job.organization_id,
@@ -204,8 +206,8 @@ async function importItem(job, item) {
     throw err;
   }
   try {
-    upload.enqueuePostUploadJobs({ insertedId, thumbRel: `/${keys.thumbKey}`, thumbBuffer: thumb, photographerId: job.requested_by, priority: 'low' });
-    if (keys.publicDownloadKey) upload.enqueuePublicDownloadDerivative({
+    await upload.enqueuePostUploadJobs({ insertedId, thumbRel: `/${keys.thumbKey}`, thumbBuffer: thumb, photographerId: job.requested_by, priority: 'low' });
+    if (keys.publicDownloadKey) await upload.enqueuePublicDownloadDerivative({
       insertedId, sourceKey: keys.originalKey,
       publicDownloadKey: keys.publicDownloadKey,
       publicDownloadRel: keys.publicDownloadRel,
@@ -361,6 +363,7 @@ async function pump() {
     await pool.query("UPDATE external_import_jobs SET status = 'queued', retry_after = NULL WHERE status = 'paused' AND cancel_requested = 0 AND retry_after <= NOW()");
     const [jobs] = await pool.query("SELECT * FROM external_import_jobs WHERE status IN ('queued', 'running') ORDER BY id LIMIT 100");
     for (const job of jobs) {
+      if (!started) break;
       if (runningJobs.size >= MAX_ACTIVE_JOBS) break;
       if (runningJobs.has(job.id)) continue;
       const lock = await acquireJobLock(pool, `external-import:${job.id}`);
@@ -395,6 +398,7 @@ function wake() {
 }
 
 function start() {
+  if (require('./distributed_runtime').distributed() && !require('./distributed_runtime').coordinator.isLeader()) return;
   if (started) return;
   started = true;
   ticker = setInterval(wake, 2500);
@@ -402,4 +406,10 @@ function start() {
   wake();
 }
 
-module.exports = { start, wake, failureCode, transferImage, imageMime, runJob };
+async function stop() {
+  started = false;
+  clearInterval(ticker);
+  await require('./runtime_lifecycle').waitForIdle(() => !pumping && runningJobs.size === 0);
+}
+
+module.exports = { start, stop, wake, failureCode, transferImage, imageMime, runJob };

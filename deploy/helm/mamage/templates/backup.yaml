@@ -1,0 +1,115 @@
+{{- if .Values.backup.enabled }}
+{{- if eq .Values.backup.encryptionSecret .Values.existingSecret }}
+{{- fail "backup encryption key must be in a separate Secret" }}
+{{- end }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "mamage.name" . }}-backup
+  labels:
+    {{- include "mamage.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.backup.schedule | quote }}
+  timeZone: {{ .Values.backup.timeZone | quote }}
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 1800
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 604800
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: mamage
+            app.kubernetes.io/instance: {{ .Release.Name | quote }}
+            app.kubernetes.io/component: backup
+        spec:
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile: { type: RuntimeDefault }
+          {{- with .Values.imagePullSecrets }}
+          imagePullSecrets: {{ toYaml . | nindent 12 }}
+          {{- end }}
+          initContainers:
+            - name: database-export
+              image: {{ include "mamage.image" .Values.backup.databaseImage | quote }}
+              imagePullPolicy: {{ .Values.backup.databaseImage.pullPolicy }}
+              command: [bash, -o, pipefail, -ec]
+              args:
+                - |
+                  umask 077
+                  export MYSQL_PWD="$DB_PASSWORD"
+                  mysqldump --host="$DB_HOST" --port="$DB_PORT" --user="$DB_USER" \
+                    --single-transaction --quick --no-tablespaces --set-gtid-purged=OFF \
+                    --hex-blob "$DB_NAME" | gzip -1 > /work/database.sql.gz
+                  gzip -t /work/database.sql.gz
+              env:
+                {{- range $key := list "DB_HOST" "DB_PORT" "DB_USER" "DB_PASSWORD" "DB_NAME" }}
+                - name: {{ $key }}
+                  valueFrom:
+                    secretKeyRef: { name: {{ $.Values.existingSecret | quote }}, key: {{ $key }} }
+                {{- end }}
+              resources:
+                requests: { cpu: 100m, memory: 64Mi }
+                limits: { cpu: "1", memory: 256Mi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: { drop: [ALL] }
+              volumeMounts:
+                - { name: work, mountPath: /work }
+                - { name: tmp, mountPath: /tmp }
+          containers:
+            - name: encrypt-and-store
+              image: {{ include "mamage.image" .Values.images.api | quote }}
+              imagePullPolicy: {{ .Values.images.api.pullPolicy }}
+              command: [node, scripts/backup.js]
+              envFrom:
+                - configMapRef: { name: {{ include "mamage.name" . }}-config }
+                - secretRef: { name: {{ .Values.existingSecret | quote }} }
+              env:
+                - { name: NODE_ENV, value: production }
+                - { name: HOME, value: /tmp }
+                - { name: MAMAGE_BACKUP_PREFIX, value: {{ .Values.backup.prefix | quote }} }
+                - { name: COS_BASE_URL, value: {{ .Values.objectStorage.endpoint | quote }} }
+                - { name: COS_REGION, value: {{ .Values.objectStorage.region | quote }} }
+                - { name: COS_FORCE_PATH_STYLE, value: {{ ternary "1" "0" .Values.objectStorage.forcePathStyle | quote }} }
+              resources:
+                requests: { cpu: 100m, memory: 64Mi }
+                limits: { cpu: "1", memory: 256Mi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: { drop: [ALL] }
+              volumeMounts:
+                - { name: work, mountPath: /work }
+                - { name: tmp, mountPath: /tmp }
+                - { name: runtime-config, mountPath: /run/runtime-config, readOnly: true }
+                - { name: runtime-settings, mountPath: /run/runtime-settings, readOnly: true }
+                - { name: backup-key, mountPath: /run/backup-key, readOnly: true }
+          volumes:
+            - name: work
+              emptyDir: { sizeLimit: {{ .Values.backup.workSize }} }
+            - name: tmp
+              emptyDir: { sizeLimit: 64Mi }
+            - name: runtime-config
+              secret: { secretName: {{ .Values.existingSecret | quote }}, defaultMode: 0440 }
+            - name: runtime-settings
+              configMap: { name: {{ include "mamage.name" . }}-config, defaultMode: 0440 }
+            - name: backup-key
+              secret: { secretName: {{ .Values.backup.encryptionSecret | quote }}, defaultMode: 0440 }
+          {{- with .Values.nodeSelector }}
+          nodeSelector: {{ toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.tolerations }}
+          tolerations: {{ toYaml . | nindent 12 }}
+          {{- end }}
+{{- end }}

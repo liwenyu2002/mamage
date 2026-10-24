@@ -39,6 +39,10 @@ const aiRelated = [
  * @throws {Error} 如果缺少必需的环境变量
  */
 function validateEnvironment(strict = false) {
+  if (process.env.MAMAGE_CONTAINER === '1') {
+    const errors = require('./container_config').checkContainerConfig();
+    if (errors.length) throw new Error('Container configuration rejected:\n' + errors.map(error => `- ${error}`).join('\n'));
+  }
   if (process.env.NODE_ENV === 'production' && process.env.ORGANIZATION_UNITS_ACTIVE !== '1') {
     throw new Error('ORGANIZATION_UNITS_ACTIVE must be 1 in production; refusing to disable workspace isolation');
   }

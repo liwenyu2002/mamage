@@ -3,8 +3,9 @@ import ReactDOM from 'react-dom';
 import { Toast, Tooltip, Modal } from './ui';
 import { getAll, getCount, add, clear, getMediaKind, subscribe, removeById } from './services/transferStore';
 import { resolveAssetUrl } from './services/request';
-import { pickZipSaveHandle, fetchZipToTarget, formatBytes, formatDuration, startNativeZipDownload } from './services/zipDownload';
-import { cancelDirectZipJob, getDirectZipJob, listActiveDirectZipJobs, startDirectZipJob, triggerDirectDownload } from './services/directStorage';
+import { formatBytes, formatDuration } from './services/zipDownload';
+import { cancelDirectZipJob, getDirectZipJob, listActiveDirectZipJobs, triggerDirectDownload } from './services/directStorage';
+import { batchVideoDownload } from './services/batchVideoDownload';
 
 function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
@@ -338,7 +339,7 @@ export default function TransferStation({ onInternalShare }) {
     }
   }, []);
 
-  const handlePackDownload = React.useCallback(async () => {
+  const handlePackDownload = React.useCallback(() => {
     if (busyKeyRef.current) return;
     const list = getAll();
     if (!list || list.length === 0) {
@@ -351,94 +352,11 @@ export default function TransferStation({ onInternalShare }) {
       return;
     }
 
-    const zipName = `transfer_${Date.now()}`;
-    const mediaSummary = formatMediaSummary(countMediaItems(list));
-    const isHttpEntry = typeof window !== 'undefined' && window.location.protocol === 'http:';
-    // 校园网 HTTP 能直连内网对象存储：后台流式组 ZIP 后，最终下载不再经过 Mac mini。
-    // HTTPS 公网入口会直接进入下方原有流程，且不会破坏 showSaveFilePicker 的用户手势。
-    if (isHttpEntry) {
-      setBusy('pack');
-      directPackEstimateRef.current = { sampledAt: 0, loaded: 0, speedBps: 0 };
-      setPackProgress({ phase: 'preparing', status: 'creating', jobId: '', loaded: 0, total: 0, files: ids.length, mediaSummary, speedBps: 0, etaSeconds: null, queueAhead: 0, queuePosition: 0 });
-      try {
-        let job = await startDirectZipJob({ photoIds: ids, zipName });
-        if (job && job.id) {
-          directZipJobRef.current = String(job.id);
-          const startedAt = Date.now();
-          while (job && !['ready', 'failed', 'cancelled'].includes(job.status)) {
-            setPackProgress(getDirectPackProgress({ ...job, files: ids.length }, mediaSummary));
-            await new Promise((resolve) => window.setTimeout(resolve, 900));
-            job = await getDirectZipJob(job.id);
-            if (!job && Date.now() - startedAt > 15000) throw new Error('DIRECT_ZIP_JOB_UNAVAILABLE');
-          }
-          if (job && job.status === 'cancelled') {
-            Toast.info('压缩任务已中断');
-            return;
-          }
-          if (!job || job.status === 'failed') throw new Error((job && job.error) || 'DIRECT_ZIP_PREPARATION_FAILED');
-          if (!job.downloadUrl) throw new Error('DIRECT_ZIP_DOWNLOAD_URL_MISSING');
-          triggerDirectDownload(job.downloadUrl);
-          Toast.success('压缩包已就绪，正在从内网存储高速下载');
-          return;
-        }
-      } catch (e) {
-        if (e && e.message === 'DIRECT_ZIP_CANCELLED') return;
-        // 加速通道异常时仍保留已有的流式打包下载，用户不会被卡死在单一路径上。
-        console.warn('direct object storage ZIP unavailable, fallback to media proxy ZIP:', e);
-        Toast.info('高速下载暂不可用，已切回兼容下载');
-      } finally {
-        directZipJobRef.current = '';
-        setBusy('');
-        setPackProgress(null);
-      }
-    }
-
-    // ① 保存框必须在这里弹：还在用户手势里。放到 await fetch 之后会因 activation 过期抛
-    //    SecurityError，保存框弹不出来（旧版"点了打包没反应"就是这个）。
-    const handle = await pickZipSaveHandle(`${zipName}.zip`);
-    if (handle === 'abort') return; // 用户取消，不发请求
-
-    if (!handle) {
-      setBusy('pack');
-      try {
-        await startNativeZipDownload({ photoIds: ids, zipName });
-        Toast.success('已交给浏览器下载，请查看下载列表');
-      } catch (e) {
-        console.error('transfer native pack download failed', e);
-        if (e && e.message === 'NOT_LOGGED_IN') Toast.warning('打包下载需要先登录');
-        else Toast.error(`打包下载失败: ${e?.message || '请求错误'}`);
-      } finally {
-        setBusy('');
-      }
-      return;
-    }
-
-    setBusy('pack');
-    setPackProgress({ loaded: 0, total: 0, files: ids.length, mediaSummary });
-    // 分块回调很密集，节流到 ~120ms 一次，避免每块都 setState 卡渲染
-    let lastTick = 0;
-    try {
-      await fetchZipToTarget({
-        photoIds: ids,
-        zipName,
-        fileHandle: handle || null,
-        onProgress: (loaded, total, stats) => {
-          const now = Date.now();
-          if (now - lastTick < 120) return;
-          lastTick = now;
-          setPackProgress({ loaded, total, files: ids.length, mediaSummary, speedBps: stats && stats.speedBps, etaSeconds: stats && stats.etaSeconds });
-        },
-      });
-      Toast.success('打包下载完成');
-    } catch (e) {
-      console.error('transfer pack download failed', e);
-      if (e && e.message === 'NOT_LOGGED_IN') Toast.warning('打包下载需要先登录');
-      else Toast.error(`打包下载失败: ${e?.message || '请求错误'}`);
-    } finally {
-      setBusy('');
-      setPackProgress(null);
-    }
-  }, [getDirectPackProgress]);
+    if (ids.length !== list.length) return Toast.error('有媒体信息缺失，请重新加入中转站');
+    if (batchVideoDownload.isRunning()) return Toast.info('已有下载任务，请先查看下载进度');
+    const videosOnly = list.every(item => getMediaKind(item) === 'video');
+    void batchVideoDownload.start(ids, { mediaKind: videosOnly ? 'video' : 'mixed', forceZip: !videosOnly });
+  }, []);
 
   const createShareWithExpiry = React.useCallback(async (expiresInSeconds) => {
     if (busyKeyRef.current) return;

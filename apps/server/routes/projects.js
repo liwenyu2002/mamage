@@ -1,5 +1,6 @@
 // routes/projects.js
 const express = require('express');
+const { attachVideoProcessingState } = require('../lib/video_processing_state');
 const router = express.Router();
 const { pool } = require('../db');
 const { v4: uuidv4 } = require('uuid');
@@ -84,16 +85,18 @@ const { requirePermission } = require('../lib/permissions');
 const { PENDING_IMPORT_TITLE_KEY, sourceFromUrl, insertJob } = require('../lib/external_import_jobs');
 const externalImportWorker = require('../lib/external_import_worker');
 const {
-  resolveWorkspace, projectListScope, requireProjectAccess, assertNoActiveCopySource, sendWorkspaceError,
+  resolveWorkspace, projectListScope, requireProjectAccess, canAccessProject, metadataEditScope, hasInternalShare, assertNoActiveCopySource, sendWorkspaceError,
 } = require('../lib/workspace_access');
+const { getAlbumSharingStatus } = require('../lib/shared_albums');
 
 router.param('id', async (req, res, next, value) => {
   try {
-    if (!/^\d+$/.test(String(value))) return next();
+    if (!/^\d+$/.test(String(value)) || !Number.isSafeInteger(Number(value)) || Number(value) <= 0) return res.status(400).json({ error: 'INVALID_PROJECT_ID' });
     await populateReqUserFromAuthIfPresent(req);
     const workspace = await resolveWorkspace(req);
     if (workspace.enabled) {
-      const action = req.method === 'GET' ? 'read'
+      const metadataRoute = /\/(?:update|timeline-sections)(?:\/|$)/.test(req.path);
+      const action = req.method === 'GET' ? 'read' : metadataRoute ? 'metadata'
         : req.method === 'DELETE' ? 'manage' : 'edit';
       await requireProjectAccess(req, Number(value), action);
     } else if (!req.user) {
@@ -914,6 +917,20 @@ router.get('/:id/previews', requirePermission('photos.view'), async (req, res) =
   }
 });
 
+router.get('/:id/sharing-status', async (req, res) => {
+  try {
+    const workspace = await resolveWorkspace(req);
+    const project = await requireProjectAccess(req, Number(req.params.id), 'read');
+    res.set('Cache-Control', 'private, no-store');
+    res.json({ sharing: await getAlbumSharingStatus(workspace, project) });
+  } catch (err) {
+    if (!sendWorkspaceError(res, err)) {
+      console.error('[GET /api/projects/:id/sharing-status] error:', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+});
+
 router.get('/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
@@ -973,6 +990,7 @@ router.get('/:id', async (req, res) => {
         ph.playback_url AS playbackUrl,
         /* local_path column removed from schema; do not select it */
         ph.title,
+        ph.original_filename AS originalFilename,
         ph.description,
         ph.adjustments,
         ph.tags,
@@ -1030,15 +1048,18 @@ router.get('/:id', async (req, res) => {
       adjustments: parsePhotoAdjustments(p.adjustments)
     }));
 
+    project.photos = await attachVideoProcessingState(project.photos, { db: pool });
     const workspace = await resolveWorkspace(req);
-    let faceSearchAllowed = !workspace.enabled;
-    if (workspace.enabled && shouldIncludeFaces) {
-      const [grants] = await pool.query(
-        'SELECT 1 FROM face_search_grants WHERE organization_id = ? AND user_id = ? LIMIT 1',
-        [workspace.orgId, workspace.userId]
-      );
-      faceSearchAllowed = grants.length > 0;
-    }
+    const accessProject = workspace.userId && workspace.orgId === orgId
+      ? await requireProjectAccess(req, id, 'read') : null;
+    project.canEdit = accessProject ? await canAccessProject(workspace, accessProject, 'metadata') : false;
+    const editScope = metadataEditScope(workspace);
+    const collaborativeEdit = accessProject && editScope !== 'none' && await hasInternalShare(workspace, accessProject, 'edit');
+    const editAllPhotos = editScope === 'organization'
+      || (editScope === 'unit' && Number(accessProject?.unit_id) === workspace.unitId) || Boolean(collaborativeEdit);
+    project.photos = project.photos.map(photo => ({ ...photo, canEdit: editAllPhotos
+      || (editScope === 'own' && Number(photo.photographerId) === workspace.userId) }));
+    const faceSearchAllowed = shouldIncludeFaces && (await require('../lib/face_access').getFacePermissions(workspace)).search;
     if (shouldIncludeFaces && faceSearchAllowed && project.photos.length > 0) {
       try {
         let faceSql = `
@@ -1251,8 +1272,8 @@ router.post('/', requirePermission('projects.create'), (req, res, next) => {
 // ==============================
 router.post('/:id/update', requirePermission('projects.update'), async (req, res) => {
   try {
-    const id = parseInt(req.params.id, 10);
-    if (!Number.isFinite(id)) {
+    const id = Number(req.params.id);
+    if (!/^\d+$/.test(String(req.params.id)) || !Number.isSafeInteger(id) || id <= 0) {
       return res.status(400).json({ error: 'Invalid project id' });
     }
 
@@ -1286,16 +1307,19 @@ router.post('/:id/update', requirePermission('projects.update'), async (req, res
       ownershipSql += ' AND organization_id = ?';
       ownershipParams.push(orgId);
     }
-    const [ownRows] = await pool.query(ownershipSql, ownershipParams);
-    if (!ownRows || ownRows.length === 0) return res.status(404).json({ error: 'Project not found' });
-    const metaObj = parseMeta(ownRows[0].meta);
-    if (rawEventDate) metaObj.eventDate = rawEventDate;
-    else delete metaObj.eventDate;
-    if (timelineConfig) metaObj.timelineEnabled = Boolean(timelineConfig.enabled);
-
     const conn = await pool.getConnection();
     try {
       await conn.beginTransaction();
+      const [ownRows] = await conn.query(ownershipSql + ' FOR UPDATE', ownershipParams);
+      if (!ownRows || ownRows.length === 0) {
+        await conn.rollback();
+        return res.status(404).json({ error: 'Project not found' });
+      }
+      await requireProjectAccess(req, id, 'metadata', conn);
+      const metaObj = parseMeta(ownRows[0].meta);
+      if (rawEventDate) metaObj.eventDate = rawEventDate;
+      else delete metaObj.eventDate;
+      if (timelineConfig) metaObj.timelineEnabled = Boolean(timelineConfig.enabled);
       await conn.query(
         `
         UPDATE projects
@@ -1370,6 +1394,7 @@ router.post('/:id/update', requirePermission('projects.update'), async (req, res
 
     res.json(project);
   } catch (err) {
+    if (sendWorkspaceError(res, err)) return;
     console.error('[POST /api/projects/:id/update] error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
@@ -1381,6 +1406,7 @@ router.post('/:id/update', requirePermission('projects.update'), async (req, res
 
 // 项目 org 归属校验，返回 {id} 或 null
 async function findScopedProject(req, projectId) {
+  await requireProjectAccess(req, projectId, 'metadata');
   const orgId = req.user && (req.user.organization_id !== undefined && req.user.organization_id !== null) ? parseInt(req.user.organization_id, 10) : null;
   let sql = 'SELECT id FROM projects WHERE id = ?';
   const params = [projectId];
@@ -1413,6 +1439,7 @@ router.post('/:id/timeline-sections', requirePermission('projects.update'), asyn
     );
     return res.status(201).json(serializeTimelineSection({ id: result.insertId, projectId, name, sectionTime, sortOrder }));
   } catch (err) {
+    if (sendWorkspaceError(res, err)) return;
     console.error('[POST /api/projects/:id/timeline-sections] error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
@@ -1465,6 +1492,7 @@ router.patch('/:id/timeline-sections/:sectionId', requirePermission('projects.up
     );
     return res.json(serializeTimelineSection(row));
   } catch (err) {
+    if (sendWorkspaceError(res, err)) return;
     console.error('[PATCH /api/projects/:id/timeline-sections/:sectionId] error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
@@ -1501,6 +1529,7 @@ router.delete('/:id/timeline-sections/:sectionId', requirePermission('projects.u
       try { conn.release(); } catch (e) { }
     }
   } catch (err) {
+    if (sendWorkspaceError(res, err)) return;
     console.error('[DELETE /api/projects/:id/timeline-sections/:sectionId] error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
@@ -1537,6 +1566,7 @@ router.post('/:id/timeline-sections/reorder', requirePermission('projects.update
     }
     return res.json({ ok: true });
   } catch (err) {
+    if (sendWorkspaceError(res, err)) return;
     console.error('[POST /api/projects/:id/timeline-sections/reorder] error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
@@ -1546,8 +1576,9 @@ router.post('/:id/timeline-sections/reorder', requirePermission('projects.update
 // 6. 删除项目：DELETE /api/projects/:id  (仅 admin)
 // ==============================
 router.delete('/:id', requirePermission('projects.delete'), async (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  if (!id || Number.isNaN(id)) {
+  const rawId = String(req.params.id || '');
+  const id = Number(rawId);
+  if (!/^\d+$/.test(rawId) || !Number.isSafeInteger(id) || id <= 0) {
     return res.status(400).json({ error: 'invalid project id' });
   }
 
@@ -1572,6 +1603,8 @@ router.delete('/:id', requirePermission('projects.delete'), async (req, res) => 
         await conn.rollback();
         return res.status(404).json({ error: 'project not found' });
       }
+
+      await requireProjectAccess(req, id, 'manage', conn);
 
       const [photoRows] = await conn.query(
         `SELECT id, url, thumb_url AS thumbUrl, public_download_url AS publicDownloadUrl, playback_url AS playbackUrl

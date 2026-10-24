@@ -206,7 +206,7 @@
 .acp-fan-empty svg { width: 40px; height: 40px; }
 .acp-fan-overflow { position: absolute; z-index: 40; top: 12px; left: 12px; font-size: 10px; padding: 4px 7px; border-radius: 7px; color: #111; background: #ffffffc9; }
 .acp-collection-glass { position: absolute; z-index: 40; display: flex; align-items: center; gap: 10px; left: 5px; right: 5px; bottom: 5px; height: 82px; padding: 10px 61px 10px 13px; overflow: hidden; contain: layout paint; border: 1px solid #ffffffa6; border-radius: calc(var(--lg-radius) - 4px); background: #fff; background: color-mix(in srgb, var(--acp-surface, #fff) 50%, #fff); box-shadow: inset 0 1px 0 #ffffffed, inset 0 -1px 0 #ffffff40, 0 4px 12px -5px #17202a24; transform: translate3d(0, 0, 0); transition: transform .26s cubic-bezier(.2,.8,.2,1); }
-.acp-collection.is-expanded .acp-collection-glass { transform: translate3d(0, 28px, 0); will-change: transform; }
+.acp-collection.is-expanded .acp-collection-glass, .acp-collection.is-folder-target .acp-collection-glass { transform: translate3d(0, 28px, 0); will-change: transform; }
 .acp-collection-glass::after { content: ''; position: absolute; inset: 0; border-radius: inherit; background: var(--acp-glass-coat); pointer-events: none; }
 /* A static frosted layer avoids re-blurring every moving cover on each frame. */
 .acp-collection-frost { position: absolute; display: flex; inset: -12px; filter: blur(10px); opacity: .40; transform: scale(1.1); pointer-events: none; }
@@ -224,16 +224,19 @@
 .acp-collection-stamp svg { flex: 0 0 12px; width: 12px; height: 12px; }
 .acp-collection-stamp small { display: inline-grid; place-items: center; flex: 0 0 auto; min-width: 36px; height: 18px; margin-left: auto; padding: 0 5px; border: 1px solid #ffffff80; border-radius: 6px; background: #ffffff47; font-size: 9px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .acp-collection-tools { position: absolute; z-index: 45; right: 12px; bottom: 24px; width: 44px; height: 44px; transform: translate3d(0, 0, 0); transition: transform .26s cubic-bezier(.2,.8,.2,1); }
-.acp-collection.is-expanded .acp-collection-tools { transform: translate3d(0, 28px, 0); will-change: transform; }
+.acp-collection.is-expanded .acp-collection-tools, .acp-collection.is-folder-target .acp-collection-tools { transform: translate3d(0, 28px, 0); will-change: transform; }
 .acp-collection-more { position: relative; display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 12px; background: none; color: #111; cursor: pointer; }
 .acp-collection-more::before { content: ''; position: absolute; inset: 6px; border: 1px solid #ffffffbf; border-radius: 10px; background: #ffffffb3; box-shadow: inset 0 1px 0 #ffffffe0, 0 2px 6px #17202a0a; transition: transform .16s ease; pointer-events: none; }
 .acp-collection-more:hover::before { transform: scale(1.06); }
 .acp-collection-more:active::before { transform: scale(.96); }
 .acp-collection-more svg { position: relative; }
 .acp-collection-more:disabled { opacity: 1; cursor: default; }
-.acp-collection-actions { position: absolute; right: 0; bottom: calc(100% + 8px); display: grid; width: min(180px, calc(100vw - 32px)); padding: 5px; border: 1px solid var(--liquid-glass-border); border-radius: 14px; background: var(--liquid-glass-material-readable); box-shadow: var(--liquid-glass-edge), 0 10px 30px #17202a26; backdrop-filter: var(--liquid-glass-backdrop); animation: acp-menu-enter .16s ease both; }
+.acp-collection-actions { position: absolute; right: 0; bottom: calc(100% + 8px); display: grid; box-sizing: border-box; width: min(180px, calc(100vw - 32px)); padding: 5px; border: 1px solid var(--liquid-glass-border); border-radius: 14px; background: var(--liquid-glass-material-readable); box-shadow: var(--liquid-glass-edge), 0 10px 30px #17202a26; backdrop-filter: var(--liquid-glass-backdrop); animation: acp-menu-enter .16s ease both; }
 .acp-collection-actions.is-below { top: calc(100% + 8px); bottom: auto; }
-.acp-collection-actions > button { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 9px 11px; border: 0; border-radius: 9px; background: none; color: #111; text-align: left; font-size: 12px; cursor: pointer; }
+.acp-collection-popup { position: fixed; z-index: 1600; right: auto; bottom: auto; overflow-y: auto; }
+.acp-collection-actions > button { display: flex; align-items: center; gap: 10px; box-sizing: border-box; width: 100%; min-width: 0; height: 44px; min-height: 44px; padding: 9px 11px; border: 0; border-radius: 9px; background: none; color: #111; text-align: left; font-size: 12px; line-height: 18px; cursor: pointer; }
+.acp-collection-actions > button > svg { width: 16px; height: 16px; flex: 0 0 16px; }
+.acp-collection-actions > button > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acp-collection-actions > button:hover, .acp-collection-actions > button:focus-visible { outline: none; background: #ffffffa6; }
 .acp-collection-actions > button.is-pinned svg { color: #80632b; fill: #ba944459; }
 .acp-group-caption { display: flex; align-items: center; justify-content: space-between; gap: 15px; margin: 20px 0 18px; font-size: 11px; }
@@ -382,8 +385,8 @@
   .acp-collection.is-expanded { margin-bottom: 52px; }
   .acp-collection.is-expanded .acp-fan-cover { --fan-lift: 37px; }
   .acp-collection.is-expanded .acp-fan-cover.is-active { --fan-lift: 14px; }
-  .acp-collection.is-expanded .acp-collection-glass { transform: translate3d(0, 80px, 0); }
-  .acp-collection.is-expanded .acp-collection-tools { transform: translate3d(0, 80px, 0); }
+  .acp-collection.is-expanded .acp-collection-glass, .acp-collection.is-folder-target .acp-collection-glass { transform: translate3d(0, 80px, 0); }
+  .acp-collection.is-expanded .acp-collection-tools, .acp-collection.is-folder-target .acp-collection-tools { transform: translate3d(0, 80px, 0); }
 }
 @media (prefers-reduced-motion: reduce) {
   .acp-page *, .acp-page *::before, .acp-page *::after, .acp-collection *, .acp-directory * { animation: none !important; transition: none !important; }

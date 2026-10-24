@@ -5,6 +5,7 @@
 // 综合分与三档映射全部在这里用固定权重计算，模型不做算术。
 
 const sharp = require('sharp');
+const { REJECT_MAX, RECOMMEND_MIN, FATAL_SCORE_CAP } = require('../../lib/photo_quality_policy');
 
 const ANALYSIS_MAX_EDGE = 1280; // 分析用图最长边（技术指标与模型输入共用同一份）
 
@@ -156,12 +157,12 @@ function composeQuality(tech, modelQuality) {
   let score100 = Math.round(score * 10);
 
   const fatal = flags.filter((f) => FATAL_FLAGS.has(f));
-  if (fatal.length) score100 = Math.min(score100, 45);
+  if (fatal.length) score100 = Math.min(score100, FATAL_SCORE_CAP);
   score100 = Math.max(0, Math.min(100, score100));
 
   let label = 'AI medium';
-  if (fatal.length || score100 <= 40) label = 'AI rejected';
-  else if (score100 >= 75) label = 'AI recommended';
+  if (fatal.length || score100 <= REJECT_MAX) label = 'AI rejected';
+  else if (score100 >= RECOMMEND_MIN) label = 'AI recommended';
 
   let reason = String((modelQuality && modelQuality.reason) || '').replace(/\s+/g, ' ').trim().slice(0, 60) || null;
   if (!reason && flags.length) reason = `存在问题：${flags.join('、')}`;

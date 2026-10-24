@@ -62,6 +62,10 @@ async function removeWorkDir(dir) {
 }
 
 async function sweepStaleWorkDirs(maxAgeMs = Number(process.env.VIDEO_WORK_MAX_AGE_MS) || 24 * 60 * 60 * 1000) {
+  if (require('./shared_runtime_state').distributed()) {
+    const { coordinator } = require('./distributed_runtime');
+    if (!coordinator.isLeader() || !coordinator.isIdle()) return;
+  }
   ensureWorkDirectories();
   const now = Date.now();
   const entries = await fs.promises.readdir(workRoot, { withFileTypes: true });

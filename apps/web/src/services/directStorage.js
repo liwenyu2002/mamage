@@ -1,8 +1,22 @@
-import { BASE_URL } from './request';
+import { BASE_URL, request } from './request';
 import { getToken } from './authService';
+import { createMediaDownloader } from './mediaDownload';
 
 const directUrlCache = new Map();
+const directUrlRequests = new Map();
 let directStatusPromise = null;
+let directStatusCache = null;
+let cacheToken;
+let cacheVersion = 0;
+
+function syncCacheScope() {
+  const token = getToken();
+  if (token !== cacheToken) {
+    clearDirectMediaUrlCache();
+    cacheToken = token;
+  }
+  return cacheVersion;
+}
 
 function apiUrl(path) {
   return `${BASE_URL || ''}${path}`;
@@ -15,52 +29,78 @@ function canAttemptDirectStorage() {
 async function requestJson(path, options = {}) {
   const token = getToken();
   if (!token) return null;
-  const response = await fetch(apiUrl(path), {
-    method: options.method || 'GET',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
-    },
-    credentials: 'same-origin',
-    body: options.body ? JSON.stringify(options.body) : undefined,
-  });
-  if (response.status === 401 || response.status === 403 || response.status === 409) return null;
-  if (!response.ok) {
-    let detail = '';
-    try {
-      const data = await response.json();
-      detail = data && (data.error || data.message) ? `: ${data.error || data.message}` : '';
-    } catch (e) { /* ignore */ }
-    throw new Error(`direct storage request failed ${response.status}${detail}`);
-  }
-  return response.json();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  try {
+    const response = await fetch(apiUrl(path), {
+      method: options.method || 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+      },
+      credentials: 'same-origin',
+      cache: 'no-store',
+      signal: controller.signal,
+      body: options.body ? JSON.stringify(options.body) : undefined,
+    });
+    if (response.status === 401 || response.status === 403 || response.status === 409) return null;
+    if (!response.ok) {
+      let detail = '';
+      try {
+        const data = await response.json();
+        detail = data && (data.error || data.message) ? `: ${data.error || data.message}` : '';
+      } catch (e) { /* ignore */ }
+      throw new Error(`direct storage request failed ${response.status}${detail}`);
+    }
+    return await response.json();
+  } finally { clearTimeout(timeout); }
 }
 
 export async function getDirectStorageStatus() {
   if (!canAttemptDirectStorage()) return { eligible: false };
+  const version = syncCacheScope();
+  if (directStatusCache?.expiresAt > Date.now()) return directStatusCache.value;
   if (!directStatusPromise) {
-    directStatusPromise = requestJson('/api/photos/direct-status')
-      .then((result) => result || { eligible: false })
-      .catch(() => ({ eligible: false }));
+    const pending = requestJson('/api/photos/direct-status')
+      .then((result) => {
+        if (version !== syncCacheScope()) return { eligible: false };
+        if (result) directStatusCache = { value: result, expiresAt: Date.now() + (result.eligible ? 30000 : 2000) };
+        return result || { eligible: false };
+      })
+      .catch(() => ({ eligible: false }))
+      .finally(() => { if (directStatusPromise === pending) directStatusPromise = null; });
+    directStatusPromise = pending;
   }
   return directStatusPromise;
 }
 
 export async function getDirectMediaUrl(photoId, variant = 'original', options = {}) {
   if (!photoId || !canAttemptDirectStorage()) return null;
+  const version = syncCacheScope();
   const status = await getDirectStorageStatus();
-  if (!status || !status.eligible) return null;
+  if (version !== syncCacheScope() || !status || !status.eligible) return null;
 
   const download = options.download ? '1' : '0';
   const key = `${photoId}:${variant}:${download}`;
   const cached = directUrlCache.get(key);
-  if (cached && cached.expiresAt > Date.now() + 30000) return cached.url;
-
-  const result = await requestJson(`/api/photos/${encodeURIComponent(String(photoId))}/direct-url?variant=${encodeURIComponent(variant)}&download=${download}`);
-  if (!result || !result.url) return null;
-  const ttlMs = Math.max(60000, Number(result.expiresIn || 900) * 1000);
-  directUrlCache.set(key, { url: result.url, expiresAt: Date.now() + ttlMs });
-  return result.url;
+  if (!options.forceRefresh && cached && cached.expiresAt > Date.now() + 30000) return cached.url;
+  const existing = directUrlRequests.get(key);
+  if (existing && (!options.forceRefresh || existing.refresh)) return existing.promise;
+  if (options.forceRefresh) directUrlCache.delete(key);
+  // Network/signing latency consumes the lifetime; a short capability must not be extended by the client.
+  const startedAt = Date.now(), entry = { refresh: !!options.forceRefresh };
+  entry.promise = requestJson(`/api/photos/${encodeURIComponent(String(photoId))}/direct-url?variant=${encodeURIComponent(variant)}&download=${download}`)
+    .then((result) => {
+      if (version !== syncCacheScope() || !result?.url) return null;
+      const seconds = result.expiresIn == null ? 900 : Number(result.expiresIn);
+      if (Number.isFinite(seconds) && seconds > 0 && directUrlRequests.get(key) === entry) {
+        directUrlCache.set(key, { url: result.url, expiresAt: startedAt + seconds * 1000 });
+      }
+      return result.url;
+    })
+    .finally(() => { if (directUrlRequests.get(key) === entry) directUrlRequests.delete(key); });
+  directUrlRequests.set(key, entry);
+  return entry.promise;
 }
 
 export async function startDirectZipJob({ photoIds, zipName }) {
@@ -101,7 +141,20 @@ export function triggerDirectDownload(url) {
   return true;
 }
 
+export const downloadOriginalMedia = createMediaDownloader({
+  getDirectUrl: (photoId, options) => getDirectMediaUrl(photoId, 'original', { ...options, download: true }),
+  getFallbackUrl: async ({ photoId, url }) => {
+    if (!photoId || !getToken()) return url;
+    const fresh = await request(`/api/photos/${encodeURIComponent(String(photoId))}`, { timeoutMs: 10000 });
+    return fresh?.url;
+  },
+});
+
 export function clearDirectMediaUrlCache() {
+  cacheVersion++;
+  cacheToken = undefined;
   directUrlCache.clear();
+  directUrlRequests.clear();
   directStatusPromise = null;
+  directStatusCache = null;
 }

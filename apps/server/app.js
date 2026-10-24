@@ -22,14 +22,6 @@ try {
   process.exit(1);
 }
 
-// Global error handlers for easier diagnosis
-process.on('uncaughtException', (err) => {
-  console.error('UNCAUGHT EXCEPTION:', err && err.stack ? err.stack : err);
-});
-process.on('unhandledRejection', (reason) => {
-  console.error('UNHANDLED REJECTION:', reason && reason.stack ? reason.stack : reason);
-});
-
 // (Removed temporary exit/signal debug handlers)
 // Validate AI keys/models on startup and print concise status
 const { validateAll } = require('./lib/validateAi');
@@ -72,6 +64,39 @@ const wechatPreviewRouter = require('./routes/wechat_preview');
 const wechatCompositionsRouter = require('./routes/wechat_compositions');
 const userFavoritesRouter = require('./routes/user_favorites');
 const externalImportsRouter = require('./routes/external_imports');
+const { searchRequestLogTarget, startSearchTelemetry, stopSearchTelemetry } = require('./lib/search_telemetry');
+const { createRuntimeLifecycle, bounded } = require('./lib/runtime_lifecycle');
+const { pool } = require('./db');
+const { coordinator, distributed } = require('./lib/distributed_runtime');
+const operationsRouter = require('./routes/operations');
+let operationsMonitor = null;
+require('./lib/search_visual_worker');
+if (distributed()) {
+  require('./lib/ai_tags_worker');
+  require('./lib/face_auto_worker');
+}
+const requeueTimers = [];
+const runtime = createRuntimeLifecycle({
+  checkReady: async () => {
+    await pool.query({ sql: 'SELECT 1 AS ready', timeout: 2000 });
+    if (distributed()) await coordinator.ready();
+  },
+  readyTimeoutMs: 2500,
+  shutdownTimeoutMs: bounded(process.env.SHUTDOWN_TIMEOUT_MS, 55000, 1000, 600000),
+  stopWork: async () => {
+    await operationsMonitor?.stop();
+    if (distributed()) await coordinator.stopDispatch();
+    requeueTimers.forEach(timer => { clearTimeout(timer); clearInterval(timer); });
+    await Promise.all([
+      ...['organization_copy_worker', 'external_import_worker', 'ai_job_worker', 'ai_tags_worker', 'face_auto_worker', 'image_similarity', 'search_visual_worker']
+        .map(name => require(`./lib/${name}`).stop()),
+      uploadRouter.stopBackgroundTasks(), videoProjectsRouter.stopBackgroundTasks(), photosRouter.stopBackgroundTasks(),
+    ]);
+    if (distributed()) await coordinator.stop();
+  },
+  closeDependencies: async () => { await stopSearchTelemetry(); await pool.end(); },
+});
+runtime.installSignals();
 
 const app = express();
 
@@ -120,6 +145,17 @@ app.use((req, res, next) => {
   next();
 });
 
+app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
+app.get('/api/health/live', (req, res) => res.json({ status: 'ok' }));
+app.get('/api/health/ready', async (req, res) => {
+  const ready = await runtime.ready();
+  res.set('Cache-Control', 'no-store').status(ready ? 200 : 503).json({ status: ready ? 'ready' : 'not-ready' });
+});
+app.use((req, res, next) => {
+  if (!runtime.isDraining()) return next();
+  res.set('Retry-After', '5').status(503).json({ error: 'SERVER_DRAINING' });
+});
+
 // ============ /uploads 闈欐€佹枃浠讹紙浣犲師鏉ョ殑閫昏緫锛?============
 const keys = require('./config/keys');
 const uploadsAbsDir = keys.UPLOAD_ABS_DIR || path.join(__dirname, 'uploads');
@@ -130,10 +166,15 @@ const staticUploadsDir = uploadsAbsDir.replace(/\\/g, '/').toLowerCase().endsWit
 
 app.use('/api/image', imageProxyRouter);
 app.use('/api/wx-img', wxImageProxyRouter);
-app.use('/uploads', express.static(staticUploadsDir));
+const storage = require('./lib/cos_storage');
+app.use('/uploads', require('./lib/legacy_media_guard').createLegacyMediaGuard({
+  normalizeKey: storage.keyFromUrlOrPath,
+  isSafeKey: storage.isSafeKey,
+  authorizeMediaKey: require('./lib/media_access').authorizeMediaKey,
+}), express.static(staticUploadsDir, { dotfiles: 'deny' }));
 // ============ 鏃ュ織 ============
 app.use((req, res, next) => {
-  if (process.env.REQUEST_LOGS !== '0') console.log(`${req.method} ${req.url}`);
+  if (process.env.REQUEST_LOGS !== '0') console.log(`${req.method} ${searchRequestLogTarget(req)}`);
   next();
 });
 
@@ -143,6 +184,7 @@ app.use('/api/photos', photosRouter);
 app.use('/api/upload', uploadRouter);
 app.use('/api/external-imports', externalImportsRouter);
 app.use('/api/users', usersRouter);
+app.use('/api/operations', operationsRouter);
 app.use('/api/ai/news', aiNewsRouter);
 app.use('/api/ai/video', aiVideoRouter);
 app.use('/api/video-projects', videoProjectsRouter);
@@ -157,12 +199,9 @@ app.use('/api/auth', require('./routes/auth_dingtalk'));
 app.use('/api/network', require('./routes/network'));
 app.use('/api/share', shareRouter);
 app.use('/api/internal-shares', internalSharesRouter);
+app.use('/api/folder-shares', require('./routes/folder_shares'));
 app.use('/api/similarity', similarityRouter);
 app.use('/api', facesRouter);
-
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok' });
-});
 
 // 不暴露实现框架；未匹配的 /api 路径回 JSON 404 而非 Express 默认文本页。
 // 必须挂在所有 /api 路由（含 facesRouter 和 /api/health）之后，否则会截胡。
@@ -177,34 +216,50 @@ app.get('/', (req, res) => {
   );
 });
 // ============ 鍚姩鏈嶅姟 ============
-const PORT = Number(process.env.PORT) || 8000; // 鎴?process.env.PORT || 52367;
+const PORT = Number(process.env.PORT || 8000);
 
 async function startup() {
-  // perform AI validations and then start server
-  try {
-    await runStartupValidations();
-  } catch (e) {
-    console.error('Startup validation error (non-fatal):', e && e.stack ? e.stack : e);
-  }
-
-  app.listen(PORT, () => {
+  if (distributed()) await coordinator.ready();
+  const server = app.listen(PORT, () => {
+    runtime.markStarted(server);
     console.log(`API server listening on http://localhost:${PORT}`);
+    // Provider availability must not block serving the non-AI parts of the application.
+    if (process.env.AI_VALIDATE_ON_STARTUP === '1') void runStartupValidations();
   });
+  server.on('error', () => { void runtime.shutdown('listen-error', 1); });
 
+  if (distributed()) coordinator.start({ onLeader: async () => {
+    startBackgroundWorkers();
+    await uploadRouter.startSharedCleanup();
+    await videoProjectsRouter.startSharedCleanup();
+    await videoProjectsRouter.recoverInterruptedRenders();
+    await photosRouter.recoverSharedJobs();
+  } });
+  else startBackgroundWorkers();
+  startSearchTelemetry();
+  if (process.env.OPERATIONS_MONITOR_ENABLED === '1') {
+    operationsMonitor = require('./lib/operations_status').startOperationsMonitor({ status: operationsRouter.status,
+      pool, isLeader: () => !distributed() || coordinator.isLeader() });
+  }
+  return server;
+}
+
+function startBackgroundWorkers() {
   require('./lib/organization_copy_worker').start();
   require('./lib/external_import_worker').start();
   require('./lib/ai_job_worker').start();
+  require('./lib/face_auto_worker').start();
 
   // AI 打标队列是纯内存的：重启后把 pending/running 孤儿重新入队。
   // 延迟执行避开启动高峰；AI_REQUEUE_ON_BOOT=0 可关闭。
   if (String(process.env.AI_REQUEUE_ON_BOOT || '1') !== '0') {
-    setTimeout(() => {
+    requeueTimers.push(setTimeout(() => {
       try {
         require('./lib/ai_tags_worker').requeueStuckPhotos({ limit: Number(process.env.AI_REQUEUE_LIMIT) || 200 });
       } catch (e) {
         console.warn('AI requeue on boot failed:', e && e.message ? e.message : e);
       }
-    }, 15000);
+    }, 15000));
 
     // 运行中的服务也要兜底扫描：上传过程中短暂重启、内存队列异常或模型断连后，
     // 遗留的 pending/running 任务能自行回到队列，不必等待下一次部署重启。
@@ -217,7 +272,12 @@ async function startup() {
       }
     }, requeueIntervalMs);
     if (typeof requeueTimer.unref === 'function') requeueTimer.unref();
+    requeueTimers.push(requeueTimer);
   }
 }
 
-startup();
+if (require.main === module) startup().catch(error => {
+  console.error('[runtime] startup failed:', error?.stack || error);
+  void runtime.shutdown('startup-error', 1);
+});
+module.exports = { app, startup };

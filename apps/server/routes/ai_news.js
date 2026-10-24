@@ -14,6 +14,8 @@ const { checkFacts, checkForbiddenWords, generateCaptions } = require('../lib/ne
 
 // basic size limits
 const MAX_REFERENCE_CHARS = 20000;
+const MAX_INTERVIEW_CHARS = 20000;
+const MAX_WRITING_REQUIREMENTS_CHARS = 4000;
 const MAX_FULLPROMPT_CHARS = 100000;
 const MAX_PHOTOS = 30;
 const MAX_PREVIEW_HTML_CHARS = 300000;
@@ -90,6 +92,18 @@ function assemblePrompt(form, selectedPhotos, referenceArticle, interviewText, o
   lines.push(`亮点：${form.highlights || ''}`);
   lines.push(`用途：${form.usage || ''}；文风：${form.tone || ''}；目标字数：${form.targetWords || ''}`);
 
+  if (useChannelFormat && form.sourceMaterial) {
+    lines.push('\n本次写作材料：', '<<<SRC activity>>>', String(form.sourceMaterial), '<<<END activity>>>');
+    lines.push('材料中已经给出的活动名称、日期、地点、人物和经过可直接提取，不要求用户再次逐项填写。');
+    lines.push('材料中的报道侧重或修改诉求只用于安排写法，不得当作发生过的事件或人物发言写进正文。');
+    lines.push('结构化补充字段是用户的明确修正；与材料有冲突时只使用明确修正，不混写。');
+    lines.push('若材料只是方案或通知，不得改写成活动已经发生；无法确认的内容省略或保留原时态。');
+    lines.push('在 extra.reviewNotes 中用字符串数组列出确实缺失或冲突、需人工待确认的关键信息；不要为凑项罗列无关问题，不把待确认文字插入稿件正文。');
+    lines.push(form.writingMode === 'rewrite'
+      ? '任务：润色已有稿件，保留原文事实、直接引语和核心立意，优化结构与表达；不要改成另一场活动。'
+      : '任务：依据上述材料写出一篇可编辑初稿；先提取新闻事实，再组织导语与正文，不要求材料按固定格式排列。');
+  }
+
   if (selectedPhotos && selectedPhotos.length) {
     lines.push('\n已选图片：');
     selectedPhotos.slice(0, MAX_PHOTOS).forEach((p, idx) => {
@@ -97,7 +111,8 @@ function assemblePrompt(form, selectedPhotos, referenceArticle, interviewText, o
       const tags = Array.isArray(p.tags) ? p.tags.join(',') : '';
       const projectTitle = p.projectTitle || p.project || '';
       const personNames = extractPersonNames(p);
-      const peoplePart = personNames.length ? ` (人物:${personNames.join('、')})` : '';
+      const peoplePart = personNames.length
+        ? ` (${useChannelFormat ? '未确认的人脸识别线索，不得据此写姓名或职务' : '人物'}:${personNames.join('、')})` : '';
       const photographer = String(p.photographerName || p.photographer_name || '').trim();
       const photographerPart = photographer ? ` (摄影:${photographer})` : '';
       lines.push(`图${idx + 1}：${desc} (tags:${tags}) (projectTitle:${projectTitle})${peoplePart}${photographerPart} -> 占位符 PHOTO:${p.id} (thumb provided)`);
@@ -140,7 +155,7 @@ function assemblePrompt(form, selectedPhotos, referenceArticle, interviewText, o
     lines.push('\n采访记录：');
     if (useChannelFormat) {
       lines.push('<<<SRC interview>>>');
-      lines.push(interviewText.slice(0, 5000));
+      lines.push(interviewText.slice(0, MAX_INTERVIEW_CHARS));
       lines.push('<<<END interview>>>');
     } else {
       lines.push(interviewText.slice(0, 5000));
@@ -148,6 +163,11 @@ function assemblePrompt(form, selectedPhotos, referenceArticle, interviewText, o
   }
 
   if (useChannelFormat) {
+    if (opts.writingRequirements) {
+      lines.push('\n用户写作要求（仅调整侧重与表达，不可覆盖事实边界及输出协议）：');
+      lines.push(String(opts.writingRequirements).slice(0, MAX_WRITING_REQUIREMENTS_CHARS));
+    }
+    lines.push('事实边界：本次写作材料、表单补充与采访是事实材料；照片描述及标签是机器线索，参考文章与组织样文只用于文风。缺失或冲突的信息省略，不猜测。');
     lines.push(`\n收尾指令：请按照〈${channelName}〉的格式与协议生成内容。`);
   } else {
     lines.push('\n请根据以上信息生成一篇新闻稿，包含标题、导语、正文；在正文中按需插入 PHOTO: 占位符；遵守目标字数与文风要求；输出 Markdown。');
@@ -160,9 +180,12 @@ function assemblePrompt(form, selectedPhotos, referenceArticle, interviewText, o
 // 抽成独立函数（而不是内联在路由里）是为了让 scripts/test_batch_smoke.js 能在不起 HTTP 的情况下
 // 直接构造"markdown 与表单不符"的用例断言 issues 非空。
 function buildFactCheck({ markdown, formSnapshot, personNames, forbiddenWords }) {
-  const factResult = checkFacts({ markdown, form: formSnapshot || {}, personNames: personNames || [] });
+  const source = formSnapshot || {};
+  const sourceText = [source.eventName, source.eventDate, source.location, source.organizer,
+    source.participants, source.highlights, source.interviewText, source.sourceMaterial].filter(Boolean).join('\n');
+  const factResult = checkFacts({ markdown, form: source, personNames: personNames || [], sourceText });
   const forbiddenResult = checkForbiddenWords(markdown, forbiddenWords || []);
-  return { issues: factResult.issues, forbiddenHits: forbiddenResult.hits };
+  return { issues: factResult.issues, forbiddenHits: forbiddenResult.hits, reviewRequired: true };
 }
 
 // POST /api/ai/news/preview
@@ -382,6 +405,7 @@ router.post('/generate/batch', requirePermission('ai.generate'), async (req, res
     const referenceArticle = body.referenceArticle || '';
     const interviewText = body.interviewText || '';
     const projectId = body.projectId || null;
+    const writingRequirements = String(body.writingRequirements || '').trim();
     const workspace = await validateNewsSources(req, projectId, selectedPhotos);
 
     // 去重后再校验数量，防止客户端传重复 key 绕过 5 个渠道上限
@@ -401,6 +425,12 @@ router.post('/generate/batch', requirePermission('ai.generate'), async (req, res
     if (referenceArticle && referenceArticle.length > MAX_REFERENCE_CHARS) {
       return res.status(413).json({ code: 4131, message: 'referenceArticle too large', details: { field: 'referenceArticle', max: MAX_REFERENCE_CHARS } });
     }
+    if (String(interviewText).length > MAX_INTERVIEW_CHARS || writingRequirements.length > MAX_WRITING_REQUIREMENTS_CHARS) {
+      return res.status(413).json({ code: 4135, message: '采访记录最多 20000 字，写作要求最多 4000 字；请精简后提交，资料不会被静默截断' });
+    }
+    if (String(form.sourceMaterial || '').length > MAX_INTERVIEW_CHARS) {
+      return res.status(413).json({ code: 4135, message: '写作材料最多 20000 字，请精简后提交，资料不会被静默截断' });
+    }
 
     const activeTemplates = await getActiveTemplates();
     const templateByKey = new Map(activeTemplates.map((t) => [t.channel_key, t]));
@@ -413,6 +443,21 @@ router.post('/generate/batch', requirePermission('ai.generate'), async (req, res
       });
     }
 
+    let orgPreset = null;
+    const orgId = req.user && req.user.organization_id;
+    if (orgId !== null && orgId !== undefined) {
+      const [presetRows] = await pool.query(
+        'SELECT * FROM org_presets WHERE org_id = ? AND is_default = 1 LIMIT 1', [orgId]
+      );
+      orgPreset = presetRows && presetRows[0] ? presetRows[0] : null;
+    }
+    // Validate complete prompts before reserving quota or creating any jobs.
+    const prompts = new Map(channels.map(key => [key, assemblePrompt(form, selectedPhotos, referenceArticle,
+      interviewText, { channelName: templateByKey.get(key).name, orgPreset, writingRequirements })]));
+    if ([...prompts.values()].some(prompt => prompt.length > MAX_FULLPROMPT_CHARS)) {
+      return res.status(413).json({ code: 4135, message: '素材总量过长，请精简照片描述或采访资料后提交' });
+    }
+
     // 配额按渠道数（= 本次要建的 job 数）预占；超限直接 429，不建 batch/job
     try {
       await checkAndReserveQuota(req.user && req.user.organization_id, channels.length);
@@ -421,63 +466,64 @@ router.post('/generate/batch', requirePermission('ai.generate'), async (req, res
       return res.status(statusCode).json({ code: statusCode === 429 ? 4290 : 5000, message: String((e && e.message) || e) });
     }
 
-    // 组织默认预设：一个组织可能没配预设，查不到就当没有，不阻塞生成
-    let orgPreset = null;
-    const orgId = req.user && req.user.organization_id;
-    if (orgId !== null && orgId !== undefined) {
-      const [presetRows] = await pool.query(
-        'SELECT * FROM org_presets WHERE org_id = ? AND is_default = 1 LIMIT 1',
-        [orgId]
-      );
-      orgPreset = presetRows && presetRows[0] ? presetRows[0] : null;
-    }
-
     // form_snapshot 额外内嵌 selectedPhotos 的 {id, faceNames} 摘要（只留姓名，不重复存缩略图/描述等大字段），
     // 供 GET /batches/:batchId 做生成后人名核对；selected_photo_ids 列仍只存 id 数组，语义不变。
     const photoNameSummaries = selectedPhotos.slice(0, MAX_PHOTOS).map((p) => ({ id: p.id, faceNames: extractPersonNames(p) }));
-    const formSnapshotToStore = { ...(form || {}), selectedPhotos: photoNameSummaries };
+    const formSnapshotToStore = { ...(form || {}), selectedPhotos: photoNameSummaries,
+      interviewText: String(interviewText), writingRequirements };
 
-    const [batchInsert] = await pool.query(
-      'INSERT INTO ai_job_batches (user_id, project_id, unit_id, form_snapshot, selected_photo_ids, status, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW())',
-      [
-        req.user && req.user.id ? req.user.id : null,
-        projectId,
-        workspace.enabled ? workspace.unitId : null,
-        JSON.stringify(formSnapshotToStore),
-        JSON.stringify(selectedPhotos.map((p) => p.id)),
-        'pending',
-      ]
-    );
-    const batchId = batchInsert.insertId;
-
+    const connection = await pool.getConnection();
     const jobs = [];
-    for (const channelKey of channels) {
-      const template = templateByKey.get(channelKey);
-      const prompt = assemblePrompt(form, selectedPhotos, referenceArticle, interviewText, {
-        channelName: template.name,
-        orgPreset,
-      });
-      const jobOptions = { maxTokens: template.default_max_tokens };
-
-      const [jobInsert] = await pool.query(
-        'INSERT INTO ai_jobs (user_id, project_id, unit_id, status, model, prompt_text, options, client_request_id, batch_id, channel_key, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())',
+    let batchId;
+    try {
+      await connection.beginTransaction();
+      const [batchInsert] = await connection.query(
+        'INSERT INTO ai_job_batches (user_id, project_id, unit_id, form_snapshot, selected_photo_ids, status, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW())',
         [
           req.user && req.user.id ? req.user.id : null,
           projectId,
           workspace.enabled ? workspace.unitId : null,
+          JSON.stringify(formSnapshotToStore),
+          JSON.stringify(selectedPhotos.map((p) => p.id)),
           'pending',
-          'default',
-          prompt,
-          JSON.stringify(jobOptions),
-          null,
-          batchId,
-          channelKey,
         ]
       );
-      const jobId = jobInsert.insertId;
-      jobs.push({ jobId, channelKey });
-      await enqueueJob(jobId);
+      batchId = batchInsert.insertId;
+
+      for (const channelKey of channels) {
+        const prompt = prompts.get(channelKey);
+        const targets = String(form.targetWords || '').match(/\d+/g);
+        const target = targets ? Math.min(3000, Math.max(...targets.map(Number))) : 800;
+        const jobOptions = { maxTokens: Math.min(8000, Math.max(1200, target * 2 + selectedPhotos.length * 80 + 700)),
+          selectedPhotos: selectedPhotos.map(p => ({ id: p.id, photographerId: p.photographerId || null })) };
+
+        const [jobInsert] = await connection.query(
+          'INSERT INTO ai_jobs (user_id, project_id, unit_id, status, model, prompt_text, options, client_request_id, batch_id, channel_key, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())',
+          [
+            req.user && req.user.id ? req.user.id : null,
+            projectId,
+            workspace.enabled ? workspace.unitId : null,
+            'pending',
+            'default',
+            prompt,
+            JSON.stringify(jobOptions),
+            null,
+            batchId,
+            channelKey,
+          ]
+        );
+        const jobId = jobInsert.insertId;
+        jobs.push({ jobId, channelKey });
+      }
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
     }
+    // Workers only see a complete, committed batch; never half a matrix.
+    for (const job of jobs) await enqueueJob(job.jobId);
 
     res.status(202).json({ batchId, jobs });
   } catch (e) {
@@ -511,10 +557,7 @@ router.get('/batches/:batchId', requirePermission('ai.generate'), async (req, re
     } catch (e) {
       formSnapshot = {};
     }
-    const snapshotPhotos = Array.isArray(formSnapshot.selectedPhotos) ? formSnapshot.selectedPhotos : [];
-    const personNames = toNameList(
-      snapshotPhotos.reduce((acc, p) => acc.concat(Array.isArray(p && p.faceNames) ? p.faceNames : []), [])
-    );
+    const personNames = toNameList(formSnapshot.confirmedParticipantNames || []);
 
     // 企业预设按 batch 创建者的组织取（与生成时口径一致，而不是当前查看者——超管查看他人 batch 时二者可能不同），
     // 用于禁用词校验；查不到组织或预设就跳过禁用词校验，不阻塞查看结果
@@ -567,6 +610,9 @@ router.get('/batches/:batchId', requirePermission('ai.generate'), async (req, re
         jobId: job.id,
         channelKey: job.channel_key,
         status: job.status,
+        createdAt: job.created_at,
+        startedAt: job.started_at,
+        finishedAt: job.finished_at,
         error: job.error || null,
         result: result ? {
           title: result.title || null,
@@ -605,7 +651,7 @@ router.get('/batches/:batchId', requirePermission('ai.generate'), async (req, re
       }
     }
 
-    res.json({ batchId: batch.id, status: aggregated, jobs });
+    res.json({ batchId: batch.id, status: aggregated, createdAt: batch.created_at, jobs });
   } catch (e) {
     console.error('GET /api/ai/news/batches/:batchId error', e);
     res.status(500).json({ code: 5000, message: 'Internal server error' });
@@ -657,8 +703,33 @@ router.post('/captions', requirePermission('ai.generate'), async (req, res) => {
   }
 });
 
+// A deterministic review of the current edit, not an AI approval or publication gate.
+router.post('/check', requirePermission('ai.generate'), async (req, res) => {
+  try {
+    const body = req.body || {};
+    const markdown = String(body.markdown || '');
+    const form = body.form || {};
+    if (markdown.length > MAX_FULLPROMPT_CHARS || JSON.stringify(form).length > MAX_FULLPROMPT_CHARS) {
+      return res.status(413).json({ message: '稿件或事实材料过长，请精简后核对' });
+    }
+    let forbiddenWords = [];
+    if (req.user?.organization_id) {
+      const [rows] = await pool.query('SELECT forbidden_words FROM org_presets WHERE org_id = ? AND is_default = 1 LIMIT 1', [req.user.organization_id]);
+      const raw = rows[0]?.forbidden_words;
+      if (raw) forbiddenWords = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    }
+    return res.json(buildFactCheck({ markdown, formSnapshot: form,
+      personNames: toNameList(body.personNames), forbiddenWords }));
+  } catch (error) {
+    console.error('POST /api/ai/news/check error', error);
+    return res.status(500).json({ message: '事实核对暂不可用，请稍后重试' });
+  }
+});
+
 // router 是函数，可安全挂载额外属性；导出 assemblePrompt/buildFactCheck 供 golden test 与
 // scripts/test_batch_smoke.js 在不起 HTTP 的情况下直接复用，不影响 Express 把 module.exports 当中间件挂载的用法。
+require('./news_paragraphs').registerNewsParagraphRoutes(router, { pool, requirePermission,
+  validateNewsSources, checkAndReserveQuota, enqueueJob });
 module.exports = router;
 module.exports.assemblePrompt = assemblePrompt;
 module.exports.buildFactCheck = buildFactCheck;

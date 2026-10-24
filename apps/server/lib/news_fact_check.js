@@ -189,7 +189,34 @@ function detectNumberIssues(markdown, form) {
   return issues;
 }
 
-function checkFacts({ markdown, form, personNames } = {}) {
+function detectUnsupportedFacts(markdown, sourceText) {
+  if (typeof sourceText !== 'string') return [];
+  const normalize = text => String(text || '').replace(/[\s，,。.!！?？：“”"']/g, '');
+  const source = normalize(sourceText);
+  const text = markdown.replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/https?:\/\/\S+/g, '');
+  const issues = [];
+  const seen = new Set();
+  const rules = [
+    ['unsupported_number', /\d+(?:\.\d+)?(?:万|亿)?(?:余|多)?(?:名|人|万元|元|项|场|%)/g, '请核对该数据的来源'],
+    ['unsupported_quote', /“[^”\n]{8,}”/g, '请核对直接引语原文'],
+    ['unsupported_speech', /(?:表示|指出|强调|要求|承诺)[，,：:]?[^。！？\n]{6,}/g, '请核对发言及归属'],
+  ];
+  for (const [type, pattern, message] of rules) {
+    let count = 0;
+    for (const match of text.matchAll(pattern)) {
+      const found = match[0];
+      if (count >= 5) break;
+      if (seen.has(found) || source.includes(normalize(found))) continue;
+      seen.add(found);
+      count += 1;
+      issues.push({ type, found, expect: '本次活动素材中的依据', message,
+        snippet: text.slice(Math.max(0, match.index - 12), match.index + found.length + 12) });
+    }
+  }
+  return issues;
+}
+
+function checkFacts({ markdown, form, personNames, sourceText } = {}) {
   const md = String(markdown || '');
   const f = form || {};
   const names = Array.isArray(personNames) ? personNames : [];
@@ -198,6 +225,7 @@ function checkFacts({ markdown, form, personNames } = {}) {
     ...detectDateIssues(md, f.eventDate),
     ...detectLocationIssue(md, f.location),
     ...detectNumberIssues(md, f),
+    ...detectUnsupportedFacts(md, sourceText),
   ];
   return { issues };
 }

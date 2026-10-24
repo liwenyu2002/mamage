@@ -355,6 +355,12 @@ function parseDetectorOutput(rawStdout) {
 }
 
 async function detectFacesForPhoto(photoRow) {
+  if (process.env.FACE_INFERENCE_PROVIDER === 'zgcai') {
+    require('./hub_inference').assertLegacyFaceCompatibility();
+    const loaded = await loadPhotoBinary(photoRow);
+    const result = await require('./hub_inference').detectFaces(loaded.buffer);
+    return { ...result, source: loaded.source, sourceType: 'zgcai_bytes' };
+  }
   const useServiceFirst = envBool('FACE_DETECTOR_USE_SERVICE', true);
   const serviceRequired = envBool('FACE_DETECTOR_SERVICE_REQUIRED', false);
   if (useServiceFirst) {

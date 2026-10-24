@@ -156,6 +156,7 @@ function CollectionCard({ group, albums, onSelect, onOpen, pinned, onPin, onAppe
   const covers = React.useMemo(() => items.slice(0, 9), [items]);
   const photoCount = React.useMemo(() => items.reduce((sum, album) => sum + album.count, 0), [items]);
   const [expanded, setExpanded] = React.useState(false);
+  const [folderTarget, setFolderTarget] = React.useState(false);
   const [activeIndex, setActiveIndex] = React.useState(0);
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [menuBelow, setMenuBelow] = React.useState(false);
@@ -177,7 +178,7 @@ function CollectionCard({ group, albums, onSelect, onOpen, pinned, onPin, onAppe
   const openMenu = () => {
     const bounds = menuTriggerRef.current.getBoundingClientRect();
     setMenuBelow(bounds.top < 164 && window.innerHeight - bounds.bottom > bounds.top);
-    cancelScrub(); setMenuOpen(true);
+    cancelScrub(); setExpanded(false); setMenuOpen(true);
   };
   const closeMenu = () => { setMenuOpen(false); menuTriggerRef.current?.focus({ preventScroll: true }); };
   const runAction = (action) => { closeMenu(); action(); };
@@ -245,10 +246,10 @@ function CollectionCard({ group, albums, onSelect, onOpen, pinned, onPin, onAppe
     }
     onOpen(covers[event.detail === 0 || pointerType.current !== 'mouse' || !expanded ? index : activeRef.current]);
   };
-  return <article {...dropProps} ref={cardRef} className={`acp-collection${expanded && active ? ' is-expanded' : ''}${menuOpen ? ' is-menu-open' : ''}${dropActive ? group.kind === 'smart' ? ' is-drop-blocked' : ' is-drop-target' : ''}`} aria-label={group.name}
+  return <article {...dropProps} ref={cardRef} className={`acp-collection${expanded && active ? ' is-expanded' : ''}${folderTarget ? ' is-folder-target' : ''}${menuOpen ? ' is-menu-open' : ''}${dropActive ? group.kind === 'smart' ? ' is-drop-blocked' : ' is-drop-target' : ''}`} aria-label={group.name}
     style={{ '--acp-accent': group.color, '--acp-tint': group.tint, '--acp-surface': surfaceColor }}
     onPointerDown={(event) => { pointerType.current = event.pointerType; }}
-    onPointerLeave={(event) => { if (event.pointerType === 'mouse') { cancelScrub(); setExpanded(false); } }}
+    onPointerLeave={(event) => { if (event.pointerType === 'mouse') { cancelScrub(); setExpanded(false); setFolderTarget(false); } }}
     onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) { cancelScrub(); setExpanded(false); setMenuOpen(false); } }}
     onKeyDown={(event) => {
       if (event.key === 'Escape') { cancelScrub(); setExpanded(false); footerRef.current?.focus(); }
@@ -261,7 +262,7 @@ function CollectionCard({ group, albums, onSelect, onOpen, pinned, onPin, onAppe
     <div className="acp-fan-viewport"><div className="acp-fan-stage" onPointerEnter={(event) => {
       if (event.pointerType !== 'mouse' || menuOpen || isAlbumDragging) return;
       fitFanToViewport();
-      setExpanded(true); scrub(event, true);
+      setFolderTarget(false); setExpanded(true); scrub(event, true);
     }} onPointerMove={scrub}>
       {covers.map((album, index) => {
         const position = covers.length === 1 ? 0 : (index / (covers.length - 1)) * 2 - 1;
@@ -278,11 +279,14 @@ function CollectionCard({ group, albums, onSelect, onOpen, pinned, onPin, onAppe
     </div></div>
     {dropActive && <span className="acp-collection-drop-label" role="status"><GroupSymbol group={group} />{dropMessage}</span>}
     {items.length > 9 && <span className="acp-fan-overflow">+{items.length - 9}</span>}
-    <div className="acp-collection-glass">
+    <div className="acp-collection-glass" onPointerEnter={event => {
+      if (event.pointerType === 'mouse') { cancelScrub(); setFolderTarget(expanded || folderTarget); setExpanded(false); }
+    }}>
       <div className="acp-collection-frost" aria-hidden="true">{covers.slice(0, 3).map((album) => <img src={album.image} alt="" key={album.id} loading="lazy" draggable={false} />)}</div>
       <button {...sortDragProps} ref={footerRef} className="acp-collection-label" disabled={preview}
-        aria-label={expanded && active ? `打开相册 ${active.name}` : `打开相册集 ${group.name}`}
-        onClick={() => expanded && active ? onOpen(active) : onSelect(group.id)}>
+        aria-label={`打开文件夹 ${group.name}`}
+        onFocus={() => { cancelScrub(); setExpanded(false); }}
+        onClick={() => { cancelScrub(); setExpanded(false); onSelect(group.id); }}>
         <CollectionCaption group={group} albumCount={items.length} photoCount={photoCount} visible={!expanded || !active} />
         {covers.map((album, index) => <CollectionCaption key={album.id} group={group} album={album} index={index}
           coverCount={covers.length} visible={expanded && index === activeIndex} />)}

@@ -1,6 +1,7 @@
 const express = require('express');
 const { pool } = require('../db');
 const { requirePermission } = require('../lib/permissions');
+const { workspacePolicy, ROLE_LABELS } = require('../lib/access_policy');
 const {
   positiveId, resolveWorkspace, sendWorkspaceError, WorkspaceAccessError,
 } = require('../lib/workspace_access');
@@ -39,7 +40,7 @@ async function writeAudit(conn, workspace, action, unitId, resourceType, resourc
 router.get('/', requirePermission('photos.view'), async (req, res) => {
   try {
     const workspace = await resolveWorkspace(req);
-    if (!workspace.enabled) return res.json({ enabled: false, units: [], activeUnitId: null });
+    if (!workspace.enabled) return res.json({ enabled: false, units: [], activeUnitId: null, access: workspacePolicy(workspace) });
     const [rows] = await pool.query(
       `SELECT ou.id, ou.name, ou.slug, ou.archived_at AS archivedAt, m.role,
               (SELECT COUNT(*) FROM projects p WHERE p.unit_id = ou.id) AS albumCount
@@ -56,8 +57,9 @@ router.get('/', requirePermission('photos.view'), async (req, res) => {
        WHERE organization_id = ? AND archived_at IS NULL ORDER BY id ASC`,
       [workspace.orgId]
     );
-    res.json({ enabled: true, units: rows, activeUnitId: workspace.unitId,
-      shareTargets, collegeAdmin: workspace.collegeAdmin, legacyAvailable: true });
+    res.json({ enabled: true, units: rows.map(unit => ({ ...unit,
+      access: workspacePolicy({ ...workspace, unitId: unit.id, role: unit.role }) })), activeUnitId: workspace.unitId,
+      access: workspacePolicy(workspace), shareTargets, collegeAdmin: workspace.collegeAdmin, legacyAvailable: true });
   } catch (err) { fail(res, err); }
 });
 
@@ -127,10 +129,10 @@ router.get('/:unitId/members', requirePermission('photos.view'), async (req, res
       `SELECT u.id, u.name, u.email, m.role, m.created_at AS joinedAt
        FROM organization_unit_memberships m JOIN users u ON u.id = m.user_id
        WHERE m.unit_id = ? AND m.removed_at IS NULL AND u.organization_id = ?
-       ORDER BY FIELD(m.role, 'manager', 'editor', 'member'), u.name ASC`,
+       ORDER BY FIELD(m.role, 'manager', 'editor', 'member', 'viewer'), u.name ASC`,
       [unitId, workspace.orgId]
     );
-    res.json(rows);
+    res.json(rows.map(member => ({ ...member, accessRoleLabel: ROLE_LABELS[member.role === 'manager' ? 'manager' : member.role === 'viewer' ? 'viewer' : 'contributor'] })));
   } catch (err) { fail(res, err); }
 });
 
@@ -182,13 +184,18 @@ router.put('/:unitId/members/:userId', requirePermission('photos.view'), async (
     const workspace = await resolveWorkspace(req, conn);
     const unitId = positiveId(req.params.unitId);
     const userId = positiveId(req.params.userId);
-    const role = String(req.body?.role || '').trim();
-    if (!unitId || !userId || !['member', 'editor', 'manager'].includes(role)) {
+    const rawRole = String(req.body?.role || '').trim();
+    const role = ['member', 'contributor'].includes(rawRole) ? 'editor' : rawRole;
+    if (!unitId || !userId || !['viewer', 'editor', 'manager'].includes(role)) {
       throw new WorkspaceAccessError('INVALID_MEMBERSHIP', 400);
     }
     const actorRole = await getUnitRole(workspace, unitId);
     if (actorRole !== 'manager' && actorRole !== 'collegeAdmin') throw new WorkspaceAccessError('UNIT_FORBIDDEN');
     if (role === 'manager' && !workspace.collegeAdmin) throw new WorkspaceAccessError('COLLEGE_ADMIN_REQUIRED');
+    if (!workspace.collegeAdmin) {
+      const [previous] = await conn.query('SELECT role FROM organization_unit_memberships WHERE unit_id = ? AND user_id = ? AND removed_at IS NULL LIMIT 1', [unitId, userId]);
+      if (previous[0]?.role === 'manager') throw new WorkspaceAccessError('COLLEGE_ADMIN_REQUIRED');
+    }
     const [users] = await conn.query('SELECT id FROM users WHERE id = ? AND organization_id = ? LIMIT 1',
       [userId, workspace.orgId]);
     if (!users.length) throw new WorkspaceAccessError('USER_NOT_FOUND', 404);
@@ -238,9 +245,9 @@ router.delete('/:unitId/members/:userId', requirePermission('photos.view'), asyn
 router.get('/face-search/grants', requirePermission('photos.view'), async (req, res) => {
   try {
     const workspace = await resolveWorkspace(req);
-    if (!workspace.collegeAdmin) throw new WorkspaceAccessError('COLLEGE_ADMIN_REQUIRED');
+    if (!workspacePolicy(workspace).canGrantFaces) throw new WorkspaceAccessError('COLLEGE_ADMIN_REQUIRED');
     const [rows] = await pool.query(
-      `SELECT g.user_id AS userId, u.name, u.email, g.college_wide AS collegeWide
+      `SELECT g.user_id AS userId, u.name, u.email, g.college_wide AS collegeWide, g.can_manage AS canManage
        FROM face_search_grants g JOIN users u ON u.id = g.user_id
        WHERE g.organization_id = ? ORDER BY u.name`, [workspace.orgId]
     );
@@ -251,26 +258,28 @@ router.get('/face-search/grants', requirePermission('photos.view'), async (req, 
 router.put('/face-search/:userId', requirePermission('photos.view'), async (req, res) => {
   try {
     const workspace = await resolveWorkspace(req);
-    if (!workspace.collegeAdmin) throw new WorkspaceAccessError('COLLEGE_ADMIN_REQUIRED');
+    if (!workspacePolicy(workspace).canGrantFaces) throw new WorkspaceAccessError('COLLEGE_ADMIN_REQUIRED');
     if (req.body?.collegeWide === false) throw new WorkspaceAccessError('UNIT_FACE_SCOPE_NOT_AVAILABLE', 400);
+    const canManage = req.body?.canManage === true;
+    if (req.body?.canManage !== undefined && typeof req.body.canManage !== 'boolean') throw new WorkspaceAccessError('INVALID_FACE_PERMISSION', 400);
     const userId = positiveId(req.params.userId);
     if (!userId) throw new WorkspaceAccessError('INVALID_USER', 400);
     const [users] = await pool.query('SELECT id FROM users WHERE id = ? AND organization_id = ? LIMIT 1',
       [userId, workspace.orgId]);
     if (!users.length) throw new WorkspaceAccessError('USER_NOT_FOUND', 404);
     await pool.query(
-      `INSERT INTO face_search_grants (organization_id, user_id, college_wide, granted_by)
-       VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE college_wide = VALUES(college_wide), granted_by = VALUES(granted_by)`,
-      [workspace.orgId, userId, 1, workspace.userId]
+      `INSERT INTO face_search_grants (organization_id, user_id, college_wide, can_manage, granted_by)
+       VALUES (?, ?, 1, ?, ?) ON DUPLICATE KEY UPDATE college_wide = 1, can_manage = VALUES(can_manage), granted_by = VALUES(granted_by)`,
+      [workspace.orgId, userId, canManage ? 1 : 0, workspace.userId]
     );
-    res.json({ granted: true });
+    res.json({ granted: true, search: true, canManage });
   } catch (err) { fail(res, err); }
 });
 
 router.delete('/face-search/:userId', requirePermission('photos.view'), async (req, res) => {
   try {
     const workspace = await resolveWorkspace(req);
-    if (!workspace.collegeAdmin) throw new WorkspaceAccessError('COLLEGE_ADMIN_REQUIRED');
+    if (!workspacePolicy(workspace).canGrantFaces) throw new WorkspaceAccessError('COLLEGE_ADMIN_REQUIRED');
     const userId = positiveId(req.params.userId);
     if (!userId) throw new WorkspaceAccessError('INVALID_USER', 400);
     await pool.query('DELETE FROM face_search_grants WHERE organization_id = ? AND user_id = ?',

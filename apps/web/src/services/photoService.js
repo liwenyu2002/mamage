@@ -299,13 +299,18 @@ async function requestWithUploadProgress({ url, method = 'POST', headers = {}, b
   });
 }
 
-async function getPhotoById(photoId) {
+async function getPhotoById(photoId, options = {}) {
   if (photoId === undefined || photoId === null || String(photoId).trim() === '') {
     throw new Error('getPhotoById: photoId is required');
   }
   return request(`/api/photos/${encodeURIComponent(String(photoId).trim())}`, {
-    method: 'GET'
+    method: 'GET', signal: options.signal,
   });
+}
+
+async function getPhotoPersonObservations(photoId, { signal } = {}) {
+  if (!/^\d+$/.test(String(photoId))) throw new Error('Invalid photo ID');
+  return request(`/api/photos/${encodeURIComponent(String(photoId))}/faces/observations`, { method: 'GET', signal });
 }
 
 async function updatePhoto(photoId, data = {}) {
@@ -938,7 +943,7 @@ async function uploadViaVideoApi(formData, { onProgress, file, uploadApiBase = '
     uploadTransferred = true;
     emitUploadProgress(onProgress, {
       file: targetFile,
-      phase: 'video-processing',
+      phase: 'completing',
       loaded: uploadTotal || (targetFile && targetFile.size) || 0,
       total: uploadTotal || (targetFile && targetFile.size) || 0,
     });
@@ -1083,7 +1088,7 @@ async function uploadViaDirectVideoPartProxy(init, file, { onProgress, uploadApi
       }
     });
     await Promise.all(workers);
-    emitUploadProgress(onProgress, { file, phase: 'video-processing', loaded: file.size || 0, total: file.size || 0 });
+    emitUploadProgress(onProgress, { file, phase: 'completing', loaded: file.size || 0, total: file.size || 0 });
     const response = await requestUploadJson('/api/upload/video/direct/complete', {
       method: 'POST', data: { sessionId, parts: etags },
     }, uploadApiBase);
@@ -1124,7 +1129,7 @@ async function uploadViaDirectVideo(file, fields, { onProgress, uploadApiBase = 
           file, phase: 'uploading', loaded: Number(event && event.loaded) || 0, total: Number(event && event.total) || file.size || 0,
         });
       });
-      emitUploadProgress(onProgress, { file, phase: 'video-processing', loaded: file.size || 0, total: file.size || 0 });
+      emitUploadProgress(onProgress, { file, phase: 'completing', loaded: file.size || 0, total: file.size || 0 });
       const response = await requestUploadJson('/api/upload/video/direct/complete', { method: 'POST', data: { sessionId } }, uploadApiBase);
       emitUploadProgress(onProgress, { file, phase: 'done', status: 'fulfilled', loaded: file.size || 0, total: file.size || 0 });
       return response;
@@ -1195,7 +1200,7 @@ async function uploadViaDirectVideo(file, fields, { onProgress, uploadApiBase = 
       }
     });
     await Promise.all(workers);
-    emitUploadProgress(onProgress, { file, phase: 'video-processing', loaded: file.size || 0, total: file.size || 0 });
+    emitUploadProgress(onProgress, { file, phase: 'completing', loaded: file.size || 0, total: file.size || 0 });
     const response = await requestUploadJson('/api/upload/video/direct/complete', {
       method: 'POST', data: { sessionId, parts: etags },
     }, uploadApiBase);
@@ -1382,83 +1387,7 @@ async function uploadPhotoFiles(files, { projectId, timelineSectionId, title, ty
 // 删除照片，photoIds: Array<number|string>
 async function deletePhotos(photoIds) {
   if (!Array.isArray(photoIds)) photoIds = [photoIds];
-
-  const baseMaybe = (typeof window !== 'undefined' && window.__MAMAGE_API_BASE__) ? window.__MAMAGE_API_BASE__ : (BASE_URL || '');
-  const fallbackHost = '';
-  // prefer relative endpoints first (avoids CORS preflight when using devServer proxy)
-  const candidates = [];
-  candidates.push({ url: '/api/photos/delete', opts: { method: 'POST', data: { photoIds } } });
-  candidates.push({ url: '/api/photos', opts: { method: 'DELETE', data: { photoIds } } });
-  candidates.push({ url: '/api/photos', opts: { method: 'POST', data: { photoIds } } });
-
-  // then try configured base (if provided)
-  if (baseMaybe) {
-    candidates.push({ url: `${baseMaybe.replace(/\/+$/,'')}/api/photos/delete`, opts: { method: 'POST', data: { photoIds } } });
-    candidates.push({ url: `${baseMaybe.replace(/\/+$/,'')}/api/photos`, opts: { method: 'DELETE', data: { photoIds } } });
-    candidates.push({ url: `${baseMaybe.replace(/\/+$/,'')}/api/photos`, opts: { method: 'POST', data: { photoIds } } });
-  }
-
-  // absolute fallback host last (likely cross-origin from dev server)
-  if (fallbackHost) {
-    candidates.push({ url: `${fallbackHost}/api/photos/delete`, opts: { method: 'POST', data: { photoIds } } });
-    candidates.push({ url: `${fallbackHost}/api/photos`, opts: { method: 'DELETE', data: { photoIds } } });
-    candidates.push({ url: `${fallbackHost}/api/photos`, opts: { method: 'POST', data: { photoIds } } });
-  }
-
-  let lastErr = null;
-  // attach Authorization header when possible
-  const token = (typeof window !== 'undefined') ? (localStorage.getItem('mamage_jwt_token') || '') : '';
-
-  for (const c of candidates) {
-    try {
-      // prefer using the request helper for relative/absolute mapping when appropriate
-      // if url is absolute (starts with http) call fetch directly, otherwise use request()
-      // eslint-disable-next-line no-console
-      console.debug('[photoService] trying delete endpoint:', c.url, c.opts.method);
-      if (/^https?:\/\//i.test(c.url)) {
-        // absolute URL — use fetch directly to avoid REQUEST wrapper base-prefixing
-        const resp = await fetch(c.url, {
-          method: c.opts.method,
-          headers: Object.assign({ 'Content-Type': 'application/json' }, token ? { Authorization: `Bearer ${token}` } : {}),
-          credentials: 'same-origin',
-          body: JSON.stringify(c.opts.data)
-        });
-        if (resp.ok) {
-          const ct = resp.headers.get('content-type') || '';
-          if (ct.includes('application/json')) return resp.json();
-          return resp.text();
-        }
-        const text = await resp.text();
-        const err = new Error(`delete failed ${resp.status} for ${c.url}`);
-        err.status = resp.status; err.body = text;
-        // eslint-disable-next-line no-console
-        console.warn('[photoService] delete endpoint returned', resp.status, 'for', c.url, 'response:', text);
-        lastErr = err;
-        continue;
-      }
-
-      // relative URL — use request helper
-      try {
-        // ensure Authorization header passed to request helper
-        const optsWithHeaders = Object.assign({}, c.opts, { headers: Object.assign({}, c.opts.headers || {}, token ? { Authorization: `Bearer ${token}` } : {}) });
-        return await request(c.url.replace(/^\/+/, '/'), optsWithHeaders);
-      } catch (e) {
-        // eslint-disable-next-line no-console
-        console.warn('[photoService] request() delete attempt failed for', c.url, e);
-        lastErr = e;
-        continue;
-      }
-    } catch (e) {
-      // eslint-disable-next-line no-console
-      console.error('[photoService] delete attempt failed for', c.url, e);
-      lastErr = e;
-      continue;
-    }
-  }
-
-  const finalErr = new Error('deletePhotos: all delete endpoints failed');
-  finalErr.cause = lastErr;
-  throw finalErr;
+  return request('/api/photos/delete', { method: 'POST', data: { photoIds } });
 }
 
 // 合影救场：以基底照片为中心修脸。{ basePhotoId, referencePhotoIds?: [] }，
@@ -1496,6 +1425,7 @@ export {
   fetchRandomByProject,
   searchPhotos,
   getPhotoById,
+  getPhotoPersonObservations,
   updatePhoto,
   assignPhotosTimelineSection,
   detectPhotoFaces,
