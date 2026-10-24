@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
-const { createOperationsStatus, alertsFor, startOperationsMonitor } = require('../lib/operations_status');
+const { createOperationsStatus, alertsFor, startOperationsMonitor, diskStatus } = require('../lib/operations_status');
 
 test('status reports bounded aggregates, caches concurrent reads and never returns stored raw errors', async () => {
   let now = 2000000000000, calls = 0;
@@ -29,9 +29,23 @@ test('status reports bounded aggregates, caches concurrent reads and never retur
 
 test('overdue backups alert without treating empty-result queries as search failures', () => {
   const status = { system: { disk: null }, analysis: { failed: 0 }, tasks: [], backup: null };
-  assert.deepEqual(alertsFor(status).map(alert => alert.code), ['BACKUP_OVERDUE']);
+  assert.deepEqual(alertsFor(status).map(alert => alert.code), ['DISK_UNAVAILABLE', 'BACKUP_OVERDUE']);
   status.backup = { verified: true, createdAt: new Date().toISOString() };
-  assert.deepEqual(alertsFor(status), []);
+  assert.deepEqual(alertsFor(status).map(alert => alert.code), ['DISK_UNAVAILABLE']);
+});
+
+test('missing upload subdirectories fall back to the actual data volume without creating files', async () => {
+  const calls = [];
+  const result = await diskStatus('/data/uploads', async name => {
+    calls.push(name);
+    if (name === '/data/uploads') throw Object.assign(Error('missing'), { code: 'ENOENT' });
+    return { bavail: 100, bsize: 4096, blocks: 200 };
+  });
+  assert.deepEqual(calls, ['/data/uploads', '/data']);
+  assert.deepEqual(result, { availableBytes: 409600, totalBytes: 819200 });
+  let attempts = 0;
+  assert.equal(await diskStatus('/data', async () => { attempts++; throw Error('unavailable'); }), null);
+  assert.equal(attempts, 1);
 });
 
 test('monitor runs only on the coordinator and stop waits for the last bounded write', async () => {

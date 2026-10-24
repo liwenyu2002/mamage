@@ -5,6 +5,7 @@ const { schoolIntegrationReadiness } = require('./school_integrations');
 
 function alertsFor(status, now = Date.now()) {
   const alerts = [];
+  if (status.system.disk === null) alerts.push({ code: 'DISK_UNAVAILABLE', severity: 'warning', title: '暂时无法读取磁盘空间' });
   if (status.system.disk?.availableBytes < 10 * 1024 ** 3) alerts.push({ code: 'DISK_LOW', severity: 'critical', title: '服务器磁盘空间不足' });
   if (status.analysis.failed > 0) alerts.push({ code: 'ANALYSIS_FAILED', severity: 'warning', title: `${status.analysis.failed} 条媒体分析失败` });
   if (status.tasks.some(task => ['queued', 'running'].includes(task.status) && Number(task.oldestAgeSeconds) > 3600)) {
@@ -15,9 +16,18 @@ function alertsFor(status, now = Date.now()) {
   return alerts;
 }
 
+async function diskStatus(dataPath, statfs = fsp.statfs) {
+  for (const candidate of new Set([dataPath, '/data'])) {
+    try {
+      const stat = await statfs(candidate);
+      return { availableBytes: stat.bavail * stat.bsize, totalBytes: stat.blocks * stat.bsize };
+    } catch {}
+  }
+  return null;
+}
+
 async function systemStatus(dataPath = process.env.UPLOAD_ABS_DIR || '/data') {
-  let disk = null;
-  try { const stat = await fsp.statfs(dataPath); disk = { availableBytes: stat.bavail * stat.bsize, totalBytes: stat.blocks * stat.bsize }; } catch {}
+  const disk = await diskStatus(dataPath);
   let processLimitBytes = null;
   try { const value = fs.readFileSync('/sys/fs/cgroup/memory.max', 'utf8').trim(); if (/^\d+$/.test(value)) processLimitBytes = Number(value); } catch {}
   return { rssBytes: process.memoryUsage().rss, hostMemoryBytes: os.totalmem(), processLimitBytes,
@@ -92,4 +102,4 @@ function startOperationsMonitor({ status, pool, isLeader = () => true, intervalM
   return { tick, async stop() { stopped = true; clearInterval(timer); if (busy) await busy; } };
 }
 
-module.exports = { createOperationsStatus, alertsFor, startOperationsMonitor };
+module.exports = { createOperationsStatus, alertsFor, startOperationsMonitor, diskStatus };
