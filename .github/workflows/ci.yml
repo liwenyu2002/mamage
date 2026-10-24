@@ -23,6 +23,10 @@ jobs:
         working-directory: apps/server
       - run: npm test
       - run: npm run build
+      - run: node scripts/test-project-hardening-browser.cjs
+        working-directory: apps/web
+      - run: npm run test:permissions-browser
+        working-directory: apps/web
       - run: node scripts/install-helm.cjs
       - run: npm run test:k8s
         env:
