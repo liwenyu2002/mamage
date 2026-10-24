@@ -9,8 +9,9 @@ function targetOptions(env = process.env) {
   const release = env.MAMAGE_RELEASE || 'school';
   if (!/^[a-zA-Z0-9_.@-]+$/.test(host) || ![namespace, release].every(s => /^[a-z][a-z0-9-]{0,45}$/.test(s))) throw Error('Invalid deployment target');
   const base = env.MAMAGE_COMPAT_BASE_IMAGE || '';
-  if (base && !/^(?:[a-zA-Z0-9._/:@-]+@)?sha256:[a-f0-9]{64}$/.test(base)) throw Error('Compatibility base must be digest-pinned');
-  return { host, namespace, release, base, compatibility: env.MAMAGE_COMPAT_BUILD !== '0' };
+  const webBase = env.MAMAGE_WEB_BASE_IMAGE || '';
+  if ([base, webBase].some(value => value && !/^(?:[a-zA-Z0-9._/:@-]+@)?sha256:[a-f0-9]{64}$/.test(value))) throw Error('Build base must be digest-pinned');
+  return { host, namespace, release, base, webBase, compatibility: env.MAMAGE_COMPAT_BUILD !== '0' };
 }
 function main() {
   const root = path.resolve(__dirname, '..');

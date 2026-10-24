@@ -19,7 +19,7 @@
 
 服务器最小安装可用已经验证的 API 镜像提供 Node。可指定 `MAMAGE_DEPLOY_HOST`、`MAMAGE_NAMESPACE`、`MAMAGE_RELEASE`。`MAMAGE_HELM_VALUES` 指向未入库的本地 JSON 覆盖文件；不在命令行传密码。默认推送两端；已单独验证镜像的发布可使用 `--skip-push`。
 
-学校虚拟 CPU 缺少部分指令集。默认执行完整兼容构建；使用 `MAMAGE_COMPAT_BASE_IMAGE` 时必须指定已验证镜像的完整 digest 或本地 image ID。依赖更新保留该镜像的原生编译结果，Sharp 版本变化会拒绝此捷径，必须重做完整兼容构建。不得直接部署未验证的官方预编译 Sharp/MySQL。
+学校虚拟 CPU 缺少部分指令集。默认执行完整兼容构建；使用 `MAMAGE_COMPAT_BASE_IMAGE` 时必须指定已验证镜像的完整 digest 或本地 image ID。依赖更新保留该镜像的原生编译结果，Sharp 版本变化会拒绝此捷径，必须重做完整兼容构建。`MAMAGE_WEB_BASE_IMAGE` 可指定同样固定的本机 Nginx 基础镜像，避免内网构建依赖外网拉取。不得直接部署未验证的官方预编译 Sharp/MySQL。
 
 ## 失败与回退
 

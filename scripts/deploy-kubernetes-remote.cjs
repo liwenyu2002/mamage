@@ -74,9 +74,19 @@ async function main() {
     } finally { fs.closeSync(dumpFd); }
     run('gzip', ['-t', path.join(archive, 'database-before.sql.gz')]);
     const tag = 'release-' + sha.slice(0, 12);
+    const localBase = (reference, component) => {
+      const id = run('sudo', ['docker', 'image', 'inspect', reference, '--format', '{{.Id}}']).trim();
+      assert.match(id, /^sha256:[a-f0-9]{64}$/);
+      if (reference.startsWith('sha256:')) assert.equal(id, reference);
+      const alias = `mamage-${component}:verified-base-${id.slice(7, 19)}`;
+      run('sudo', ['docker', 'tag', id, alias]);
+      return alias;
+    };
+    const apiBase = options.base ? localBase(options.base, 'api') : null;
+    const webBase = options.webBase ? localBase(options.webBase, 'web') : null;
     console.log('Building API and checking the actual native runtime');
     if (options.base) {
-      logRun('api-build', 'sudo', ['docker', 'build', '--pull=false', '--build-arg', 'API_IMAGE=' + options.base,
+      logRun('api-build', 'sudo', ['docker', 'build', '--pull=false', '--build-arg', 'API_IMAGE=' + apiBase,
         '--label', 'org.opencontainers.image.revision=' + sha, '-f', 'deploy/docker/Dockerfile.api.refresh', '-t', 'mamage-api:' + tag, '.']);
     } else {
       logRun('api-build', 'sudo', ['docker', 'build', '-f', 'deploy/docker/Dockerfile.api', '-t', 'mamage-api:' + tag + '-base', '.']);
@@ -90,7 +100,8 @@ async function main() {
     }
     logRun('api-tests', 'sudo', ['docker', 'run', '--rm', '--network=none', 'mamage-api:' + tag, 'npm', 'test']);
     console.log('Building the portable same-origin web image');
-    logRun('web-build', 'sudo', ['docker', 'build', '--label', 'org.opencontainers.image.revision=' + sha,
+    logRun('web-build', 'sudo', ['docker', 'build', '--pull=false', ...(apiBase ? ['--build-arg', 'NODE_IMAGE=' + apiBase] : []),
+      ...(webBase ? ['--build-arg', 'NGINX_IMAGE=' + webBase] : []), '--label', 'org.opencontainers.image.revision=' + sha,
       '-f', 'deploy/docker/Dockerfile.web', '-t', 'mamage-web:' + tag, '.']);
     logRun('web-check', 'sudo', ['docker', 'run', '--rm', '--network=none', '--read-only', '--tmpfs', '/tmp', '--add-host', 'mamage-api:127.0.0.1', 'mamage-web:' + tag, 'nginx', '-t']);
     const images = {};
