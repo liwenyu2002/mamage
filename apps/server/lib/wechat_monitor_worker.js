@@ -32,16 +32,20 @@ function createWorker(dependencies) {
   const runJob = async (db, store, row, job, payload) => {
     if (job.kind === 'discover') {
       const page = await fetchPage(payload.url);
-      const found = discovery.parseOfficialIndex(page.html, page.finalUrl, row.account_key);
-      for (const item of found.articles) await store.enqueueFetch(row, item.url, item);
+      const found = discovery.parseOfficialIndex(page.html, page.finalUrl, row.account_key, { since: row.since_date });
+      let queuedArticles = 0, queuedPages = 0;
+      for (const item of found.articles) if (await store.enqueueFetch(row, item.url, item)) queuedArticles++;
       // A bounded page job is durable; history traversal never relies on process memory.
       const maxDepth = Math.max(10, Math.min(2000, Number(process.env.WECHAT_MONITOR_MAX_DEPTH) || 600));
       // Live indexes can introduce new detail URLs; the shared history key skips already inspected pages.
       if (payload.page < maxDepth) {
-        for (const url of found.pages) await store.enqueue(row, 'discover', { url, phase: 'history', page: payload.page + 1 }, `history:${url}`);
+        for (const url of found.pages) {
+          const phase = payload.phase === 'live' && discovery.pageKind(url) === 'detail' ? 'live' : 'history';
+          if (await store.enqueueDiscovery(row, url, { phase, page: payload.page + 1 })) queuedPages++;
+        }
       }
       await db.query('UPDATE wechat_monitor_accounts SET last_checked_at = ?,state = ?,last_error = NULL WHERE id = ?', [clock(), 'watching', row.id]);
-      return { discovered: found.articles.length, linkedPages: found.pages.length,
+      return { discovered: found.articles.length, linkedPages: found.pages.length, queuedArticles, queuedPages,
         depthLimitReached: payload.page >= maxDepth && found.pages.length > 0, coverage: found.coverage };
     }
     if (job.kind === 'fetch') {
@@ -108,8 +112,13 @@ function createWorker(dependencies) {
           AND (a.unit_id IS NULL OR (u.id IS NOT NULL AND u.archived_at IS NULL))
           AND j.kind IN (${lane === 'source' ? "'discover','fetch'" : "'analyze','summarize','regroup'"})
           AND (? OR j.kind NOT IN ('analyze','summarize'))
-        ORDER BY CASE WHEN j.kind='discover' AND JSON_EXTRACT(j.payload,'$.page')=1 THEN 0
-          WHEN j.kind IN ('analyze','regroup') THEN 1 WHEN j.kind='fetch' THEN 2 WHEN j.kind='summarize' THEN 3 ELSE 4 END,j.id LIMIT 30`, [clock(), allowAnalysis]);
+        ORDER BY CASE WHEN j.kind='fetch' THEN 0
+          WHEN j.kind='discover' AND (JSON_EXTRACT(j.payload,'$.page')=1 OR JSON_UNQUOTE(JSON_EXTRACT(j.payload,'$.phase'))='live') THEN 1
+          WHEN j.kind IN ('analyze','regroup') THEN 1
+          WHEN j.kind='discover' AND (JSON_UNQUOTE(JSON_EXTRACT(j.payload,'$.sourceType'))='directory'
+            OR JSON_UNQUOTE(JSON_EXTRACT(j.payload,'$.url')) REGEXP '/(list[0-9]*[.](htm|psp)|sitemap[.]txt|api/article)') THEN 2
+          WHEN j.kind='summarize' THEN 3 ELSE 4 END,
+          CASE WHEN j.kind IN ('discover','fetch') THEN a.last_request_at ELSE 0 END,j.id LIMIT 30`, [clock(), allowAnalysis]);
       const chosen = pending[0];
       if (!chosen || stopped) return false;
       const row = await store.account(chosen.scope_key, chosen.account_id), payload = parsed(chosen.payload, {});

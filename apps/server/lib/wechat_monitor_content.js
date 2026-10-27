@@ -6,10 +6,10 @@ const { extractStyleBlocksFromHtml } = require('./wechat_style_extract');
 const PROTOCOL_VERSION = 'wechat-learning-v3';
 const PRESETS = [
   { key: 'hit', name: '哈尔滨工业大学', expectedNames: ['哈尔滨工业大学'], since: '2024-01-01',
-    indexes: ['https://news.hit.edu.cn/xxyw/list.htm', 'https://news.hit.edu.cn/hgdqmt/list.htm'],
+    indexes: ['https://www.hit.edu.cn/', 'https://news.hit.edu.cn/xxyw/list.htm', 'https://news.hit.edu.cn/hgdqmt/list.htm'],
     identityEvidence: 'https://news.hit.edu.cn/2025/0315/c11819a237593/page.htm' },
   { key: 'bjzgca', name: '北京中关村学院', expectedNames: ['北京中关村学院'], since: '2024-01-01',
-    indexes: ['https://www.bza.edu.cn/news/', 'https://www.bza.edu.cn/sitemap.txt'],
+    indexes: ['https://www.bza.edu.cn/api/article?type=school&page=1&limit=5', 'https://www.bza.edu.cn/', 'https://www.bza.edu.cn/news/', 'https://www.bza.edu.cn/sitemap.txt'],
     identityEvidence: 'https://www.bza.edu.cn/detail/hdgr8zc0mgbgl4i8n8umiwh1o4tybx59' },
 ];
 const SCENES = { admissions: '招生迎新', graduation: '毕业校友', research: '科研学术', people: '人物故事',

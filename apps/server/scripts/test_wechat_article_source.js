@@ -38,6 +38,16 @@ test('verification, access denial and rate limiting are distinct from normal art
     open: async () => { throw Object.assign(Error('network detail must not leak'), { code: 'SOURCE_TIMEOUT' }); },
   }), error => error.code === 'SOURCE_TIMEOUT' && !error.message.includes('network detail'));
 });
+test('a redirect to the observed WeChat challenge is recorded as verification without following it', async () => {
+  let followed = false;
+  await assert.rejects(source.fetchWechatArticleHtml('https://mp.weixin.qq.com/s/known', {
+    open: async (_url, options) => {
+      options.validateUrl(new URL('https://mp.weixin.qq.com/mp/wappoc_appmsgcaptcha?poc_token=test&target_url=test'));
+      followed = true;
+    },
+  }), { code: 'SOURCE_VERIFICATION_REQUIRED' });
+  assert.equal(followed, false);
+});
 test('public transport preserves its default redirect cap while the existing article importer can follow up to five validated hops', async () => {
   const https = require('node:https'), dns = require('node:dns').promises;
   const originalRequest = https.request, originalLookup = dns.lookup;

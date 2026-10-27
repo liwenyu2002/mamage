@@ -1,5 +1,5 @@
 const { PRESETS, SCENES, PROTOCOL_VERSION, parsed, hash, invalid } = require('./wechat_monitor_content');
-const { historicalWindows, searchUrl } = require('./wechat_monitor_discovery');
+const { historicalWindows, searchUrl, sourceUrl, pageKind, discoveryKey } = require('./wechat_monitor_discovery');
 const { groupFingerprint, seriesEligible } = require('./wechat_monitor_learning');
 
 function scopeFor(workspace) {
@@ -28,6 +28,18 @@ function makeStore(db, clock = Date.now) {
     [account.scope_key, account.id, kind, hash(`${account.id}:${kind}:${key}`), JSON.stringify(payload), at]);
     return result.insertId || null;
   };
+  const enqueueDiscovery = async (row, raw, { phase = 'history', page = 1 } = {}, key = null) => {
+    const url = sourceUrl(raw).href, sourceType = pageKind(url);
+    const dedupe = key || `history:${discoveryKey(url)}`;
+    const id = await enqueue(row, 'discover', { url, phase, page, sourceType }, dedupe);
+    if (!id && phase === 'live') {
+      // A live index can rediscover a detail already waiting behind the historical backlog.
+      await db.query(`UPDATE wechat_monitor_jobs SET payload=JSON_SET(payload,'$.phase','live','$.sourceType',?)
+        WHERE scope_key=? AND account_id=? AND dedupe_key=? AND status IN ('pending','retry')`,
+      [sourceType, row.scope_key, row.id, hash(`${row.id}:discover:${dedupe}`)]);
+    }
+    return id;
+  };
   const account = async (scope, id) => {
     const [[row]] = await db.query('SELECT * FROM wechat_monitor_accounts WHERE scope_key = ? AND id = ?', [scope, id]);
     if (!row) throw invalid('MONITOR_NOT_FOUND', '监控目标不存在', 404); return row;
@@ -44,7 +56,7 @@ function makeStore(db, clock = Date.now) {
       const [rows] = await db.query('SELECT * FROM wechat_monitor_accounts WHERE scope_key = ?', [scope]);
       for (const row of rows) {
         const preset = PRESETS.find(item => item.key === row.account_key);
-        for (const url of preset.indexes) await enqueue(row, 'discover', { url, phase: 'history', page: 1 }, `history:${url}`);
+        for (const url of preset.indexes) await enqueueDiscovery(row, url);
       }
       await db.commit(); return rows;
     } catch (error) { await db.rollback(); throw error; }
@@ -57,7 +69,7 @@ function makeStore(db, clock = Date.now) {
       AND a.state NOT IN ('verification_required','policy_blocked') ORDER BY a.next_check_at LIMIT 10`, [clock()]);
     for (const row of rows) {
       const preset = PRESETS.find(item => item.key === row.account_key);
-      for (const url of preset.indexes) await enqueue(row, 'discover', { url, phase: 'live', page: 1 }, `live:${url}:${Math.floor(clock() / (row.interval_seconds * 1000))}`);
+      for (const url of preset.indexes) await enqueueDiscovery(row, url, { phase: 'live', page: 1 }, `live:${discoveryKey(url)}:${Math.floor(clock() / (row.interval_seconds * 1000))}`);
       await db.query('UPDATE wechat_monitor_accounts SET next_check_at = ? WHERE id = ?', [clock() + row.interval_seconds * 1000, row.id]);
     }
   };
@@ -79,8 +91,8 @@ function makeStore(db, clock = Date.now) {
       await db.query('UPDATE wechat_monitor_articles SET current_revision_id = ? WHERE id = ?', [revision.insertId, id]);
       if (!row.biz && article.biz && article.metadata.provenance?.sourceKind === 'official_site_wechat_link') {
         const preset = PRESETS.find(item => item.key === row.account_key);
-        const expectedHost = new URL(preset.indexes[0]).hostname;
-        const official = value => { try { return new URL(value).hostname === expectedHost; } catch { return false; } };
+        const expectedHosts = new Set(preset.indexes.map(value => new URL(value).hostname));
+        const official = value => { try { return expectedHosts.has(sourceUrl(value).hostname); } catch { return false; } };
         if (official(article.metadata.provenance.discoveryUrl)) {
           const [others] = await db.query(`SELECT a.source_url,r.metadata FROM wechat_monitor_articles a
             JOIN wechat_monitor_revisions r ON r.id=a.current_revision_id WHERE a.account_id=? AND a.id<>? AND r.content_hash<>?
@@ -240,6 +252,6 @@ function makeStore(db, clock = Date.now) {
         count: months.get(`${row.id}:${range.from.slice(0, 7)}`) || 0,
         state: months.has(`${row.id}:${range.from.slice(0, 7)}`) ? 'partial' : 'unverified' })) })), jobs, scenes: SCENES, budget: await modelBudget() };
   };
-  return { db, enqueue, account, bootstrap, enqueueFetch, schedule, saveArticle, article, candidates, groupMembers, saveAnalysis, refreshGroups, overview, modelBudget };
+  return { db, enqueue, enqueueDiscovery, account, bootstrap, enqueueFetch, schedule, saveArticle, article, candidates, groupMembers, saveAnalysis, refreshGroups, overview, modelBudget };
 }
 module.exports = { scopeFor, makeStore, analysisStateFor };

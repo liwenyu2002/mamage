@@ -10,6 +10,10 @@ function sourceError(code, message, httpStatus = 502) {
 function assertAllowedWechatUrl(rawUrl) {
   let url;
   try { url = new URL(String(rawUrl).trim()); } catch { throw sourceError('INVALID_ARTICLE_URL', '公众号链接格式无效', 400); }
+  if (url.protocol === 'https:' && url.hostname === 'mp.weixin.qq.com' && !url.username && !url.password && !url.port
+    && url.pathname === '/mp/wappoc_appmsgcaptcha') {
+    throw sourceError('SOURCE_VERIFICATION_REQUIRED', '公众号原文跳转到验证页面，已停止该链接的自动处理', 422);
+  }
   if (!['https:', 'http:'].includes(url.protocol) || url.hostname !== 'mp.weixin.qq.com' || url.username || url.password
     || url.port || !/^\/s(?:\/[^/?#]+)?\/?$/.test(url.pathname)) {
     throw sourceError('INVALID_ARTICLE_URL', '仅支持 mp.weixin.qq.com/s 公众号文章链接', 400);

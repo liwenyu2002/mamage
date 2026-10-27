@@ -52,7 +52,7 @@ async function main() {
   try {
     await store.bootstrap(workspace); await store.bootstrap(workspace);
     const initial = await store.overview(scope); assert.equal(initial.accounts.length, 2);
-    assert.equal(initial.jobs.reduce((sum, item) => sum + Number(item.count), 0), 4, 'bootstrap is idempotent');
+    assert.equal(initial.jobs.reduce((sum, item) => sum + Number(item.count), 0), 7, 'bootstrap is idempotent');
     assert.equal(initial.budget.limitTokens, null); assert.equal(initial.budget.paused, false);
     assert.equal(initial.budget.unlimited, true); assert.equal(initial.budget.resetAt, null);
     const account = await store.account(scope, initial.accounts[0].id);
@@ -60,10 +60,11 @@ async function main() {
     const workerOptions = { pool, clock: () => now, isLeader: () => true, canDispatch: () => true,
       fetchPage: async url => {
         calls.set(url, (calls.get(url) || 0) + 1);
+        if (url.includes('/api/article?')) return { finalUrl: url, html: JSON.stringify({ data: [], pagination: { current: 1, total: 0 } }) };
         if (url.endsWith('/challenge')) throw content.invalid('SOURCE_VERIFICATION_REQUIRED', '测试验证页', 422);
         if (url.endsWith('/transient') && calls.get(url) === 1) throw Object.assign(Error('测试短时连接中断'), { code: 'ECONNRESET' });
         return url.includes('mp.weixin.qq.com') ? { finalUrl: url, html: fixtureArticle(url.endsWith('/two') ? 2 : url.endsWith('/transient') ? 3 : url.endsWith('/four') ? 4 : 1) }
-          : { finalUrl: url, html: url.includes('news.hit.edu.cn')
+          : { finalUrl: url, html: url.includes('hit.edu.cn')
             ? url.endsWith('/2026/1026/c11819a999999/page.htm') ? '<a href="https://mp.weixin.qq.com/s/four">新增微信文章</a>'
               : '<a href="https://mp.weixin.qq.com/s/one">一</a><a href="https://mp.weixin.qq.com/s/two">二</a>'
                 + (publishedLater ? '<a href="/2026/1026/c11819a999999/page.htm">后来公布的详情页</a>' : '')
@@ -115,8 +116,14 @@ async function main() {
     const usage = (await store.overview(scope)).budget;
     assert.equal(usage.paused, false, 'large recorded usage never pauses monitor dispatch');
     assert.equal(usage.unlimited, true); assert.ok(usage.usedTokens >= 9000000);
+    const historicalBacklog = [];
+    for (let i = 0; i < 40; i++) historicalBacklog.push(await store.enqueue(account, 'discover',
+      { url: `https://news.hit.edu.cn/2025/0101/c1510a${880000 + i}/page.htm`, phase: 'history', page: 2 }, `backlog-${i}`));
     publishedLater = true;
     await store.enqueue(account, 'discover', { url: 'https://news.hit.edu.cn/xxyw/list.htm', phase: 'live', page: 1 }, 'test-live-new-detail');
+    for (let count = 0; count < 6; count++) { now += 20000; await worker.pumpSources(); }
+    assert.equal(calls.get('https://mp.weixin.qq.com/s/four'), 1, 'newly discovered live articles must not wait behind 40 historical detail pages');
+    await pool.query('DELETE FROM wechat_monitor_jobs WHERE id IN (?)', [historicalBacklog]);
     for (let count = 0; count < 30; count++) {
       now += 20000; await worker.pump();
       const [[row]] = await pool.query("SELECT COUNT(*) AS count FROM wechat_monitor_jobs WHERE scope_key=? AND status IN ('pending','running','retry')", [scope]);
@@ -235,6 +242,22 @@ async function main() {
     assert.equal((await call('/accounts/' + account.id + '/import', { method: 'POST', body: JSON.stringify({ urls: ['https://evil.test/s/x'] }) })).status, 400);
     await pool.query('UPDATE wechat_monitor_accounts SET next_check_at=? WHERE scope_key=?', [now + 86400000, scope]);
     for (let count = 0; count < 100; count++) { now += 20000; if (!await worker.pump()) break; }
+    const otherAccount = await store.account(scope, initial.accounts[1].id);
+    await pool.query('UPDATE wechat_monitor_accounts SET last_request_at=0 WHERE scope_key=?', [scope]);
+    const fairJobs = [];
+    for (let i = 0; i < 3; i++) fairJobs.push(await store.enqueueDiscovery(account,
+      `https://news.hit.edu.cn/2025/0101/c1510a${990000 + i}/page.htm`, { page: 2 }));
+    fairJobs.push(await store.enqueueDiscovery(otherAccount, 'https://www.bza.edu.cn/detail/fair_account', { page: 2 }));
+    now += 20000; await worker.pumpSources();
+    now += 20000; await worker.pumpSources();
+    assert.equal(calls.get('https://www.bza.edu.cn/detail/fair_account'), 1, 'one account cannot monopolize the source lane with an older backlog');
+    await pool.query('DELETE FROM wechat_monitor_jobs WHERE id IN (?)', [fairJobs]);
+    const queuedDetail = await store.enqueueDiscovery(account, 'https://news.hit.edu.cn/2026/1027/c1510a999990/page.htm', { page: 8 });
+    assert.equal(await store.enqueueDiscovery(account, 'https://news.hit.edu.cn/2026/1027/c1510a999990/page.psp', { phase: 'live', page: 2 }), null);
+    const [[promoted]] = await pool.query('SELECT payload FROM wechat_monitor_jobs WHERE id=?', [queuedDetail]);
+    assert.equal(content.parsed(promoted.payload).phase, 'live', 'a pending historical alias is promoted, not duplicated, when rediscovered live');
+    await pool.query('DELETE FROM wechat_monitor_jobs WHERE id=?', [queuedDetail]);
+    now += 20000;
     await worker.stop();
     await store.saveArticle(account, content.parseArticle(fixtureArticle(91), 'https://mp.weixin.qq.com/s/delayed-analysis', account, now));
     await store.enqueueFetch(account, 'https://mp.weixin.qq.com/s/independent-source-92');
@@ -287,7 +310,8 @@ async function main() {
       idempotentBootstrap: true, snapshots: true, transientRetry: true, verificationStop: true, distributedLock: true,
       detailedLearning: true, relatedArticles: true, seriesAndScenes: true, workspaceIsolation: true, administratorControls: true,
       atomicQueueAndArticle: true, atomicInitialization: true, archivedSpaceSuspendsWork: true,
-      liveDetailDiscovery: true, knownDetailDeduplication: true, interruptedWorkerRecovery: true, autonomousCollectionDuringModelWait: true }));
+      liveDetailDiscovery: true, historicalBacklogDoesNotBlockLive: true, accountFairness: true, pendingAliasPromotion: true,
+      knownDetailDeduplication: true, interruptedWorkerRecovery: true, autonomousCollectionDuringModelWait: true }));
   } finally {
     await independentWorker?.stop();
     await worker?.stop();

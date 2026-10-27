@@ -3,7 +3,7 @@ const { openPublicHttps, readLimitedText } = require('./public_remote_fetch');
 const { canonicalUrl, dateTimestamp, invalid, hash } = require('./wechat_monitor_content');
 
 const SOGOU_HOST = 'weixin.sogou.com';
-const OFFICIAL_HOSTS = ['news.hit.edu.cn', 'www.bza.edu.cn'];
+const OFFICIAL_HOSTS = ['news.hit.edu.cn', 'www.hit.edu.cn', 'www.bza.edu.cn'];
 const USER_AGENT = 'MaMage-WeChatMonitor/1.0';
 const ROBOTS_CACHE = new Map();
 function sourceUrl(raw) {
@@ -11,9 +11,23 @@ function sourceUrl(raw) {
   try { url = new URL(raw); } catch { throw invalid('INVALID_DISCOVERY_URL', '发现来源链接无效'); }
   if (url.protocol === 'http:' && [SOGOU_HOST, 'mp.weixin.qq.com', ...OFFICIAL_HOSTS].includes(url.hostname)) url.protocol = 'https:';
   if (url.protocol !== 'https:' || url.username || url.password || url.port) throw invalid('INVALID_DISCOVERY_URL', '来源仅接受 HTTPS');
-  if (url.hostname === 'mp.weixin.qq.com') { canonicalUrl(url.href); return url; }
-  if (url.hostname === 'news.hit.edu.cn' && /^\/(?:xxyw|hgdqmt)\/list\d*\.(?:htm|psp)$|^\/\d{4}\/\d{4}\/c\d+a\d+\/page\.(?:htm|psp)$/.test(url.pathname)) return url;
-  if (url.hostname === 'www.bza.edu.cn' && /^\/(?:news\/?|sitemap\.txt|detail\/[A-Za-z0-9-]+\/?)$/.test(url.pathname)) return url;
+  url.hash = '';
+  if (url.hostname === 'mp.weixin.qq.com') return new URL(canonicalUrl(url.href));
+  if (url.hostname === 'www.hit.edu.cn' && url.pathname === '/') { url.search = ''; return url; }
+  if (url.hostname === 'news.hit.edu.cn' && /^\/(?:xxyw|hgdqmt)\/list\d*\.(?:htm|psp)$|^\/\d{4}\/\d{4}\/c\d+a\d+\/page\.(?:htm|psp)$/.test(url.pathname)) { url.search = ''; return url; }
+  if (url.hostname === 'www.bza.edu.cn') {
+    if (url.pathname === '/') { url.search = ''; return url; }
+    if (url.pathname === '/api/article') {
+      const params = url.searchParams;
+      if ([...params].length !== 3 || params.get('type') !== 'school' || params.get('limit') !== '5'
+        || !/^[1-9]\d{0,5}$/.test(params.get('page') || '')) throw invalid('INVALID_DISCOVERY_URL', '仅接受学院官网公开的学院动态分页');
+      url.search = new URLSearchParams({ type: 'school', page: params.get('page'), limit: '5' }).toString();
+      return url;
+    }
+    if (/^\/(?:news\/?|sitemap\.txt|detail\/[A-Za-z0-9_-]{1,100}\/?)$/.test(url.pathname)) {
+      url.pathname = url.pathname.replace(/\/$/, ''); url.search = ''; return url;
+    }
+  }
   if (url.hostname !== SOGOU_HOST || !['/weixin', '/link'].includes(url.pathname)) throw invalid('SOURCE_REDIRECT_REJECTED', '来源跳转超出已核准的官网目录与微信原文范围', 422);
   url.hash = ''; return url;
 }
@@ -126,16 +140,67 @@ function articleRedirect(html, baseUrl) {
   }
   throw invalid('SOURCE_LINK_REQUIRES_BROWSER', '搜狗中转链接需要正常浏览器打开，未执行来源脚本或绕过验证', 422);
 }
-function parseOfficialIndex(html, pageUrl, accountKey) {
+function pageKind(raw) {
+  const url = sourceUrl(raw);
+  return /\/detail\/|\/page\.(?:htm|psp)$/.test(url.pathname) ? 'detail' : 'directory';
+}
+function discoveryKey(raw) {
+  return sourceUrl(raw).href.replace(/\.(?:psp)(?=$|\?)/, '.htm');
+}
+function parseOfficialIndex(html, pageUrl, accountKey, { since = '2024-01-01' } = {}) {
   const url = sourceUrl(pageUrl), $ = cheerio.load(html), articles = new Set(), pages = new Set();
-  const expected = accountKey === 'hit' ? 'news.hit.edu.cn' : 'www.bza.edu.cn';
-  if (url.hostname !== expected) throw invalid('ACCOUNT_SOURCE_MISMATCH', '官网目录与目标机构不匹配', 422);
+  const expected = new Set(accountKey === 'hit' ? ['news.hit.edu.cn', 'www.hit.edu.cn'] : ['www.bza.edu.cn']);
+  if (!expected.has(url.hostname)) throw invalid('ACCOUNT_SOURCE_MISMATCH', '官网目录与目标机构不匹配', 422);
   const consider = raw => {
     let target; try { target = sourceUrl(new URL(raw, url).href); } catch { return; }
     if (target.hostname === 'mp.weixin.qq.com') articles.add(target.href);
-    else if (target.hostname === expected && target.href !== url.href) pages.add(target.href);
+    else if (expected.has(target.hostname) && discoveryKey(target.href) !== discoveryKey(url.href)) pages.add(target.href);
   };
-  $('a[href]').each((_, element) => consider($(element).attr('href')));
+  const linksIn = fragment => {
+    const doc = cheerio.load(fragment);
+    doc('a[href]').each((_, element) => consider(doc(element).attr('href')));
+  };
+  if (url.pathname === '/api/article') {
+    let data; try { data = JSON.parse(html); } catch { throw invalid('SOURCE_FORMAT_CHANGED', '学院动态分页未返回 JSON', 422); }
+    const page = Number(url.searchParams.get('page')), total = data.pagination?.total;
+    if (!Array.isArray(data.data) || data.data.length > 5 || data.pagination?.current !== page
+      || !Number.isSafeInteger(total) || total < 0 || total > 500000 || (!data.data.length && (page - 1) * 5 < total)) {
+      throw invalid('SOURCE_FORMAT_CHANGED', '学院动态分页结构变化，未将异常页面记作无更新', 422);
+    }
+    for (const item of data.data) {
+      if (!item || typeof item !== 'object' || typeof item.title !== 'string') throw invalid('SOURCE_FORMAT_CHANGED', '学院动态条目缺少标题', 422);
+      if (Number.isFinite(Date.parse(item.date)) && Date.parse(item.date) < dateTimestamp(since)) continue;
+      if (typeof item.link === 'string') consider(item.link);
+      if (typeof item.content === 'string' && item.content.trim()) linksIn(item.content);
+      else if (!item.link && typeof item.uuid === 'string' && /^[A-Za-z0-9_-]{1,100}$/.test(item.uuid)) consider('/detail/' + item.uuid);
+    }
+    const beforeStart = data.data.length > 0 && data.data.every(item => typeof item.date === 'string'
+      && Number.isFinite(Date.parse(item.date)) && Date.parse(item.date) < dateTimestamp(since));
+    if (page * 5 < total && !beforeStart) {
+      const next = new URL(url); next.searchParams.set('page', String(page + 1)); consider(next.href);
+    }
+    return { articles: [...articles].map(value => ({ url: value, discoveryUrl: url.href, sourceKind: 'official_site_wechat_link' })),
+      pages: [...pages], coverage: 'official_index_partial' };
+  }
+  const hitList = url.hostname === 'news.hit.edu.cn' && /\/list\d*\./.test(url.pathname) && $('.col_news_con [id^="wp_news_"]').length;
+  const hitDetail = url.hostname === 'news.hit.edu.cn' && /\/page\./.test(url.pathname) && $('.wp_articlecontent').length;
+  if (hitList) {
+    const entries = $('.col_news_con [id^="wp_news_"] a[href]');
+    const dated = [];
+    entries.each((_, element) => {
+      let target;
+      try { target = sourceUrl(new URL($(element).attr('href'), url).href); } catch { return; }
+      if (target.hostname !== 'mp.weixin.qq.com' && pageKind(target.href) !== 'detail') return;
+      const match = target.pathname.match(/^\/(\d{4})\/(\d{2})(\d{2})\//);
+      const day = match && `${match[1]}-${match[2]}-${match[3]}`;
+      dated.push(day);
+      if (!day || day >= since) consider(target.href);
+    });
+    if (!dated.length || dated.some(day => !day || day >= since)) {
+      $('.col_news_con [id^="wp_paging_"] a.next[href]').each((_, element) => consider($(element).attr('href')));
+    }
+  } else if (hitDetail) linksIn($('.wp_articlecontent').html());
+  else $('a[href]').each((_, element) => consider($(element).attr('href')));
   // Nuxt publishes its page data as JSON, not an authenticated backend endpoint.
   const embedded = $('#__NUXT_DATA__').html();
   if (embedded) {
@@ -143,14 +208,15 @@ function parseOfficialIndex(html, pageUrl, accountKey) {
     const visit = (item, depth = 0) => {
       if (depth > 16) return;
       if (typeof item === 'string' && /^(https?:\/\/|\/detail\/)/.test(item)) consider(item);
+      else if (typeof item === 'string' && /<a\s[^>]*href\s*=/i.test(item)) linksIn(item);
       else if (Array.isArray(item)) item.forEach(child => visit(child, depth + 1));
       else if (item && typeof item === 'object') Object.values(item).forEach(child => visit(child, depth + 1));
     };
     visit(value);
   }
   if (url.pathname.endsWith('.txt')) for (const line of html.split(/\r?\n/)) if (/^https?:\/\//.test(line.trim())) consider(line.trim());
-  if (!articles.size && !pages.size && !/\/detail\/|\/page\.htm$/.test(url.pathname)) throw invalid('SOURCE_FORMAT_CHANGED', '官网目录未解析出链接，未误记为历史采集完成', 422);
+  if (!articles.size && !pages.size && !hitList && !/\/detail\/|\/page\.(?:htm|psp)$/.test(url.pathname)) throw invalid('SOURCE_FORMAT_CHANGED', '官网目录未解析出链接，未误记为历史采集完成', 422);
   return { articles: [...articles].map(value => ({ url: value, discoveryUrl: pageUrl, sourceKind: 'official_site_wechat_link' })),
     pages: [...pages], coverage: 'official_index_partial' };
 }
-module.exports = { sourceUrl, robotsAllowed, checkRobots, fetchPage, searchUrl, historicalWindows, parseSearch, articleRedirect, parseOfficialIndex };
+module.exports = { sourceUrl, pageKind, discoveryKey, robotsAllowed, checkRobots, fetchPage, searchUrl, historicalWindows, parseSearch, articleRedirect, parseOfficialIndex };

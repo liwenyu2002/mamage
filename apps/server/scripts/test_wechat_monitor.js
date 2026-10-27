@@ -87,6 +87,56 @@ test('discovery uses published official links and JSON only, filters account hos
   const search = sources.searchUrl('哈尔滨工业大学', { from: '2024-01-01', to: '2024-01-31' });
   assert.equal(new URL(search).searchParams.has('tsn'), false, 'unverified date-filter parameters are never presented as a supported API');
 });
+test('official discovery accepts published underscore article ids and deduplicates directory aliases', () => {
+  const sitemap = 'https://www.bza.edu.cn/detail/cnews_abc123\nhttps://www.bza.edu.cn/detail/culture_def456';
+  assert.deepEqual(sources.parseOfficialIndex(sitemap, 'https://www.bza.edu.cn/sitemap.txt', 'bjzgca').pages, sitemap.split('\n'));
+  const aliases = '<a href="/news#info">学院动态</a><a href="/news/#video">视频</a><a href="https://mp.weixin.qq.com/s/known">原文</a>';
+  assert.deepEqual(sources.parseOfficialIndex(aliases, 'https://www.bza.edu.cn/news/', 'bjzgca').pages, []);
+  for (const url of ['https://www.bza.edu.cn/detail/../admin', 'https://www.bza.edu.cn/detail/cnews_abc/admin',
+    'https://www.bza.edu.cn/detail/a%2fb', 'https://www.bza.edu.cn/api/article?type=private&page=1&limit=5',
+    'https://www.bza.edu.cn/api/article?type=school&page=0&limit=5',
+    'https://www.bza.edu.cn/api/article?type=school&page=1&limit=500',
+    'https://www.bza.edu.cn/api/article?type=school&page=1&limit=5&url=http://localhost']) assert.throws(() => sources.sourceUrl(url));
+});
+test('school public pagination discovers article links without mixing website text into the WeChat corpus', () => {
+  const url = 'https://www.bza.edu.cn/api/article?type=school&page=2&limit=5';
+  const response = { data: [
+    { uuid: 'cnews_abc', title: '已公开的原文', date: '2025-10-01T00:00:00.000Z', link: 'https://mp.weixin.qq.com/s/candidate?scene=1' },
+    { uuid: 'culture_def', title: '官网正文不是官微原文', date: '2025-09-01T00:00:00.000Z', content: '<p>正文</p><a href="https://mp.weixin.qq.com/s/linked">原文</a>' },
+  ], pagination: { current: 2, total: 13 } };
+  const found = sources.parseOfficialIndex(JSON.stringify(response), url, 'bjzgca');
+  assert.deepEqual(found.articles.map(item => item.url), ['https://mp.weixin.qq.com/s/candidate', 'https://mp.weixin.qq.com/s/linked']);
+  assert.ok(found.pages.includes('https://www.bza.edu.cn/api/article?type=school&page=3&limit=5'));
+  assert.equal(found.coverage, 'official_index_partial');
+  assert.throws(() => sources.parseOfficialIndex('{"error":"unavailable"}', url, 'bjzgca'), { code: 'SOURCE_FORMAT_CHANGED' });
+  assert.throws(() => sources.parseOfficialIndex(JSON.stringify({ ...response, pagination: { current: 1, total: 13 } }), url, 'bjzgca'), { code: 'SOURCE_FORMAT_CHANGED' });
+  const older = { data: [{ uuid: 'old', title: '历史', date: '2023-12-01T00:00:00.000Z', link: 'https://mp.weixin.qq.com/s/old' }], pagination: { current: 2, total: 20 } };
+  assert.deepEqual(sources.parseOfficialIndex(JSON.stringify(older), url, 'bjzgca', { since: '2024-01-01' }).pages, []);
+});
+test('HIT history follows the article list and next page rather than sidebar aliases and the last page', () => {
+  const html = '<div class="col-slide"><a href="/2026/1027/c11508a999/page.htm">侧栏</a></div>'
+    + '<div class="col_news_con"><div id="wp_news_w13"><a href="https://mp.weixin.qq.com/s/real">文章</a>'
+    + '<a href="/2026/1027/c1510a1000/page.htm">详情</a></div>'
+    + '<div id="wp_paging_w13"><a class="prev" href="/xxyw/list.htm">上一页</a>'
+    + '<a class="next" href="/xxyw/list3.htm">下一页</a><a class="last" href="/xxyw/list406.htm">尾页</a></div></div>';
+  const found = sources.parseOfficialIndex(html, 'https://news.hit.edu.cn/xxyw/list2.htm', 'hit');
+  assert.deepEqual(found.pages, ['https://news.hit.edu.cn/2026/1027/c1510a1000/page.htm', 'https://news.hit.edu.cn/xxyw/list3.htm']);
+  assert.equal(found.articles.length, 1);
+  const older = '<div class="col_news_con"><div id="wp_news_w13"><a href="/hgdqmt/list.htm">分类</a>'
+    + '<a href="https://news.hit.edu.cn/2023/1231/c1510a1000/page.htm">旧文章</a></div>'
+    + '<div id="wp_paging_w13"><a class="next" href="/xxyw/list30.htm">下一页</a></div></div>';
+  assert.deepEqual(sources.parseOfficialIndex(older, 'https://news.hit.edu.cn/xxyw/list29.htm', 'hit').pages, [],
+    'category navigation must not keep pre-2024 history traversal alive');
+});
+test('the university homepage is a first-class official WeChat discovery source', () => {
+  const page = '<a href="https://mp.weixin.qq.com/s/official-feature">官微精选</a>'
+    + '<a href="https://news.hit.edu.cn/xxyw/list.htm">新闻网</a><a href="/admin">忽略</a>';
+  const found = sources.parseOfficialIndex(page, 'https://www.hit.edu.cn/', 'hit');
+  assert.equal(found.articles[0].url, 'https://mp.weixin.qq.com/s/official-feature');
+  assert.deepEqual(found.pages, ['https://news.hit.edu.cn/xxyw/list.htm']);
+  assert.throws(() => sources.parseOfficialIndex(page, 'https://www.hit.edu.cn/', 'bjzgca'), { code: 'ACCOUNT_SOURCE_MISMATCH' });
+  assert.throws(() => sources.sourceUrl('https://www.hit.edu.cn/admin'));
+});
 test('search discovery reads the observed publisher span and never treats missing attribution as a target match', () => {
   const row = (title, footer) => `<li><h3><a href="https://mp.weixin.qq.com/s/${title}">${title}</a></h3>${footer}</li>`;
   const html = '<ul class="news-list">' + row('target', '<div class="s-p"><span class="all-time-y2">哈尔滨工业大学</span></div>')
