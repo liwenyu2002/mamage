@@ -41,6 +41,7 @@ const VideoEditor = lazyWithPreload(() => import(/* webpackChunkName: "video-edi
 const WorkspacePanel = lazyWithPreload(() => import(/* webpackChunkName: "workspace-panel" */ './WorkspacePanel.jsx'));
 
 const PROJECT_PAGE_SIZE = 24;
+const SEARCH_SUGGESTION = '拿话筒的邹欣';
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 const MEDIA_STUDIO_PLATFORMS = [
@@ -590,12 +591,14 @@ function App() {
   }, []);
 
   const handleSearchSubmit = React.useCallback(() => {
-    const trimmed = String(keyword || '').trim();
+    let trimmed = String(keyword || '').trim();
     if (currentProjectId || (selectedNav === 'projects' && folderSearchScope)) {
       setScopedSearchRequest({ q: trimmed, projectId: currentProjectId || null,
         folderId: currentProjectId ? null : folderSearchScope.folderId, revision: {} });
       return;
     }
+    trimmed = trimmed || SEARCH_SUGGESTION;
+    setKeyword(trimmed);
     setSelectedNav('projects');
     setCurrentProjectId(null);
     try {
@@ -605,11 +608,6 @@ function App() {
       window.history.pushState({}, '', base + (url.search ? url.search : ''));
     } catch (e) {
       // ignore
-    }
-    if (!trimmed) {
-      clearPhotoSearchState();
-      loadProjects('', 1, PROJECT_PAGE_SIZE);
-      return;
     }
     setPhotoSearchMode(true);
     setPhotoSearchResults([]);
@@ -1369,11 +1367,11 @@ function App() {
               <input
                 className="mamage-nav-search-input"
                 aria-label={currentProjectId ? '当前相册内智能检索' : folderSearchScope ? '当前文件夹内智能检索' : '用自然语言搜索项目、照片、人物或场景'}
-                placeholder={currentProjectId ? '在当前相册内搜索' : folderSearchScope ? `在「${folderSearchScope.name}」内搜索` : isMobileHeader ? '搜索照片、人物、场景' : '试试：王婧琦的单人照'}
+                placeholder={currentProjectId ? '在当前相册内搜索' : folderSearchScope ? `在「${folderSearchScope.name}」内搜索` : `试试：${SEARCH_SUGGESTION}`}
                 value={keyword}
                 onChange={(event) => setKeyword(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key === 'Enter') handleSearchSubmit();
+                  if (event.key === 'Enter' && !event.nativeEvent.isComposing && event.keyCode !== 229) handleSearchSubmit();
                 }}
               />
               {keyword ? (
