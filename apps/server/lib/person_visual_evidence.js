@@ -22,16 +22,17 @@ function assertionKey(text) {
 }
 
 function heldObjectRelation(term) {
-  const match = String(term || '').trim().match(/^(?:(?:左|右|双)?手(?:里|中)?)?(?:拿着?|持(?:着|有)?|举(?:着|起)?|握(?:着|住)?|捧着?|抱着?|拎着?)([^\s，。；！？,;!?]{1,24})$/u);
-  if (!match || /的|在|和|与|并|但|不是|没有|旁人|别人|其他人/.test(match[1])) return null;
-  return { object: match[1] };
+  const match = String(term || '').trim().match(/^(?:(左手|右手|双手|手)(?:里|中)?)?(拿着?|持(?:着|有)?|举(?:着|起)?|握(?:着|住)?|捧着?|抱着?|拎着?)([^\s，。；！？,;!?]{1,24})$/u);
+  if (!match || /的|在|和|与|并|但|不是|没有|旁人|别人|其他人/.test(match[3])) return null;
+  return { object: match[3], profileReusable: (!match[1] || match[1] === '手')
+    && ['拿', '拿着', '持', '持着', '持有', '举', '举着'].includes(match[2]) };
 }
 
 function assertionState(condition, evidence) {
   const decision = evidence?.assertions?.[condition.key];
   if (decision) return ['yes', 'no'].includes(decision.state) ? decision.state : 'unknown';
   const relation = heldObjectRelation(condition.value);
-  if (!relation || evidence?.binding !== 'clear' || !Array.isArray(evidence.profile?.heldObjects)) return 'unknown';
+  if (!relation?.profileReusable || evidence?.binding !== 'clear' || !Array.isArray(evidence.profile?.heldObjects)) return 'unknown';
   const canonical = value => String(value || '').trim().toLowerCase()
     .replace(/麦克风|microphone/g, '话筒').replace(/^一[个支部台把本束枚]/, '');
   const wanted = canonical(relation.object);

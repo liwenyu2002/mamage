@@ -98,6 +98,8 @@ test('holding queries require the target person, with profile reuse but no infer
     assert.ok(request);
     assert.equal(judgeEvidence(request, { ...target, profile: { heldObjects: [object] } }), 'match');
   }
-  const raised = compileVisualConditions({ people: ['甲老师'], mustTerms: ['高举话筒'] }, [subject], { semantic: true });
-  assert.equal(judgeEvidence(raised, target), 'unknown', 'mere holding cannot certify a specific raised-arm pose');
+  for (const term of ['高举话筒', '举起话筒', '左手拿着话筒', '双手举着话筒', '捧着话筒']) {
+    const precise = compileVisualConditions({ people: ['甲老师'], mustTerms: [term] }, [subject], { semantic: true });
+    assert.equal(judgeEvidence(precise, target), 'unknown', 'mere holding cannot certify hand, pose or holding manner');
+  }
 });
