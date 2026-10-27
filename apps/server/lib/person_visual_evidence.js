@@ -30,9 +30,9 @@ function heldObjectRelation(term) {
 
 function assertionState(condition, evidence) {
   const decision = evidence?.assertions?.[condition.key];
-  if (decision) return ['yes', 'no'].includes(decision.state) ? decision.state : 'unknown';
   const relation = heldObjectRelation(condition.value);
-  if (!relation?.profileReusable || evidence?.binding !== 'clear' || !Array.isArray(evidence.profile?.heldObjects)) return 'unknown';
+  if (!relation) return ['yes', 'no'].includes(decision?.state) ? decision.state : 'unknown';
+  if (evidence?.binding !== 'clear' || !Array.isArray(evidence.profile?.heldObjects)) return decision?.state === 'no' ? 'no' : 'unknown';
   const canonical = value => String(value || '').trim().toLowerCase()
     .replace(/麦克风|microphone/g, '话筒').replace(/^一[个支部台把本束枚]/, '');
   const wanted = canonical(relation.object);
@@ -42,8 +42,9 @@ function assertionState(condition, evidence) {
     if (!object.endsWith(wanted)) return false;
     return /^(?:[黑白红蓝绿银金灰]色|无线|有线|手持式|小型|大型)+$/.test(object.slice(0, -wanted.length));
   });
+  if (decision) return decision.state === 'no' ? 'no' : decision.state === 'yes' && held ? 'yes' : 'unknown';
   // A recorded held object is positive evidence; an empty or incomplete profile proves no absence.
-  return held ? 'yes' : 'unknown';
+  return held && relation.profileReusable ? 'yes' : 'unknown';
 }
 
 function compileVisualConditions(plan, people, { semantic = false, activities = semantic, anonymous = false } = {}) {
@@ -56,7 +57,8 @@ function compileVisualConditions(plan, people, { semantic = false, activities = 
       const recognized = visualCondition(term);
       let condition = unnamed ? (recognized?.kind === 'color' ? recognized : null)
         : (recognized?.kind !== 'activity' || activities ? recognized : null)
-          || (semantic || heldObjectRelation(term) ? { kind: 'assertion', value: String(term), key: assertionKey(term) } : null);
+          || (semantic || heldObjectRelation(term) ? { kind: 'assertion', value: String(term),
+            key: assertionKey(heldObjectRelation(term) ? `held-object-reviewed-v1:${term}` : term) } : null);
       if (unnamed && condition) {
         const garment = /外套$/.test(term) ? 'outerwear' : /衬衫$/.test(term) ? 'shirt'
           : /(?:T恤|短袖)$/i.test(term) ? 'tshirt' : /(?:连衣裙|裙子)$/.test(term) ? 'dress' : null;

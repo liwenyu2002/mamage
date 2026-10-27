@@ -71,9 +71,10 @@ test('unlisted visual requests use explicit model judgments, not additional keyw
   assert.equal(plan.positive[0].kind,'assertion');
   assert.deepEqual(plan.remainingMustTerms,[]);
   assert.equal(judgeEvidence(plan,evidence),'unknown');
-  const assertions = {[assertionKey('手里拿着相机')]:{state:'yes'},[assertionKey('遮住脸')]:{state:'no'}};
-  assert.equal(judgeEvidence(plan,{...evidence,assertions}),'match');
-  assert.equal(judgeEvidence(plan,{...evidence,assertions:{...assertions,[assertionKey('遮住脸')]:{state:'unknown'}}}),'unknown');
+  const assertions = {[plan.positive[0].key]:{state:'yes'},[assertionKey('遮住脸')]:{state:'no'}};
+  const profile = { heldObjects: ['相机'] };
+  assert.equal(judgeEvidence(plan,{...evidence,profile,assertions}),'match');
+  assert.equal(judgeEvidence(plan,{...evidence,profile,assertions:{...assertions,[assertionKey('遮住脸')]:{state:'unknown'}}}),'unknown');
 });
 
 test('holding queries require the target person, with profile reuse but no inference from missing objects', () => {
@@ -89,8 +90,14 @@ test('holding queries require the target person, with profile reuse but no infer
     }
     assert.equal(judgeEvidence(request, { ...target, binding: 'uncertain' }), 'unknown');
     const key = request.positive[0].key;
+    assert.notEqual(key, assertionKey(term), 'legacy one-pass decisions must not certify new held-object requests');
     assert.equal(judgeEvidence(request, { ...target, assertions: { [key]: { state: 'no' } } }), 'reject');
     assert.equal(judgeEvidence(request, { ...target, assertions: { [key]: { state: 'unknown' } } }), 'unknown');
+    for (const heldObjects of [[], ['绿色杯子'], ['粉色扇子'], ['square frame']]) {
+      assert.equal(judgeEvidence(request, { ...target, profile: { heldObjects },
+        assertions: { [key]: { state: 'yes', observation: '举起一个物体，符合举话筒的动作' } } }), 'unknown',
+      'a model yes without the requested object is not proof of holding that object');
+    }
     assert.equal(judgeEvidence({ ...request, positive: [], negative: request.positive }, target), 'reject');
   }
   for (const object of ['相机', '手机', '奖杯', '一束鲜花']) {

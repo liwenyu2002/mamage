@@ -37,15 +37,43 @@ test('model failures, duplicate anchors and arbitrary thinking cannot become pos
 });
 
 test('free-form conditions are bounded data and only requested assertion IDs are accepted', async () => {
-  const key = assertionKey('手里拿着相机');
-  const values = await analyzePeople(await image(),[face],{baseUrl:'http://fixture.invalid',assertions:[{key,value:'手里拿着相机'}],
+  const key = assertionKey('戴着眼镜');
+  const values = await analyzePeople(await image(),[face],{baseUrl:'http://fixture.invalid',assertions:[{key,value:'戴着眼镜'}],
     fetch:async(_url,options)=>{
       const sent=JSON.parse(options.body);
       assert.ok(sent.format.properties.people.items.properties.assertions.properties[key]);
-      return Response.json({done:true,response:JSON.stringify({people:[{...result,assertions:{[key]:{state:'yes',observation:'手持相机'},invented:{state:'yes'}}}]})});
+      return Response.json({done:true,response:JSON.stringify({people:[{...result,assertions:{[key]:{state:'yes',observation:'戴着眼镜'},invented:{state:'yes'}}}]})});
     }});
   assert.deepEqual(Object.keys(values.get(12).assertions),[key]);
   assert.equal(values.get(12).assertions[key].state,'yes');
+});
+
+test('held-object assertions require a reviewed typed profile, not a one-pass yes about any raised prop', async () => {
+  const { compileVisualConditions, judgeEvidence } = require('../lib/person_visual_evidence');
+  const request = compileVisualConditions({ people: ['甲老师'], mustTerms: ['举着话筒'] }, [{ id: 1, name: '甲老师' }]);
+  const key = request.positive[0].key;
+  for (const [heldObjects, expected] of [[['麦克风'], 'match'], [['绿色杯子'], 'unknown'], [['粉色道具'], 'unknown']]) {
+    let calls = 0;
+    const values = await analyzePeople(await image(), [face], { baseUrl: 'http://fixture.invalid', assertions: request.positive,
+      fetch: async (_url, options) => {
+        calls++;
+        const sent = JSON.parse(options.body);
+        assert.ok(sent.format.properties.people.items.required.includes('profile'));
+        if (calls === 2) assert.match(sent.prompt, /重新核对assertions/);
+        return Response.json({ done: true, response: JSON.stringify({ people: [{ ...result,
+          profile: { clothing: { upper: '绿色上衣', lower: '' }, actions: ['举起物件'], heldObjects, position: '左侧' },
+          assertions: { [key]: { state: 'yes', observation: '举着一个物体' } } }] }) });
+      } });
+    assert.equal(calls, 2);
+    assert.equal(judgeEvidence(request, values.get(face.id)), expected);
+  }
+  let calls = 0;
+  const disagreement = await analyzePeople(await image(), [face], { baseUrl: 'http://fixture.invalid', assertions: request.positive,
+    fetch: async () => Response.json({ done: true, response: JSON.stringify({ people: [{ ...result,
+      profile: { clothing: { upper: '绿色上衣', lower: '' }, actions: ['举起物件'],
+        heldObjects: ++calls === 1 ? ['绿色杯子'] : ['话筒'], position: '左侧' },
+      assertions: { [key]: { state: 'yes', observation: '举起物体' } } }] }) }) });
+  assert.equal(disagreement.get(face.id).assertions[key].state, 'unknown', 'two passes must agree about the actual held object');
 });
 
 test('hub person verification preserves anchor validation and uses its own evidence namespace', async () => {
