@@ -295,10 +295,10 @@ export function AlbumDirectory({ groups, albums, sections, selected, view, isDes
         aria-current={isDesktop && activeSection === id ? 'location' : undefined} aria-controls={id === 'collections' ? id : `desktop-${id}`} onClick={() => onJump(id)}>
         <span className="acp-directory-symbol"><Icon /></span><span>{name}</span></button>)}
       <ul className="acp-folder-tree" aria-label="多级文件夹">{groups.filter(group => !group.parentId).map(group => renderFolder(group))}</ul>
-      <div className="acp-directory-links acp-directory-utility"><button className={selected === 'all' && view === 'unfiled' ? 'is-selected' : ''}
-        aria-current={selected === 'all' && view === 'unfiled' ? 'page' : undefined} onClick={() => onView('unfiled')}>
-        <span className="acp-directory-symbol"><IconListView /></span><span>未归类</span><small>{albums.filter((album) => !album.groups.length).length}</small></button></div>
     </div>
+    <div className="acp-directory-links acp-directory-utility"><button className={selected === 'all' && view === 'unfiled' ? 'is-selected' : ''}
+      aria-current={selected === 'all' && view === 'unfiled' ? 'page' : undefined} onClick={() => onView('unfiled')}>
+      <span className="acp-directory-symbol"><IconListView /></span><span>未归类</span><small>{albums.filter((album) => !album.groups.length).length}</small></button></div>
     <div className="acp-directory-foot"><span />当前小组织空间</div>
   </nav>;
 }
