@@ -41,7 +41,8 @@ const VideoEditor = lazyWithPreload(() => import(/* webpackChunkName: "video-edi
 const WorkspacePanel = lazyWithPreload(() => import(/* webpackChunkName: "workspace-panel" */ './WorkspacePanel.jsx'));
 
 const PROJECT_PAGE_SIZE = 24;
-const SEARCH_SUGGESTION = '拿话筒的邹欣';
+const SEARCH_SUGGESTIONS = ['拿话筒的邹欣', '刘铁岩单人照', '举奖杯的人', '王婧琦的单人照', '穿白衣服的人', '多人合影'];
+const SEARCH_SUGGESTION_KEY = 'mamage-search-suggestion:v1';
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 const MEDIA_STUDIO_PLATFORMS = [
@@ -158,6 +159,15 @@ function App() {
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState(null);
   const [keyword, setKeyword] = React.useState('');
+  const [searchSuggestion] = React.useState(() => {
+    let previous;
+    try { previous = window.sessionStorage.getItem(SEARCH_SUGGESTION_KEY); } catch { /* Storage is optional. */ }
+    const choices = SEARCH_SUGGESTIONS.filter(value => value !== previous);
+    return choices[Math.floor(Math.random() * choices.length)];
+  });
+  React.useEffect(() => {
+    try { window.sessionStorage.setItem(SEARCH_SUGGESTION_KEY, searchSuggestion); } catch { /* Storage is optional. */ }
+  }, [searchSuggestion]);
   const [albumUploadIntent, setAlbumUploadIntent] = React.useState(() => {
     const intent = readAlbumUploadIntent(window.location.href);
     try { if (intent) rememberAlbumUploadIntent(window.sessionStorage, intent); } catch { /* Storage is optional. */ }
@@ -597,7 +607,7 @@ function App() {
         folderId: currentProjectId ? null : folderSearchScope.folderId, revision: {} });
       return;
     }
-    trimmed = trimmed || SEARCH_SUGGESTION;
+    trimmed = trimmed || searchSuggestion;
     setKeyword(trimmed);
     setSelectedNav('projects');
     setCurrentProjectId(null);
@@ -618,7 +628,7 @@ function App() {
     setPhotoSearchMeta(null);
     loadProjects(trimmed, 1, PROJECT_PAGE_SIZE);
     loadPhotoSearchResults({ kw: trimmed, page: 1, append: false });
-  }, [keyword, currentProjectId, selectedNav, folderSearchScope, loadPhotoSearchResults, clearPhotoSearchState, loadProjects, isDemoPath]);
+  }, [keyword, searchSuggestion, currentProjectId, selectedNav, folderSearchScope, loadPhotoSearchResults, clearPhotoSearchState, loadProjects, isDemoPath]);
 
   const handlePhotoSearchLoadMore = React.useCallback(() => {
     if (photoSearchLoading || !photoSearchHasMore) return;
@@ -1367,7 +1377,7 @@ function App() {
               <input
                 className="mamage-nav-search-input"
                 aria-label={currentProjectId ? '当前相册内智能检索' : folderSearchScope ? '当前文件夹内智能检索' : '用自然语言搜索项目、照片、人物或场景'}
-                placeholder={currentProjectId ? '在当前相册内搜索' : folderSearchScope ? `在「${folderSearchScope.name}」内搜索` : `试试：${SEARCH_SUGGESTION}`}
+                placeholder={currentProjectId ? '在当前相册内搜索' : folderSearchScope ? `在「${folderSearchScope.name}」内搜索` : `试试：${searchSuggestion}`}
                 value={keyword}
                 onChange={(event) => setKeyword(event.target.value)}
                 onKeyDown={(event) => {

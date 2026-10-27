@@ -4,6 +4,8 @@ const { createRequire } = require('node:module');
 const { chromium } = createRequire(path.resolve(__dirname, '../../server/package.json'))('playwright');
 const { userAccessProfile } = require('../../server/lib/access_policy');
 const dist = path.resolve(process.env.MAMAGE_SEARCH_QA_DIST || path.join(__dirname, '../dist'));
+const suggestions = ['拿话筒的邹欣', '刘铁岩单人照', '举奖杯的人', '王婧琦的单人照', '穿白衣服的人', '多人合影'];
+const suggestionKey = 'mamage-search-suggestion:v1';
 
 async function main() {
   const server = http.createServer((req, res) => {
@@ -22,7 +24,10 @@ async function main() {
       const context = await browser.newContext({ viewport: { width, height: 900 } });
       try {
         const searches = [], errors = [], writes = [];
-        await context.addInitScript(() => localStorage.setItem('mamage_jwt_token', 'isolated-search-fixture'));
+        await context.addInitScript(() => {
+          localStorage.setItem('mamage_jwt_token', 'isolated-search-fixture');
+          Math.random = () => Number(sessionStorage.getItem('qa-suggestion-random') || 0);
+        });
         await context.route('**/api/**', route => {
           const req = route.request(), url = new URL(req.url()), p = url.pathname;
           if (p === '/api/album-desktop/state' && req.method() === 'PUT') return route.fulfill({ json: { workspaceRevision: 2, userRevision: 2 } });
@@ -46,7 +51,12 @@ async function main() {
         const page = await context.newPage(); page.on('pageerror', error => errors.push(error.message));
         await page.goto(base);
         const input = page.locator('.mamage-nav-search-input');
-        await input.getAttribute('placeholder').then(value => assert.equal(value, '试试：拿话筒的邹欣'));
+        const firstSuggestion = (await input.getAttribute('placeholder')).replace('试试：', '');
+        assert.ok(suggestions.includes(firstSuggestion));
+        await page.reload();
+        const suggestion = (await input.getAttribute('placeholder')).replace('试试：', '');
+        assert.ok(suggestions.includes(suggestion));
+        assert.notEqual(suggestion, firstSuggestion, 'refresh must not repeat the previous suggestion');
         await input.dispatchEvent('keydown', { key: 'Enter', isComposing: true });
         assert.equal(searches.length, 0);
         for (const [query, submit] of [['', 'enter'], ['多人', 'enter'], ['   ', 'click']]) {
@@ -54,8 +64,9 @@ async function main() {
           const request = page.waitForRequest(req => new URL(req.url()).pathname === '/api/photos/search');
           if (submit === 'enter') await input.press('Enter'); else await page.locator('.mamage-search-submit').click();
           const sent = new URL((await request).url()).searchParams;
-          assert.equal(sent.get('q'), query.trim() || '拿话筒的邹欣');
-          assert.equal(await input.inputValue(), query.trim() || '拿话筒的邹欣');
+          assert.equal(sent.get('q'), query.trim() || suggestion);
+          assert.equal(await input.inputValue(), query.trim() || suggestion);
+          assert.equal(await input.getAttribute('placeholder'), `试试：${suggestion}`, 'ordinary rerenders must not change the suggestion');
         }
         await page.locator('.mamage-nav-search-field').getByRole('button', { name: '清空搜索', exact: true }).click();
         assert.equal(await input.inputValue(), '');
@@ -63,6 +74,15 @@ async function main() {
         if (process.env.MAMAGE_SEARCH_QA_DIR) {
           fs.mkdirSync(process.env.MAMAGE_SEARCH_QA_DIR, { recursive: true });
           await page.screenshot({ path: path.join(process.env.MAMAGE_SEARCH_QA_DIR, `search-${width}.png`) });
+        }
+        for (const [index, expected] of suggestions.entries()) {
+          await page.evaluate(({ key, random }) => { sessionStorage.removeItem(key); sessionStorage.setItem('qa-suggestion-random', String(random)); },
+            { key: suggestionKey, random: (index + 0.5) / suggestions.length });
+          await page.reload();
+          assert.equal(await input.getAttribute('placeholder'), `试试：${expected}`);
+          const request = page.waitForRequest(req => new URL(req.url()).pathname === '/api/photos/search');
+          await input.press('Enter');
+          assert.equal(new URL((await request).url()).searchParams.get('q'), expected);
         }
         for (const [url, placeholder] of [['/?folder=fixture', '在「测试文件夹」内搜索'], ['/?projectId=84', '在当前相册内搜索']]) {
           await page.goto(base + url);
@@ -75,7 +95,8 @@ async function main() {
           assert.equal(await input.inputValue(), '');
         }
         assert.deepEqual(errors, []); assert.deepEqual(writes, []);
-        console.log(JSON.stringify({ width, recommendedEnter: true, explicitQuery: true, compositionSafe: true, scopedEmptyUnchanged: true }));
+        console.log(JSON.stringify({ width, suggestions: suggestions.length, refreshChangesSuggestion: true,
+          recommendedEnter: true, explicitQuery: true, compositionSafe: true, scopedEmptyUnchanged: true }));
       } finally { await context.close(); }
     }
   } finally { await browser.close(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
