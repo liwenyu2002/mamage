@@ -79,3 +79,40 @@ test('durable cache loads are indexed and require namespace, current fingerprint
   assert.equal(read.params[0],'person-visual-evidence');
   assert.deepEqual(read.params[1],[evidenceKey(face)]);
 });
+
+test('target-held objects are read from current profiles, never a neighbour, caption or unrelated cached clothing check', async () => {
+  process.env.PHOTO_PERSON_OBSERVATIONS_ENABLED = '1';
+  const observations = require('../lib/photo_person_observations');
+  const targetFaces = [
+    { ...face, id: 301, photoId: 201 }, { ...face, id: 302, photoId: 202 },
+    { ...face, id: 303, photoId: 203 }, { ...face, id: 304, photoId: 204 },
+  ];
+  const neighbour = { ...face, id: 399, photoId: 202, personId: 344 };
+  const rows = new Map();
+  const db = { query: async (sql, params) => {
+    if (sql.startsWith('INSERT INTO photo_person_observations')) {
+      rows.set(params[0], { face_id: params[0], source_key: params[1], observation_json: params[2] });
+      return [{}];
+    }
+    if (sql.startsWith('SELECT face_id,source_key')) return [[...rows.values()].filter(row => params[0].includes(row.face_id))];
+    if (sql.includes('FROM photo_faces pf INNER JOIN photos')) {
+      assert.deepEqual(params, [[201, 202, 203, 204], 343]);
+      return [targetFaces];
+    }
+    throw Error('Unexpected queue write or scene-text fallback');
+  } };
+  try {
+    for (const f of [...targetFaces, neighbour]) await observations.saveObservation(f, { ...evidence,
+      profile: { clothing: { upper: '红色上衣', lower: '' }, actions: ['站立'],
+        heldObjects: [301, 399].includes(f.id) ? ['麦克风'] : [], position: '' } }, db);
+    rows.get(303).source_key = 'old-source';
+    await writeEvidence(targetFaces[0], evidence, { db, durable: false });
+    const request = compileVisualConditions({ people: ['甲老师'], mustTerms: ['举着话筒'] }, [{ id: 343, name: '甲老师' }]);
+    assert.ok(request);
+    const result = await reviewCandidates({ candidates: targetFaces.map(f => ({ id: f.photoId })), request, enqueue: false, db });
+    assert.deepEqual(result.matchedIds, [201]);
+    assert.deepEqual(result.unknownIds, [202, 203, 204]);
+    assert.equal(result.pending, 3, 'a known profile match must not need another vision call');
+    assert.equal(result.queued, 0);
+  } finally { delete process.env.PHOTO_PERSON_OBSERVATIONS_ENABLED; }
+});

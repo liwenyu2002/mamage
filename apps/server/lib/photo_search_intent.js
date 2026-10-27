@@ -1,5 +1,5 @@
 const { heuristicPhotoSearchPlan, normalizePhotoSearchPlan, photoSearchDates, extractNegatedClothing, extractSinglePersonQuery } = require('./ai_photo_search');
-const { visualCondition } = require('./person_visual_evidence');
+const { visualCondition, heldObjectRelation } = require('./person_visual_evidence');
 
 const EQUIVALENTS = [
   ['发言', '演讲', '讲话', '致辞'],
@@ -64,8 +64,8 @@ function canResolvePhotoSearchLocally(query, registry) {
   if (!plan.people.length || plan.unknownPeople.length || plan.identityUncertain) return false;
   // Skip the LLM only when every remaining condition has a known, bounded interpretation.
   // Unrecognized prose, unfamiliar people and album/photographer requests still use the model.
-  return plan.mustTerms.every(term => equivalents(term).length > 1)
-    && plan.excludeTerms.every(term => equivalents(term).length > 1);
+  return plan.mustTerms.every(term => equivalents(term).length > 1 || (plan.people.length === 1 && heldObjectRelation(term)))
+    && plan.excludeTerms.every(term => equivalents(term).length > 1 || (plan.people.length === 1 && heldObjectRelation(term)));
 }
 
 // Resolve identity from the authorized registry, never from model-invented names.
@@ -103,8 +103,15 @@ function resolveSearchIntent(query, rawPlan, registry = [], { faceSearchAllowed 
   // Explicit garment negation must not turn model paraphrases into positive keywords.
   const boundedClothingNegation = clothing.excludeTerms.length > 0
     && localPositiveTerms.every(term => equivalents(term).length > 1);
-  const mustTerms = boundedClothingNegation ? [...localPositiveTerms]
+  let mustTerms = boundedClothingNegation ? [...localPositiveTerms]
     : unique(plan.mustTerms.flatMap(term => content(term).split(/\s+/)).filter(Boolean));
+  const relations = names.length === 1 ? localPositiveTerms.filter(heldObjectRelation) : [];
+  if (relations.length) {
+    const canonical = value => value.replace(/麦克风/g, '话筒');
+    // Keep the original subject/verb/object together even when the model returns independent scene keywords.
+    mustTerms = unique([...mustTerms.filter(term => !relations.some(relation =>
+      canonical(relation).includes(canonical(term)) || /^(?:拿|持|举|握|捧|抱|拎)(?:着|起|住|有)?$/.test(term))), ...relations]);
+  }
   const shouldTerms = boundedClothingNegation ? []
     : unique(plan.shouldTerms.map(content).filter(Boolean), 12);
   // AI failure and incorrect entity-only parsing still retain the remaining visual request.

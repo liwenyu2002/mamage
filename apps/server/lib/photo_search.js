@@ -607,8 +607,10 @@ async function searchPhotos(options = {}) {
       notice: plan.faceSearchUnavailable ? '当前账号未获授权使用人脸检索。'
         : plan.unknownPeople.length && (!matchedPeople.length || plan.peopleMode === 'all') ? `人物库中未找到：${plan.unknownPeople.join('、')}`
           : plan.identityUncertain ? '多人同框条件尚未完整识别，未自动放宽人物范围。'
-            : visual ? (visual.unavailable ? '视觉核验暂不可用，未将未知衣着作为匹配结果。'
-              : `${visualRequest.anonymous ? '按画面内人物已有衣着分析匹配' : '衣着按目标人物核验'}；${visual.pending || 0} 张待核验，${visual.uncertain || 0} 张暂不能确认。${visualRequest.remainingMustTerms.length || visualRequest.remainingExcludeTerms.length ? '其他内容条件仍参考已有描述。' : ''}${visual.truncated ? '当前仅核验部分候选，请缩小相册或日期范围。' : ''}`)
+            : visual ? (visual.unavailable ? '视觉核验暂不可用，未将未知条件作为匹配结果。'
+              : `${visualRequest.anonymous ? '按画面内人物已有衣着分析匹配'
+                : [...visualRequest.positive, ...visualRequest.negative].every(condition => condition.kind === 'color')
+                  ? '衣着按目标人物核验' : '动作、持物等条件按目标人物核验'}；${visual.pending || 0} 张待核验，${visual.uncertain || 0} 张暂不能确认。${visualRequest.remainingMustTerms.length || visualRequest.remainingExcludeTerms.length ? '其他内容条件仍参考已有描述。' : ''}${visual.truncated ? '当前仅核验部分候选，请缩小相册或日期范围。' : ''}`)
             : matchedPeople.length && extractNegatedClothing(query).excludeTerms.length
               ? '衣着排除基于已有照片描述；同框人物或描述缺失时仍需核对。'
             : matchedPeople.length && mustTerms.length && list.length > 0 ? '人物与画面描述已匹配；同框时衣着、动作的归属仍需核对。' : null,

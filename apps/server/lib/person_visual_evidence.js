@@ -21,6 +21,30 @@ function assertionKey(text) {
   return crypto.createHash('sha256').update(String(text).trim().toLowerCase()).digest('hex').slice(0,24);
 }
 
+function heldObjectRelation(term) {
+  const match = String(term || '').trim().match(/^(?:(?:左|右|双)?手(?:里|中)?)?(?:拿着?|持(?:着|有)?|举(?:着|起)?|握(?:着|住)?|捧着?|抱着?|拎着?)([^\s，。；！？,;!?]{1,24})$/u);
+  if (!match || /的|在|和|与|并|但|不是|没有|旁人|别人|其他人/.test(match[1])) return null;
+  return { object: match[1] };
+}
+
+function assertionState(condition, evidence) {
+  const decision = evidence?.assertions?.[condition.key];
+  if (decision) return ['yes', 'no'].includes(decision.state) ? decision.state : 'unknown';
+  const relation = heldObjectRelation(condition.value);
+  if (!relation || evidence?.binding !== 'clear' || !Array.isArray(evidence.profile?.heldObjects)) return 'unknown';
+  const canonical = value => String(value || '').trim().toLowerCase()
+    .replace(/麦克风|microphone/g, '话筒').replace(/^一[个支部台把本束枚]/, '');
+  const wanted = canonical(relation.object);
+  const held = evidence.profile.heldObjects.some(value => {
+    const object = canonical(value);
+    if (object === wanted) return true;
+    if (!object.endsWith(wanted)) return false;
+    return /^(?:[黑白红蓝绿银金灰]色|无线|有线|手持式|小型|大型)+$/.test(object.slice(0, -wanted.length));
+  });
+  // A recorded held object is positive evidence; an empty or incomplete profile proves no absence.
+  return held ? 'yes' : 'unknown';
+}
+
 function compileVisualConditions(plan, people, { semantic = false, activities = semantic, anonymous = false } = {}) {
   const unnamed = anonymous && !plan.people?.length && !people.length;
   if (!unnamed && (plan.people?.length !== 1 || people.length !== 1 || plan.people[0] !== people[0].name)) return null;
@@ -31,7 +55,7 @@ function compileVisualConditions(plan, people, { semantic = false, activities = 
       const recognized = visualCondition(term);
       let condition = unnamed ? (recognized?.kind === 'color' ? recognized : null)
         : (recognized?.kind !== 'activity' || activities ? recognized : null)
-          || (semantic ? { kind: 'assertion', value: String(term), key: assertionKey(term) } : null);
+          || (semantic || heldObjectRelation(term) ? { kind: 'assertion', value: String(term), key: assertionKey(term) } : null);
       if (unnamed && condition) {
         const garment = /外套$/.test(term) ? 'outerwear' : /衬衫$/.test(term) ? 'shirt'
           : /(?:T恤|短袖)$/i.test(term) ? 'tshirt' : /(?:连衣裙|裙子)$/.test(term) ? 'dress' : null;
@@ -84,7 +108,7 @@ function judgeEvidence(request, raw, { allowMulticolor = false } = {}) {
         if (!state || state === 'unknown') { uncertain = true; continue; }
         matches = state === 'yes';
       } else {
-        const state = raw.assertions?.[condition.key]?.state;
+        const state = assertionState(condition, raw);
         if (!['yes','no'].includes(state)) { uncertain = true; continue; }
         matches = state === 'yes';
       }
@@ -117,5 +141,5 @@ function ratioBox(face) {
   return box;
 }
 
-module.exports = { VERSION, COLORS, ACTIVITIES, compileVisualConditions, visualCondition, assertionKey,
+module.exports = { VERSION, COLORS, ACTIVITIES, compileVisualConditions, visualCondition, assertionKey, assertionState, heldObjectRelation,
   normalizeEvidence, judgeEvidence, evidenceKey, ratioBox, modelVersion };

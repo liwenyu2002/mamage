@@ -75,3 +75,29 @@ test('unlisted visual requests use explicit model judgments, not additional keyw
   assert.equal(judgeEvidence(plan,{...evidence,assertions}),'match');
   assert.equal(judgeEvidence(plan,{...evidence,assertions:{...assertions,[assertionKey('遮住脸')]:{state:'unknown'}}}),'unknown');
 });
+
+test('holding queries require the target person, with profile reuse but no inference from missing objects', () => {
+  const target = { ...evidence, activities: { speech: 'no' },
+    profile: { actions: ['站立'], heldObjects: ['麦克风'] } };
+  for (const term of ['举着话筒', '拿着麦克风', '手持话筒', '手里拿着话筒']) {
+    const request = compileVisualConditions({ people: ['甲老师'], mustTerms: [term] }, [subject], { semantic: false });
+    assert.ok(request, term);
+    assert.deepEqual(request.remainingMustTerms, []);
+    assert.equal(judgeEvidence(request, target), 'match', 'holding is not the same as speaking');
+    for (const heldObjects of [[], ['手机'], ['话筒架'], ['没有拿话筒'], ['旁人的话筒']]) {
+      assert.equal(judgeEvidence(request, { ...target, profile: { ...target.profile, heldObjects } }), 'unknown');
+    }
+    assert.equal(judgeEvidence(request, { ...target, binding: 'uncertain' }), 'unknown');
+    const key = request.positive[0].key;
+    assert.equal(judgeEvidence(request, { ...target, assertions: { [key]: { state: 'no' } } }), 'reject');
+    assert.equal(judgeEvidence(request, { ...target, assertions: { [key]: { state: 'unknown' } } }), 'unknown');
+    assert.equal(judgeEvidence({ ...request, positive: [], negative: request.positive }, target), 'reject');
+  }
+  for (const object of ['相机', '手机', '奖杯', '一束鲜花']) {
+    const request = compileVisualConditions({ people: ['甲老师'], mustTerms: [`手持${object}`] }, [subject]);
+    assert.ok(request);
+    assert.equal(judgeEvidence(request, { ...target, profile: { heldObjects: [object] } }), 'match');
+  }
+  const raised = compileVisualConditions({ people: ['甲老师'], mustTerms: ['高举话筒'] }, [subject], { semantic: true });
+  assert.equal(judgeEvidence(raised, target), 'unknown', 'mere holding cannot certify a specific raised-arm pose');
+});

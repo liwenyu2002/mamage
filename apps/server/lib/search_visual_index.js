@@ -1,4 +1,4 @@
-const { VERSION, evidenceKey, judgeEvidence } = require('./person_visual_evidence');
+const { VERSION, evidenceKey, judgeEvidence, assertionState } = require('./person_visual_evidence');
 const { usableFaceSql } = require('./face_result_policy');
 const NAMESPACE = 'person-visual-evidence';
 const memory = new Map();
@@ -23,11 +23,15 @@ async function readEvidence(faces, { db = require('../db').pool, durable = requi
   const result = new Map(entries.filter(([, value]) => value?.version === VERSION && value.expiresAt > Date.now()));
   if (process.env.PHOTO_PERSON_OBSERVATIONS_ENABLED === '1') {
     const missing = faces.filter(face => !result.has(evidenceKey(face)) || result.get(evidenceKey(face)).state === 'failed'
-      || result.get(evidenceKey(face)).binding !== 'clear');
+      || result.get(evidenceKey(face)).binding !== 'clear' || !result.get(evidenceKey(face)).profile);
     const observations = await require('./photo_person_observations').readObservations(missing, db);
     for (const face of missing) {
       const observation = observations.get(Number(face.id));
-      if (observation && (observation.binding === 'clear' || !result.has(evidenceKey(face)))) result.set(evidenceKey(face),observation);
+      const existing = result.get(evidenceKey(face));
+      if (observation && (observation.binding === 'clear' || !existing)) {
+        result.set(evidenceKey(face), existing?.binding === 'clear' && existing.state !== 'failed'
+          ? { ...observation, ...existing, profile: existing.profile || observation.profile } : observation);
+      }
     }
   }
   return result;
@@ -98,7 +102,7 @@ async function reviewCandidates({ candidates, request, signal, enqueue = process
     const photoFaces = byPhoto.get(Number(photo.id)) || [];
     const states = photoFaces.map(face => {
       const evidence = cached.get(evidenceKey(face));
-      if (!evidence || assertions.some(item=>!evidence.assertions?.[item.key])) missing.push(face);
+      if (!evidence || assertions.some(item => !evidence.assertions?.[item.key] && assertionState(item, evidence) === 'unknown')) missing.push(face);
       return judgeEvidence(request, evidence);
     });
     if (states.includes('match')) matchedIds.push(Number(photo.id));

@@ -320,6 +320,45 @@ test('visual search recalls identity candidates even when old captions omit clot
   } finally { delete process.env.SEARCH_VISUAL_ENABLED; }
 });
 
+test('a named held-object relation survives AI keyword splitting and never uses a neighbour in scene text', async () => {
+  process.env.SEARCH_VISUAL_ENABLED = '1';
+  process.env.SEARCH_VISUAL_SEMANTIC_ENABLED = '0';
+  try {
+    reset({ people: ['甲老师'], mustTerms: ['话筒', '举着'],
+      termGroups: [['话筒', '麦克风'], ['举着', '举起']] }, { counts: [1] });
+    let reviewed;
+    visualReview = async request => { reviewed = request; return { matchedIds: [101], unknownIds: [],
+      candidateCount: 1, checked: 1, pending: 0, uncertain: 0, unavailable: false }; };
+    const result = await searchPhotos({ ...options, q: '举着话筒的甲老师', projectIds: [84] });
+    assert.ok(reviewed, 'the actual search path must verify the subject/action relationship');
+    assert.equal(reviewed.request.personId, 11);
+    assert.equal(reviewed.request.positive[0].value, '举着话筒');
+    assert.deepEqual(reviewed.request.remainingMustTerms, []);
+    assert.deepEqual(result.search.plan.mustTerms, ['举着话筒']);
+    const candidate = queries.find(query => query.sql.includes('AS visualCandidateId'));
+    assert.ok(candidate.sql.includes('pf_person.person_id IN (?)'));
+    assert.ok(candidate.sql.includes('p.project_id IN (?)'));
+    assert.deepEqual(candidate.params.slice(0, 3), [2, 7, 47]);
+    assert.ok(!candidate.params.some(value => typeof value === 'string' && /话筒|举着/.test(value)));
+    assert.deepEqual(queries.find(query => query.sql.startsWith('SELECT COUNT(*) AS total')).params.at(-1), [101]);
+    assert.match(result.search.notice, /人物|动作/);
+    assert.doesNotMatch(result.search.notice, /衣着/);
+    assert.equal(result.search.matchType, 'strict');
+  } finally { delete process.env.SEARCH_VISUAL_ENABLED; delete process.env.SEARCH_VISUAL_SEMANTIC_ENABLED; }
+});
+
+test('bounded held-object requests resolve without the text model and preserve independent constraints', () => {
+  const { canResolvePhotoSearchLocally } = require('../lib/photo_search_intent');
+  for (const q of ['举着话筒的甲老师', '甲老师手持相机', '拿着奖杯的甲老师']) {
+    assert.equal(canResolvePhotoSearchLocally(q, people), true, q);
+  }
+  const combined = resolveSearchIntent('红衣服的甲老师，举着话筒，会议室', {
+    people: ['甲老师'], mustTerms: ['红衣服', '话筒', '举着', '会议室'] }, people);
+  assert.deepEqual(new Set(combined.mustTerms), new Set(['红衣服', '举着话筒', '会议室']));
+  assert.equal(canResolvePhotoSearchLocally('甲老师和乙老师举着话筒', people), false,
+    'ambiguous multi-person ownership must not be assigned to either person');
+});
+
 test('unknown negative clothing returns pending, not a false non-black hit; visual failure stays closed', async () => {
   process.env.SEARCH_VISUAL_ENABLED = '1';
   try {

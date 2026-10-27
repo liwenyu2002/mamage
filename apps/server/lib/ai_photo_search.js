@@ -258,6 +258,7 @@ async function callSearchModel(query) {
     '不要编造具体人物、相册、日期或摄影师；只抽取用户明确表达的约束。',
     '字段固定为 mustTerms, shouldTerms, termGroups, excludeTerms, people, excludePeople, peopleMode, peopleOnly, photographers, projects, timelineSections, mediaType, quality, dateFrom, dateTo, sort。',
     'mustTerms 是必须在标题、画面描述、AI标签或OCR中命中的核心可见内容，每项应为短词；不要放人物姓名、摄影师、相册或环节。',
+    '人物的动作和持物必须保留完整关系短语，例如“举着话筒的某人”应提取“举着话筒”，不能拆成“举着”“话筒”，也不能把“拿话筒”替换成“讲话”。',
     'shouldTerms 是同义词和视觉相关词，用于扩大召回与排序，最多 8 个；例如“发言”可扩展“演讲、讲台、麦克风”。',
     'termGroups 是 mustTerms 的等义表达分组，最多8组、每组最多4词；每组第一项必须是一个 mustTerms 原词，其余只能是同义表达，不能是相关但不等价的场景或道具。组内任选、组间全满足。',
     'excludeTerms 是用户明确不要的画面内容；excludePeople 是明确排除的人名，不能放入 people。people 只能包含用户原文实际出现的人名，不能把衣服、动作、身份泛称当作姓名；多人要求同框时 peopleMode=all，否则 any。',
