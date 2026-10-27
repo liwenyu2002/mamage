@@ -624,6 +624,7 @@ function Modal({
         style={{ width, maxWidth: width ? undefined : undefined }}
         role="dialog"
         aria-modal="true"
+        aria-label={typeof title === 'string' ? title : undefined}
       >
         <div className="mamage-modal-content">
           <div className="mamage-modal-header">

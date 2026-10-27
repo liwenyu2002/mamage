@@ -244,6 +244,7 @@ function makeStyledBlock(type, blockConfig, fields) {
     type,
     blockId: resolveBlockId(blockConfig, type),
     content: f.content != null ? f.content : '',
+    ...(f.headingLevel ? { headingLevel: f.headingLevel } : {}),
     src: f.src != null ? f.src : '',
     caption: f.caption != null ? f.caption : '',
     accent: null,
@@ -331,7 +332,7 @@ export function markdownToDoc(markdown, options) {
       flushPara();
       flushQuote();
       const type = headingMatch[1].length >= 3 ? 'h3' : 'h2';
-      blocks.push(makeStyledBlock(type, blockConfig, { content: headingMatch[2].trim() }));
+      blocks.push(makeStyledBlock(type, blockConfig, { content: headingMatch[2].trim(), headingLevel: headingMatch[1].length }));
       return;
     }
 
@@ -566,6 +567,11 @@ export function docToHtmlRaw(doc, options) {
   const parts = (Array.isArray(doc) ? doc : []).map((block) => {
     if (!block) return '';
     if (block.kind === 'para') {
+      if (block.blockId) {
+        const style = lookupStyleBlock(blocksById, 'body', block.blockId);
+        const inline = styleParaInlineHtml(block.html, bodyStyles);
+        return applyBlock(style, { content: `<span style="display:block;${bodyStyles.p.replace(/margin:[^;]*;/, '')}">${inline}</span>`, accent: normalizeAccent(block.accent) || globalAccent });
+      }
       // 块级间距追加在正文样式之后，覆盖默认 line-height/margin（含负边距）
       return `<p style="${bodyStyles.p}${spacingToStyleString(block.spacing)}">${styleParaInlineHtml(block.html, bodyStyles)}</p>`;
     }

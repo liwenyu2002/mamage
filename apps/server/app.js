@@ -88,7 +88,7 @@ const runtime = createRuntimeLifecycle({
     if (distributed()) await coordinator.stopDispatch();
     requeueTimers.forEach(timer => { clearTimeout(timer); clearInterval(timer); });
     await Promise.all([
-      ...['organization_copy_worker', 'external_import_worker', 'ai_job_worker', 'ai_tags_worker', 'face_auto_worker', 'image_similarity', 'search_visual_worker']
+      ...['organization_copy_worker', 'external_import_worker', 'ai_job_worker', 'ai_tags_worker', 'face_auto_worker', 'image_similarity', 'search_visual_worker', 'wechat_monitor_worker']
         .map(name => require(`./lib/${name}`).stop()),
       uploadRouter.stopBackgroundTasks(), videoProjectsRouter.stopBackgroundTasks(), photosRouter.stopBackgroundTasks(),
     ]);
@@ -191,6 +191,7 @@ app.use('/api/video-projects', videoProjectsRouter);
 app.use('/api/wechat-style', wechatStyleRouter);
 app.use('/api/wechat-preview', wechatPreviewRouter);
 app.use('/api/wechat-compositions', wechatCompositionsRouter);
+app.use('/api/wechat-monitor', require('./routes/wechat_monitor'));
 app.use('/api/favorites', userFavoritesRouter);
 app.use('/api/organizations', orgsRouter);
 app.use('/api/workspaces', workspacesRouter);
@@ -248,6 +249,7 @@ function startBackgroundWorkers() {
   require('./lib/organization_copy_worker').start();
   require('./lib/external_import_worker').start();
   require('./lib/ai_job_worker').start();
+  require('./lib/wechat_monitor_worker').start();
   require('./lib/face_auto_worker').start();
 
   // AI 打标队列是纯内存的：重启后把 pending/running 孤儿重新入队。

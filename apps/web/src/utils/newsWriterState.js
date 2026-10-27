@@ -43,10 +43,33 @@ export function hasNewsSource(form = {}, interviewText = '') {
     || String(interviewText || '').trim());
 }
 
-export function archiveNewsContent(content) {
-  if (!content?.markdownText) return content?.history || [];
-  const { history, ...version } = content;
-  return [{ ...version, savedAt: Date.now() }, ...(history || [])].slice(0, 5);
+export const NEWS_EDIT_LIMIT = 10;
+function newsVersion(content, now) {
+  const { history, redoHistory, editGroup, editAt, ...version } = content;
+  return { ...version, savedAt: now };
+}
+export function archiveNewsContent(content, now = Date.now()) {
+  if (!content?.markdownText && !content?.title) return (content?.history || []).slice(0, NEWS_EDIT_LIMIT);
+  return [newsVersion(content, now), ...(content.history || [])].slice(0, NEWS_EDIT_LIMIT);
+}
+
+export function recordNewsEdit(base, next, { group = null, now = Date.now(), record = true } = {}) {
+  if (base === next) return base;
+  if (base.title === next.title && base.markdownText === next.markdownText) return { ...next,
+    history: base.history || [], redoHistory: base.redoHistory || [], editGroup: base.editGroup, editAt: base.editAt };
+  if (!record) return { ...next, history: base.history || [], redoHistory: base.redoHistory || [], editGroup: null, editAt: 0 };
+  const joined = group && group === base.editGroup && now - base.editAt >= 0 && now - base.editAt < 750;
+  return { ...next, history: joined ? (base.history || []).slice(0, NEWS_EDIT_LIMIT) : archiveNewsContent(base, now),
+    redoHistory: [], editGroup: group, editAt: now };
+}
+
+export function stepNewsEdit(content, direction, now = Date.now()) {
+  const undo = direction === 'undo', source = undo ? content.history : content.redoHistory;
+  if (!source?.length) return content;
+  const version = newsVersion(source[0], now);
+  return { ...version, history: undo ? source.slice(1, NEWS_EDIT_LIMIT) : [newsVersion(content, now), ...(content.history || [])].slice(0, NEWS_EDIT_LIMIT),
+    redoHistory: undo ? [newsVersion(content, now), ...(content.redoHistory || [])].slice(0, NEWS_EDIT_LIMIT) : source.slice(1, NEWS_EDIT_LIMIT),
+    editGroup: null, editAt: 0 };
 }
 
 export function isNewsBatchDone(status) {

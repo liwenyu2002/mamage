@@ -10,6 +10,9 @@ const { requirePermission } = require('../lib/permissions');
 const { resolveWorkspace, sendWorkspaceError } = require('../lib/workspace_access');
 const cosStorage = require('../lib/cos_storage');
 const { rehostDocImages } = require('../lib/wechat_image_rehost');
+require('./wechat_content_templates').registerContentTemplateRoutes(router, { pool, requirePermission, resolveWorkspace, sendWorkspaceError });
+require('./wechat_layout').registerWechatLayoutRoutes(router, { pool, requirePermission, resolveWorkspace, sendWorkspaceError,
+  enqueueJob: require('../lib/ai_job_worker').enqueueJob, checkAndReserveQuota: require('../lib/ai_quota').checkAndReserveQuota });
 
 // 存档「固化」：保存后在后台把推文里的微信图片(mmbiz)下载转存到自有对象存储，改写为 /api/image，
 // 使存档长期不依赖 mmbiz。非阻塞（不拖慢保存）、best-effort（失败由 /api/wx-img 代理兜底渲染）、
@@ -120,6 +123,7 @@ function rowToSummary(row) {
     id: row.id,
     name: row.name,
     title: row.title,
+    draftKind: row.draft_kind === 'content' ? 'content' : 'layout',
     blockCount: row.block_count,
     imageCount: row.image_count,
     createdAt: row.created_at,
@@ -132,6 +136,8 @@ function rowToDetail(row) {
     id: row.id,
     name: row.name,
     title: row.title,
+    draftKind: row.draft_kind === 'content' ? 'content' : 'layout',
+    sourceDocument: parseMaybeJson(row.source_document, null),
     digest: row.digest,
     doc: parseMaybeJson(row.doc, []),
     blockConfig: parseMaybeJson(row.block_config, null),
@@ -189,13 +195,24 @@ function validateAndSerializeBlockConfig(rawBlockConfig) {
   return { blockConfigJson };
 }
 
+function serializeSourceDocument(source, kind) {
+  if (source == null && kind !== 'content') return null;
+  if (!source || typeof source !== 'object' || Array.isArray(source) || typeof source.markdown !== 'string'
+    || !source.markdown.trim() || source.markdown.length > 50000 || typeof source.title !== 'string' || source.title.length > 255) {
+    const error = new Error('请提供完整的内容草稿'); error.status = 400; throw error;
+  }
+  const serialized = JSON.stringify(source);
+  if (Buffer.byteLength(serialized) > 400000) { const error = new Error('内容草稿备份超过大小限制'); error.status = 400; throw error; }
+  return serialized;
+}
+
 // GET /api/wechat-compositions  按 updated_at 倒序，不含 doc/block_config 大字段
 router.get('/', requirePermission('ai.generate'), async (req, res) => {
   try {
     const userId = req.user.id;
     const scope = compositionScope(await resolveWorkspace(req));
     const [rows] = await pool.query(
-      `SELECT id, name, title, block_count, image_count, created_at, updated_at
+      `SELECT id, name, title, draft_kind, block_count, image_count, created_at, updated_at
        FROM wechat_compositions WHERE user_id = ?${scope.sql} ORDER BY updated_at DESC`,
       [userId, ...scope.params]
     );
@@ -254,6 +271,9 @@ router.post('/', requirePermission('ai.generate'), async (req, res) => {
     const userId = req.user.id;
     const workspace = await resolveWorkspace(req);
     const scope = compositionScope(workspace);
+    const draftKind = body.draftKind || 'layout';
+    if (!['content', 'layout'].includes(draftKind)) return res.status(400).json({ error: 'INVALID_DRAFT_KIND' });
+    const sourceDocument = serializeSourceDocument(body.sourceDocument, draftKind);
 
     const name = normalizeName(body.name);
     if (name.length > MAX_NAME_LEN) {
@@ -284,8 +304,8 @@ router.post('/', requirePermission('ai.generate'), async (req, res) => {
 
     const [result] = await pool.query(
       `INSERT INTO wechat_compositions
-        (user_id, org_id, unit_id, name, title, digest, doc, block_config, theme_key, block_count, image_count, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+        (user_id, org_id, unit_id, name, title, digest, doc, block_config, theme_key, block_count, image_count, draft_kind, source_document, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
       [
         userId,
         Number.isNaN(orgId) ? null : orgId,
@@ -298,6 +318,8 @@ router.post('/', requirePermission('ai.generate'), async (req, res) => {
         themeKey || null,
         docResult.blockCount,
         docResult.imageCount,
+        draftKind,
+        sourceDocument,
       ]
     );
 
@@ -310,6 +332,7 @@ router.post('/', requirePermission('ai.generate'), async (req, res) => {
     res.status(201).json({ id: saved.id, name: saved.name, createdAt: saved.created_at, updatedAt: saved.updated_at });
   } catch (e) {
     if (sendWorkspaceError(res, e)) return;
+    if (e.status === 400) return res.status(400).json({ error: 'INVALID_CONTENT_DRAFT', message: e.message });
     console.error('[POST /api/wechat-compositions] error', e && e.stack ? e.stack : e);
     res.status(500).json({ error: 'INTERNAL_ERROR' });
   }
@@ -346,7 +369,7 @@ router.put('/:id', requirePermission('ai.generate'), async (req, res) => {
     const userId = req.user.id;
     const scope = compositionScope(await resolveWorkspace(req));
     const [existingRows] = await pool.query(
-      `SELECT id FROM wechat_compositions WHERE id = ? AND user_id = ?${scope.sql} LIMIT 1`,
+      `SELECT id, draft_kind FROM wechat_compositions WHERE id = ? AND user_id = ?${scope.sql} LIMIT 1`,
       [id, userId, ...scope.params]
     );
     if (!existingRows || existingRows.length === 0) return res.status(404).json({ error: 'NOT_FOUND' });
@@ -354,6 +377,13 @@ router.put('/:id', requirePermission('ai.generate'), async (req, res) => {
     const body = req.body || {};
     const sets = [];
     const params = [];
+    if (body.draftKind !== undefined && body.draftKind !== (existingRows[0].draft_kind || 'layout')) {
+      return res.status(400).json({ error: 'DRAFT_KIND_IMMUTABLE' });
+    }
+    if (body.sourceDocument !== undefined) {
+      sets.push('source_document = ?');
+      params.push(serializeSourceDocument(body.sourceDocument, existingRows[0].draft_kind || 'layout'));
+    }
 
     if (body.name !== undefined) {
       const name = normalizeName(body.name);
@@ -413,6 +443,7 @@ router.put('/:id', requirePermission('ai.generate'), async (req, res) => {
     res.json({ id: saved.id, name: saved.name, updatedAt: saved.updated_at });
   } catch (e) {
     if (sendWorkspaceError(res, e)) return;
+    if (e.status === 400) return res.status(400).json({ error: 'INVALID_CONTENT_DRAFT', message: e.message });
     console.error('[PUT /api/wechat-compositions/:id] error', e && e.stack ? e.stack : e);
     res.status(500).json({ error: 'INTERNAL_ERROR' });
   }

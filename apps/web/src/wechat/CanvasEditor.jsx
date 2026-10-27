@@ -194,6 +194,7 @@ function blockTypeLabel(block) {
   if (block.kind === 'para') return '段落';
   if (block.kind === 'raw') return '容器';
   if (block.kind === 'styled') {
+    if ([1, 2, 3].includes(block.headingLevel)) return ['', '一级标题', '二级标题', '三级标题'][block.headingLevel];
     return { h2: '标题', h3: '小标题', quote: '引用', imageCard: '图片', divider: '分隔线', signoff: '落款' }[block.type] || '样式块';
   }
   return '块';
@@ -264,7 +265,7 @@ function DividerView({ styleBlock, accent }) {
 // ---------------------------------------------------------------------------
 // h2/h3/quote/signoff 共用：整块模板渲染 + content 槽位原地编辑
 // ---------------------------------------------------------------------------
-function StyledSlotView({ block, styleBlock, accent, onCommitContent }) {
+function StyledSlotView({ block, styleBlock, accent, onCommitContent, bodyStyle }) {
   const hostRef = React.useRef(null);
 
   // 模板骨架只在样式/颜色变化（换样式、换色）时才需要重算；文字内容单独在下面的 effect 里回填，
@@ -288,18 +289,24 @@ function StyledSlotView({ block, styleBlock, accent, onCommitContent }) {
       return;
     }
     const placeholder = escapeHtml(SLOT_PLACEHOLDER_BY_TYPE[block.type] || '点击输入文字');
-    const slotHtml = `<span data-cve-slot="content" data-cve-placeholder="${placeholder}">${escapeHtml(block.content || '')}</span>`;
+    const slotHtml = `<span data-cve-slot="content" data-cve-placeholder="${placeholder}">${block.kind === 'para' ? sanitizeParaHtml(block.html || '') : escapeHtml(block.content || '')}</span>`;
     // 先在原始模板上 split/join 塞入可编辑 span（token 含 ，purify 会剥掉故必须在清洗前替换），
     // 再对拼装结果整体过 DOMPurify——恶意模板标签被剥，data-cve-slot span 与 img 存活
     host.innerHTML = purifyBlockHtml(templateHtml.split(SLOT_TOKEN).join(slotHtml));
     const slot = host.querySelector('[data-cve-slot="content"]');
-    if (slot) slot.contentEditable = 'true';
-  }, [templateHtml, block.content, block.type]);
+    if (slot) {
+      slot.contentEditable = 'true';
+      if (block.kind === 'para') {
+        slot.style.display = 'block';
+        ['fontSize', 'lineHeight', 'color', 'letterSpacing', 'textAlign', 'textIndent'].forEach(key => { slot.style[key] = bodyStyle?.[key] || ''; });
+      }
+    }
+  }, [templateHtml, block.content, block.html, block.kind, block.type, bodyStyle]);
 
   const handleBlur = (e) => {
     const target = e.target;
     if (target && target.getAttribute && target.getAttribute('data-cve-slot') === 'content') {
-      onCommitContent(target.innerText);
+      onCommitContent(block.kind === 'para' ? sanitizeParaHtml(target.innerHTML) : target.innerText);
     }
   };
 
@@ -756,6 +763,7 @@ function BlockWrapper({
 
   function renderBody() {
     if (block.kind === 'para') {
+      if (block.blockId && styleBlock) return <StyledSlotView block={block} styleBlock={styleBlock} accent={accent} bodyStyle={bodyStyle} onCommitContent={onParaCommit} />;
       return <ParaView block={block} bodyStyle={{ ...bodyStyle, ...spacingStyle }} onTransient={onParaTransient} onCommit={onParaCommit} onPasteParagraphs={onPasteParagraphs} />;
     }
     if (block.kind === 'raw') {
@@ -1481,7 +1489,7 @@ function CanvasEditor({
         <div className="cve-drop-indicator" style={{ top: dropIndicator.top }} />
       )}
       {list.map((block, idx) => {
-        const styleBlock = block.kind === 'styled' ? resolveStyleBlock(blocksById, block) : null;
+        const styleBlock = block.kind === 'styled' || (block.kind === 'para' && block.blockId) ? resolveStyleBlock(blocksById, { ...block, type: block.type || 'body' }) : null;
         const accent = block.accent || globalAccent || '#1a1a1a';
         return (
           <BlockWrapper

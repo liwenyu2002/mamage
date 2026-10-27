@@ -1,19 +1,26 @@
 import React from 'react';
 import { Layout, Input, TextArea, Modal, GlassSelect, SegmentedControl, DatePicker, Button, Tag, Toast } from './ui';
-import { getAll as getTransferAll } from './services/transferStore';
 import { request, resolveAssetUrl } from './services/request';
 import { getToken } from './services/authService';
 import { CHANNELS, startBatch, getBatch, retryJob } from './services/newsMatrixService';
 import { pollNewsBatch } from './services/newsBatchPolling';
-import { newsDraftKey, importLegacyNewsDraft, formatNewsDate, archiveNewsContent, isNewsBatchDone, resolveNewsPhotos,
+import { newsDraftKey, importLegacyNewsDraft, formatNewsDate, recordNewsEdit, stepNewsEdit, isNewsBatchDone, resolveNewsPhotos,
   restoreNewsForm, hasNewsSource } from './utils/newsWriterState';
+import { newsAlbumDefaults } from './utils/newsPhotoSelection';
+import { wechatImportKey } from './utils/wechatDraftState';
+import { copyText } from './utils/clipboard';
 import './newsWriter.css';
-import { IconClose, IconPlus, IconSparkleAI, IconDownload, IconTrash, IconChevronRight } from './ui/icons';
+import { IconClose, IconPlus, IconSparkleAI, IconDownload, IconTrash, IconChevronLeft, IconChevronRight, IconEditStroked } from './ui/icons';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { toPng } from 'html-to-image';
-import WechatPreviewEditor from './wechat/WechatPreviewEditor';
-import NewsParagraphTools from './NewsParagraphTools';
+import NewsPhotoPicker from './NewsPhotoPicker';
+import NewsArticleEditor from './NewsArticleEditor';
+import NewsDraftChat from './NewsDraftChat';
+import WechatContentTemplatePicker from './WechatContentTemplatePicker';
+import WechatReferencePicker from './WechatReferencePicker';
+import { referenceFindings } from './utils/wechatReferences';
+import { NewsInsights, NewsReferencePanel } from './NewsInsights';
 import { copyWechatRichTextLegacy, downloadImagePack } from './wechat/wechatExport';
 
 // 渠道状态中文标签（ai_jobs.status 取值集：pending/running/succeeded/failed/cancelled）
@@ -34,6 +41,7 @@ const FACT_ISSUE_TYPE_LABEL = {
 };
 
 const CHANNEL_USAGE = {
+  wechat_article: '公众号图文',
   xiaohongshu: '小红书',
   press_release: '官网新闻',
   report_brief: '工作简报',
@@ -42,8 +50,9 @@ const CHANNEL_USAGE = {
 
 function emptyChannelContent() {
   // factCheck 形状约定为 { issues: [{type,expect,found,snippet}], forbiddenHits: [{word,snippet}] }（后端未挂载前为 null）
-  return { title: '', subtitle: '', markdownText: '', generatedHtml: '', extra: {}, photos: [], factCheck: null };
+  return { title: '', subtitle: '', markdownText: '', generatedHtml: '', extra: {}, photos: [], factCheck: null, references: null };
 }
+const EMPTY_CHANNEL_CONTENT = emptyChannelContent();
 
 // 该渠道结果是否存在需要人工核对的事实/禁用词命中
 function hasFactIssues(content) {
@@ -109,13 +118,17 @@ function NewsGenerationStatus({ startedAt, jobs, submitting, error }) {
   </div>;
 }
 
-const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId }) => {
+const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, headerActions, onOpenComposer, onArticleChange, restoredArticle, onBusyChange }) => {
   const DRAFT_STORAGE_KEY = newsDraftKey(currentUser?.id, workspaceId);
   const preferredChannelKey = CHANNELS.some((item) => item.key === initialChannelKey) ? initialChannelKey : null;
   const preferredChannel = CHANNELS.find((item) => item.key === preferredChannelKey) || null;
   const INITIAL_FORM_VALUES = {
     sourceMaterial: '',
     writingMode: 'draft',
+    contentTemplate: 'auto',
+    contentOutline: '',
+    monitorReferences: [],
+    reviewCredits: true,
     eventName: '',
     eventDate: null,
     location: '',
@@ -127,11 +140,23 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId }) =>
     targetWords: '500-800',
   };
   const skipNextAutoSaveRef = React.useRef(false);
+  const draftSnapshotRef = React.useRef(null);
+  const storedDraftRef = React.useRef(null);
+  const storeDraft = React.useCallback(draft => {
+    if (!DRAFT_STORAGE_KEY) return;
+    const serialized = JSON.stringify(draft);
+    localStorage.setItem(DRAFT_STORAGE_KEY, serialized);
+    storedDraftRef.current = serialized;
+  }, [DRAFT_STORAGE_KEY]);
   const [hasLegacyDraft, setHasLegacyDraft] = React.useState(false);
 
   // state
   // 不要默认预填已选照片，用户从中转站或手动选择后再加入
   const [selectedPhotos, setSelectedPhotos] = React.useState([]);
+  const [sourceAlbumDefaults, setSourceAlbumDefaults] = React.useState({});
+  const [photoPickerOpen, setPhotoPickerOpen] = React.useState(false);
+  const [sourceOpen, setSourceOpen] = React.useState(false);
+  const [inputError, setInputError] = React.useState('');
   const [formValues, setFormValues] = React.useState(INITIAL_FORM_VALUES);
   const [referenceArticle, setReferenceArticle] = React.useState('');
   const [interviewText, setInterviewText] = React.useState('');
@@ -147,20 +172,25 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId }) =>
   // 轮询期间避免同一 job 的成功结果被重复处理（占位符替换是异步的，重复跑会闪烁/重复请求）
   const processedJobIdsRef = React.useRef(new Set());
 
-  const updateChannelContent = React.useCallback((channelKey, patch) => {
+  const updateChannelContent = React.useCallback((channelKey, patch, options) => {
     if (!channelKey) return;
     setChannelContent((prev) => {
       const base = prev[channelKey] || emptyChannelContent();
       const next = typeof patch === 'function' ? patch(base) : { ...base, ...patch };
-      return { ...prev, [channelKey]: next };
+      return { ...prev, [channelKey]: options?.restore ? next : recordNewsEdit(base, next, options) };
     });
   }, []);
 
-  const activeContent = channelContent[activeChannelKey] || emptyChannelContent();
-  const setActiveMarkdownText = React.useCallback((v) => {
+  const activeContent = channelContent[activeChannelKey] || EMPTY_CHANNEL_CONTENT;
+  const hasManuscript = Boolean(activeContent.markdownText || activeContent.history?.length || activeContent.redoHistory?.length);
+  const setActiveMarkdownText = React.useCallback((v, options) => {
     if (activeChannelKey) updateChannelContent(activeChannelKey, base => ({ ...base,
       markdownText: v, generatedHtml: '', factCheck: null,
-      title: String(v || '').match(/^#\s+(.+)$/m)?.[1]?.trim() || base.title }));
+      title: String(v || '').match(/^#[ \t]+([^\r\n]*)$/m)?.[1]?.trim() ?? base.title }), options);
+  }, [activeChannelKey, updateChannelContent]);
+  const stepActiveEdit = React.useCallback(direction => {
+    updateChannelContent(activeChannelKey, base => stepNewsEdit(base, direction), { restore: true });
+    setEditSelection(null);
   }, [activeChannelKey, updateChannelContent]);
   // 小红书 Tab 话题标签的输入框草稿（回车确认后写入 activeContent.extra.hashtags）
   const [hashtagDraft, setHashtagDraft] = React.useState('');
@@ -168,6 +198,18 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId }) =>
   // 智能预填：出席人物 chips（来自已选照片 faceNames 汇总去重 + 手输追加），提交时并入 form.participants
   const [participantChips, setParticipantChips] = React.useState([]);
   const [participantDraft, setParticipantDraft] = React.useState('');
+  const articleSnapshot = React.useMemo(() => ({ title: activeContent.title || '', markdown: activeContent.markdownText || '',
+    photos: selectedPhotos, formValues: { ...formValues, eventDate: formatNewsDate(formValues.eventDate) || null },
+    interviewText, participantChips, extra: activeContent.extra || {},
+    references: Array.isArray(activeContent.references) ? activeContent.references : null,
+    referenceStatus: activeContent.referenceStatus || null, sourceJobId: activeContent.sourceJobId || null }),
+  [activeContent.title, activeContent.markdownText, activeContent.extra, activeContent.references, activeContent.referenceStatus, activeContent.sourceJobId,
+    selectedPhotos, formValues, interviewText, participantChips]);
+  const articleReadyRef = React.useRef(false);
+  React.useEffect(() => {
+    if (!articleReadyRef.current) { articleReadyRef.current = true; return; }
+    onArticleChange?.(articleSnapshot);
+  }, [articleSnapshot, onArticleChange]);
   // 校验标红：某渠道被用户点「忽略」后折叠警示条，channelKey -> true
   const [collapsedWarnings, setCollapsedWarnings] = React.useState({});
 
@@ -176,13 +218,46 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId }) =>
   const [trackingError, setTrackingError] = React.useState('');
   const [trackingEpoch, setTrackingEpoch] = React.useState(0);
   const isGenerating = isSubmitting || ['pending', 'running'].includes(batchStatus);
+  React.useEffect(() => { onBusyChange?.(isGenerating); }, [isGenerating, onBusyChange]);
   const generationRunningRef = React.useRef(false);
   const mountedRef = React.useRef(true);
   const REFERENCE_MAX = 20000;
   const [showAdvancedEditor, setShowAdvancedEditor] = React.useState(false);
   const [advancedPrompt, setAdvancedPrompt] = React.useState('');
-  const [documentView, setDocumentView] = React.useState('preview');
-  React.useEffect(() => setDocumentView('preview'), [activeChannelKey]);
+  const [documentView, setDocumentView] = React.useState('editor');
+  const [editSelection, setEditSelection] = React.useState(null);
+  const [editHighlight, setEditHighlight] = React.useState(null);
+  const [selectedReference, setSelectedReference] = React.useState(null);
+  React.useEffect(() => { setSelectedReference(null); }, [activeChannelKey, activeContent.sourceJobId]);
+  React.useEffect(() => {
+    const jobId = Number(activeContent.sourceJobId), channel = activeChannelKey;
+    if (!Number.isSafeInteger(jobId) || jobId < 1 || activeContent.references !== null && activeContent.references !== undefined) return undefined;
+    const controller = new AbortController();
+    request(`/api/ai/news/jobs/${jobId}/references`, { signal: controller.signal,
+      headers: { 'X-Mamage-Unit-Id': workspaceId ? String(workspaceId) : 'legacy' } }).then(result => {
+      if (controller.signal.aborted || !Array.isArray(result.references)) return;
+      updateChannelContent(channel, base => Number(base.sourceJobId) === jobId && base.references == null
+        ? { ...base, references: result.references } : base, { record: false });
+    }).catch(() => { /* Older or inaccessible jobs remain explicitly unrecorded. */ });
+    return () => controller.abort();
+  }, [activeChannelKey, activeContent.sourceJobId, activeContent.references, workspaceId, updateChannelContent]);
+  React.useEffect(() => { setDocumentView('editor'); setEditSelection(null); }, [activeChannelKey]);
+  const restoreIdRef = React.useRef(null);
+  React.useEffect(() => {
+    if (!restoredArticle?.restoreId || restoreIdRef.current === restoredArticle.restoreId || isGenerating) return;
+    restoreIdRef.current = restoredArticle.restoreId;
+    const article = restoredArticle.article;
+    if (typeof article?.markdown !== 'string') return;
+    updateChannelContent('wechat_article', base => ({ ...emptyChannelContent(), title: article.title || '',
+      markdownText: article.markdown, photos: article.photos || [], extra: article.extra || {},
+      references: Array.isArray(article.references) ? article.references : null,
+      referenceStatus: article.referenceStatus || null, sourceJobId: article.sourceJobId || null }));
+    setActiveChannelKey('wechat_article'); setSelectedChannels(['wechat_article']);
+    setSelectedPhotos(article.photos || []);
+    if (article.formValues) setFormValues(previous => ({ ...previous, ...restoreNewsForm(article.formValues) }));
+    setInterviewText(article.interviewText || ''); setParticipantChips(article.participantChips || []);
+    setBatchId(null); setBatchStatus(''); setChannelJobs({}); setDocumentView('editor');
+  }, [restoredArticle, isGenerating, updateChannelContent]);
   const [isMobile, setIsMobile] = React.useState(() => (typeof window !== 'undefined' ? window.innerWidth <= 768 : false));
   const previewContentRef = React.useRef(null);
   const [previewImageUrl, setPreviewImageUrl] = React.useState('');
@@ -208,12 +283,15 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId }) =>
     if (isGenerating) { Toast.info('生成任务仍在后台处理，请完成后再清空'); return; }
     try {
       skipNextAutoSaveRef.current = true;
+      draftSnapshotRef.current = null;
       window.localStorage.removeItem(DRAFT_STORAGE_KEY);
+      storedDraftRef.current = null;
     } catch (e) {
       // ignore
     }
 
     setSelectedPhotos([]);
+    setSourceAlbumDefaults({});
     setFormValues(INITIAL_FORM_VALUES);
     setReferenceArticle('');
     setInterviewText('');
@@ -232,6 +310,8 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId }) =>
     setParticipantChips([]);
     setParticipantDraft('');
     setCollapsedWarnings({});
+    setInputError('');
+    setSourceOpen(false);
     Toast.success('已清空本页缓存');
   }, [DRAFT_STORAGE_KEY, INITIAL_FORM_VALUES, preferredChannelKey, isGenerating]);
 
@@ -244,6 +324,7 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId }) =>
     try {
       if (!DRAFT_STORAGE_KEY) return;
       const raw = window.localStorage.getItem(DRAFT_STORAGE_KEY);
+      storedDraftRef.current = raw;
       if (!raw) {
         setHasLegacyDraft(Boolean(localStorage.getItem('mamage.aiNewsWriter.draft.v1')));
         return;
@@ -274,6 +355,7 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId }) =>
       if (Array.isArray(draft.selectedPhotos)) {
         setSelectedPhotos(draft.selectedPhotos);
       }
+      if (draft.sourceAlbumDefaults && typeof draft.sourceAlbumDefaults === 'object') setSourceAlbumDefaults(draft.sourceAlbumDefaults);
       if (Array.isArray(draft.participantChips)) {
         setParticipantChips(draft.participantChips);
       }
@@ -306,10 +388,7 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId }) =>
       try { window.localStorage.removeItem(DRAFT_STORAGE_KEY); } catch (e) { }
       return;
     }
-    const t = setTimeout(() => {
-      try {
-        if (!DRAFT_STORAGE_KEY) return;
-        const payload = {
+    const payload = {
           formValues: {
             ...formValues,
             eventDate: formatNewsDate(formValues?.eventDate) || null,
@@ -317,6 +396,7 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId }) =>
           referenceArticle,
           interviewText,
           selectedPhotos,
+          sourceAlbumDefaults,
           selectedChannels,
           channelContent,
           activeChannelKey,
@@ -326,7 +406,11 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId }) =>
           processedJobIds: [...processedJobIdsRef.current],
           savedAt: Date.now(),
         };
-        window.localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(payload));
+    draftSnapshotRef.current = payload;
+    const t = setTimeout(() => {
+      try {
+        if (!DRAFT_STORAGE_KEY) return;
+        storeDraft(draftSnapshotRef.current);
       } catch (e) {
         // ignore storage quota / disabled storage
       }
@@ -337,13 +421,31 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId }) =>
     referenceArticle,
     interviewText,
     selectedPhotos,
+    sourceAlbumDefaults,
     selectedChannels,
     channelContent,
     activeChannelKey,
     advancedPrompt,
     participantChips,
-    batchId, batchStatus, channelJobs, generationStartedAt, DRAFT_STORAGE_KEY,
+    batchId, batchStatus, channelJobs, generationStartedAt, DRAFT_STORAGE_KEY, storeDraft,
   ]);
+  React.useEffect(() => {
+    const flush = () => {
+      if (!DRAFT_STORAGE_KEY || !draftSnapshotRef.current) return;
+      try {
+        // Do not overwrite a manual legacy import or a newer draft from another tab on exit.
+        if (localStorage.getItem(DRAFT_STORAGE_KEY) !== storedDraftRef.current) return;
+        storeDraft(draftSnapshotRef.current);
+      } catch (error) { /* ignore */ }
+    };
+    const onHidden = () => { if (document.hidden) flush(); };
+    window.addEventListener('pagehide', flush);
+    document.addEventListener('visibilitychange', onHidden);
+    return () => {
+      flush(); window.removeEventListener('pagehide', flush);
+      document.removeEventListener('visibilitychange', onHidden);
+    };
+  }, [DRAFT_STORAGE_KEY, storeDraft]);
 
   const participantCandidates = React.useMemo(() => {
     const names = [];
@@ -714,6 +816,7 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId }) =>
       if (processed.markdown) {
         const injected = resolveNewsPhotos(processed.markdown, [...selectedPhotos, ...photos]);
         cleaned = normalizeMarkdownForRendering(fixNestedMarkdownImages(injected));
+        if (processed.title && !/^#\s+/m.test(cleaned)) cleaned = `# ${processed.title}\n\n${cleaned}`;
       }
       if (!isCurrent()) return false;
       updateChannelContent(channelKey, base => ({
@@ -724,10 +827,12 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId }) =>
         extra: processed.extra || {},
         photos: processed.photos || [],
         factCheck: processed.factCheck || null,
+        references: Array.isArray(processed.references) ? processed.references : null,
+        referenceStatus: processed.referenceStatus || null,
         sourceJobId: jobId,
-        history: archiveNewsContent(base),
       }));
       setActiveChannelKey((prev) => prev || channelKey);
+      setSourceOpen(false);
       // 新结果落地：展开该渠道的校验警示条（若旧一轮曾被用户「忽略」过）
       setCollapsedWarnings((prev) => (prev[channelKey] ? { ...prev, [channelKey]: false } : prev));
       return true;
@@ -787,14 +892,23 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId }) =>
       return;
     }
     if (!hasNewsSource(formValues, interviewText)) {
-      Toast.warning('请粘贴活动材料或稿件原文；照片不能替代事实材料');
+      setInputError(formValues.writingMode === 'rewrite' ? '请先粘贴需要润色的稿件' : '再补几句活动情况，就可以开始写稿了');
+      setSourceOpen(true);
+      requestAnimationFrame(() => document.getElementById('news-source-material')?.focus());
       return;
     }
-    if (selectedPhotos.length > 30 || String(formValues.sourceMaterial || '').length > 20000 || interviewText.length > 20000 || referenceArticle.length > 20000 || advancedPrompt.length > 4000) {
+    if (preferredChannelKey === 'wechat_article' && formValues.contentTemplate === 'custom' && !String(formValues.contentOutline || '').trim()) {
+      setInputError('请填写内容结构，或选择其他结构');
+      setSourceOpen(true);
+      return;
+    }
+    const combinedReference = [referenceArticle, referenceFindings(Array.isArray(formValues.monitorReferences) ? formValues.monitorReferences : [])].filter(Boolean).join('\n\n');
+    if (selectedPhotos.length > 30 || String(formValues.sourceMaterial || '').length > 20000 || interviewText.length > 20000 || combinedReference.length > 20000 || advancedPrompt.length > 4000) {
       Toast.warning('最多使用 30 张照片、每份 20000 字材料与 4000 字写作要求，请精简后提交');
       return;
     }
     generationRunningRef.current = true;
+    setInputError('');
     setIsSubmitting(true);
     setGenerationStartedAt(Date.now());
     setTrackingError('');
@@ -806,7 +920,7 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId }) =>
       const payload = {
         form: { ...formValues, eventDate: formatNewsDate(formValues.eventDate), participants: mergedParticipantNames.join('、'),
           confirmedParticipantNames: participantChips },
-        referenceArticle: referenceArticle || '',
+        referenceArticle: combinedReference,
         interviewText: interviewText || '',
         channels: selectedChannels,
         writingRequirements: advancedPrompt,
@@ -836,12 +950,13 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId }) =>
       (resp.jobs || []).forEach((j) => { initialJobs[j.channelKey] = { jobId: j.jobId, status: 'pending', error: null }; });
       try {
         if (DRAFT_STORAGE_KEY) {
-          const draft = JSON.parse(localStorage.getItem(DRAFT_STORAGE_KEY) || '{}');
-          localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify({ ...draft,
+          const draft = { ...(draftSnapshotRef.current || {}),
             formValues: payload.form, selectedPhotos, selectedChannels, channelContent, activeChannelKey,
-            referenceArticle, interviewText, advancedPrompt, participantChips,
+            referenceArticle, interviewText, advancedPrompt, participantChips, sourceAlbumDefaults,
             batchId: resp.batchId, batchStatus: 'pending', channelJobs: initialJobs,
-            processedJobIds: [], generationStartedAt: Date.now() }));
+            processedJobIds: [], generationStartedAt: Date.now() };
+          draftSnapshotRef.current = draft;
+          storeDraft(draft);
         }
       } catch (e) { if (mountedRef.current) Toast.warning('任务已提交，但本地存储不可用；请保留页面'); }
       if (!mountedRef.current) return;
@@ -854,6 +969,7 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId }) =>
     } catch (e) {
       console.error('[AiNewsWriter] generate failed', e);
       const reason = e && (e.message || (e.data && e.data.message)) ? String(e.message || e.data.message).slice(0, 140) : '';
+      setInputError(reason ? `生成请求失败：${reason}` : '生成请求失败，请稍后重试');
       Toast.error(reason ? `生成请求失败：${reason}` : '生成请求失败');
     } finally {
       if (mountedRef.current) setIsSubmitting(false);
@@ -883,7 +999,7 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId }) =>
   // 以下导出/预览函数均只作用于当前激活的渠道 Tab（activeContent），下一位 agent 会在此基础上做渠道特定导出
   const copyMarkdown = async () => {
     try {
-      await navigator.clipboard.writeText(activeContent.markdownText);
+      await copyText(activeContent.markdownText);
       Toast.success('已复制为 Markdown');
     } catch (e) {
       Toast.error('复制失败');
@@ -895,7 +1011,7 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId }) =>
       // prefer server-provided html when available
       const { markdownText, generatedHtml } = activeContent;
       const htmlToCopy = sanitizeHtml(markdownText ? renderMarkdownToHtml(markdownText) : generatedHtml);
-      await navigator.clipboard.writeText(htmlToCopy);
+      await copyText(htmlToCopy);
       Toast.success('已复制为 HTML');
     } catch (e) {
       Toast.error('复制失败');
@@ -977,7 +1093,7 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId }) =>
         markdown: activeContent.markdownText,
         photosMap: buildPhotosMapForContent(activeContent),
       });
-      Toast.success(`已复制公众号格式（含 ${imageCount} 张图片），粘贴后公众号会自动转存图片；要更多排版样式请用「去排版器精修」`);
+      Toast.success(`已复制图文，含 ${imageCount} 张配图`);
     } catch (e) {
       Toast.error(e && e.message ? e.message : '复制失败');
     }
@@ -1011,7 +1127,7 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId }) =>
 
   const handleCopyXhsTitle = async () => {
     try {
-      await navigator.clipboard.writeText(activeContent.title || '');
+      await copyText(activeContent.title || '');
       Toast.success('已复制标题');
     } catch (e) {
       Toast.error('复制失败');
@@ -1022,8 +1138,8 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId }) =>
     try {
       const body = markdownToPlainText(activeContent.markdownText);
       const tags = hashtagsToText(activeContent);
-      await navigator.clipboard.writeText(tags ? `${body}\n\n${tags}` : body);
-      Toast.success('已复制正文+话题');
+      await copyText(tags ? `${body}\n\n${tags}` : body);
+      Toast.success(activeChannelKey === 'xiaohongshu' ? '已复制正文与话题' : '已复制正文');
     } catch (e) {
       Toast.error('复制失败');
     }
@@ -1322,37 +1438,44 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId }) =>
   const finalPreviewHtml = React.useMemo(() => getFinalPreviewHtml(),
     [activeContent.markdownText, activeContent.generatedHtml, selectedPhotos]);
   const reviewNotes = Array.isArray(activeContent.extra?.reviewNotes)
-    ? activeContent.extra.reviewNotes.filter(note => typeof note === 'string' && note.trim()).slice(0, 5) : [];
+    ? activeContent.extra.reviewNotes.filter(note => typeof note === 'string' && note.trim()) : [];
 
-  const fillFromTransfer = () => {
+  const acceptPhotos = photos => {
+    setSelectedPhotos(photos);
+    const defaults = newsAlbumDefaults(photos);
+    setFormValues(previous => ({ ...previous,
+      eventName: !previous.eventName || previous.eventName === sourceAlbumDefaults.eventName ? defaults.eventName || '' : previous.eventName,
+      eventDate: !previous.eventDate || formatNewsDate(previous.eventDate) === formatNewsDate(sourceAlbumDefaults.eventDate)
+        ? defaults.eventDate || null : previous.eventDate }));
+    setSourceAlbumDefaults(defaults);
+    setPhotoPickerOpen(false);
+  };
+
+  const openComposer = () => {
+    const article = articleSnapshot;
+    if (onOpenComposer) { onOpenComposer(article); return; }
     try {
-      const items = getTransferAll() || [];
-      if (!items.length) { Toast.info('中转站暂无照片'); return; }
-      const mapped = items.filter(p => p.mediaType !== 'video' && p.media_type !== 'video').slice(0, 30).map((p, idx) => ({
-        id: p.id || p.url || `transfer-${idx}`,
-        thumbUrl: p.thumbUrl || p.thumbSrc || p.thumb || p.url || '',
-        url: p.thumbUrl || p.thumbSrc || p.url || '', description: p.description || p.caption || '',
-        tags: p.tags || p.tagList || [], projectTitle: p.projectTitle || p.source || '',
-        photographerId: p.photographerId || p.photographer_id || null,
-        photographerName: p.photographerName || p.photographer_name || '', faceNames: extractFaceNames(p),
-      }));
-      if (!mapped.length) { Toast.info('中转站暂无可用照片'); return; }
-      setSelectedPhotos(mapped);
-      Toast.success(`已选 ${mapped.length} 张配图${items.length > 30 ? '，最多使用 30 张' : ''}`);
-    } catch (error) { Toast.error('读取中转站失败'); }
+      const key = wechatImportKey(currentUser?.id, workspaceId);
+      if (!key) throw new Error('请先登录');
+      localStorage.setItem(key, JSON.stringify(article));
+      window.history.pushState({}, '', '/function/wechat-composer');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    } catch (error) { Toast.error('暂时无法打开排版，请稍后重试'); }
   };
 
   const photoAttachments = <div className="news-photo-attachment">
     <div className="news-attachment-heading">
       <span>活动照片 <span className="news-attachment-count">{selectedPhotos.length} 张</span></span>
-      <Button size="small" theme="borderless" icon={<IconPlus />} onClick={fillFromTransfer}>从中转站选图</Button>
+      {selectedPhotos.length ? <Button size="small" theme="borderless" icon={<IconPlus />} onClick={() => setPhotoPickerOpen(true)}>调整照片</Button> : null}
     </div>
     {selectedPhotos.length ? <div className="news-photo-strip">
       {selectedPhotos.map((photo, index) => <figure key={photo.id} title={photo.description || `配图 ${index + 1}`}>
-        <img src={photo.url || photo.thumbUrl} alt={photo.description || `配图 ${index + 1}`} loading="lazy" decoding="async" />
+        <img src={photo.thumbUrl || photo.url} alt={photo.description || `配图 ${index + 1}`} loading="lazy" decoding="async" />
         <button type="button" onClick={() => removePhoto(photo.id)} aria-label={`移除配图 ${index + 1}`} title="移除配图"><IconClose /></button>
       </figure>)}
-    </div> : null}
+    </div> : <button type="button" className="news-photo-empty" onClick={() => setPhotoPickerOpen(true)}>
+      <IconPlus /><span>添加活动照片</span>
+    </button>}
     {highlightSuggestion ? <details className="news-photo-clues">
       <summary>查看照片分析 <span>待确认</span></summary>
       <p>{highlightSuggestion}</p>
@@ -1362,18 +1485,24 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId }) =>
   </div>;
 
   return (
-    <Layout className="news-writer">
+    <Layout className={`news-writer${selectedReference ? ' has-reference' : ''}`} data-stage={hasManuscript ? 'document' : 'materials'}>
       <Header className="news-page-header">
         <div className="news-page-heading">
-          <h2><IconSparkleAI />{preferredChannel ? preferredChannel.name : 'AI 写稿'}</h2>
-          <Button theme="borderless" size="small" icon={<IconTrash />} onClick={() => Modal.confirm({
+          <h2><IconSparkleAI />{preferredChannelKey === 'wechat_article' ? '公众号内容稿' : preferredChannel ? preferredChannel.name : 'AI 写稿'}</h2>
+          <div className="news-page-actions">{headerActions}
+          <Button theme="borderless" size="small" icon={<IconTrash />} title="清空草稿" aria-label="清空草稿" onClick={() => Modal.confirm({
             title: '清空当前草稿？', content: '将清空本机保存的写作材料与稿件，已生成的后台任务不会被删除。',
             okText: '清空草稿', onOk: clearAllDraft,
-          })} disabled={isGenerating}>清空草稿
-          </Button>
+          })} disabled={isGenerating} />
+          </div>
         </div>
         {isGenerating && <NewsGenerationStatus startedAt={generationStartedAt} jobs={channelJobs}
           submitting={isSubmitting} error={trackingError} />}
+        {hasManuscript && !sourceOpen && !isGenerating ? Object.entries(channelJobs).filter(([, job]) => job.status === 'failed').map(([key, job]) =>
+          <div className="news-reconnect" role="alert" key={key}>
+            <span>{CHANNELS.find(channel => channel.key === key)?.name}生成失败，原稿已保留{job.error ? `：${String(job.error).slice(0, 140)}` : ''}</span>
+            <Button size="small" onClick={() => handleRetryChannel(key)}>重试</Button>
+          </div>) : null}
         {hasLegacyDraft && !isGenerating ? <div className="news-legacy-draft">
           <span>发现本机旧版草稿</span>
           <Button size="small" onClick={() => Modal.confirm({ title: '导入旧版草稿？',
@@ -1391,28 +1520,59 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId }) =>
 
       <Content>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div className="news-workspace">
-            {/* Left: form + reference */}
+          {photoPickerOpen ? <NewsPhotoPicker photos={selectedPhotos} onConfirm={acceptPhotos} onClose={() => setPhotoPickerOpen(false)} /> : null}
+          <div className="news-workspace" data-source-open={!hasManuscript || sourceOpen}>
             <div className="news-source-pane">
-              <section className="news-material-surface" aria-label="写作材料">
+              {hasManuscript ? <div className="news-source-summary">
+                <div><strong>写作材料</strong><span>{selectedPhotos.length} 张配图{formValues.eventName ? ` · ${formValues.eventName}` : ''}</span></div>
+                <Button theme="borderless" size="small" icon={<IconEditStroked />} aria-expanded={sourceOpen}
+                  onClick={() => setSourceOpen(value => !value)}>{sourceOpen ? '收起材料' : '补充材料 / 重新生成'}</Button>
+              </div> : null}
+              <section className="news-material-surface" aria-label="写作材料" hidden={hasManuscript && !sourceOpen}>
                 <div className="news-material-heading">
-                  <h3>写作材料</h3>
-                  <SegmentedControl label="写作任务" value={formValues.writingMode || 'draft'}
-                    options={[{ value: 'draft', label: '写初稿' }, { value: 'rewrite', label: '润色稿' }]}
-                    onChange={value => setFormValues(previous => ({ ...previous, writingMode: value }))} />
+                  <h3>{formValues.writingMode === 'rewrite' ? '润色已有稿件' : preferredChannelKey === 'wechat_article' ? '写作材料' : '本次活动'}</h3>
+                  <span>{preferredChannel?.name || '新闻稿'} · {formValues.targetWords} 字</span>
                 </div>
+                {preferredChannelKey === 'wechat_article' ? <div className="news-draft-choices">
+                  <WechatReferencePicker key={`references:${currentUser?.id || 'none'}:${workspaceId || 'legacy'}`} workspaceId={workspaceId}
+                    selected={Array.isArray(formValues.monitorReferences) ? formValues.monitorReferences : []}
+                    onChange={items => setFormValues(previous => ({ ...previous, monitorReferences: items }))} />
+                  <WechatContentTemplatePicker key={`${currentUser?.id || 'none'}:${workspaceId || 'legacy'}`}
+                    form={formValues} workspaceId={workspaceId}
+                    onChange={patch => { setFormValues(previous => ({ ...previous, ...patch })); setInputError(''); }} />
+                </div> : null}
                 {photoAttachments}
-                <label className="news-material-label" htmlFor="news-source-material">{formValues.writingMode === 'rewrite' ? '稿件原文' : '现场情况'}</label>
-                <TextArea id="news-source-material" className="news-material-input" aria-label="写作材料" value={formValues.sourceMaterial || ''}
-                  onChange={value => setFormValues(previous => ({ ...previous, sourceMaterial: value }))}
-                  rows={7} placeholder={formValues.writingMode === 'rewrite'
+                {formValues.eventName || formValues.eventDate ? <div className="news-event-context">
+                  <span>{formValues.eventName}</span><time>{formatNewsDate(formValues.eventDate)}</time>
+                </div> : null}
+                <label className="news-material-label" htmlFor="news-source-material">{formValues.writingMode === 'rewrite' ? '稿件原文' : preferredChannelKey === 'wechat_article' ? '详细信息补充' : '现场情况'}</label>
+                <TextArea id="news-source-material" className="news-material-input" aria-label={preferredChannelKey === 'wechat_article' ? '详细信息补充' : '写作材料'} value={formValues.sourceMaterial || ''}
+                  aria-invalid={Boolean(inputError)} aria-describedby={inputError ? 'news-input-error' : undefined}
+                  onChange={value => { setFormValues(previous => ({ ...previous, sourceMaterial: value })); setInputError(''); }}
+                  rows={5} placeholder={formValues.writingMode === 'rewrite'
                     ? '粘贴需要润色的新闻稿原文……'
-                    : '这是什么活动？现场主要发生了什么？你想突出什么？\n\n简单说几句即可，也可以粘贴现场记录。'} />
+                    : preferredChannelKey === 'wechat_article' ? '补充文章需要的信息，例如活动时间、地点、参与人员、具体经过，以及希望突出的内容。'
+                    : '例如：今天在报告厅举行学生实践交流，几组同学分享了项目，老师现场点评。重点写学生的实践收获。'} />
                 <div className="news-field-count" data-over-limit={String(formValues.sourceMaterial || '').length > 20000}>
                   {String(formValues.sourceMaterial || '').length} 字{String(formValues.sourceMaterial || '').length > 18000 ? ' / 20000' : ''}
                 </div>
+                {inputError ? <p className="news-input-error" id="news-input-error" role="alert">{inputError}</p> : null}
+                <div className="news-primary-submit">
+                  <Button className="news-generate-button" type="primary" icon={<IconSparkleAI />} onClick={handleGenerate} disabled={isGenerating || !selectedChannels.length}>
+                    {isSubmitting ? '正在提交' : isGenerating ? '后台生成中' : hasManuscript ? '重新生成' : formValues.writingMode === 'rewrite' ? '润色稿件' : '生成初稿'}
+                  </Button>
+                </div>
+                <details className="news-more-options">
+                  <summary><IconChevronRight />更多设置<span>{formValues.eventName || '活动信息、文风与篇幅'}</span></summary>
+                  {preferredChannelKey === 'wechat_article' ? <label className="news-content-template-credit"><input type="checkbox" checked={formValues.reviewCredits !== false}
+                    onChange={event => { const checked = event.target.checked; setFormValues(previous => ({ ...previous, reviewCredits: checked })); }} /><span>预留初审、终审署名</span></label> : null}
+                  <div className="news-task-setting"><span>写作任务</span>
+                    <SegmentedControl label="写作任务" value={formValues.writingMode || 'draft'}
+                      options={[{ value: 'draft', label: '写初稿' }, { value: 'rewrite', label: '润色稿' }]}
+                      onChange={value => setFormValues(previous => ({ ...previous, writingMode: value }))} />
+                  </div>
                 <details className="news-source-fields news-fact-details">
-                  <summary><IconChevronRight />补充活动信息 <span>可选</span></summary>
+                  <summary><IconChevronRight />活动信息 <span>{[formValues.eventName, formatNewsDate(formValues.eventDate)].filter(Boolean).join(' · ') || '可选'}</span></summary>
                 <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <div>
                     <div style={{ marginBottom: 6, fontSize: 12, color: '#444' }}>活动名称</div>
@@ -1490,9 +1650,9 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId }) =>
                 <details className="news-source-fields news-writing-settings">
                   <summary><IconChevronRight />写作设置 <span>{selectedChannels.map(key => CHANNELS.find(channel => channel.key === key)?.name).filter(Boolean).join('、')} · {formValues.targetWords} 字</span></summary>
                   <div className="news-settings-grid">
-                    <GlassSelect label="主要渠道" value={selectedChannels[0] || 'press_release'}
+                    {!preferredChannelKey ? <GlassSelect label="主要渠道" value={selectedChannels[0] || 'press_release'}
                       options={CHANNELS.map(channel => ({ value: channel.key, label: channel.name }))}
-                      onChange={value => setSelectedChannels([value])} />
+                      onChange={value => setSelectedChannels([value])} /> : null}
                     <GlassSelect label="篇幅" value={formValues.targetWords}
                       options={[...new Set(['300-500', '500-800', '800-1200', formValues.targetWords])].filter(Boolean)
                         .map(value => ({ value, label: `${value} 字` }))}
@@ -1505,11 +1665,11 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId }) =>
                         onChange={() => toggleChannel(channel.key)} />{channel.name}</label>)}</div>
                   </details>
                   <Button size="small" onClick={() => setShowAdvancedEditor(true)}>写作要求{advancedPrompt ? ' · 已设置' : ''}</Button>
-                  {interviewText ? <div className="news-settings-field">
+                  <div className="news-settings-field">
                     <label htmlFor="news-interview">已有采访资料</label>
                     <TextArea id="news-interview" value={interviewText} onChange={setInterviewText} rows={4} />
                     <div className="news-field-count" data-over-limit={interviewText.length > 20000}>{interviewText.length} / 20000</div>
-                  </div> : null}
+                  </div>
                   <div className="news-settings-field">
                     <label htmlFor="news-style-reference">文风范文 · 可选</label>
                     <TextArea id="news-style-reference" value={referenceArticle} onChange={setReferenceArticle}
@@ -1517,11 +1677,9 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId }) =>
                     <div className="news-field-count" data-over-limit={referenceArticle.length > REFERENCE_MAX}>{referenceArticle.length} / {REFERENCE_MAX}</div>
                   </div>
                 </details>
+                </details>
 
                 <div className="news-submit-area">
-                    <Button className="news-generate-button" type="primary" icon={<IconSparkleAI />} onClick={() => handleGenerate()} disabled={isGenerating || !selectedChannels.length}>
-                      {isGenerating ? '后台生成中' : formValues.writingMode === 'rewrite' ? '润色稿件' : '生成初稿'}
-                    </Button>
                   {!isGenerating && trackingError ? <div className="news-reconnect" role="alert">
                     <span>{trackingError}</span><Button size="small" onClick={() => {
                       setTrackingError(''); setBatchStatus('pending'); setTrackingEpoch(value => value + 1);
@@ -1617,70 +1775,51 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId }) =>
               </div>
             </Modal>
 
-            {/* Right: editor */}
-            <div className="news-result-pane">
+            <div className="news-result-pane" onKeyDown={event => {
+              if (event.defaultPrevented || event.nativeEvent.isComposing || event.target.closest('.news-context-chat') || !(event.ctrlKey || event.metaKey)) return;
+              const key = event.key.toLowerCase();
+              if (key !== 'z' && key !== 'y') return;
+              event.preventDefault();
+              if (!isGenerating) stepActiveEdit(key === 'y' || event.shiftKey ? 'redo' : 'undo');
+            }}>
               <section className="news-result-surface" aria-label="稿件">
                 <div className="news-result-heading">
                   <div className="news-result-title"><h3>稿件</h3>
-                    <span>{activeContent.markdownText ? `${countVisibleChars(activeContent.markdownText)} 字 · AI 初稿` : '等待生成'}</span>
+                    <span>{hasManuscript ? `${countVisibleChars(activeContent.markdownText)} 字 · ${activeChannelKey === 'wechat_article' ? '内容草稿' : 'AI 初稿'}` : '等待生成'}</span>
                   </div>
-                  {activeContent.markdownText && activeChannelKey !== 'wechat_article' ? <div className="news-document-controls">
+                  {hasManuscript ? <div className="news-document-controls">
+                    <div className="news-edit-history" aria-label="编辑撤销">
+                      <Button size="small" theme="borderless" icon={<IconChevronLeft />} aria-label="撤销编辑" title="撤销上一次编辑，最多 10 次" disabled={isGenerating || !activeContent.history?.length} onClick={() => stepActiveEdit('undo')} />
+                      <Button size="small" theme="borderless" icon={<IconChevronRight />} aria-label="重做编辑" title="重做编辑" disabled={isGenerating || !activeContent.redoHistory?.length} onClick={() => stepActiveEdit('redo')} />
+                    </div>
                     <SegmentedControl label="稿件视图" kind="tabs" value={documentView}
                       options={[{ value: 'preview', label: '预览' }, { value: 'editor', label: '编辑' }]}
                       onChange={setDocumentView} />
                     <Button size="small" theme="borderless" onClick={handleCopyBodyWithHashtags}>
                       {activeChannelKey === 'xiaohongshu' ? '复制正文+话题' : '复制正文'}
                     </Button>
-                    {(activeChannelKey === 'press_release' || activeChannelKey === 'report_brief') ?
+                    {activeChannelKey === 'wechat_article' ? <Button size="small" type="primary" disabled={isGenerating} onClick={openComposer}>确认内容，选择样式</Button> : null}
+                    {['wechat_article', 'press_release', 'report_brief'].includes(activeChannelKey) ?
                       <Button size="small" icon={<IconDownload />} title="导出 Word 文档" aria-label="导出 Word 文档" onClick={handleExportWord}>Word</Button> : null}
                   </div> : null}
                 </div>
 
+                <div className={`news-document-layout${hasManuscript ? ' has-insights' : ''}${selectedReference ? ' has-reference' : ''}`}>
+                <div className="news-document-main">
                 {Object.keys(channelContent).length ? (
                   <>
-                    <div className="news-review-bar">
-                      <details className="news-review-notes" key={activeChannelKey}>
-                        <summary><span className="news-review-indicator" aria-hidden="true" />
-                          {isGenerating ? '新稿生成中 · 当前稿件保留' : reviewNotes.length ? `发布前核对 · ${reviewNotes.length} 项材料待确认`
-                            : !activeContent.factCheck ? '当前修改尚未核对' : '发布前请核对事实与署名'}
-                          <IconChevronRight />
-                        </summary>
-                        <div className="news-review-content">
-                          {reviewNotes.length ? <ul>{reviewNotes.map((note, index) => <li key={index}>{note.slice(0, 240)}</li>)}</ul>
-                            : <p>请人工确认时间、地点、人物姓名、署名与表述。规则核对不能代替事实审核。</p>}
-                          <Button size="small" theme="borderless" onClick={() => {
-                            const input = document.getElementById('news-source-material');
-                            input?.scrollIntoView({ block: 'center', behavior: 'smooth' }); input?.focus({ preventScroll: true });
-                          }}>补充现场情况</Button>
-                        </div>
-                      </details>
-                      <Button size="small" loading={isCheckingFacts} onClick={handleCheckFacts}>核对当前稿</Button>
-                      {activeContent.history?.length ? <GlassSelect placeholder="历史稿件" value="current"
-                        className="news-history-select" options={[
-                          { value: 'current', label: '当前版本' },
-                          ...activeContent.history.map((version, index) => ({ value: String(index),
-                            label: `${new Date(version.savedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })} · ${version.title || '历史稿件'}` })),
-                        ]} onChange={value => {
-                          if (value === 'current') return;
-                          updateChannelContent(activeChannelKey, base => {
-                            const version = base.history?.[Number(value)];
-                            if (!version) return base;
-                            return { ...version, history: archiveNewsContent(base).filter(item => item !== version).slice(0, 5) };
-                          });
-                        }} /> : null}
-                    </div>
-                    {activeContent.markdownText ? <NewsParagraphTools key={`${DRAFT_STORAGE_KEY}:${activeChannelKey}`}
-                      markdown={activeContent.markdownText} form={formValues} confirmedNames={participantChips}
-                      interviewText={interviewText} storageKey={DRAFT_STORAGE_KEY ? `${DRAFT_STORAGE_KEY}:${activeChannelKey}` : null}
+                    {activeContent.markdownText && ['wechat_article', 'press_release', 'report_brief'].includes(activeChannelKey) ? <NewsDraftChat
+                      key={`${DRAFT_STORAGE_KEY}:${activeChannelKey}:chat`} article={articleSnapshot} disabled={isGenerating} selection={editSelection}
+                      onHighlightChange={setEditHighlight}
+                      storageKey={DRAFT_STORAGE_KEY ? `${DRAFT_STORAGE_KEY}:${activeChannelKey}:chat` : null}
                       onApply={proposal => updateChannelContent(activeChannelKey, base => {
-                        if (base.markdownText !== proposal.base || base.markdownText.slice(proposal.start, proposal.end) !== proposal.original) return base;
-                        return { ...base, markdownText: base.markdownText.slice(0, proposal.start) + proposal.proposal + base.markdownText.slice(proposal.end),
-                          generatedHtml: '', factCheck: null, history: archiveNewsContent(base) };
+                        if (base.markdownText !== proposal.base.markdown || (base.title || '') !== proposal.base.title) return base;
+                        return { ...base, title: proposal.title, markdownText: proposal.markdown, generatedHtml: '', factCheck: null };
                       })} /> : null}
                     {/* 渠道 Tab：胶囊按钮组，选中黑底白字，切换后下方编辑器/预览随之切到该渠道的 keyed state；
                         存在待核对的事实/禁用词命中时右上角加红点 */}
-                    {CHANNELS.filter(channel => channelContent[channel.key]).length > 1 ? <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
-                      {CHANNELS.filter((ch) => channelContent[ch.key]).map((ch) => {
+                    {CHANNELS.filter(channel => channelContent[channel.key] && (!preferredChannelKey || selectedChannels.includes(channel.key))).length > 1 ? <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+                      {CHANNELS.filter(ch => channelContent[ch.key] && (!preferredChannelKey || selectedChannels.includes(ch.key))).map((ch) => {
                         const isActive = ch.key === activeChannelKey;
                         const flagged = hasFactIssues(channelContent[ch.key]);
                         return (
@@ -1749,40 +1888,18 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId }) =>
                       <Button size="small" theme="borderless" onClick={() => setCollapsedWarnings(previous => ({ ...previous, [activeChannelKey]: false }))}>展开待核对项</Button>
                     ) : null}
 
-                    {activeChannelKey === 'wechat_article' ? (
-                      /* 公众号 Tab：整块换成排版预览编辑器 + 复制富文本/下载图片包，不复用通用 Markdown/预览 Tabs */
-                      <>
-                        <WechatPreviewEditor
-                          title={activeContent.title}
-                          markdown={activeContent.markdownText}
-                          photosMap={buildPhotosMapForContent(activeContent)}
-                          onChangeMarkdown={setActiveMarkdownText}
-                          onChangeTitle={(v) => updateChannelContent(activeChannelKey, { title: v })}
-                        />
-                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
-                          <Button onClick={handleCopyWechatRich}>复制公众号格式</Button>
-                          <Button onClick={handleDownloadWechatImages}>下载图片包</Button>
-                          <Button
-                            type="primary"
-                            onClick={() => {
-                              try {
-                                localStorage.setItem('wechat-composer-import', JSON.stringify({
-                                  title: activeContent.title || '',
-                                  markdown: activeContent.markdownText || '',
-                                }));
-                                window.history.pushState({}, '', '/function/wechat-composer');
-                                window.dispatchEvent(new PopStateEvent('popstate'));
-                              } catch (e) { Toast.error('跳转失败，请从功能页进入排版器'); }
-                            }}
-                          >
-                            去排版器精修 →
-                          </Button>
-                        </div>
-                      </>
-                    ) : (
                       <>
                       {documentView === 'editor' ? <div className="news-markdown-editor" role="tabpanel" aria-label="编辑稿件">
-                          <TextArea aria-label="稿件正文" value={activeContent.markdownText} onChange={setActiveMarkdownText} rows={isMobile ? 12 : 20} placeholder="生成内容将在这里显示" />
+                          <NewsArticleEditor markdown={activeContent.markdownText} onChange={setActiveMarkdownText}
+                            onUndo={() => { if (!isGenerating) stepActiveEdit('undo'); }} onRedo={() => { if (!isGenerating) stepActiveEdit('redo'); }}
+                            onSelectionChange={setEditSelection} highlight={editHighlight}
+                            onPhotosAdded={photos => setSelectedPhotos(previous => {
+                              const map = new Map(previous.map(photo => [String(photo.id), photo]));
+                              photos.forEach(photo => map.set(String(photo.id), photo)); return [...map.values()].slice(0, 30);
+                            })}
+                            title={activeContent.title} onChangeTitle={value => updateChannelContent(activeChannelKey, { title: value, generatedHtml: '', factCheck: null }, { group: `title:${activeChannelKey}` })} />
+                          <details className="news-source-editor"><summary>源码与导出</summary>
+                          <TextArea aria-label="稿件正文" value={activeContent.markdownText} onChange={value => setActiveMarkdownText(value, { group: `source:${activeChannelKey}` })} rows={isMobile ? 8 : 12} />
                           <div className="news-editor-footer">
                             <span>Markdown</span>
                             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: isMobile ? 'flex-end' : 'flex-start' }}>
@@ -1801,6 +1918,7 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId }) =>
                               ) : null}
                             </div>
                           </div>
+                          </details>
 
                           {/* 小红书专属：extra.hashtags 话题胶囊，可删、可输入添加，不写进 markdown 正文 */}
                           {activeChannelKey === 'xiaohongshu' ? (
@@ -1842,6 +1960,7 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId }) =>
                           ) : null}
                         </div> : <div className="news-paper-stage" role="tabpanel" aria-label="稿件预览">
                           <article className="news-article-preview" ref={previewContentRef}>
+                            {activeContent.title && !/^#[ \t]+\S/m.test(activeContent.markdownText) ? <h1>{activeContent.title}</h1> : null}
                             {finalPreviewHtml ? (
                               <div dangerouslySetInnerHTML={{ __html: finalPreviewHtml }} />
                             ) : (
@@ -1849,18 +1968,33 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId }) =>
                             )}
                           </article>
                           <div className="news-paper-footer"><span>{countVisibleChars(activeContent.markdownText)} 字</span>
+                            {activeChannelKey === 'wechat_article' ? <Button size="small" theme="borderless" icon={<IconDownload />} onClick={handleDownloadWechatImages}>图片包</Button> : null}
                             <Button size="small" theme="borderless" icon={<IconDownload />} onClick={generatePreviewImage}
                               loading={isGeneratingPreviewImage} disabled={!finalPreviewHtml}>导出长图</Button>
                           </div>
                         </div>}
                       </>
-                    )}
                   </>
                 ) : (
                   <div className="news-paper-stage"><div className="news-empty-manuscript">
                     <IconSparkleAI /><span>{isGenerating ? '正在整理材料并撰写初稿' : '等待你的第一份初稿'}</span>
                   </div></div>
                 )}
+                </div>
+                {hasManuscript ? <NewsInsights notes={reviewNotes} references={Array.isArray(activeContent.references) ? activeContent.references : null}
+                  supplementLabel={preferredChannelKey === 'wechat_article' ? '补充详细信息' : '补充现场情况'}
+                  referenceStatus={activeContent.referenceStatus}
+                  isGenerating={isGenerating} isCheckingFacts={isCheckingFacts} onCheckFacts={handleCheckFacts}
+                  selectedId={selectedReference?.id} onReference={setSelectedReference} onSupplement={() => {
+                    setSourceOpen(true);
+                    requestAnimationFrame(() => {
+                      const input = document.getElementById('news-source-material');
+                      input?.scrollIntoView({ block: 'center', behavior: 'smooth' }); input?.focus({ preventScroll: true });
+                    });
+                  }} /> : null}
+                {hasManuscript && selectedReference ? <NewsReferencePanel reference={selectedReference} workspaceId={workspaceId}
+                  onClose={() => setSelectedReference(null)} /> : null}
+                </div>
 
                 {/* 编辑区底部的实验性功能按钮已移除 */}
               </section>

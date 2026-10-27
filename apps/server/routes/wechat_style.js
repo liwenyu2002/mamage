@@ -5,121 +5,19 @@
 // 挂载于 app.js: app.use('/api/wechat-style', require('./routes/wechat_style'))
 const express = require('express');
 const router = express.Router();
-const fetch = require('node-fetch');
 const { pool } = require('../db');
 const { requirePermission } = require('../lib/permissions');
 const { resolveWorkspace, sendWorkspaceError } = require('../lib/workspace_access');
 const { extractStyleBlocksFromHtml } = require('../lib/wechat_style_extract');
 const { extractFullArticleFromHtml } = require('../lib/wechat_article_import');
+const { fetchWechatArticleHtml } = require('../lib/wechat_article_source');
+const { loadObservedStyleLibrary } = require('../lib/wechat_observed_styles');
 
 // ---- 常量 ----
-const ALLOWED_HOST = 'mp.weixin.qq.com'; // SSRF 白名单：仅公众号文章域，精确匹配（不含子域通配）
-const FETCH_TIMEOUT_MS = 10000;
-const MAX_RESPONSE_BYTES = 8 * 1024 * 1024; // 现代公众号文章页 HTML 普遍 1-5MB（内嵌脚本/样式），3MB 会误杀正常文章
-const MAX_REDIRECTS = 5;
-const DESKTOP_CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
 const MAX_SAVE_BLOCKS = 30; // 与单次提取上限(MAX_BLOCKS=30)对齐，否则"全选保存"必 413
 const MAX_TEMPLATE_BYTES = 50 * 1024; // 50KB
 const ALLOWED_TYPES = new Set(['h2', 'h3', 'quote', 'divider', 'imageCard', 'signoff']);
-
-// 只允许 http/https 且 host 精确等于白名单域，拒绝用户名密码嵌入等花招（new URL 会正常解析出 hostname，
-// 但额外显式校验 protocol，防止 file:/javascript: 等伪协议绕过）。
-function assertAllowedWechatUrl(rawUrl) {
-  let parsed;
-  try {
-    parsed = new URL(String(rawUrl));
-  } catch (e) {
-    const err = new Error('url 格式非法');
-    err.httpStatus = 400;
-    throw err;
-  }
-  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
-    const err = new Error('仅支持 http/https 协议');
-    err.httpStatus = 400;
-    throw err;
-  }
-  if (parsed.hostname !== ALLOWED_HOST) {
-    const err = new Error('仅支持公众号文章链接（mp.weixin.qq.com）');
-    err.httpStatus = 400;
-    throw err;
-  }
-  // host 通过后再收紧到文章路径特征，拒绝同域下的其它页面（如登录页/公众号主页）；
-  // 公众号文章的跳转链（短链、迁移链）落地页同样是 /s 路径，重定向校验不会被误伤。
-  if (parsed.pathname !== '/s' && !parsed.pathname.startsWith('/s/')) {
-    const err = new Error('不是公众号推文链接（应形如 https://mp.weixin.qq.com/s/…）');
-    err.httpStatus = 400;
-    throw err;
-  }
-  return parsed;
-}
-
-// 手动跟随重定向：每一跳都先校验目标 host 再发起下一次请求，防止"首跳是白名单域、
-// 302 后跳到内网/其它域"的 SSRF；同时用 size 选项硬性限制单次响应体大小。
-async function fetchWechatArticleHtml(rawUrl) {
-  let currentUrl = assertAllowedWechatUrl(rawUrl).toString();
-
-  for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
-    let resp;
-    try {
-      resp = await fetch(currentUrl, {
-        method: 'GET',
-        redirect: 'manual',
-        timeout: FETCH_TIMEOUT_MS,
-        size: MAX_RESPONSE_BYTES,
-        headers: {
-          'User-Agent': DESKTOP_CHROME_UA,
-          Accept: 'text/html,application/xhtml+xml',
-        },
-      });
-    } catch (e) {
-      const err = new Error(e && e.type === 'max-size' ? '响应体超过大小上限' : `抓取失败: ${(e && e.message) || e}`);
-      err.httpStatus = 502;
-      throw err;
-    }
-
-    if (resp.status >= 300 && resp.status < 400) {
-      const location = resp.headers.get('location');
-      if (!location) {
-        const err = new Error('重定向缺少 location');
-        err.httpStatus = 502;
-        throw err;
-      }
-      let next;
-      try {
-        next = new URL(location, currentUrl);
-      } catch (e) {
-        const err = new Error('重定向目标非法');
-        err.httpStatus = 502;
-        throw err;
-      }
-      // 重定向后必须仍落在白名单域内，否则视为 SSRF 尝试直接拒绝
-      assertAllowedWechatUrl(next.toString());
-      currentUrl = next.toString();
-      continue;
-    }
-
-    if (!resp.ok) {
-      const err = new Error(`公众号页面返回 ${resp.status}`);
-      err.httpStatus = 502;
-      throw err;
-    }
-
-    let html;
-    try {
-      html = await resp.text();
-    } catch (e) {
-      const err = new Error(e && e.type === 'max-size' ? '响应体超过大小上限' : `读取响应失败: ${(e && e.message) || e}`);
-      err.httpStatus = 502;
-      throw err;
-    }
-    return { html, finalUrl: currentUrl };
-  }
-
-  const err = new Error('重定向次数过多');
-  err.httpStatus = 502;
-  throw err;
-}
 
 // 服务端再洗一遍（防止 POST /blocks 直接绕过 /extract 塞入恶意模板）。
 // ⚠️ 与 routes/user_favorites.js 的同名函数同步维护；正则清洗是纵深防御第二道，
@@ -251,11 +149,26 @@ router.get('/blocks', requirePermission('ai.generate'), async (req, res) => {
        ORDER BY created_at DESC LIMIT 500`,
       workspace.enabled && workspace.unitId ? [orgId, workspace.unitId] : [orgId]
     );
-    res.json({ blocks: (rows || []).map(rowToBlock) });
+    let observed = [];
+    try { observed = (await loadObservedStyleLibrary(pool, workspace)).blocks; }
+    catch (error) { console.warn('[wechat.style.observed]', error.code || 'OBSERVED_STYLES_UNAVAILABLE'); }
+    res.json({ blocks: [...(rows || []).map(rowToBlock), ...observed] });
   } catch (e) {
     if (sendWorkspaceError(res, e)) return;
     console.error('GET /api/wechat-style/blocks error', e);
     res.status(500).json({ code: 5000, message: 'Internal server error' });
+  }
+});
+
+router.get('/monitor-templates', requirePermission('ai.generate'), async (req, res) => {
+  try {
+    const workspace = await resolveWorkspace(req);
+    const result = await loadObservedStyleLibrary(pool, workspace);
+    res.set('Cache-Control', 'private, no-store').json(result);
+  } catch (error) {
+    if (sendWorkspaceError(res, error)) return;
+    console.error('[wechat.style.templates]', error.code || 'OBSERVED_STYLES_UNAVAILABLE');
+    res.status(503).json({ message: '推文观察库样式暂不可用' });
   }
 });
 

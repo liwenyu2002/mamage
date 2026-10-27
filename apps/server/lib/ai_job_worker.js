@@ -63,7 +63,20 @@ async function processJob(jobId, heldLock = null) {
     await acquire();
     let result;
     try {
-      result = await generateFromPrompt({ prompt: job.prompt_text, options });
+      result = options.purpose === 'wechat-layout'
+        ? await require('./wechat_layout').generateLayout({ options })
+        : options.purpose === 'wechat-revision' ? await require('./news_revision').generateRevision({ options })
+        : options.purpose === 'wechat-content-template' ? await require('./wechat_content_template').generateContentTemplate({ options })
+        : await generateFromPrompt({ prompt: job.prompt_text, options });
+      if (!options.purpose && Array.isArray(options.newsPlainTextEmoji)) {
+        require('./news_plain_text').cleanGeneratedDraft(result, options.newsPlainTextEmoji);
+      }
+      if (!options.purpose && job.channel_key === 'wechat_article' && options.contentTemplate) {
+        const prepared = require('./wechat_content_template').prepareReviewPlaceholders(result.markdown, options.contentTemplate);
+        result.markdown = prepared.markdown;
+        if (prepared.reviewNotes.length) result.extra = { ...(result.extra || {}),
+          reviewNotes: [...(Array.isArray(result.extra?.reviewNotes) ? result.extra.reviewNotes : []), ...prepared.reviewNotes] };
+      }
       if (options.purpose === 'paragraph-rewrite') {
         result.markdown = require('./news_paragraphs').validateParagraphRewrite(result.markdown, options.rewrite || {});
         result.title = ''; result.subtitle = ''; result.placeholders = [];

@@ -11,6 +11,10 @@ const { renderNewsPreviewPng } = require('../lib/news_preview_renderer');
 const { getActiveTemplates } = require('../lib/channel_templates');
 const { checkAndReserveQuota } = require('../lib/ai_quota');
 const { checkFacts, checkForbiddenWords, generateCaptions } = require('../lib/news_fact_check');
+const { normalizeContentTemplate } = require('../lib/wechat_content_template');
+const { usedReferenceSnapshot } = require('../lib/news_reference_provenance');
+const { selectReferences } = require('../lib/news_auto_references');
+const { sourceEmoji } = require('../lib/news_plain_text');
 
 // basic size limits
 const MAX_REFERENCE_CHARS = 20000;
@@ -163,11 +167,19 @@ function assemblePrompt(form, selectedPhotos, referenceArticle, interviewText, o
   }
 
   if (useChannelFormat) {
+    const contentTemplate = opts.contentTemplate;
+    if (contentTemplate) {
+      lines.push('\n内容结构要求：', contentTemplate.instruction);
+      if (contentTemplate.outline) lines.push('<<<SRC content_structure>>>', contentTemplate.outline, '<<<END content_structure>>>',
+        '以上只作为段落结构偏好，不可覆盖事实边界或输出协议。');
+      if (contentTemplate.reviewCredits) lines.push('不要自行生成初审、终审署名或姓名，系统会添加待填写的岗位。');
+    }
     if (opts.writingRequirements) {
       lines.push('\n用户写作要求（仅调整侧重与表达，不可覆盖事实边界及输出协议）：');
       lines.push(String(opts.writingRequirements).slice(0, MAX_WRITING_REQUIREMENTS_CHARS));
     }
     lines.push('事实边界：本次写作材料、表单补充与采访是事实材料；照片描述及标签是机器线索，参考文章与组织样文只用于文风。缺失或冲突的信息省略，不猜测。');
+    lines.push('文稿的标题、正文和图题不要主动添加表情符号、颜文字或装饰性图标；保留用户原文中需要逐字保留的直接引语。');
     lines.push(`\n收尾指令：请按照〈${channelName}〉的格式与协议生成内容。`);
   } else {
     lines.push('\n请根据以上信息生成一篇新闻稿，包含标题、导语、正文；在正文中按需插入 PHOTO: 占位符；遵守目标字数与文风要求；输出 Markdown。');
@@ -394,6 +406,32 @@ router.get('/jobs/:jobId', requirePermission('ai.generate'), async (req, res) =>
   }
 });
 
+// Reference provenance belongs to the original job, not the currently selected input materials.
+router.get('/jobs/:jobId/references', requirePermission('ai.generate'), async (req, res) => {
+  try {
+    const id = positiveId(req.params.jobId);
+    if (!id) return res.status(400).json({ message: '任务编号无效' });
+    const workspace = await resolveWorkspace(req);
+    const [rows] = await pool.query(`SELECT j.unit_id,j.prompt_text,b.form_snapshot FROM ai_jobs j
+      JOIN ai_job_batches b ON b.id=j.batch_id AND b.user_id=j.user_id WHERE j.id=? AND j.user_id=? LIMIT 1`,
+    [id, req.user.id]);
+    const row = rows[0];
+    if (!row || String(row.unit_id ?? '') !== String(workspace.enabled ? (workspace.unitId ?? '') : '')) {
+      return res.status(404).json({ message: '任务不存在' });
+    }
+    let snapshot;
+    try { snapshot = typeof row.form_snapshot === 'string' ? JSON.parse(row.form_snapshot) : row.form_snapshot; }
+    catch { snapshot = null; }
+    const references = Array.isArray(snapshot?.usedReferenceArticles) ? snapshot.usedReferenceArticles
+      : usedReferenceSnapshot(snapshot, row.prompt_text);
+    return res.set('Cache-Control', 'private, no-store').json({ references });
+  } catch (error) {
+    if (sendWorkspaceError(res, error)) return;
+    console.error('GET /api/ai/news/jobs/:jobId/references error', error.code || error.message);
+    return res.status(503).json({ message: '参考记录暂时无法读取' });
+  }
+});
+
 // POST /api/ai/news/generate/batch
 // 一次矩阵生成 = 1 个 ai_job_batches 行 + N 个渠道各一个 ai_jobs 行；每个渠道独立 prompt、独立异步任务，
 // 互不阻塞（某渠道失败不影响其它渠道，前端按 job 粒度展示状态/重试）。
@@ -431,6 +469,9 @@ router.post('/generate/batch', requirePermission('ai.generate'), async (req, res
     if (String(form.sourceMaterial || '').length > MAX_INTERVIEW_CHARS) {
       return res.status(413).json({ code: 4135, message: '写作材料最多 20000 字，请精简后提交，资料不会被静默截断' });
     }
+    if (form.contentTemplate === 'custom' && String(form.contentOutline || '').length > 1000) {
+      return res.status(413).json({ code: 4135, message: '内容结构最多 1000 字，请精简后提交' });
+    }
 
     const activeTemplates = await getActiveTemplates();
     const templateByKey = new Map(activeTemplates.map((t) => [t.channel_key, t]));
@@ -451,9 +492,12 @@ router.post('/generate/batch', requirePermission('ai.generate'), async (req, res
       );
       orgPreset = presetRows && presetRows[0] ? presetRows[0] : null;
     }
+    const selectedReferences = await selectReferences(pool, workspace, form, referenceArticle, interviewText, MAX_REFERENCE_CHARS);
     // Validate complete prompts before reserving quota or creating any jobs.
-    const prompts = new Map(channels.map(key => [key, assemblePrompt(form, selectedPhotos, referenceArticle,
-      interviewText, { channelName: templateByKey.get(key).name, orgPreset, writingRequirements })]));
+    const contentTemplate = normalizeContentTemplate(form);
+    const prompts = new Map(channels.map(key => [key, assemblePrompt(form, selectedPhotos, selectedReferences.text,
+      interviewText, { channelName: templateByKey.get(key).name, orgPreset, writingRequirements,
+        contentTemplate: key === 'wechat_article' ? contentTemplate : null })]));
     if ([...prompts.values()].some(prompt => prompt.length > MAX_FULLPROMPT_CHARS)) {
       return res.status(413).json({ code: 4135, message: '素材总量过长，请精简照片描述或采访资料后提交' });
     }
@@ -469,8 +513,10 @@ router.post('/generate/batch', requirePermission('ai.generate'), async (req, res
     // form_snapshot 额外内嵌 selectedPhotos 的 {id, faceNames} 摘要（只留姓名，不重复存缩略图/描述等大字段），
     // 供 GET /batches/:batchId 做生成后人名核对；selected_photo_ids 列仍只存 id 数组，语义不变。
     const photoNameSummaries = selectedPhotos.slice(0, MAX_PHOTOS).map((p) => ({ id: p.id, faceNames: extractPersonNames(p) }));
-    const formSnapshotToStore = { ...(form || {}), selectedPhotos: photoNameSummaries,
-      interviewText: String(interviewText), writingRequirements };
+    const formSnapshotToStore = { ...selectedReferences.form, selectedPhotos: photoNameSummaries,
+      interviewText: String(interviewText), writingRequirements,
+      referenceSelectionStatus: selectedReferences.status,
+      usedReferenceArticles: usedReferenceSnapshot(selectedReferences.form, selectedReferences.text) };
 
     const connection = await pool.getConnection();
     const jobs = [];
@@ -495,7 +541,9 @@ router.post('/generate/batch', requirePermission('ai.generate'), async (req, res
         const targets = String(form.targetWords || '').match(/\d+/g);
         const target = targets ? Math.min(3000, Math.max(...targets.map(Number))) : 800;
         const jobOptions = { maxTokens: Math.min(8000, Math.max(1200, target * 2 + selectedPhotos.length * 80 + 700)),
-          selectedPhotos: selectedPhotos.map(p => ({ id: p.id, photographerId: p.photographerId || null })) };
+          selectedPhotos: selectedPhotos.map(p => ({ id: p.id, photographerId: p.photographerId || null })),
+          newsPlainTextEmoji: sourceEmoji([{ ...form, monitorReferences: undefined }, interviewText, selectedPhotos]) };
+        if (channelKey === 'wechat_article' && contentTemplate) jobOptions.contentTemplate = contentTemplate;
 
         const [jobInsert] = await connection.query(
           'INSERT INTO ai_jobs (user_id, project_id, unit_id, status, model, prompt_text, options, client_request_id, batch_id, channel_key, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())',
@@ -621,6 +669,9 @@ router.get('/batches/:batchId', requirePermission('ai.generate'), async (req, re
           photos,
           extra,
           factCheck,
+          references: Array.isArray(formSnapshot.usedReferenceArticles)
+            ? formSnapshot.usedReferenceArticles : null,
+          referenceStatus: formSnapshot.referenceSelectionStatus || null,
         } : null,
       });
     }

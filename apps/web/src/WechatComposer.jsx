@@ -9,6 +9,7 @@ import {
 } from './services/wechatCompositionService';
 import { THEME_PRESETS, BUILTIN_BLOCKS_BY_ID, applyBlock } from './wechat/themes';
 import { copyWechatRichText, downloadImagePack } from './wechat/wechatExport';
+import { missingRequiredFields } from './utils/wechatRequiredFields';
 import CanvasEditor from './wechat/CanvasEditor';
 import ComposerToolRail from './wechat/ComposerToolRail';
 import AlbumPanel from './wechat/AlbumPanel';
@@ -25,14 +26,15 @@ import PhotoPickerModal from './wechat/PhotoPickerModal';
 import AIImageFillModal from './wechat/AIImageFillModal';
 import { autoTagThemeColors, detectThemePrimary } from './wechat/themeColor';
 import { beginDrag } from './wechat/pointerDrag';
+import { wechatDraftKey, hasWechatDraft } from './utils/wechatDraftState';
+import { articleBodyMarkdown } from './utils/newsArticle';
+import { IconSparkleAI, IconEditStroked } from './ui/icons';
 import './wechat/composer.css';
 import './wechat/canvas.css';
 
 const { Header, Content } = Layout;
 const { Text } = Typography;
 
-const DRAFT_KEY = 'wechat-composer-draft';
-const IMPORT_KEY = 'wechat-composer-import'; // 矩阵页"去排版器精修"写入的 {title, markdown}，进页即读即清
 const DEFAULT_THEME_KEY = 'minimal';
 const ARCHIVE_NAME_LIMIT = 120;
 
@@ -69,8 +71,8 @@ function normalizeDbBlock(row) {
     name: row.name || '导入样式',
     htmlTemplate: row.html_template || row.htmlTemplate || '',
     accentEditable: !!(row.accent_editable || row.accentEditable),
-    source: 'extracted',
-    sourceUrl: row.source_url || null,
+    source: row.source === 'observed' ? 'observed' : 'extracted',
+    sourceUrl: row.source_url || row.sourceUrl || null,
   };
 }
 
@@ -118,43 +120,35 @@ function defaultFileName() {
   return `未命名推文 ${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-// 首帧同步读取草稿 + 导入数据（比 useEffect 异步回填快，避免"先空后填"的闪烁）；
-// 导入键读到即删，保证只消费一次。真正的 side-effect（Toast）留给挂载后的 effect 处理。
-function buildInitialState() {
+// The workspace confirms imports before mounting; reading initial state has no side effects.
+function buildInitialState(draftKey, imported) {
   let draftRaw = null;
   try {
-    draftRaw = (typeof localStorage !== 'undefined') ? localStorage.getItem(DRAFT_KEY) : null;
+    draftRaw = draftKey && typeof localStorage !== 'undefined' ? localStorage.getItem(draftKey) : null;
   } catch (e) {
-    // 部分隐私模式下 getItem 也会抛，静默兜底（与下方 IMPORT_KEY 读取一致）
+    // Storage can be unavailable in privacy mode.
   }
   const draft = safeParse(draftRaw) || {};
-  let imported = null;
-  try {
-    const rawImport = (typeof localStorage !== 'undefined') ? localStorage.getItem(IMPORT_KEY) : null;
-    if (rawImport) {
-      localStorage.removeItem(IMPORT_KEY);
-      imported = safeParse(rawImport);
-    }
-  } catch (e) {
-    // 隐私模式/存储被禁用时静默忽略
-  }
-  const hasImport = !!(imported && (imported.title || imported.markdown));
-  const themeKey = draft.themeKey || DEFAULT_THEME_KEY;
-  const blockConfig = (draft.blockConfig && typeof draft.blockConfig === 'object') ? draft.blockConfig : null;
+  const hasImport = !!(imported && (Array.isArray(imported.doc) || imported.title || imported.markdown));
+  const input = hasImport ? imported : draft;
+  const themeKey = input.themeKey || DEFAULT_THEME_KEY;
+  const blockConfig = (input.blockConfig && typeof input.blockConfig === 'object') ? input.blockConfig : null;
   const effective = blockConfig || THEME_PRESETS[themeKey] || THEME_PRESETS[DEFAULT_THEME_KEY];
 
   // 文档来源优先级：矩阵导入 markdown > v3 草稿 doc > 旧草稿 markdown（一次性转块）> 空文档
   let doc = null;
-  if (hasImport && imported.markdown) {
-    doc = markdownToDoc(imported.markdown, { blockConfig: effective });
+  if (hasImport && Array.isArray(imported.doc)) {
+    doc = imported.doc;
+  } else if (hasImport && imported.markdown) {
+    doc = markdownToDoc(articleBodyMarkdown(imported.markdown, imported.title), { blockConfig: effective });
   } else if (Array.isArray(draft.doc) && draft.doc.length) {
     doc = draft.doc;
   } else if (draft.markdown) {
     doc = markdownToDoc(draft.markdown, { blockConfig: effective });
   }
-  const title = (hasImport && imported.title) || draft.title || '';
-  const digest = draft.digest || '';
-  const meta = (draft.meta && typeof draft.meta === 'object') ? draft.meta : {};
+  const title = hasImport ? imported.title || '' : draft.title || '';
+  const digest = input.digest || '';
+  const meta = !hasImport && draft.meta && typeof draft.meta === 'object' ? draft.meta : {};
   const finalDoc = doc || [];
   // 草稿归属的存档文件 id（v4 起随草稿一起写回）；null=尚未保存为服务端文件的新推文
   const draftOpenId = (draft.openId != null && draft.openId !== '') ? draft.openId : null;
@@ -177,6 +171,7 @@ function buildInitialState() {
     doc: finalDoc,
     themeKey,
     blockConfig,
+    sourceDocument: input.sourceDocument || null,
     imported: hasImport,
     view,
     // 初始 openId 恒为 null：能进编辑器的两种情形（导入 / 续编未保存新推文）本就没有归属文件；
@@ -188,10 +183,17 @@ function buildInitialState() {
   };
 }
 
-function WechatComposer() {
-  const [initial] = React.useState(buildInitialState);
+function WechatComposer({ currentUser, workspaceId, initialArticle = null, active = true, onSnapshotChange, guided = false,
+  draftStorageKey = null, onStartAiWorkflow }) {
+  const DRAFT_KEY = draftStorageKey || wechatDraftKey(currentUser?.id, workspaceId);
+  const [creationOpen, setCreationOpen] = React.useState(false);
+  const [legacyAvailable, setLegacyAvailable] = React.useState(() => {
+    try { return !guided && hasWechatDraft(safeParse(localStorage.getItem('wechat-composer-draft'))); } catch { return false; }
+  });
+  const [initial] = React.useState(() => buildInitialState(DRAFT_KEY, initialArticle));
   const [title, setTitle] = React.useState(initial.title);
   const [digest, setDigest] = React.useState(initial.digest);
+  const [sourceDocument, setSourceDocument] = React.useState(initial.sourceDocument);
   // 推文预览元信息：公众号名/作者/时间 + 大小图封面（仅用于「推文预览」的文章页与卡片，不进正文）
   const [previewMeta, setPreviewMeta] = React.useState(initial.meta);
   const [articlePreviewOpen, setArticlePreviewOpen] = React.useState(false);
@@ -358,6 +360,7 @@ function WechatComposer() {
   // （画布不拦截，父级统一处理；输入场景交还浏览器原生撤销）。saveOpen/view 用 ref 读最新值避免闭包过期。
   React.useEffect(() => {
     const onKey = (e) => {
+      if (!active) return;
       const mod = e.metaKey || e.ctrlKey;
       if (mod && e.key.toLowerCase() === 's') {
         e.preventDefault();
@@ -373,7 +376,7 @@ function WechatComposer() {
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [handleUndo, handleRedo]);
+  }, [active, handleUndo, handleRedo]);
 
   // 样式块自选：blockConfig=null 表示跟随主题预设；一旦在样式库里挑过块即转为自定义配置
   const [blockConfig, setBlockConfig] = React.useState(initial.blockConfig);
@@ -499,7 +502,7 @@ function WechatComposer() {
     return Object.keys(st).length ? st : null;
   }, [effectiveConfig.page]);
   const blocksById = React.useMemo(() => {
-    const map = { ...BUILTIN_BLOCKS_BY_ID };
+    const map = { ...BUILTIN_BLOCKS_BY_ID, ...(sourceDocument?.styleBlocks || {}) };
     // 收藏快照先铺底（原 db 块被删后收藏/草稿仍可渲染），在库的真实块随后覆盖（数据更新鲜）
     styleFavs.forEach((f) => {
       if (f && f.refKey && f.payload && f.payload.htmlTemplate && !map[f.refKey]) {
@@ -508,7 +511,7 @@ function WechatComposer() {
     });
     myBlocks.forEach((b) => { map[b.id] = b; });
     return map;
-  }, [myBlocks, styleFavs]);
+  }, [myBlocks, styleFavs, sourceDocument]);
 
   // 收藏面板里的多块排版使用正式导出链渲染，确保插入前看到的文字、图片、间距和主题效果
   // 与画布/公众号复制结果一致；docToHtml 末端自带 DOMPurify 清洗。
@@ -560,9 +563,10 @@ function WechatComposer() {
   // 面板首次打开时拉一次"我的样式库"；草稿里引用了 db- 块时进页就要拉（否则渲染回退兜底块）
   React.useEffect(() => {
     if (myBlocksLoaded) return;
-    const usesDbBlock = blockConfig && Object.values(blockConfig).some((v) => typeof v === 'string' && v.startsWith('db-'));
+    const usesDbBlock = doc.some(block => String(block.blockId || '').startsWith('db-'))
+      || (blockConfig && Object.values(blockConfig).some((v) => typeof v === 'string' && v.startsWith('db-')));
     if (libraryOpen || usesDbBlock) loadMyBlocks();
-  }, [libraryOpen, blockConfig, myBlocksLoaded, loadMyBlocks]);
+  }, [libraryOpen, blockConfig, doc, myBlocksLoaded, loadMyBlocks]);
 
 
   React.useEffect(() => {
@@ -592,12 +596,16 @@ function WechatComposer() {
   // 草稿持久化（v4：随块文档一起存 openId，标明这份草稿属于哪个服务端文件；null=未保存的新推文）；
   // 写入失败（隐私模式/配额满）静默忽略，不打断编辑
   React.useEffect(() => {
+    if (!DRAFT_KEY) return;
     try {
-      localStorage.setItem(DRAFT_KEY, JSON.stringify({ v: 4, openId, title, digest, meta: previewMeta, doc, themeKey, blockConfig }));
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({ v: 4, openId, title, digest, meta: previewMeta, doc, themeKey, blockConfig, sourceDocument }));
     } catch (e) {
       // ignore
     }
-  }, [title, digest, previewMeta, doc, themeKey, blockConfig]);
+  }, [DRAFT_KEY, openId, title, digest, previewMeta, doc, themeKey, blockConfig, sourceDocument]);
+  React.useEffect(() => {
+    onSnapshotChange?.({ title, digest, doc, blockConfig: effectiveConfig, themeKey, sourceDocument });
+  }, [onSnapshotChange, title, digest, doc, effectiveConfig, themeKey, sourceDocument]);
 
   // 在画布中插入一个新块：有选中块插其后，否则追加末尾；返回新块 uid
   const insertDocBlock = React.useCallback((block) => {
@@ -981,6 +989,8 @@ function WechatComposer() {
 
   const handleCopyRich = React.useCallback(async () => {
     if (!docHasContent) { Toast.warning('画布还是空的，先从样式库插入内容'); return; }
+    const missing = missingRequiredFields(docToPlainText(doc));
+    if (missing.length) { Toast.warning(`请先处理待补项：${missing.join('、')}`); return; }
     try {
       // 画布与复制共用 docToHtml 同源渲染（所见即所得）；标题填在公众号后台标题栏，不进正文
       const { html } = docToHtml(doc, { blocksById, globalAccent: effectiveConfig.accent, body: effectiveConfig.body, page: effectiveConfig.page });
@@ -1081,7 +1091,7 @@ function WechatComposer() {
     setArchiveListError(false);
     try {
       const resp = await listCompositions();
-      setArchiveList(Array.isArray(resp && resp.items) ? resp.items : []);
+      setArchiveList(Array.isArray(resp && resp.items) ? resp.items.filter(item => item.draftKind !== 'content') : []);
     } catch (e) {
       console.error('[WechatComposer] load compositions failed', e);
       setArchiveListError(true);
@@ -1106,6 +1116,7 @@ function WechatComposer() {
     setDigest((next && next.digest) || '');
     setThemeKey(nextThemeKey);
     setBlockConfig(nextBlockConfig);
+    setSourceDocument(next?.sourceDocument || null);
     historyRef.current = createHistory(nextDoc);
     setDoc(nextDoc);
     setHistoryTick((t) => t + 1);
@@ -1132,15 +1143,25 @@ function WechatComposer() {
 
   const goToManager = React.useCallback(() => { guardLeave(reallyGoManager); }, [guardLeave, reallyGoManager]);
 
+  const startCustomFile = React.useCallback(() => {
+    applyEditorState(null);
+    setOpenId(null);
+    setOpenName('');
+    setDirty(false);
+    setView('editor');
+  }, [applyEditorState]);
+
   const newFile = React.useCallback(() => {
-    guardLeave(() => {
-      applyEditorState(null);
-      setOpenId(null);
-      setOpenName('');
-      setDirty(false);
-      setView('editor');
-    });
-  }, [guardLeave, applyEditorState]);
+    guardLeave(() => { if (onStartAiWorkflow) setCreationOpen(true); else startCustomFile(); });
+  }, [guardLeave, onStartAiWorkflow, startCustomFile]);
+
+  const importLegacyDraft = () => Modal.confirm({ title: '导入本机旧草稿？',
+    content: '旧草稿未区分账号，请确认是你的内容。原缓存会保留，并作为一篇未保存的新推文打开。', okText: '确认导入', onOk: () => {
+      const previous = safeParse(localStorage.getItem('wechat-composer-draft'));
+      if (!hasWechatDraft(previous)) { Toast.info('没有可导入的旧草稿'); return; }
+      guardLeave(() => { applyEditorState(buildInitialState(null, previous)); setOpenId(null); setOpenName('');
+        setDirty(true); setView('editor'); setLegacyAvailable(false); });
+    } });
 
   const openFileById = React.useCallback((item) => {
     guardLeave(async () => {
@@ -1175,7 +1196,7 @@ function WechatComposer() {
     }
     setSaving(true);
     try {
-      await updateComposition(openId, { name: openName, title, digest, doc, blockConfig: effectiveConfig, themeKey });
+      await updateComposition(openId, { name: openName, title, digest, doc, blockConfig: effectiveConfig, themeKey, sourceDocument, draftKind: 'layout' });
       setDirty(false);
       Toast.success('已保存');
     } catch (e) {
@@ -1186,7 +1207,7 @@ function WechatComposer() {
     } finally {
       setSaving(false);
     }
-  }, [saving, openId, openName, title, digest, doc, effectiveConfig, themeKey]);
+  }, [saving, openId, openName, title, digest, doc, effectiveConfig, themeKey, sourceDocument]);
   React.useEffect(() => { saveOpenRef.current = saveOpen; }, [saveOpen]);
 
   // 命名弹窗确认：saveMode='new' 首次建档；'rename' 重命名已有文件
@@ -1207,7 +1228,7 @@ function WechatComposer() {
     }
     setSaving(true);
     try {
-      const created = await saveComposition({ name, title, digest, doc, blockConfig: effectiveConfig, themeKey });
+      const created = await saveComposition({ name, title, digest, doc, blockConfig: effectiveConfig, themeKey, sourceDocument, draftKind: 'layout' });
       setOpenId((created && created.id != null) ? created.id : null);
       setOpenName(name);
       setDirty(false);
@@ -1230,7 +1251,7 @@ function WechatComposer() {
     } finally {
       setSaving(false);
     }
-  }, [archiveSaveName, saveMode, renameTargetId, openId, title, digest, doc, effectiveConfig, themeKey, loadArchiveList]);
+  }, [archiveSaveName, saveMode, renameTargetId, openId, title, digest, doc, effectiveConfig, themeKey, sourceDocument, loadArchiveList]);
 
   // 离开确认三选一
   const handleLeaveSaveAndGo = React.useCallback(async () => {
@@ -1247,7 +1268,7 @@ function WechatComposer() {
     }
     setSaving(true);
     try {
-      await updateComposition(openId, { name: openName, title, digest, doc, blockConfig: effectiveConfig, themeKey });
+      await updateComposition(openId, { name: openName, title, digest, doc, blockConfig: effectiveConfig, themeKey, sourceDocument, draftKind: 'layout' });
       setDirty(false);
       if (proceed) proceed();
     } catch (e) {
@@ -1256,7 +1277,7 @@ function WechatComposer() {
     } finally {
       setSaving(false);
     }
-  }, [leavePrompt, openId, openName, title, digest, doc, effectiveConfig, themeKey]);
+  }, [leavePrompt, openId, openName, title, digest, doc, effectiveConfig, themeKey, sourceDocument]);
 
   const handleLeaveDiscardAndGo = React.useCallback(() => {
     const proceed = leavePrompt && leavePrompt.proceed;
@@ -1285,6 +1306,8 @@ function WechatComposer() {
         doc: (full && full.doc) || [],
         blockConfig: (full && full.blockConfig) || null,
         themeKey: (full && full.themeKey) || DEFAULT_THEME_KEY,
+        sourceDocument: full?.sourceDocument || null,
+        draftKind: 'layout',
       });
       Toast.success('已复制');
       loadArchiveList();
@@ -1322,13 +1345,20 @@ function WechatComposer() {
   }, [openId]);
 
   return (
-    <Layout style={{ padding: isMobile ? 10 : 16, overflowX: 'hidden' }}>
+    <Layout className={guided ? 'wxc-guided' : undefined} style={{ padding: isMobile ? 10 : 16, overflowX: 'hidden' }}>
+      <Modal title="新建推文" visible={creationOpen} onCancel={() => setCreationOpen(false)} footer={null} width={420}>
+        <div className="wxc-create-options">
+          <Button type="primary" icon={<IconSparkleAI />} onClick={() => { setCreationOpen(false); onStartAiWorkflow?.(); }}>AI 工作流</Button>
+          <Button icon={<IconEditStroked />} onClick={() => { setCreationOpen(false); startCustomFile(); }}>自定义编辑台</Button>
+        </div>
+      </Modal>
       {view === 'manager' ? (
         <Content>
           <div className="wxc-manager">
             <div className="wxc-manager-head">
               <h2 style={{ margin: 0 }}>公众号推文</h2>
               <Text type="secondary">选择一篇继续编辑，或新建一篇。推文存在服务端、跨设备可见。</Text>
+              {legacyAvailable ? <Button size="small" theme="borderless" onClick={importLegacyDraft}>导入本机旧草稿</Button> : null}
             </div>
             <div className="wxc-manager-grid">
               <button type="button" className="wxc-manager-new" onClick={newFile}>
@@ -1379,7 +1409,7 @@ function WechatComposer() {
       ) : (
       <>
       <Header className="wxc-page-header" style={{ background: 'transparent', padding: 0, marginBottom: 12 }}>
-        <div className="wxc-editor-bar">
+        {!guided ? <div className="wxc-editor-bar">
           <Button size="small" onClick={goToManager}>← 文件管理</Button>
           <span className="wxc-editor-filename" title={openName || '未保存的新推文'}>
             {openName || '未保存的新推文'}
@@ -1387,7 +1417,7 @@ function WechatComposer() {
           </span>
           <span className="wxc-editor-bar-spacer" />
           <Button size="small" type="primary" loading={saving} onClick={saveOpen}>{openId == null ? '保存到文件' : '保存'}</Button>
-        </div>
+        </div> : null}
 
         <div className="wxc-meta-row">
           <div className="wxc-field">
@@ -1540,7 +1570,8 @@ function WechatComposer() {
               </div>
             ) : null}
             <div className="wxc-lib-list">
-              {[...Object.values(blocksById)].filter((b) => b.type === libType).map((b) => (
+              {[...Object.values(blocksById)].filter((b) => b.type === libType)
+                .sort((a, b) => Number(b.source === 'observed') - Number(a.source === 'observed')).map((b) => (
                 <div
                   key={b.id}
                   role="button"
@@ -1576,6 +1607,7 @@ function WechatComposer() {
                     >
                       {favoriteBlockKeys.has(b.id) ? '★' : '☆'}
                     </button>
+                    {b.source === 'observed' ? <span className="wxc-lib-badge">观察库</span> : null}
                     {b.source === 'extracted' ? (
                       <>
                         <span className="wxc-lib-badge">我的库</span>
@@ -1612,8 +1644,8 @@ function WechatComposer() {
               <div className="wxc-canvas-toolbar">
                 <div className="wxc-canvas-toolbar-left">
                   {/* 窄屏打开左侧样式面板的入口 */}
-                  <Button size="small" className="wxc-lib-toggle-mobile" onClick={() => setLibraryOpen((v) => !v)}>☰ 样式面板</Button>
-                  <Text type="secondary" className="wxc-canvas-tip">点左侧样式插入，点画布块直接编辑</Text>
+                  <Button size="small" className="wxc-lib-toggle-mobile" onClick={() => setLibraryOpen((v) => !v)}>{libraryOpen ? '收起样式面板' : '样式面板'}</Button>
+                  {!guided ? <Text type="secondary" className="wxc-canvas-tip">点左侧样式插入，点画布块直接编辑</Text> : null}
                 </div>
                 <div className="wxc-canvas-toolbar-right">
                   <div className="wxc-undo-group" role="group" aria-label="撤销重做">

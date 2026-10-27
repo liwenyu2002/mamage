@@ -36,7 +36,7 @@ const PhotoPreviewOverlay = lazyWithPreload(() => import(/* webpackChunkName: "p
 const Scenery = lazyWithPreload(() => import(/* webpackChunkName: "scenery" */ './Scenery'));
 const AccountPage = lazyWithPreload(() => import(/* webpackChunkName: "account-page" */ './AccountPage'));
 const AiNewsWriter = lazyWithPreload(() => import(/* webpackChunkName: "ai-news-writer" */ './AiNewsWriter.jsx'));
-const WechatComposer = lazyWithPreload(() => import(/* webpackChunkName: "wechat-composer" */ './WechatComposer.jsx'));
+const WechatComposer = lazyWithPreload(() => import(/* webpackChunkName: "wechat-workspace" */ './WechatWorkspace.jsx'));
 const VideoEditor = lazyWithPreload(() => import(/* webpackChunkName: "video-editor" */ './VideoEditor.jsx'));
 const WorkspacePanel = lazyWithPreload(() => import(/* webpackChunkName: "workspace-panel" */ './WorkspacePanel.jsx'));
 
@@ -1853,7 +1853,8 @@ function App() {
                 <div className="media-studio-workspace">
                   {activeMediaPlatform.editor === 'wechat' ? (
                     <LazyPanel title="正在加载推文编辑台">
-                      <WechatComposer />
+                      <WechatComposer key={`${currentUser?.id}:${workspaceInfo?.activeUnitId || 'legacy'}`}
+                        currentUser={currentUser} workspaceId={workspaceInfo?.activeUnitId} />
                     </LazyPanel>
                   ) : activeMediaPlatform.editor === 'video' ? (
                     <LazyPanel title="正在加载视频剪辑工作台">

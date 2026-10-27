@@ -21,7 +21,10 @@ test('rewrite inputs require an exact body paragraph, bounded materials and a va
   const selection = paragraphsFromMarkdown(markdown)[0];
   const result = buildParagraphRewrite({ ...input, markdown, ...selection, mode: 'shorten' });
   assert.ok(result.prompt.includes(selection.text));
+  assert.ok(result.prompt.includes('<<<SRC full_document>>>'));
+  assert.ok(result.prompt.includes('学院决定向所有人发放3000元奖励。'), 'even a local rewrite receives distant full-document context');
   assert.ok(result.prompt.includes('原有直接引语保持原文'));
+  assert.match(result.prompt, /不要主动添加表情符号/);
   assert.ok(!result.prompt.includes('历史样文'));
   for (const change of [{ start: selection.start + 1 }, { end: markdown.length + 1 }, { mode: 'invent' }, { form: {}, interviewText: '' }]) {
     assert.throws(() => buildParagraphRewrite({ ...input, markdown, ...selection, mode: 'polish', ...change }));

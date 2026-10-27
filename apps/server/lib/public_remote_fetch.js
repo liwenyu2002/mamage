@@ -49,17 +49,21 @@ async function resolvePublicHost(hostname) {
 async function openPublicHttps(value, options = {}) {
   const url = parsePublicHttpsUrl(value);
   if (!url) throw Object.assign(new Error('Only public HTTPS URLs are supported'), { code: 'INVALID_SOURCE_URL' });
+  if (options.validateUrl) await options.validateUrl(url);
   const address = await resolvePublicHost(url.hostname);
   const timeoutMs = Number(options.timeoutMs) || 20000;
   const response = await new Promise((resolve, reject) => {
     const request = https.request(url, {
       method: options.method || 'GET',
-      headers: { Accept: options.accept || '*/*', 'User-Agent': 'MaMage-ExternalImport/1.0' },
+      headers: { Accept: options.accept || '*/*', 'User-Agent': options.userAgent || 'MaMage-ExternalImport/1.0' },
       lookup: (_host, lookupOptions, callback) => {
         const options = typeof lookupOptions === 'function' ? {} : lookupOptions;
         const done = typeof lookupOptions === 'function' ? lookupOptions : callback;
-        if (options.all) done(null, [address]);
-        else done(null, address.address, address.family);
+        // Match asynchronous DNS timing so TLS/request error handlers exist before connect can fail.
+        queueMicrotask(() => {
+          if (options.all) done(null, [address]);
+          else done(null, address.address, address.family);
+        });
       },
     }, resolve);
     request.setTimeout(timeoutMs, () => request.destroy(Object.assign(new Error('Source timeout'), { code: 'SOURCE_TIMEOUT' })));
@@ -68,7 +72,8 @@ async function openPublicHttps(value, options = {}) {
   });
   if (response.statusCode >= 300 && response.statusCode < 400) {
     response.resume();
-    if ((options.redirects || 0) >= 2) throw Object.assign(new Error('Too many redirects'), { code: 'SOURCE_REDIRECT' });
+    const maxRedirects = Number.isInteger(options.maxRedirects) ? Math.max(0, Math.min(5, options.maxRedirects)) : 2;
+    if ((options.redirects || 0) >= maxRedirects) throw Object.assign(new Error('Too many redirects'), { code: 'SOURCE_REDIRECT' });
     const next = new URL(String(response.headers.location || ''), url);
     return openPublicHttps(next.href, { ...options, redirects: (options.redirects || 0) + 1 });
   }

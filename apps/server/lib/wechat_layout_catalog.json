@@ -1,0 +1,1032 @@
+{
+  "version": 1,
+  "styles": [
+    {
+      "id": "builtin-h2-minimal",
+      "type": "h2",
+      "name": "极简黑标题"
+    },
+    {
+      "id": "builtin-h2-academic",
+      "type": "h2",
+      "name": "学院蓝标题"
+    },
+    {
+      "id": "builtin-h2-warm",
+      "type": "h2",
+      "name": "暖阳胶囊标题"
+    },
+    {
+      "id": "builtin-h2-formal",
+      "type": "h2",
+      "name": "庄重红标题"
+    },
+    {
+      "id": "builtin-h2-fresh",
+      "type": "h2",
+      "name": "杂志绿标题"
+    },
+    {
+      "id": "builtin-h2-gradient-pill",
+      "type": "h2",
+      "name": "渐变胶囊标题"
+    },
+    {
+      "id": "builtin-h2-duotone-block",
+      "type": "h2",
+      "name": "双色拼块标题"
+    },
+    {
+      "id": "builtin-h2-round-stamp",
+      "type": "h2",
+      "name": "左圆章序号标题"
+    },
+    {
+      "id": "builtin-h2-booktitle-mark",
+      "type": "h2",
+      "name": "书名号装饰标题"
+    },
+    {
+      "id": "builtin-h2-texture-bar",
+      "type": "h2",
+      "name": "底纹条标题"
+    },
+    {
+      "id": "builtin-h2-bold-underline-en",
+      "type": "h2",
+      "name": "粗底线+英文小字标题"
+    },
+    {
+      "id": "builtin-h2-bracket-line",
+      "type": "h2",
+      "name": "括号线标题"
+    },
+    {
+      "id": "builtin-h2-offset-block",
+      "type": "h2",
+      "name": "色块错位标题"
+    },
+    {
+      "id": "builtin-h2-minimal-large",
+      "type": "h2",
+      "name": "极简大字标题"
+    },
+    {
+      "id": "builtin-h3-minimal",
+      "type": "h3",
+      "name": "极简黑小标题"
+    },
+    {
+      "id": "builtin-h3-academic",
+      "type": "h3",
+      "name": "学院蓝小标题"
+    },
+    {
+      "id": "builtin-h3-warm",
+      "type": "h3",
+      "name": "暖阳胶囊小标题"
+    },
+    {
+      "id": "builtin-h3-formal",
+      "type": "h3",
+      "name": "庄重红小标题"
+    },
+    {
+      "id": "builtin-h3-fresh",
+      "type": "h3",
+      "name": "杂志绿小标题"
+    },
+    {
+      "id": "builtin-h3-gradient-pill",
+      "type": "h3",
+      "name": "渐变胶囊小标题"
+    },
+    {
+      "id": "builtin-h3-round-dot",
+      "type": "h3",
+      "name": "左圆点序号小标题"
+    },
+    {
+      "id": "builtin-h3-bracket-line",
+      "type": "h3",
+      "name": "括号线小标题"
+    },
+    {
+      "id": "builtin-divider-wave-dots",
+      "type": "divider",
+      "name": "波浪点分隔线"
+    },
+    {
+      "id": "builtin-divider-double-line-diamond",
+      "type": "divider",
+      "name": "双线夹钻分隔线"
+    },
+    {
+      "id": "builtin-divider-gradient-thin",
+      "type": "divider",
+      "name": "渐变细条分隔线"
+    },
+    {
+      "id": "builtin-divider-three-stars",
+      "type": "divider",
+      "name": "三星分隔线"
+    },
+    {
+      "id": "builtin-quote-mark-card",
+      "type": "quote",
+      "name": "大引号装饰卡"
+    },
+    {
+      "id": "builtin-quote-left-bar",
+      "type": "quote",
+      "name": "左色条引用卡"
+    },
+    {
+      "id": "builtin-quote-double-border",
+      "type": "quote",
+      "name": "双边框引用卡"
+    },
+    {
+      "id": "builtin-quote-diagonal-stripe",
+      "type": "quote",
+      "name": "斜纹底引用卡"
+    },
+    {
+      "id": "builtin-quote-bubble",
+      "type": "quote",
+      "name": "对话气泡引用卡"
+    },
+    {
+      "id": "builtin-quote-academic",
+      "type": "quote",
+      "name": "学院蓝引用块"
+    },
+    {
+      "id": "builtin-quote-warm",
+      "type": "quote",
+      "name": "暖阳橙引用卡"
+    },
+    {
+      "id": "builtin-quote-formal",
+      "type": "quote",
+      "name": "庄重红引用卡"
+    },
+    {
+      "id": "builtin-quote-fresh",
+      "type": "quote",
+      "name": "杂志绿引用卡"
+    },
+    {
+      "id": "builtin-quote-minimal",
+      "type": "quote",
+      "name": "极简灰引用卡"
+    },
+    {
+      "id": "builtin-divider-ellipsis-dots",
+      "type": "divider",
+      "name": "省略号点阵分隔线"
+    },
+    {
+      "id": "builtin-divider-diamond-chain",
+      "type": "divider",
+      "name": "菱形链分隔线"
+    },
+    {
+      "id": "builtin-divider-gradient-bar",
+      "type": "divider",
+      "name": "渐变宽条分隔线"
+    },
+    {
+      "id": "builtin-divider-text-inline",
+      "type": "divider",
+      "name": "中缀文字分隔线"
+    },
+    {
+      "id": "builtin-divider-double-line",
+      "type": "divider",
+      "name": "粗细双线分隔线"
+    },
+    {
+      "id": "builtin-divider-offset-dots",
+      "type": "divider",
+      "name": "错位点阵分隔线"
+    },
+    {
+      "id": "builtin-imageCard-round-shadow",
+      "type": "imageCard",
+      "name": "圆角阴影图卡"
+    },
+    {
+      "id": "builtin-imageCard-film-frame",
+      "type": "imageCard",
+      "name": "白边胶片框图卡"
+    },
+    {
+      "id": "builtin-imageCard-color-bar-caption",
+      "type": "imageCard",
+      "name": "色条底图注图卡"
+    },
+    {
+      "id": "builtin-imageCard-thick-border",
+      "type": "imageCard",
+      "name": "宽线框图卡"
+    },
+    {
+      "id": "builtin-imageCard-double-layer",
+      "type": "imageCard",
+      "name": "双层卡图卡"
+    },
+    {
+      "id": "builtin-imageCard-minimal-underline",
+      "type": "imageCard",
+      "name": "极简底线图注图卡"
+    },
+    {
+      "id": "builtin-signoff-follow-card",
+      "type": "signoff",
+      "name": "关注引导卡"
+    },
+    {
+      "id": "builtin-signoff-end-badge",
+      "type": "signoff",
+      "name": "END 徽章落款"
+    },
+    {
+      "id": "builtin-signoff-divider-sign",
+      "type": "signoff",
+      "name": "分割落款"
+    },
+    {
+      "id": "builtin-signoff-qr-placeholder",
+      "type": "signoff",
+      "name": "二维码位提示卡"
+    },
+    {
+      "id": "premium-h2-left-bar",
+      "type": "h2",
+      "name": "左竖线·极简"
+    },
+    {
+      "id": "premium-h2-left-soft",
+      "type": "h2",
+      "name": "左粗条·浅底"
+    },
+    {
+      "id": "premium-h2-left-dot",
+      "type": "h2",
+      "name": "左圆点·清爽"
+    },
+    {
+      "id": "premium-h2-underline-round",
+      "type": "h2",
+      "name": "圆头下划·左"
+    },
+    {
+      "id": "premium-h2-underline-center",
+      "type": "h2",
+      "name": "圆头下划·中"
+    },
+    {
+      "id": "premium-h2-underline-tight",
+      "type": "h2",
+      "name": "贴字下划"
+    },
+    {
+      "id": "premium-h2-underline-fade",
+      "type": "h2",
+      "name": "渐隐下划"
+    },
+    {
+      "id": "premium-h2-underline-duo",
+      "type": "h2",
+      "name": "双色下划"
+    },
+    {
+      "id": "premium-h2-fill-solid",
+      "type": "h2",
+      "name": "主色块·方角"
+    },
+    {
+      "id": "premium-h2-fill-pill",
+      "type": "h2",
+      "name": "主色胶囊"
+    },
+    {
+      "id": "premium-h2-fill-grad",
+      "type": "h2",
+      "name": "双色渐变块"
+    },
+    {
+      "id": "premium-h2-fill-tint",
+      "type": "h2",
+      "name": "浅底深字块"
+    },
+    {
+      "id": "premium-h2-fill-border",
+      "type": "h2",
+      "name": "描边浅底块"
+    },
+    {
+      "id": "premium-h2-rule-updown",
+      "type": "h2",
+      "name": "上下双线·疏排"
+    },
+    {
+      "id": "premium-h2-rule-thick",
+      "type": "h2",
+      "name": "上下粗线·居中"
+    },
+    {
+      "id": "premium-h2-box",
+      "type": "h2",
+      "name": "细边框·浅底"
+    },
+    {
+      "id": "premium-h2-frame-double",
+      "type": "h2",
+      "name": "双层描边框"
+    },
+    {
+      "id": "premium-h2-seg",
+      "type": "h2",
+      "name": "三段线·居中"
+    },
+    {
+      "id": "premium-h2-seg-diamond",
+      "type": "h2",
+      "name": "三段线·菱点"
+    },
+    {
+      "id": "premium-h2-sym-wrap",
+      "type": "h2",
+      "name": "符号包裹·星"
+    },
+    {
+      "id": "premium-h2-chip-prefix",
+      "type": "h2",
+      "name": "色签前缀"
+    },
+    {
+      "id": "premium-h2-num-badge",
+      "type": "h2",
+      "name": "编号感·菱徽"
+    },
+    {
+      "id": "premium-h2-bracket",
+      "type": "h2",
+      "name": "书名号强调"
+    },
+    {
+      "id": "premium-h2-plain-spaced",
+      "type": "h2",
+      "name": "大字疏排·极简"
+    },
+    {
+      "id": "premium-h3-dot",
+      "type": "h3",
+      "name": "圆点小标"
+    },
+    {
+      "id": "premium-h3-bar",
+      "type": "h3",
+      "name": "竖条小标"
+    },
+    {
+      "id": "premium-h3-square",
+      "type": "h3",
+      "name": "方块小标"
+    },
+    {
+      "id": "premium-h3-tri",
+      "type": "h3",
+      "name": "三角小标"
+    },
+    {
+      "id": "premium-h3-tag-solid",
+      "type": "h3",
+      "name": "主色小签"
+    },
+    {
+      "id": "premium-h3-tag-pill",
+      "type": "h3",
+      "name": "主色小胶囊"
+    },
+    {
+      "id": "premium-h3-tag-tint",
+      "type": "h3",
+      "name": "浅底小签"
+    },
+    {
+      "id": "premium-h3-underline",
+      "type": "h3",
+      "name": "短线小标"
+    },
+    {
+      "id": "premium-h3-bracket",
+      "type": "h3",
+      "name": "直角括号小标"
+    },
+    {
+      "id": "premium-h3-num",
+      "type": "h3",
+      "name": "角标编号小标"
+    },
+    {
+      "id": "premium-h3-star",
+      "type": "h3",
+      "name": "星标小标"
+    },
+    {
+      "id": "premium-h3-line-prefix",
+      "type": "h3",
+      "name": "细线前缀小标"
+    },
+    {
+      "id": "premium-h3-plain",
+      "type": "h3",
+      "name": "纯色疏排小标"
+    },
+    {
+      "id": "premium-h3-double-dot",
+      "type": "h3",
+      "name": "双点小标"
+    },
+    {
+      "id": "premium-q-left-soft",
+      "type": "quote",
+      "name": "左条·浅底"
+    },
+    {
+      "id": "premium-q-left-plain",
+      "type": "quote",
+      "name": "左条·无底"
+    },
+    {
+      "id": "premium-q-left-tint",
+      "type": "quote",
+      "name": "左条·色底"
+    },
+    {
+      "id": "premium-q-mark",
+      "type": "quote",
+      "name": "弯引号"
+    },
+    {
+      "id": "premium-q-mark-center",
+      "type": "quote",
+      "name": "弯引号·居中"
+    },
+    {
+      "id": "premium-q-rule",
+      "type": "quote",
+      "name": "上下线引用"
+    },
+    {
+      "id": "premium-q-card-soft",
+      "type": "quote",
+      "name": "卡片·浅底投影"
+    },
+    {
+      "id": "premium-q-card-tint",
+      "type": "quote",
+      "name": "卡片·色底"
+    },
+    {
+      "id": "premium-q-corner",
+      "type": "quote",
+      "name": "色顶卡片"
+    },
+    {
+      "id": "premium-q-thin-top",
+      "type": "quote",
+      "name": "细线起头"
+    },
+    {
+      "id": "premium-q-dashed",
+      "type": "quote",
+      "name": "虚框引用"
+    },
+    {
+      "id": "premium-q-double-left",
+      "type": "quote",
+      "name": "双竖条引用"
+    },
+    {
+      "id": "premium-q-badge",
+      "type": "quote",
+      "name": "标签引用"
+    },
+    {
+      "id": "premium-q-center-plain",
+      "type": "quote",
+      "name": "居中语录"
+    },
+    {
+      "id": "premium-d-round",
+      "type": "divider",
+      "name": "圆头细线"
+    },
+    {
+      "id": "premium-d-thin",
+      "type": "divider",
+      "name": "单细线"
+    },
+    {
+      "id": "premium-d-grad",
+      "type": "divider",
+      "name": "中浓渐变线"
+    },
+    {
+      "id": "premium-d-dashed",
+      "type": "divider",
+      "name": "虚线"
+    },
+    {
+      "id": "premium-d-dotted",
+      "type": "divider",
+      "name": "点线"
+    },
+    {
+      "id": "premium-d-double",
+      "type": "divider",
+      "name": "双实线"
+    },
+    {
+      "id": "premium-d-sym-diamond",
+      "type": "divider",
+      "name": "菱形分割"
+    },
+    {
+      "id": "premium-d-sym-star",
+      "type": "divider",
+      "name": "星形分割"
+    },
+    {
+      "id": "premium-d-sym-flower",
+      "type": "divider",
+      "name": "花形分割"
+    },
+    {
+      "id": "premium-d-sym-dot",
+      "type": "divider",
+      "name": "圆点分割"
+    },
+    {
+      "id": "premium-d-sym-ring",
+      "type": "divider",
+      "name": "环点分割"
+    },
+    {
+      "id": "premium-d-three-dot",
+      "type": "divider",
+      "name": "三点"
+    },
+    {
+      "id": "premium-d-three-star",
+      "type": "divider",
+      "name": "三星"
+    },
+    {
+      "id": "premium-d-wave",
+      "type": "divider",
+      "name": "波浪"
+    },
+    {
+      "id": "premium-d-short-round",
+      "type": "divider",
+      "name": "短圆头"
+    },
+    {
+      "id": "premium-d-duo",
+      "type": "divider",
+      "name": "双色短线"
+    },
+    {
+      "id": "premium-d-dot-row",
+      "type": "divider",
+      "name": "细点排"
+    },
+    {
+      "id": "premium-d-bracket",
+      "type": "divider",
+      "name": "括号分割"
+    },
+    {
+      "id": "premium-s-end",
+      "type": "signoff",
+      "name": "落款·疏排主色"
+    },
+    {
+      "id": "premium-s-end-dot",
+      "type": "signoff",
+      "name": "落款·深字"
+    },
+    {
+      "id": "premium-s-flower",
+      "type": "signoff",
+      "name": "落款·花饰"
+    },
+    {
+      "id": "premium-s-line",
+      "type": "signoff",
+      "name": "落款·细线夹"
+    },
+    {
+      "id": "premium-s-follow-solid",
+      "type": "signoff",
+      "name": "落款·主色胶囊"
+    },
+    {
+      "id": "premium-s-follow-tint",
+      "type": "signoff",
+      "name": "落款·浅底胶囊"
+    },
+    {
+      "id": "premium-s-follow-dashed",
+      "type": "signoff",
+      "name": "落款·虚框"
+    },
+    {
+      "id": "premium-s-badge",
+      "type": "signoff",
+      "name": "落款·上箭头"
+    },
+    {
+      "id": "premium-i-thin",
+      "type": "imageCard",
+      "name": "细边框图"
+    },
+    {
+      "id": "premium-i-thick",
+      "type": "imageCard",
+      "name": "粗边框图"
+    },
+    {
+      "id": "premium-i-mat",
+      "type": "imageCard",
+      "name": "衬底相框"
+    },
+    {
+      "id": "premium-i-shadow",
+      "type": "imageCard",
+      "name": "投影图"
+    },
+    {
+      "id": "premium-i-round",
+      "type": "imageCard",
+      "name": "圆角图"
+    },
+    {
+      "id": "premium-i-cap-bar",
+      "type": "imageCard",
+      "name": "色条图注"
+    },
+    {
+      "id": "premium-i-cap-tint",
+      "type": "imageCard",
+      "name": "浅底图注"
+    },
+    {
+      "id": "premium-i-underline",
+      "type": "imageCard",
+      "name": "下划线图"
+    },
+    {
+      "id": "form-t-sticker",
+      "type": "h2",
+      "name": "贴纸·硬阴影"
+    },
+    {
+      "id": "form-t-offset-square",
+      "type": "h2",
+      "name": "错位色块"
+    },
+    {
+      "id": "form-t-banner",
+      "type": "h2",
+      "name": "尖角横幅"
+    },
+    {
+      "id": "form-t-ribbon-fold",
+      "type": "h2",
+      "name": "缎带·深折角"
+    },
+    {
+      "id": "form-t-arrow-tag",
+      "type": "h2",
+      "name": "箭头标签"
+    },
+    {
+      "id": "form-t-circle-badge",
+      "type": "h2",
+      "name": "圆徽标题"
+    },
+    {
+      "id": "form-t-ring-badge",
+      "type": "h2",
+      "name": "环徽标题"
+    },
+    {
+      "id": "form-t-bubble",
+      "type": "h2",
+      "name": "气泡标题"
+    },
+    {
+      "id": "form-t-watermark",
+      "type": "h2",
+      "name": "大字底纹"
+    },
+    {
+      "id": "form-t-tall-bar",
+      "type": "h2",
+      "name": "粗高竖条"
+    },
+    {
+      "id": "form-t-frame-shadow",
+      "type": "h2",
+      "name": "描边框·硬影"
+    },
+    {
+      "id": "form-t-hero",
+      "type": "h2",
+      "name": "渐变横幅"
+    },
+    {
+      "id": "form-t-hero-tint",
+      "type": "h2",
+      "name": "浅底大标"
+    },
+    {
+      "id": "form-t-split-cap",
+      "type": "h2",
+      "name": "色块+端帽"
+    },
+    {
+      "id": "form-t-book-spine",
+      "type": "h2",
+      "name": "书脊标题"
+    },
+    {
+      "id": "form-t-underline-arrow",
+      "type": "h2",
+      "name": "箭头下划"
+    },
+    {
+      "id": "form-t-big-quote",
+      "type": "h2",
+      "name": "巨引号标题"
+    },
+    {
+      "id": "form-t-double-tag",
+      "type": "h2",
+      "name": "双拼标签"
+    },
+    {
+      "id": "form-c-callout",
+      "type": "quote",
+      "name": "提示框"
+    },
+    {
+      "id": "form-c-bubble",
+      "type": "quote",
+      "name": "气泡引用"
+    },
+    {
+      "id": "form-c-sticky",
+      "type": "quote",
+      "name": "便签·硬阴影"
+    },
+    {
+      "id": "form-c-topbar",
+      "type": "quote",
+      "name": "色顶投影卡"
+    },
+    {
+      "id": "form-c-big-mark",
+      "type": "quote",
+      "name": "巨引号背景"
+    },
+    {
+      "id": "form-c-corner",
+      "type": "quote",
+      "name": "双角引号"
+    },
+    {
+      "id": "form-c-tab",
+      "type": "quote",
+      "name": "标签页引用"
+    },
+    {
+      "id": "form-v-arrow",
+      "type": "divider",
+      "name": "箭头分割"
+    },
+    {
+      "id": "form-v-banner",
+      "type": "divider",
+      "name": "横幅分割"
+    },
+    {
+      "id": "form-v-grow",
+      "type": "divider",
+      "name": "渐变点阵"
+    },
+    {
+      "id": "form-v-stack",
+      "type": "divider",
+      "name": "粗细叠线"
+    },
+    {
+      "id": "form-v-bracket",
+      "type": "divider",
+      "name": "括号分割"
+    },
+    {
+      "id": "form-p-polaroid",
+      "type": "imageCard",
+      "name": "拍立得"
+    },
+    {
+      "id": "form-p-offset",
+      "type": "imageCard",
+      "name": "错位色影图"
+    },
+    {
+      "id": "form-p-film",
+      "type": "imageCard",
+      "name": "胶片孔图"
+    },
+    {
+      "id": "builtin-body-plain",
+      "type": "body",
+      "name": "舒朗正文"
+    },
+    {
+      "id": "builtin-body-indent",
+      "type": "body",
+      "name": "首行缩进"
+    },
+    {
+      "id": "builtin-body-leftbar",
+      "type": "body",
+      "name": "左色条正文"
+    },
+    {
+      "id": "builtin-body-tint",
+      "type": "body",
+      "name": "浅底卡片"
+    },
+    {
+      "id": "builtin-body-bordered",
+      "type": "body",
+      "name": "描边正文"
+    },
+    {
+      "id": "builtin-body-lead",
+      "type": "body",
+      "name": "居中导语"
+    },
+    {
+      "id": "builtin-body-emphasis",
+      "type": "body",
+      "name": "强调段"
+    },
+    {
+      "id": "builtin-body-rules",
+      "type": "body",
+      "name": "上下线正文"
+    },
+    {
+      "id": "builtin-body-note",
+      "type": "body",
+      "name": "便签卡"
+    },
+    {
+      "id": "builtin-body-double",
+      "type": "body",
+      "name": "双层描边"
+    },
+    {
+      "id": "builtin-body-dot",
+      "type": "body",
+      "name": "圆点要点"
+    },
+    {
+      "id": "builtin-body-centered",
+      "type": "body",
+      "name": "短线居中"
+    }
+  ],
+  "templates": [
+    {
+      "key": "minimal",
+      "name": "极简黑",
+      "desc": "黑白灰阶，克制留白，观点/评论类文章通用款",
+      "accent": "#1a1a1a",
+      "blockConfig": {
+        "h2": "builtin-h2-minimal",
+        "h3": "builtin-h3-minimal",
+        "quote": "builtin-quote-minimal",
+        "divider": "builtin-divider-double-line",
+        "imageCard": "builtin-imageCard-minimal-underline",
+        "signoff": null,
+        "accent": "#1a1a1a",
+        "body": {
+          "fontSize": 15,
+          "lineHeight": 1.75,
+          "textIndent": false,
+          "justify": true
+        },
+        "bodyStyleId": "builtin-body-plain"
+      }
+    },
+    {
+      "key": "academic",
+      "name": "学院蓝",
+      "desc": "深蓝色块标题，严谨稳重，适合报告/通稿/研究类内容",
+      "accent": "#1d3557",
+      "blockConfig": {
+        "h2": "builtin-h2-academic",
+        "h3": "builtin-h3-academic",
+        "quote": "builtin-quote-academic",
+        "divider": "builtin-divider-double-line-diamond",
+        "imageCard": "builtin-imageCard-color-bar-caption",
+        "signoff": null,
+        "accent": "#1d3557",
+        "body": {
+          "fontSize": 15,
+          "lineHeight": 1.75,
+          "textIndent": false,
+          "justify": true
+        },
+        "bodyStyleId": "builtin-body-plain"
+      }
+    },
+    {
+      "key": "warm",
+      "name": "暖阳橙",
+      "desc": "橙色渐变胶囊标题，活泼亲和，适合活动/生活/情感类内容",
+      "accent": "#ff7a3d",
+      "blockConfig": {
+        "h2": "builtin-h2-warm",
+        "h3": "builtin-h3-warm",
+        "quote": "builtin-quote-warm",
+        "divider": "builtin-divider-gradient-thin",
+        "imageCard": "builtin-imageCard-round-shadow",
+        "signoff": null,
+        "accent": "#ff7a3d",
+        "body": {
+          "fontSize": 15,
+          "lineHeight": 1.75,
+          "textIndent": false,
+          "justify": true
+        },
+        "bodyStyleId": "builtin-body-plain"
+      }
+    },
+    {
+      "key": "formal",
+      "name": "庄重红",
+      "desc": "校务党政风，标题居中双线，正文首行缩进",
+      "accent": "#9b1c20",
+      "blockConfig": {
+        "h2": "builtin-h2-formal",
+        "h3": "builtin-h3-formal",
+        "quote": "builtin-quote-formal",
+        "divider": "builtin-divider-double-line",
+        "imageCard": "builtin-imageCard-thick-border",
+        "signoff": null,
+        "accent": "#9b1c20",
+        "body": {
+          "fontSize": 15,
+          "lineHeight": 1.75,
+          "textIndent": true,
+          "justify": true
+        },
+        "bodyStyleId": "builtin-body-indent"
+      }
+    },
+    {
+      "key": "fresh",
+      "name": "杂志绿",
+      "desc": "绿色下划线粗条，清新版式，适合校园/杂志/生活方式类内容",
+      "accent": "#2f9e44",
+      "blockConfig": {
+        "h2": "builtin-h2-fresh",
+        "h3": "builtin-h3-fresh",
+        "quote": "builtin-quote-fresh",
+        "divider": "builtin-divider-wave-dots",
+        "imageCard": "builtin-imageCard-round-shadow",
+        "signoff": null,
+        "accent": "#2f9e44",
+        "body": {
+          "fontSize": 15,
+          "lineHeight": 1.75,
+          "textIndent": false,
+          "justify": true
+        },
+        "bodyStyleId": "builtin-body-plain"
+      }
+    }
+  ]
+}

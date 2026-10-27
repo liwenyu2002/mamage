@@ -2,27 +2,16 @@
 // 渲染逻辑已收敛到 themes.js 的 renderWechatHtml——本文件不再自己跑 marked/DOMPurify，
 // 避免预览和"复制富文本"两条路径各自渲染出不一致的 HTML。
 import { renderWechatHtml } from './themes.js';
+import { articleBodyMarkdown } from '../utils/newsArticle';
+import { copyContent } from '../utils/clipboard';
 
 /**
  * 把 { html, plainText } 写入系统剪贴板（text/html + text/plain，兼容"粘贴为纯文本"场景）。
  * 纯负责剪贴板 I/O，不做任何 markdown/主题渲染——html 必须是调用方（renderWechatHtml）已经产出并清洗过的最终结果。
- * 失败（浏览器不支持 Clipboard API / 权限被拒）一律 throw，不做静默降级。
+ * Secure origins use Async Clipboard; HTTP uses an explicit selection/copy fallback.
  */
 export async function copyWechatRichText({ html, plainText }) {
-  if (typeof window === 'undefined' || !window.navigator || !window.navigator.clipboard || typeof window.ClipboardItem !== 'function') {
-    throw new Error('当前浏览器不支持富文本剪贴板写入（需要 Clipboard API + ClipboardItem），请更换浏览器或使用「复制 Markdown」代替');
-  }
-
-  try {
-    const item = new window.ClipboardItem({
-      'text/html': new Blob([String(html || '')], { type: 'text/html' }),
-      'text/plain': new Blob([String(plainText || '')], { type: 'text/plain' }),
-    });
-    await window.navigator.clipboard.write([item]);
-  } catch (e) {
-    throw new Error(`写入剪贴板失败：${e && e.message ? e.message : e}`);
-  }
-
+  await copyContent({ html: String(html || ''), plainText: String(plainText || '') });
   return { ok: true };
 }
 
@@ -64,7 +53,8 @@ function markdownToPlainTextLegacy(markdown) {
  * 调用方接入时需把 import 里的 copyWechatRichText 换成 copyWechatRichTextLegacy（详见本次改动说明）。
  */
 export async function copyWechatRichTextLegacy({ title, markdown, photosMap }) {
-  const { html, imageCount } = renderWechatHtml(markdown, {
+  const body = articleBodyMarkdown(markdown, title);
+  const { html, imageCount } = renderWechatHtml(body, {
     themeKey: 'minimal',
     photosMap,
     title,
@@ -77,7 +67,7 @@ export async function copyWechatRichTextLegacy({ title, markdown, photosMap }) {
   container.innerHTML = html;
   annotateImages(container);
 
-  const plainText = `${title || ''}\n\n${markdownToPlainTextLegacy(markdown)}`.trim();
+  const plainText = `${title || ''}\n\n${markdownToPlainTextLegacy(body)}`.trim();
 
   await copyWechatRichText({ html: container.innerHTML, plainText });
 
