@@ -84,6 +84,34 @@ const artifacts = process.env.MAMAGE_FOLDER_SHARE_QA_DIR;
           ? page.locator('.acp-collection[aria-label="测试共享文件夹"] .acp-collection-caption.is-visible .card-sharing-status')
           : page.getByRole('button',{name:'浏览文件夹 测试共享文件夹',exact:true}).locator('.card-sharing-status');
         await folderBadge().waitFor();assert.match(await folderBadge().getAttribute('title'),/已共享至 接收部门、另一个名称比较长的部门.*实时共享.*公开分享已开启/);
+        if (style === 'glass' && width === 1440) {
+          const directory = page.getByRole('navigation', { name: '相册目录' });
+          const tree = directory.getByRole('list', { name: '多级文件夹' });
+          await tree.locator('.acp-folder-link').filter({ hasText: '测试共享文件夹' }).waitFor();
+          assert.equal(await directory.getByRole('heading', { name: '文件夹', exact: true }).count(), 0);
+          assert.equal(await directory.getByRole('button', { name: '文件夹', exact: true }).count(), 0);
+          assert.equal(await directory.getByRole('button', { name: '新建目录文件夹' }).count(), 1);
+          const collapse = directory.getByRole('button', { name: '收起小组空间' });
+          await collapse.click();
+          assert.equal(await tree.isVisible(), false);
+          assert.equal(await directory.getByRole('button', { name: /未归类/ }).count(), 0);
+          await directory.getByRole('button', { name: '展开小组空间' }).click();
+          assert.equal(await tree.isVisible(), true);
+          await directory.getByRole('button', { name: '展开 测试共享文件夹' }).click();
+          assert.equal(await tree.locator('.acp-folder-link').filter({ hasText: '子文件夹' }).isVisible(), true);
+        }
+        if (style === 'glass' && width === 390) {
+          await page.getByRole('button', { name: '打开相册目录' }).click();
+          const directory = page.getByRole('navigation', { name: '相册目录' });
+          const tree = directory.getByRole('list', { name: '多级文件夹' });
+          await tree.waitFor();
+          await directory.getByRole('button', { name: '收起小组空间' }).click();
+          assert.equal(await tree.isVisible(), false);
+          await directory.getByRole('button', { name: '展开小组空间' }).click();
+          assert.equal(await tree.isVisible(), true);
+          assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+          await page.keyboard.press('Escape');
+        }
         assert.equal(statusReads,0,'Home cards must not request status individually');
         const pinBadge = style==='glass' ? page.locator('.acp-shortcut').filter({has:page.getByRole('button',{name:'打开文件夹 测试共享文件夹',exact:true})}).locator('.card-sharing-status')
           : page.getByRole('button',{name:'打开置顶 测试共享文件夹',exact:true}).locator('.card-sharing-status');

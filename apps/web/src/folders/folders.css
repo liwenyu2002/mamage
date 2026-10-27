@@ -3,6 +3,10 @@
 .acp-folders .acp-sidebar { width: 244px; flex-basis: 244px; }
 .acp-directory-desktop-row { position: relative; display: block; }
 .acp-directory .acp-directory-desktop-link { padding-right: 46px; }
+.acp-directory-desktop-row:has(.acp-directory-create) .acp-directory-desktop-link { padding-right: 80px; }
+.acp-directory .acp-directory-create { position: absolute; top: 3px; right: 38px; display: grid; place-items: center; width: 34px; height: 36px; min-height: 36px; padding: 0; border: 0; border-radius: 8px; background: none; }
+.acp-directory .acp-directory-create:hover { background: #ffffffa6; }
+.acp-directory .acp-directory-create > svg { width: 15px; height: 15px; }
 .acp-directory .acp-directory-desktop-toggle { position: absolute; top: 3px; right: 3px; display: grid; place-items: center; width: 36px; height: 36px; min-height: 36px; padding: 0; border: 0; border-radius: 8px; }
 .acp-directory .acp-directory-desktop-toggle > svg { width: 13px; height: 13px; transition: transform .18s cubic-bezier(.2,.8,.2,1); }
 .acp-directory-desktop-toggle[aria-expanded="true"] > svg { transform: rotate(90deg); }
@@ -120,6 +124,8 @@
 @media (max-width: 1180px) { .acp-folders .acp-sidebar { width: 224px; flex-basis: 224px; } }
 @media (max-width: 760px) {
   .acp-directory .acp-directory-desktop-link { min-height: 44px; padding-right: 48px; }
+  .acp-directory-desktop-row:has(.acp-directory-create) .acp-directory-desktop-link { padding-right: 92px; }
+  .acp-directory .acp-directory-create { top: 0; right: 44px; width: 44px; height: 44px; }
   .acp-directory .acp-directory-desktop-toggle { top: 0; right: 0; width: 44px; height: 44px; min-height: 44px; }
   .acp-folder-breadcrumb { margin-bottom: 9px; gap: 4px; }
   .acp-folder-breadcrumb > button, .acp-folder-breadcrumb > span { max-width: 170px; font-size: 10px; }
