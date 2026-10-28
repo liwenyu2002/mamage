@@ -63,6 +63,13 @@ function buildMediaUrl(path, context = null) {
   return `${proxyUrl}${separator}ma=${signPayload(payload)}`;
 }
 
+function buildShareOriginalUrl(path, context) {
+  if (!context?.shareId || !context?.photoId) return null;
+  const key = cosStorage.keyFromUrlOrPath(path);
+  if (!key || !key.startsWith('uploads/') || !cosStorage.isSafeKey(key)) return null;
+  return buildMediaUrl(`/${key}`, context);
+}
+
 async function authorizeMediaKey(key, token, db = pool) {
   const unitId = unitIdFromKey(key);
   const payload = verifyPayload(token);
@@ -91,7 +98,7 @@ async function authorizeMediaKey(key, token, db = pool) {
   }
 
   if (payload.t === 'share' && Number.isSafeInteger(payload.sh)) {
-    if (matchingField === 'url') return false;
+    if (photo.type === 'video' && matchingField === 'url') return false;
     if (photo.type === 'video' && matchingField === 'public_download_url') return false;
     const [shares] = await db.query(
       `SELECT id, share_type, project_id, sync_mode, folder_share_id, organization_id, unit_id FROM share_links
@@ -118,4 +125,4 @@ async function authorizeMediaKey(key, token, db = pool) {
   return false;
 }
 
-module.exports = { unitIdFromKey, buildMediaUrl, authorizeMediaKey, verifyPayload };
+module.exports = { unitIdFromKey, buildMediaUrl, buildShareOriginalUrl, authorizeMediaKey, verifyPayload };

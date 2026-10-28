@@ -71,8 +71,8 @@ async function main() {
     assert.equal(response.status, 200);
     const body = await response.json();
     assert.deepEqual(body.photos.map((photo) => photo.id), [ids.approved]);
-    assert(body.photos[0].url.includes('approved-public.jpg'));
-    assert(!body.photos[0].url.includes('approved-original.jpg'));
+    assert(body.photos[0].url.includes('approved-original.jpg'));
+    assert(!body.photos[0].url.includes('approved-public.jpg'));
     assert(body.photos[0].url.includes('ma='));
     const base = `http://127.0.0.1:${server.address().port}/api/share`;
     const headers = { Authorization: `Bearer ${jwt.sign({ id: ids.user }, JWT_SECRET, { expiresIn: '5m' })}`,

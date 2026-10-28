@@ -1,5 +1,5 @@
 const { sourceGroups, folderBranch, publicFolderPhotoScope } = require('./folder_shares');
-const { buildMediaUrl } = require('./media_access');
+const { buildMediaUrl, buildShareOriginalUrl } = require('./media_access');
 
 async function loadPublicFolderShare(db, share, { projectId = null, limit = 100, offset = 0 } = {}) {
   const [parents] = await db.query(`SELECT source_folder_id AS folderId FROM folder_shares
@@ -26,14 +26,16 @@ async function loadPublicFolderShare(db, share, { projectId = null, limit = 100,
         WHERE s.folder_share_id = ? AND s.project_id = p.id AND s.revoked_at IS NULL) LIMIT 1`,
     [projectId, share.organization_id, share.unit_id, share.folder_share_id]);
     if (!albums.length) return null;
-    const [photos] = await db.query(`SELECT p.id, p.title, p.description, p.tags, p.type, p.thumb_url AS thumbUrl,
+    const [photos] = await db.query(`SELECT p.id, p.title, p.description, p.tags, p.type, p.url, p.thumb_url AS thumbUrl,
       p.public_download_url AS publicDownloadUrl, p.playback_url AS playbackUrl, p.created_at AS createdAt,
       p.timeline_section_id AS timelineSectionId, section.name AS timelineSectionName
       FROM photos p LEFT JOIN project_timeline_sections section ON section.id = p.timeline_section_id
       WHERE ${scope.sql}${approved} AND p.project_id = ? ORDER BY p.created_at, p.id LIMIT ? OFFSET ?`, [...params, projectId, limit, offset]);
     return { ...common, shareType: 'project', projectId: Number(projectId), title: albums[0].name,
       photos: photos.map(photo => ({ ...photo,
-        url: buildMediaUrl(photo.type === 'video' ? photo.playbackUrl || photo.thumbUrl : photo.publicDownloadUrl || photo.thumbUrl, { shareId: share.id, photoId: photo.id }),
+        url: photo.type === 'video' ? buildMediaUrl(photo.playbackUrl || photo.thumbUrl, { shareId: share.id, photoId: photo.id })
+          : (buildShareOriginalUrl(photo.url, { shareId: share.id, photoId: photo.id })
+            || buildMediaUrl(photo.publicDownloadUrl || photo.thumbUrl, { shareId: share.id, photoId: photo.id })),
         thumbUrl: buildMediaUrl(photo.thumbUrl, { shareId: share.id, photoId: photo.id }),
         publicDownloadUrl: photo.type !== 'video' ? buildMediaUrl(photo.publicDownloadUrl, { shareId: share.id, photoId: photo.id }) : null,
         playbackUrl: buildMediaUrl(photo.playbackUrl, { shareId: share.id, photoId: photo.id }),

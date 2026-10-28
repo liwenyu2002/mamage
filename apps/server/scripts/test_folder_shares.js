@@ -3,6 +3,7 @@ const { test } = require('node:test');
 const { DatabaseSync } = require('node:sqlite');
 const fs = require('node:fs'), vm = require('node:vm'), { createRequire } = require('node:module');
 const express = require('express');
+process.env.MEDIA_URL_SECRET = 'isolated-share-original-test-secret';
 
 function load(file, deps) {
   const module = { exports: {} }, actual = createRequire(file);
@@ -21,9 +22,9 @@ function fixture() {
     CREATE TABLE projects(id INTEGER PRIMARY KEY AUTOINCREMENT, organization_id INTEGER, unit_id INTEGER,
       admin_id INTEGER, restricted_to_user_id INTEGER, name TEXT, description TEXT, meta TEXT, tags TEXT,
       type TEXT, event_date TEXT, created_at TEXT, updated_at TEXT);
-    CREATE TABLE photos(id INTEGER PRIMARY KEY, organization_id INTEGER, unit_id INTEGER, project_id INTEGER,
+    CREATE TABLE photos(id INTEGER PRIMARY KEY, uuid TEXT, organization_id INTEGER, unit_id INTEGER, project_id INTEGER,
       photographer_id INTEGER, type TEXT, title TEXT, description TEXT, tags TEXT, timeline_section_id INTEGER,
-      url TEXT, thumb_url TEXT, public_download_url TEXT, playback_url TEXT, created_at TEXT);
+      url TEXT, thumb_url TEXT, public_download_url TEXT, playback_url TEXT, created_at TEXT, updated_at TEXT);
     CREATE TABLE project_timeline_sections(id INTEGER, project_id INTEGER, name TEXT, section_time TEXT, sort_order INTEGER);
     CREATE TABLE folder_shares(id INTEGER PRIMARY KEY AUTOINCREMENT, organization_id INTEGER, source_unit_id INTEGER,
       source_folder_id TEXT, folder_name TEXT, target_unit_id INTEGER, target_user_id INTEGER, mode TEXT,
@@ -35,7 +36,7 @@ function fixture() {
     CREATE TABLE share_links(id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT UNIQUE, share_type TEXT, project_id INTEGER,
       title TEXT, created_by INTEGER, organization_id INTEGER, unit_id INTEGER, sync_mode TEXT, expires_at TEXT,
       revoked_at TEXT, created_at TEXT, folder_share_id INTEGER);
-    CREATE TABLE share_link_items(share_id INTEGER, photo_id INTEGER, sort_order INTEGER, UNIQUE(share_id, photo_id));
+    CREATE TABLE share_link_items(id INTEGER PRIMARY KEY AUTOINCREMENT, share_id INTEGER, photo_id INTEGER, sort_order INTEGER, UNIQUE(share_id, photo_id));
     CREATE TABLE organization_copy_jobs(id INTEGER PRIMARY KEY AUTOINCREMENT, share_id INTEGER, organization_id INTEGER,
       target_unit_id INTEGER, requested_by INTEGER, system_initiated INTEGER, status TEXT DEFAULT 'queued', result_json TEXT,
       error_code TEXT, copied_bytes INTEGER DEFAULT 0);
@@ -61,7 +62,7 @@ function fixture() {
   const query = async (raw, params = []) => {
     if (/^SET TRANSACTION/.test(raw)) return [[]];
     if (failure && raw.includes(failure)) throw Error('injected failure');
-    let sql = raw.replace(/\s+FOR (?:UPDATE|SHARE)\b/g, '').replace(/INSERT IGNORE/g, 'INSERT OR IGNORE');
+    let sql = raw.replace(/\s+FOR (?:UPDATE|SHARE)\b/g, '').replace(/INSERT IGNORE/g, 'INSERT OR IGNORE').replace(/<=>/g, 'IS');
     const bound = [];
     sql = sql.replace(/\?/g, () => {
       const param = params[bound.parameterIndex || 0]; bound.parameterIndex = (bound.parameterIndex || 0) + 1;
@@ -79,9 +80,14 @@ function fixture() {
   const pool = { query, getConnection: async () => conn };
   const access = load(require.resolve('../lib/workspace_access'), { '../db': { pool } });
   const policy = load(require.resolve('../lib/internal_share_policy'), { '../db': { pool }, './workspace_access': access });
-  const media = { buildMediaUrl: value => value || null };
+  const media = { buildMediaUrl: value => value || null,
+    buildShareOriginalUrl: value => String(value || '').startsWith('/uploads/') ? value : null };
   const shared = load(require.resolve('../lib/shared_albums'), { '../db': { pool }, './media_access': media, './workspace_access': access });
   const folders = require('../lib/folder_shares');
+  const mediaAcl = load(require.resolve('../lib/media_access'), { '../db': { pool, UPLOAD_BASE_URL: 'http://media.test/api/image',
+    buildUploadUrl: value => value ? 'http://media.test/api/image/' + String(value).replace(/^\//, '') : null },
+    './cos_storage': { keyFromUrlOrPath: value => String(value || '').replace(/^\//, ''), isSafeKey: key => !key.includes('..') },
+    './workspace_access': access, './folder_shares': folders });
   const common = { '../db': { pool }, '../lib/workspace_access': access, '../lib/internal_share_policy': policy,
     '../lib/media_access': media, '../lib/shared_albums': shared, '../lib/organization_copy_worker': { wake() { wakes++; } },
     '../lib/permissions': { requirePermission: () => (req, res, next) => req.workspace.userId ? next() : res.status(401).json({ error: 'UNAUTHORIZED' }) } };
@@ -94,7 +100,7 @@ function fixture() {
     req.workspace = { enabled: true, userId, orgId: userId === 90 ? 3 : 2, unitId, role: req.get('x-role') || 'editor', collegeAdmin: false };
     req.user = { id: userId, organization_id: req.workspace.orgId }; next(); });
   app.use('/folder-shares', folderRouter); app.use('/desktop', desktopRouter); app.use('/share', shareRouter);
-  return { db, conn, pool, access, folders, shared, groups, app, get wakes() { return wakes; }, inject: value => { failure = value; } };
+  return { db, conn, pool, access, folders, shared, groups, app, mediaAcl, get wakes() { return wakes; }, inject: value => { failure = value; } };
 }
 async function serve(f, run) {
   const server = f.app.listen(0, '127.0.0.1'); await new Promise(resolve => server.once('listening', resolve));
@@ -107,6 +113,80 @@ async function serve(f, run) {
 }
 const create = (call, patch = {}) => call('/folder-shares', { method: 'POST', body: { folderId: 'root', mode: 'read', targetUnitId: 2, ...patch } });
 const scope = (unitId, userId = unitId === 1 ? 7 : 67) => ({ enabled: true, orgId: 2, unitId, userId, role: 'editor', collegeAdmin: false });
+
+test('photo originals require a live, correctly scoped share, including approved photo selections', async () => {
+  const f = fixture();
+  try {
+    f.db.exec(`INSERT INTO share_links(id,code,share_type,project_id,organization_id,unit_id,sync_mode,expires_at)
+      VALUES(90,'original-test','project',76,2,1,'automatic','2099-01-01');`);
+    const key = 'uploads/units/1/one.jpg';
+    const url = new URL(f.mediaAcl.buildShareOriginalUrl('/' + key, { shareId: 90, photoId: 1 }));
+    assert.equal(f.mediaAcl.buildShareOriginalUrl('https://example.test/private.jpg', { shareId: 90, photoId: 1 }), null);
+    assert.equal(f.mediaAcl.buildShareOriginalUrl('/uploads/../private.jpg', { shareId: 90, photoId: 1 }), null);
+    const token = url.searchParams.get('ma');
+    const allowed = () => f.mediaAcl.authorizeMediaKey(key, token, f.pool);
+    assert.equal(await allowed(), true);
+    assert.equal(await f.mediaAcl.authorizeMediaKey(key, null, f.pool), false);
+    assert.equal(await f.mediaAcl.authorizeMediaKey(key, token + 'x', f.pool), false);
+    assert.equal(await f.mediaAcl.authorizeMediaKey('uploads/units/1/two.jpg', token, f.pool), false);
+    for (const [field, value, restore] of [['revoked_at', '2026-10-21', null], ['expires_at', '2020-01-01', '2099-01-01'],
+      ['organization_id', 3, 2], ['unit_id', 2, 1], ['project_id', 77, 76]]) {
+      f.db.prepare(`UPDATE share_links SET ${field}=? WHERE id=90`).run(value);
+      assert.equal(await allowed(), false, field);
+      f.db.prepare(`UPDATE share_links SET ${field}=? WHERE id=90`).run(restore);
+    }
+    f.db.exec("UPDATE share_links SET sync_mode='approval' WHERE id=90");
+    assert.equal(await allowed(), false, 'unapproved originals stay private');
+    f.db.exec('INSERT INTO share_link_items(share_id,photo_id,sort_order) VALUES(90,1,0)');
+    assert.equal(await allowed(), true);
+    f.db.exec("UPDATE share_links SET share_type='collection',project_id=NULL WHERE id=90");
+    assert.equal(await allowed(), true);
+    f.db.exec('DELETE FROM share_link_items WHERE share_id=90');
+    assert.equal(await allowed(), false, 'removing a selected photo revokes its existing original URL');
+    f.db.exec("UPDATE share_links SET share_type='project',project_id=76,sync_mode='automatic' WHERE id=90; UPDATE photos SET type='video' WHERE id=1");
+    assert.equal(await allowed(), false, 'photo permission does not change video-original policy');
+  } finally { f.db.close(); }
+});
+
+test('folder original access follows approval, folder membership and folder revocation', async () => {
+  const f = fixture(); await serve(f, async call => {
+    const created = await create(call, {mode:'public'}); assert.equal(created.status,201);
+    const share = f.db.prepare('SELECT * FROM share_links WHERE code=?').get(created.body.code);
+    const key = 'uploads/units/1/two.jpg';
+    const token = new URL(f.mediaAcl.buildMediaUrl('/'+key,{shareId:share.id,photoId:2})).searchParams.get('ma');
+    const allowed = () => f.mediaAcl.authorizeMediaKey(key, token, f.pool);
+    assert.equal(await allowed(),true);
+    f.db.prepare('DELETE FROM share_link_items WHERE share_id=? AND photo_id=2').run(share.id);
+    assert.equal(await allowed(),false);
+    f.db.prepare('INSERT INTO share_link_items(share_id,photo_id,sort_order) VALUES(?,2,0)').run(share.id);
+    const outsideToken = new URL(f.mediaAcl.buildMediaUrl('/uploads/units/1/one.jpg',{shareId:share.id,photoId:1})).searchParams.get('ma');
+    const next = structuredClone(f.groups); next[1].parentId = null;
+    await f.conn.beginTransaction(); await f.folders.syncFolderShares(f.conn,2,1,next); await f.conn.commit();
+    assert.equal(await allowed(),false, 'moving a subfolder out revokes previously signed original URLs');
+    assert.equal(await f.mediaAcl.authorizeMediaKey('uploads/units/1/one.jpg',outsideToken,f.pool),true);
+    await call('/folder-shares/'+share.folder_share_id+'/revoke',{method:'POST'});
+    assert.equal(await f.mediaAcl.authorizeMediaKey('uploads/units/1/one.jpg',outsideToken,f.pool),false);
+  });
+});
+
+test('album and selected-photo share responses use originals even without a public rendition', async () => {
+  const f = fixture(); await serve(f, async call => {
+    f.db.exec(`INSERT INTO share_links(id,code,share_type,project_id,organization_id,unit_id,sync_mode,expires_at)
+      VALUES(90,'original-test','project',76,2,1,'automatic','2099-01-01');
+      UPDATE photos SET public_download_url=NULL WHERE id=1;`);
+    let response = await call('/share/original-test'); assert.equal(response.status,200);
+    assert.equal(response.body.photos[0].url, '/uploads/units/1/one.jpg');
+    assert.equal(response.body.photos[0].thumbUrl, '/uploads/units/1/thumb.jpg');
+    f.db.exec("UPDATE share_links SET share_type='collection',project_id=NULL,sync_mode='approval' WHERE id=90; INSERT INTO share_link_items(share_id,photo_id,sort_order) VALUES(90,1,0)");
+    response = await call('/share/original-test'); assert.equal(response.status,200);
+    assert.equal(response.body.photos[0].url, '/uploads/units/1/one.jpg');
+    f.db.exec("UPDATE photos SET url='https://example.test/private.jpg' WHERE id=1");
+    response = await call('/share/original-test'); assert.equal(response.body.photos[0].url,'/uploads/units/1/thumb.jpg');
+    f.db.exec("UPDATE photos SET url='/uploads/units/1/one.jpg' WHERE id=1");
+    f.db.exec("UPDATE photos SET type='video',playback_url='/uploads/units/1/playback.mp4' WHERE id=1");
+    response = await call('/share/original-test'); assert.equal(response.body.photos[0].url,'/uploads/units/1/playback.mp4');
+  });
+});
 
 test('real folder share routes grant only owned nonprivate descendants, preserve named recipients and enforce roles', async () => {
   const f = fixture(); await serve(f, async call => {
@@ -153,6 +233,7 @@ test('public folder links preserve approval, bounded browsing, safe metadata and
     const root=await call('/share/'+code); assert.equal(root.status,200); assert.equal(root.body.shareType,'folder');
     assert.equal(root.body.folder.groups.length,2); assert.equal(root.body.folder.albums.length,2);
     const album=await call('/share/'+code+'?projectId=76'); assert.equal(album.status,200); assert.equal(album.body.photos.length,1);
+    assert.equal(album.body.photos[0].url, '/uploads/units/1/one.jpg', 'folder photo original is not its compressed download variant');
     assert.ok(!JSON.stringify(root.body).includes('createdBy')); assert.ok(!JSON.stringify(root.body).includes('Private'));
     assert.equal((await call('/share/'+code+'?projectId=78')).status,404);
     f.db.exec("INSERT INTO photos(id,organization_id,unit_id,project_id,type,title,thumb_url) VALUES(4,2,1,76,'normal','New','new-thumb.jpg')");

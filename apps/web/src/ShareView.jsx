@@ -203,7 +203,7 @@ function AlbumShareView({ share = {}, onBack }) {
     return resolveAssetUrl(p.url || p.originalUrl || p.original || p.full || p.large || p.imageUrl || p.src || p.fileUrl || p);
   };
 
-  // 公开分享的单张照片下载优先走全尺寸、限体积的公网下载版；缺失时保持原图回退。
+  // 旧分享数据没有原图时，保留高清副本作为下载回退。
   const publicDownloadFor = (p) => {
     if (!p || typeof p === 'string') return null;
     return resolveAssetUrl(p.publicDownloadUrl || p.public_download_url || p.webDownloadUrl || '');
@@ -262,13 +262,11 @@ function AlbumShareView({ share = {}, onBack }) {
   const downloadCurrentViewerPhoto = () => {
     const p = photos[viewerIndex];
     if (!p) return;
-    const url = (isVideoPhoto(p) ? null : publicDownloadFor(p)) || originalFor(p) || thumbFor(p);
+    const url = originalFor(p) || (isVideoPhoto(p) ? null : publicDownloadFor(p)) || thumbFor(p);
     if (!url) return;
     const a = document.createElement('a');
     a.href = url;
     a.download = `photo_${viewerIndex}${inferExt(url)}`;
-    a.target = '_blank';
-    a.rel = 'noopener';
     document.body.appendChild(a);
     a.click();
     a.remove();

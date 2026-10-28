@@ -3,7 +3,7 @@ const router = express.Router();
 const crypto = require('crypto');
 
 const { pool } = require('../db');
-const { buildMediaUrl } = require('../lib/media_access');
+const { buildMediaUrl, buildShareOriginalUrl } = require('../lib/media_access');
 const { loadPublicFolderShare } = require('../lib/public_folder_share');
 const { publicFolderPhotoScope } = require('../lib/folder_shares');
 const { requirePermission } = require('../lib/permissions');
@@ -529,7 +529,8 @@ router.get('/:code', async (req, res) => {
         const mapped = photos.map((p) => ({
             ...p,
             url: (p.type !== 'video'
-                ? buildMediaUrl(p.publicDownloadUrl || p.thumbUrl, { shareId: share.id, photoId: p.id })
+                ? (buildShareOriginalUrl(p.url, { shareId: share.id, photoId: p.id })
+                    || buildMediaUrl(p.publicDownloadUrl || p.thumbUrl, { shareId: share.id, photoId: p.id }))
                 : buildMediaUrl(p.playbackUrl || p.thumbUrl, { shareId: share.id, photoId: p.id })),
             thumbUrl: p.thumbUrl ? buildMediaUrl(p.thumbUrl, { shareId: share.id, photoId: p.id }) : null,
             publicDownloadUrl: p.publicDownloadUrl ? buildMediaUrl(p.publicDownloadUrl, { shareId: share.id, photoId: p.id }) : null,
