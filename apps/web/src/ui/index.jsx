@@ -35,6 +35,7 @@ function Button({
     <button
       {...rest}
       type="button"
+      data-glass-button=""
       className={cx(
         'mamage-button',
         type && `mamage-button-${type}`,

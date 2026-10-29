@@ -13,7 +13,8 @@ export default function useMediaViewerDialog(open, onClose) {
       if (event.key === 'Escape') { event.stopPropagation(); event.preventDefault(); close.current?.(); return; }
       if (event.key !== 'Tab') return;
       const controls = [...dialog.querySelectorAll('button, a[href], input, textarea, select, video[controls], summary, [tabindex="0"]')]
-        .filter(element => !element.disabled && element.getClientRects().length);
+        .filter(element => !element.disabled && !element.closest('[inert], [aria-hidden="true"]')
+          && element.getClientRects().length && getComputedStyle(element).visibility !== 'hidden');
       const first = controls[0], last = controls[controls.length - 1];
       if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }

@@ -5,7 +5,6 @@ const runtime = createRequire(path.resolve(__dirname, '../../server/package.json
 const { chromium } = runtime('playwright'), sharp = runtime('sharp');
 const dist = process.env.MAMAGE_VIEWER_QA_DIST || path.resolve(__dirname, '../dist');
 const artifactDir = process.env.MAMAGE_VIEWER_QA_DIR;
-const rect = element => { const r = element.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; };
 const overlap = (a, b) => Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
 
 (async () => {
@@ -103,13 +102,16 @@ const overlap = (a, b) => Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(
         assert.ok(await page.locator('.viewer-sidebar-head strong').evaluate(el => el.scrollWidth <= el.clientWidth + 1 && el.scrollHeight <= el.clientHeight + 1), 'Long original filenames wrap instead of being hidden or overflowing');
         assert.equal(await page.locator('.viewer-file-info').count(), 0, 'Do not duplicate the filename below the information heading');
         const measure = async () => {
-          const mediaRect = await media.evaluate(rect);
-          for (const selector of ['.viewer-info-card', '.viewer-topbar', '.viewer-dock-actions', '.viewer-tone-panel', '.viewer-nav', '.viewer-sidebar-head', '.ui-zoom-control']) {
-            for (const element of await page.locator(selector).all()) if (await element.isVisible()) {
-              const box = await element.evaluate(rect);
-              assert.ok(overlap(mediaRect, box) <= 1, `${selector} covers media: ${JSON.stringify({ mediaRect, box, scenario })}`);
-            }
-          }
+          // Read all rectangles in the same frame: separate awaits can compare
+          // a photo from one animation frame with a panel from the next.
+          const measured = await media.evaluate(media => {
+            const rect = element => { const r = element.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; };
+            const controls = [...document.querySelectorAll('.viewer-panel-slot, .viewer-topbar, .viewer-dock-actions, .viewer-nav, .ui-zoom-control')]
+              .filter(el => !el.closest('[inert]') && getComputedStyle(el).visibility !== 'hidden' && el.getClientRects().length);
+            return { mediaRect: rect(media), boxes: controls.map(el => ({ selector: el.className, box: rect(el) })) };
+          });
+          const { mediaRect } = measured;
+          for (const { selector, box } of measured.boxes) assert.ok(overlap(mediaRect, box) <= 1, `${selector} covers media: ${JSON.stringify({ mediaRect, box, scenario })}`);
           assert.ok(mediaRect.x >= -1 && mediaRect.y >= -1 && mediaRect.x + mediaRect.w <= width + 1 && mediaRect.y + mediaRect.h <= height + 1, 'Media must fit the viewport');
           const expectedRatio = kind === 'video' ? 360 / 640 : kind === 'portrait' ? 800 / 1200 : 1600 / 900;
           assert.ok(Math.abs(mediaRect.w / mediaRect.h - expectedRatio) < 0.01, 'No cropping, stretching, or incorrect thumbnail aspect ratio');

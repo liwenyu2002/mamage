@@ -16,9 +16,9 @@ import { fetchWorkspaces, setActiveWorkspace } from './services/workspaceService
 import { resolveAssetUrl, rewriteMediaUrlsDeep } from './services/request';
 import IfCan from './permissions/IfCan';
 import { LiquidGlassDefs } from './liquidGlass';
-import { initLiquidLens } from './liquidLens';
+import { ViewerDisplaySettings, useViewerAppearance } from './ui/Glass';
 import UiZoomControl, { useUiZoom, applyDocumentZoom } from './UiZoomControl';
-import { IconFaceScan, IconSparkleAI } from './ui/icons';
+import { IconFaceScan, IconSparkleAI, IconChevronRight } from './ui/icons';
 
 const lazyWithPreload = (loader) => {
   const Component = React.lazy(loader);
@@ -150,7 +150,7 @@ try {
 } catch (e) { /* ignore */ }
 
 function App() {
-  React.useEffect(() => initLiquidLens(), []);
+  const displaySettings = useViewerAppearance();
 
   const [projects, setProjects] = React.useState([]);
   const [projectImportStatuses, setProjectImportStatuses] = React.useState({});
@@ -1300,11 +1300,12 @@ function App() {
   </footer>;
 
   return (
-    <div className="mamage-shell">
+    <div className="mamage-shell" style={{ '--glass-blur': `${displaySettings.appearance.blur}px` }}>
       <LiquidGlassDefs />
       <div className="mamage-dynamic-backdrop" aria-hidden="true" />
       <header className={`mamage-header${currentProjectId ? ' is-project-detail' : ''}${isMobileHeader ? ' is-mobile-header' : ' is-desktop-header'}`}>
         <div className={`mamage-topbar${currentProjectId ? ' is-project-detail' : ''}`}>
+          <div className="mamage-nav-brand-group" data-glass="clear">
           <div className="mamage-brand-area">
             {isMobileHeader ? (
               <button
@@ -1356,20 +1357,12 @@ function App() {
               <nav className="mamage-nav-links" aria-label="主导航">
                 {navItems.map((item) => renderNavItem(item))}
               </nav>
-              {currentProjectId ? (
-                <button
-                  type="button"
-                  className="mamage-desktop-project-title"
-                  title={projectHeaderTitle}
-                  onClick={handleBackToList}
-                >
-                  {projectHeaderTitle}
-                </button>
-              ) : null}
             </>
           ) : null}
+          </div>
 
           <div className="mamage-nav-actions">
+            <div className="mamage-nav-search-group" data-glass="clear">
             <div className="mamage-nav-search-field">
               <input
                 className="mamage-nav-search-input"
@@ -1414,12 +1407,14 @@ function App() {
             <button type="button" className="mamage-action-button is-primary mamage-desktop-search-button" onClick={handleSearchSubmit}>
               搜索
             </button>
+            </div>
 
             {!isDemoPath && !currentProjectId ? (
               <IfCan perms={['projects.create']}>
                 <button
                   type="button"
                   className="mamage-action-button is-secondary"
+                  data-glass="clear"
                   onPointerEnter={preloadCreateAlbum}
                   onFocus={preloadCreateAlbum}
                   onClick={() => setShowCreateModal(true)}
@@ -1430,6 +1425,8 @@ function App() {
               </IfCan>
             ) : null}
 
+            <div className="mamage-account-group">
+            <ViewerDisplaySettings appearance={displaySettings.appearance} onChange={displaySettings.update} darkLabel="深色查看器" />
             {currentUser ? (
               <details
                 className="mamage-user-menu"
@@ -1440,6 +1437,7 @@ function App() {
                   {workspaceInfo ? <span className="mamage-user-email">
                     {workspaceInfo.units.find((unit) => Number(unit.id) === Number(workspaceInfo.activeUnitId))?.name || '历史相册'}
                   </span> : null}
+                  <IconChevronRight className="mamage-user-chevron" />
                 </summary>
                 <div className="mamage-user-menu-panel">
                   {workspaceInfo ? (
@@ -1487,11 +1485,13 @@ function App() {
                 管理员登录
               </button>
             )}
+            </div>
           </div>
         </div>
 
         {currentProjectId && !isMobileHeader ? (
-          <div className="mamage-desktop-project-notch" aria-label="相册信息">
+          <div className="mamage-desktop-project-notch" data-glass="clear" aria-label="相册信息">
+            <button type="button" className="mamage-desktop-project-title" title={projectHeaderTitle} onClick={handleBackToList}>{projectHeaderTitle}</button>
             {projectHeaderMeta.length > 0 ? (
               <span className="mamage-notch-meta">
                 {projectHeaderMeta.map((item) => <span key={item}>{item}</span>)}

@@ -157,7 +157,7 @@ const artifacts = process.env.MAMAGE_FOLDER_SHARE_QA_DIR;
         for(const name of ['只读','可复制','共同编辑']) assert.equal(await dialog.getByRole('button',{name,exact:true}).count(),1);
         await dialog.getByRole('button',{name:'接收部门',exact:true}).click();await page.getByRole('option',{name:'接收部门',exact:true}).click();
         await dialog.getByRole('button',{name:'分享给部门',exact:true}).click();
-        await dialog.getByRole('tab',{name:'部门记录',exact:true}).waitFor();
+        await page.waitForFunction(() => [...document.querySelectorAll('[role="tab"]')].some(tab => tab.textContent === '部门记录' && tab.getAttribute('aria-selected') === 'true'));
         assert.equal(posts[0].body.folderId,'root');assert.equal(posts[0].body.shareType,'folder');
         await dialog.getByRole('tab',{name:'公开分享',exact:true}).click();await dialog.getByRole('button',{name:'创建外链',exact:true}).click();
         await dialog.getByRole('button',{name:'创建外链',exact:true}).waitFor();

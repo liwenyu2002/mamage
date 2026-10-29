@@ -1,0 +1,197 @@
+/* Shared chrome, not content-card geometry. Legacy folder material tokens stay
+   in liquidGlass.css so stacked/classic folders retain their approved design. */
+:root, [data-glass-theme] {
+  --glass-ink: #202123;
+  --glass-muted: #727477;
+  --glass-fill: rgba(255, 255, 255, .02);
+  --glass-readable-fill: rgba(250, 251, 252, .82);
+  --glass-rim: rgba(30, 35, 40, .09);
+  --glass-glint: rgba(255, 255, 255, .85);
+  --glass-edge: 0 0 0 .5px var(--glass-rim), inset 0 .5px 0 var(--glass-glint);
+  --glass-float-shadow: 0 12px 32px rgba(20, 24, 28, .08);
+  --glass-material: linear-gradient(180deg, rgba(255,255,255,.035), transparent 40%, rgba(255,255,255,.015)), var(--glass-fill);
+  --glass-readable-material: linear-gradient(180deg, rgba(255,255,255,.035), transparent 40%, rgba(255,255,255,.015)), var(--glass-readable-fill);
+  --glass-blur: 20px;
+  --glass-backdrop: blur(var(--glass-blur)) saturate(145%);
+  --glass-hover: rgba(255, 255, 255, .46);
+  --glass-active: rgba(255, 255, 255, .78);
+  --glass-line: rgba(35, 39, 43, .1);
+  --glass-spring: cubic-bezier(.2, 1.3, .35, 1);
+  --glass-duration: 620ms;
+  --glass-layout-ease: cubic-bezier(.22, .8, .25, 1);
+}
+
+@supports (animation-timing-function: linear(0, 1)) {
+  :root, [data-glass-theme] { --glass-spring: linear(0, .17 7%, .48 16%, .8 27%, .98 39%, 1.045 52%, 1.014 67%, .994 82%, 1); }
+}
+
+[data-glass-theme='dark'] {
+  --glass-ink: #f3f3f4;
+  --glass-muted: #abaeb2;
+  --glass-readable-fill: rgba(26, 28, 31, .86);
+  --glass-rim: rgba(255,255,255,.13);
+  --glass-glint: rgba(255,255,255,.24);
+  --glass-hover: rgba(255,255,255,.09);
+  --glass-active: #46494e;
+  --glass-line: rgba(255,255,255,.12);
+  color-scheme: dark;
+}
+
+/* These adapters are the migration boundary. New components use data-glass. */
+:root :is([data-glass], .mamage-header:not(.is-project-detail), .mamage-mobile-nav-panel,
+  .mamage-user-chip, .mamage-user-menu-panel, .mamage-popover-content,
+  .mamage-dtp-pop, .album-library-panel, .acp-column-context-menu,
+  .acp-album-actions, .acp-collection-popup, .detail-bottom-nav,
+  .detail-bottom-upload, .detail-select-fab, .detail-actions-fab,
+  .detail-selection-inline.is-expanded, .mamage-modal-content,
+  .mamage-sidesheet-content, .detail-actions-sheet, .acp-sidebar-directory,
+  .scenery-toolbar, .auth-card, .viewer-topbar, .viewer-dock-actions,
+  .viewer-details-panel, .viewer-tone-panel) {
+  border: 0 !important;
+  background: var(--glass-material) !important;
+  box-shadow: var(--glass-edge) !important;
+  backdrop-filter: var(--glass-backdrop) !important;
+  -webkit-backdrop-filter: var(--glass-backdrop) !important;
+}
+
+:root :is([data-glass='readable'], .mamage-modal-content, .mamage-sidesheet-content,
+  .detail-actions-sheet, .auth-card, .viewer-details-panel, .viewer-tone-panel,
+  .mamage-popover-content, .mamage-dtp-pop, .album-library-panel,
+  .acp-column-context-menu, .acp-album-actions, .acp-collection-popup) {
+  background: var(--glass-readable-material) !important;
+  box-shadow: var(--glass-edge), var(--glass-float-shadow) !important;
+}
+
+:root :is(.mamage-header:not(.is-project-detail), .mamage-modal-content,
+  .mamage-popover-content, .mamage-sidesheet-content, .detail-bottom-nav,
+  .detail-bottom-upload, .detail-actions-sheet, .auth-card, .viewer-tone-panel)::before {
+  content: none;
+}
+
+/* The album header's combined notch silhouette remains one surface. */
+:root .mamage-header.is-desktop-header.is-project-detail::before {
+  background: var(--glass-material) !important;
+  backdrop-filter: var(--glass-backdrop) !important;
+  -webkit-backdrop-filter: var(--glass-backdrop) !important;
+}
+:root .mamage-header.is-desktop-header.is-project-detail::after { opacity: .25; }
+:root .mamage-header.is-mobile-header.is-project-detail {
+  border: 0 !important;
+  background: var(--glass-material) !important;
+  box-shadow: var(--glass-edge) !important;
+  backdrop-filter: var(--glass-backdrop) !important;
+  -webkit-backdrop-filter: var(--glass-backdrop) !important;
+}
+
+/* Keep dropdowns outside the header's backdrop root so their blur sees the page. */
+:root :is(.mamage-header:not(.is-desktop-header.is-project-detail), .viewer-topbar) {
+  isolation: isolate;
+  background: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+:root :is(.mamage-header:not(.is-desktop-header.is-project-detail), .viewer-topbar)::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  border-radius: inherit;
+  background: var(--glass-material);
+  box-shadow: var(--glass-edge);
+  backdrop-filter: var(--glass-backdrop);
+  -webkit-backdrop-filter: var(--glass-backdrop);
+  opacity: 1;
+  mix-blend-mode: normal;
+  animation: none;
+}
+
+:root .mamage-user-menu-panel { transform-origin: top right; max-height: calc(100dvh - 100px); overflow-y: auto; }
+:root .mamage-user-menu[open] .mamage-user-menu-panel,
+:root :is(.mamage-dtp-pop, .album-library-panel, .acp-column-context-menu, .acp-album-actions, .acp-collection-popup),
+:root .mamage-glass-select-menu.is-open {
+  animation: glass-menu-enter var(--glass-duration) var(--glass-spring) both;
+}
+@keyframes glass-menu-enter { from { transform: translateY(-8px) scale(.96); } to { transform: none; } }
+:root .mamage-motion-modal:not(.is-leaving) .mamage-modal-content {
+  animation: glass-dialog-enter var(--glass-duration) var(--glass-spring) both;
+}
+@keyframes glass-dialog-enter { from { transform: translateY(18px) scale(.975); } to { transform: none; } }
+
+:root [data-glass-button] {
+  transition: transform 280ms var(--glass-spring), background 160ms ease, box-shadow 160ms ease;
+}
+:root [data-glass-button]:not(.mamage-button-primary):not(.mamage-button-danger) {
+  background: var(--glass-material);
+  border-color: transparent;
+  box-shadow: var(--glass-edge);
+}
+:root [data-glass-button]:not(.mamage-button-disabled):not(.mamage-button-primary):not(.mamage-button-danger):hover {
+  background: var(--glass-hover);
+  box-shadow: var(--glass-edge);
+}
+:root .mamage-button-primary:not(.mamage-button-disabled),
+:root .mamage-action-button.is-primary {
+  background: #242528 !important;
+  border-color: transparent;
+  color: #fff;
+  box-shadow: inset 0 .5px 0 #ffffff38, 0 2px 6px #00000012;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+:root .mamage-button-primary::before { content: none; }
+:root .mamage-button-primary:not(.mamage-button-disabled):hover,
+:root .mamage-action-button.is-primary:hover { background: #3c3e43 !important; }
+:root :is(.mamage-input-wrapper, .mamage-select-selection, .mamage-input-textarea-wrapper) {
+  border-color: var(--glass-line);
+  background: rgba(255,255,255,.24);
+  box-shadow: none;
+}
+
+/* A panel's clip slot stays in the layout, preventing spring overshoot over media. */
+.glass-reveal { min-width: 0; min-height: 0; overflow: hidden; }
+.glass-reveal > .glass-reveal-surface {
+  height: 100%;
+  min-height: 0;
+  transform: translateX(26px) scale(.975);
+  visibility: hidden;
+  transition: transform var(--glass-duration) var(--glass-spring), visibility 0s var(--glass-duration);
+}
+.glass-reveal[data-open='true'] > .glass-reveal-surface { visibility: visible; transform: none; transition-delay: 0s; }
+
+.glass-settings-slot { position: relative; width: 36px; height: 36px; flex: 0 0 36px; z-index: 10; transition: width 520ms var(--glass-spring), flex-basis 520ms var(--glass-spring); }
+.glass-settings-slot.is-open { width: min(240px, calc(100vw - 80px)); flex-basis: min(240px, calc(100vw - 80px)); }
+.glass-settings { position: absolute; right: 0; top: 0; min-width: 36px; width: 100%; border-radius: 20px; color: var(--glass-ink); }
+.glass-settings-head { display: flex; height: 36px; align-items: center; }
+.glass-settings-head strong { min-width: 0; flex: 1; overflow: hidden; white-space: nowrap; font-size: 13px; padding-left: 0; }
+.glass-settings.is-open .glass-settings-head strong { padding-left: 16px; }
+.glass-settings-trigger { display: grid; place-items: center; flex: 0 0 36px; width: 36px; height: 36px; border: 0; border-radius: 50%; background: transparent; color: inherit; cursor: pointer; }
+.glass-settings-trigger svg { width: 17px; height: 17px; }
+.glass-settings-body { display: grid; grid-template-rows: 0fr; visibility: hidden; transition: grid-template-rows 350ms var(--glass-layout-ease), visibility 0s 350ms; }
+.glass-settings.is-open .glass-settings-body { grid-template-rows: 1fr; visibility: visible; transition-delay: 70ms, 0s; }
+.glass-settings-body > div { overflow: hidden; min-height: 0; }
+.glass-settings-fields { display: grid; gap: 16px; padding: 16px; font-size: 13px; }
+.glass-settings-fields label { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.glass-settings-fields input[type='range'] { width: 100%; margin: 0; accent-color: #797c80; }
+.glass-settings-fields input[type='checkbox'] { appearance: none; position: relative; flex: 0 0 34px; width: 34px; height: 21px; border: 0; border-radius: 20px; background: #86898e4d; cursor: pointer; }
+.glass-settings-fields input[type='checkbox']::after { content: ''; position: absolute; top: 3px; left: 3px; width: 15px; height: 15px; border-radius: 50%; background: white; box-shadow: 0 1px 2px #0002; transition: transform 220ms var(--glass-spring); }
+.glass-settings-fields input:checked { background: #51555c; }
+.glass-settings-fields input:checked::after { transform: translateX(13px); }
+
+@media (max-width: 600px) {
+  .viewer-topbar:has(.glass-settings.is-open) .viewer-topbar-right > :not(.glass-settings-slot),
+  .viewer-topbar:has(.glass-settings.is-open) .viewer-topbar-left > :not(.viewer-topbar-close) { display: none; }
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root { --glass-fill: #f5f6f7; --glass-readable-fill: #f5f6f7; }
+  [data-glass-theme='dark'] { --glass-fill: #232528; --glass-readable-fill: #232528; }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root, [data-glass-theme] { --glass-duration: 0ms; }
+  :root :is([data-glass-button], .glass-reveal > *, .glass-settings-slot, .glass-settings, .glass-settings *,
+    .mamage-user-menu-panel, .mamage-dtp-pop, .album-library-panel, .acp-column-context-menu,
+    .acp-album-actions, .acp-collection-popup, .mamage-glass-select-menu.is-open,
+    .mamage-motion-modal .mamage-modal-content) { animation: none; transition: none; }
+}

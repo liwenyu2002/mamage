@@ -32,6 +32,7 @@ import {
 } from './ui/icons';
 import './ProjectDetail.css';
 import './mediaViewer.css';
+import { GlassReveal, ViewerDisplaySettings, useViewerAppearance } from './ui/Glass';
 import useMediaViewerDialog from './useMediaViewerDialog';
 import { getProjectById, updateProject, deleteProject, createTimelineSection, updateTimelineSection, deleteTimelineSection, reorderTimelineSections } from './services/projectService';
 import { canEditMetadata } from './utils/metadataEditPermissions';
@@ -773,6 +774,8 @@ function ProjectDetail({
   // image viewer
   const [viewerVisible, setViewerVisible] = React.useState(false);
   const [viewerDetailsVisible, setViewerDetailsVisible] = React.useState(() => typeof window !== 'undefined' && window.innerWidth > 900);
+  const viewerAppearance = useViewerAppearance();
+  const [viewerDirection, setViewerDirection] = React.useState(1);
   const [viewerIndex, setViewerIndex] = React.useState(0);
   const currentViewerIsVideo = React.useMemo(() => isVideoMeta(photoMetas?.[viewerIndex]), [photoMetas, viewerIndex]);
   // 限定翻页序列（photoMetas 索引数组）：拍照找我等场景只在命中集合内切换；null=整册顺序
@@ -4469,6 +4472,7 @@ function ProjectDetail({
       nextIndex = normalizeViewerIndex(viewerIndex + direction);
     }
     if (nextIndex === viewerIndex) return;
+    setViewerDirection(direction);
     setViewerIndex(nextIndex);
   }, [viewerVisible, viewerCount, normalizeViewerIndex, viewerIndex, activeViewerSeq]);
 
@@ -6765,8 +6769,9 @@ function ProjectDetail({
 
         {/* Image viewer overlay (no container) */}
         {viewerVisible ? createPortal(
-        <div className="viewer-overlay viewer-overlay--workspace is-open" onClick={closeViewer} role="dialog" aria-modal="true" aria-label="媒体查看器">
-            <div className={`viewer-wrap${viewerDetailsVisible || viewerToneVisible ? ' has-details' : ''}`}>
+        <div className="viewer-overlay viewer-overlay--workspace is-open" {...viewerAppearance.surfaceProps} onClick={closeViewer} role="dialog" aria-modal="true" aria-label="媒体查看器">
+            <div className="mamage-dynamic-backdrop viewer-backdrop" aria-hidden="true" />
+            <div className={`viewer-wrap${viewerDetailsVisible || viewerToneVisible ? ' has-details' : ''}`} style={{ '--viewer-direction': viewerDirection }}>
               {/* 顶部状态栏：关闭+计数+摄影师·环节 | AI 分+推荐+原图开关（只读状态集中于此） */}
               <div className="viewer-topbar" onClick={(e) => e.stopPropagation()}>
                 <div className="viewer-topbar-left">
@@ -6829,6 +6834,7 @@ function ProjectDetail({
                       {viewerShowOriginal ? '缩略图' : '原图'}
                     </button>
                   ) : null}
+                  <ViewerDisplaySettings appearance={viewerAppearance.appearance} onChange={viewerAppearance.update} />
                 </div>
               </div>
               <div
@@ -6837,11 +6843,6 @@ function ProjectDetail({
                 onPointerUp={handleViewerPointerUp}
                 onPointerCancel={handleViewerPointerCancel}
               >
-                {images.length > 1 ? (
-                  <button type="button" className="viewer-nav viewer-nav-left" onClick={(e) => { e.stopPropagation(); navigateViewer(-1); }} aria-label="上一张" title="上一张">
-                    <IconChevronLeft />
-                  </button>
-                ) : null}
                 {photoMetas && photoMetas[viewerIndex] ? (
                   <>
                     <div className="viewer-img-stage" onClick={(e) => e.stopPropagation()}>
@@ -6955,15 +6956,11 @@ function ProjectDetail({
                       </div>
                     </div>
                 ) : null}
-                {images.length > 1 ? (
-                  <button type="button" className="viewer-nav viewer-nav-right" onClick={(e) => { e.stopPropagation(); navigateViewer(1); }} aria-label="下一张" title="下一张">
-                    <IconChevronRight />
-                  </button>
-                ) : null}
               </div>
 
               {viewerToneVisible && !currentViewerIsVideo && (photoMetas && photoMetas[viewerIndex]) ? (
-                <div className="viewer-tone-panel" onClick={(e) => e.stopPropagation()}>
+                <GlassReveal open className="viewer-panel-slot">
+                <div className="viewer-tone-panel glass-reveal-surface" onClick={(e) => e.stopPropagation()}>
                   <div className="viewer-tone-head">
                     <div>
                       <div className="viewer-tone-title">照片调色</div>
@@ -7022,11 +7019,13 @@ function ProjectDetail({
                     ))}
                   </div>
                 </div>
+                </GlassReveal>
               ) : null}
 
               {/* 底部信息+操作坞：语义信息卡 + 一条图标操作栏，全部集中在此 */}
               <div className="viewer-dock" onClick={(e) => e.stopPropagation()}>
-                <aside className="viewer-details-panel" id="viewer-details-panel" aria-label="媒体信息" hidden={!viewerDetailsVisible || viewerToneVisible}>
+                <GlassReveal open={viewerDetailsVisible && !viewerToneVisible} className="viewer-panel-slot">
+                <aside className="viewer-details-panel glass-reveal-surface" id="viewer-details-panel" aria-label="媒体信息">
                   <div className="viewer-sidebar-head">
                     <div><span>{currentViewerIsVideo ? '视频信息' : '照片信息'}</span><strong>{photoMetas?.[viewerIndex]?.originalFilename || photoMetas?.[viewerIndex]?.title || '未命名'}</strong></div>
                     <button type="button" aria-label="关闭信息" title="关闭信息" onClick={() => setViewerDetailsVisible(false)}><IconClose /></button>
@@ -7289,7 +7288,13 @@ function ProjectDetail({
                       );
                     })() : null}
                 </aside>
+                </GlassReveal>
                 <div className="viewer-dock-actions" role="toolbar" aria-label="媒体操作">
+                  {images.length > 1 ? <>
+                    <button type="button" className="viewer-dock-btn viewer-step-btn" onClick={() => navigateViewer(-1)} aria-label="上一张" title="上一张"><IconChevronLeft /></button>
+                    <button type="button" className="viewer-dock-btn viewer-step-btn" onClick={() => navigateViewer(1)} aria-label="下一张" title="下一张"><IconChevronRight /></button>
+                    <span className="viewer-dock-divider" aria-hidden="true" />
+                  </> : null}
                   {!readOnly && !currentViewerIsVideo && (photoMetas && photoMetas[viewerIndex]) && (
                     <button
                       type="button"

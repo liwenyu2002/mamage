@@ -25,7 +25,7 @@ async function main() {
           const req = route.request(), p = new URL(req.url()).pathname, send = json => route.fulfill({ json });
           if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method())) { writes.push(p); return route.abort(); }
           if (p === '/api/users/me') return send({ id: 7, name, displayName: 'Nickname', email: 'student@example.invalid', role: 'admin',
-            permissions: ['projects.view', 'projects.create', 'photos.view'], workspaceEnabled: true, activeUnitId: 1 });
+            permissions: ['projects.view', 'projects.create', 'photos.view', 'ai.generate'], workspaceEnabled: true, activeUnitId: 1 });
           if (p === '/api/workspaces') return send({ enabled: true, activeUnitId: 1, units: [{ id: 1, name: '学工与融媒体中心', role: 'manager' }] });
           if (p === '/api/album-desktop') return send({ albums: [], groups: [], sharedAlbums: [], sharedFolders: [], preferences: { pins: [], colors: {} },
             scope: { userId: 7, organizationId: 2, unitId: 1 }, workspaceRevision: 1, userRevision: 1 });
@@ -45,9 +45,14 @@ async function main() {
             const input = document.querySelector('.mamage-nav-search-input').getBoundingClientRect();
             return { textFits: el.scrollWidth <= el.clientWidth + 1 && el.scrollHeight <= el.clientHeight + 1,
               withinChip: rect.left >= chip.left && rect.right <= chip.right + 1,
-              separated: input.right <= chip.left + 1, viewportFits: document.documentElement.scrollWidth <= innerWidth + 1 };
+              separated: input.right <= chip.left + 1 || input.bottom <= chip.top + 1 || chip.bottom <= input.top + 1,
+              viewportFits: document.documentElement.scrollWidth <= innerWidth + 1 };
           });
           assert.deepEqual(geometry, { textFits: true, withinChip: true, separated: true, viewportFits: true }, `${width} ${name} ${route}`);
+          if (width > 1024) assert.ok(await page.locator('.mamage-user-chip').evaluate(el => {
+            const right = el.getBoundingClientRect().right;
+            return innerWidth - right < 40;
+          }), 'Account capsule stays at the right edge');
           await page.locator('.mamage-user-chip').focus(); await page.locator('.mamage-user-chip').press('Enter');
           assert.equal(await page.locator('.mamage-user-chip').evaluate(el => getComputedStyle(el).outlineColor), 'rgba(0, 0, 0, 0.24)');
           await page.getByRole('button', { name: '账户信息', exact: true }).waitFor();
