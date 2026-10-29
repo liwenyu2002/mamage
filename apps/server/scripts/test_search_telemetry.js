@@ -46,10 +46,11 @@ test('visual progress is logged as bounded metrics, never as accuracy or raw fac
   const value = input();
   value.result.search.visual = {source:'local-person-vision',candidateCount:12,checked:3,pending:8,uncertain:1,
     coverageComplete:false,photoIds:[999],observation:'private face evidence'};
-  const event = buildSearchEvent(value);
+  const event = buildSearchEvent(value, { now: Date.UTC(2026, 9, 29, 0, 0, 0, 999) });
   assert.deepEqual(event.plan.visual,{source:'local-person-vision',coverageComplete:false,unavailable:false,
     candidateCount:12,checked:3,pending:8,uncertain:1});
-  assert.ok(!JSON.stringify(event).includes('999'));
+  assert.equal(Object.hasOwn(event.plan.visual, 'photoIds'), false);
+  assert.ok(event.createdAt.endsWith('.999'), 'unrelated timestamps are not photo evidence');
   assert.ok(!JSON.stringify(event).includes('private face evidence'));
 });
 
