@@ -49,8 +49,10 @@ async function main() {
           });
           assert.deepEqual(geometry, { textFits: true, withinChip: true, separated: true, viewportFits: true }, `${width} ${name} ${route}`);
           await page.locator('.mamage-user-chip').focus(); await page.locator('.mamage-user-chip').press('Enter');
+          assert.equal(await page.locator('.mamage-user-chip').evaluate(el => getComputedStyle(el).outlineColor), 'rgba(0, 0, 0, 0.24)');
           await page.getByRole('button', { name: '账户信息', exact: true }).waitFor();
           await page.locator('.mamage-user-chip').press('Enter');
+          await page.locator('.mamage-user-chip').evaluate(el => el.blur());
           if (artifacts) await page.screenshot({ path: path.join(artifacts, `header-${width}-${name.length}-${route === '/' ? 'home' : 'album'}.png`) });
           cases.push({ width, name, route });
         }
