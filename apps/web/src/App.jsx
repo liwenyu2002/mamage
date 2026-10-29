@@ -7,6 +7,7 @@ import SearchFeedback, { SearchSkeleton } from './SearchFeedback';
 import FolderStyleMenu, { useFolderStyle } from './folders/FolderStyleMenu';
 import ProjectLibraryToolbar from './ProjectLibraryToolbar';
 import * as authService from './services/authService';
+import { hasIamHandoff, finishIamLogin } from './services/iamLogin';
 import { buildAlbumUploadUrl, readAlbumUploadIntent, rememberAlbumUploadIntent, storedAlbumUploadIntent, clearAlbumUploadIntent } from './utils/albumUploadLink';
 import PrivacyPage from './PrivacyPage';
 import { fetchProjectList, fetchProjectImportStatuses, createProject } from './services/projectService';
@@ -135,6 +136,7 @@ function Card({ title, children }) {
   return <UiCard title={title}>{children}</UiCard>;
 }
 
+const iamLoginPending = hasIamHandoff(window.location) ? finishIamLogin() : null;
 // 钉钉 OAuth 把 JWT 挂在 fragment 上（不进服务器日志）；模块加载即落地并清理
 try {
   const tokenInHash = String(window.location.hash || '').match(/dingtalk_token=([^&]+)/);
@@ -189,7 +191,7 @@ function App() {
   const [albumShareProject, setAlbumShareProject] = React.useState(null);
   const [authLoading, setAuthLoading] = React.useState(() => {
     try {
-      return Boolean(authService.getToken && authService.getToken());
+      return Boolean(iamLoginPending || (authService.getToken && authService.getToken()));
     } catch (e) {
       return false;
     }
@@ -576,17 +578,13 @@ function App() {
       return;
     }
 
-    const token = (typeof authService.getToken === 'function') ? authService.getToken() : null;
-    if (!token) {
-      setCurrentUser(null);
-      setAuthLoading(false);
-      return;
-    }
-
     let canceled = false;
     (async () => {
       setAuthLoading(true);
       try {
+        await iamLoginPending;
+        const token = (typeof authService.getToken === 'function') ? authService.getToken() : null;
+        if (!token) { if (!canceled) setCurrentUser(null); return; }
         const u = await authService.me();
         if (canceled) return;
         // u now includes permissions array from backend: { id, username, role, permissions: [...] }

@@ -253,11 +253,11 @@ async function runDirectZipJob(job) {
     finally { polling = false; }
   };
   const checkpointTimer = setInterval(() => { void checkpoint(); }, 1000);
-  const token = jwt.sign({ id: job.userId }, JWT_SECRET, { expiresIn: '20m' });
   const endpoint = `${getDirectZipLoopbackBaseUrl()}/api/photos/zip`;
   let response = null;
 
   try {
+    const token = await require('../lib/iam_account_guard').issueToken({ id: job.userId }, JWT_SECRET, pool, { expiresIn: '20m' });
     response = await fetch(endpoint, {
       method: 'POST',
       headers: {

@@ -39,7 +39,7 @@ function getConfig() {
 }
 
 function signToken(payload) {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: '7d' });
+  return require('../lib/iam_account_guard').issueToken(payload, JWT_SECRET);
 }
 
 function redirectWithError(res, message) {
@@ -49,7 +49,7 @@ function redirectWithError(res, message) {
 
 // 前端用它决定是否渲染第三方登录按钮
 router.get('/providers', (req, res) => {
-  res.json({ password: true, dingtalk: getConfig().enabled });
+  res.json({ password: true, dingtalk: getConfig().enabled, iam: require('../lib/iam_config').iamConfig().loginReady });
 });
 
 router.get('/dingtalk/login', (req, res) => {
@@ -148,7 +148,7 @@ router.get('/dingtalk/callback', async (req, res) => {
 
     const profile = await fetchDingTalkProfile(cfg, String(oauthCode));
     const user = await resolveLocalUser(cfg, profile);
-    const token = signToken({ id: user.id, role: user.role });
+    const token = await signToken({ id: user.id, role: user.role });
     res.redirect(`/#dingtalk_token=${encodeURIComponent(token)}`);
   } catch (err) {
     console.error('[auth.dingtalk] callback error:', err && err.message ? err.message : err);

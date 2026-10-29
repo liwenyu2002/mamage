@@ -8,6 +8,12 @@ const input = () => ({ authorized: true, userId: 47, orgId: 2, unitId: 7, projec
     search: { mode: 'ai', aiUsed: true, cached: true, relaxed: false,
       plan: { people: ['邹欣'], mustTerms: ['红衣'], apiKey: 'private', vectors: [1, 2] } } } });
 
+test('authentication query parameters are omitted from request logs', () => {
+  for (const path of ['/api/auth/iam/callback', '/api/auth/iam/login', '/api/auth/dingtalk/callback']) {
+    assert.equal(searchRequestLogTarget({ path, url: path + '?code=private&state=private&access_token=private' }), path);
+  }
+});
+
 test('only authorized, authenticated, non-demo first-page searches are eligible', () => {
   assert.ok(buildSearchEvent(input()));
   for (const patch of [{ userId: null }, { authorized: false }, { demo: true }, { page: 2 }, { q: '' }, { q: {} }, { orgId: null }, { orgId: 2.5 }]) {

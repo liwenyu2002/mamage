@@ -21,7 +21,7 @@ function validateLoginInput({ email, password }) {
 }
 
 export default function AuthPage({ onAuthenticated }) {
-  const [authProviders, setAuthProviders] = React.useState({ password: true, dingtalk: false });
+  const [authProviders, setAuthProviders] = React.useState({ password: true, dingtalk: false, iam: false });
   React.useEffect(() => {
     let canceled = false;
     fetch('/api/auth/providers')
@@ -30,9 +30,11 @@ export default function AuthPage({ onAuthenticated }) {
       .catch(() => {});
     // 钉钉回调失败时错误信息挂在 hash 上
     try {
-      const m = String(window.location.hash || '').match(/dingtalk_error=([^&]+)/);
+      const m = String(window.location.hash || '').match(/(?:dingtalk|iam)_error=([^&]+)/);
       if (m) {
-        Toast.error(decodeURIComponent(m[1]));
+        const code = decodeURIComponent(m[1]);
+        Toast.error(code.startsWith('IAM_') ? code === 'IAM_ACCOUNT_LINK_REQUIRED'
+          ? '校园账号尚未关联，请联系管理员' : '校园登录未完成，请重试或联系管理员' : code);
         window.history.replaceState({}, '', window.location.pathname + window.location.search);
       }
     } catch (e) { /* ignore */ }
@@ -343,7 +345,14 @@ export default function AuthPage({ onAuthenticated }) {
             <div style={{ marginTop: 12 }}>
               <Button type="primary" theme="solid" loading={loading} onClick={handleLogin}>登录</Button>
             </div>
-            {authProviders.dingtalk ? (
+            {authProviders.iam ? (
+              <div className="auth-sso-row">
+                <span className="auth-sso-divider">或</span>
+                <Button onClick={() => { window.location.href = '/api/auth/iam/login?returnTo=' + encodeURIComponent(window.location.pathname + window.location.search); }}>
+                  校园统一登录（钉钉）
+                </Button>
+              </div>
+            ) : authProviders.dingtalk ? (
               <div className="auth-sso-row">
                 <span className="auth-sso-divider">或</span>
                 <Button onClick={() => { window.location.href = '/api/auth/dingtalk/login'; }}>

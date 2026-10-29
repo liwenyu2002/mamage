@@ -31,6 +31,18 @@ function createSharedStore(namespace, { db, enabled = distributed } = {}) {
       const [result] = await pool().query('DELETE FROM runtime_state WHERE namespace = ? AND state_key = ?', [namespace, String(key)]);
       return result.affectedRows > 0;
     },
+    async pruneExpired(limit = 1000) {
+      limit = Math.max(1, Math.min(10000, Math.floor(Number(limit) || 1000)));
+      if (!active()) {
+        let deleted = 0;
+        for (const [key, value] of memory) {
+          if (ttl(value) < Date.now()) { memory.delete(key); if (++deleted >= limit) break; }
+        }
+        return deleted;
+      }
+      const [result] = await pool().query('DELETE FROM runtime_state WHERE namespace = ? AND expires_at < ? LIMIT ?', [namespace, Date.now(), limit]);
+      return result.affectedRows;
+    },
     async entries() {
       if (!active()) return [...memory.entries()];
       const [rows] = await pool().query('SELECT state_key, payload FROM runtime_state WHERE namespace = ?', [namespace]);

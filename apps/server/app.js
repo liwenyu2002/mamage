@@ -99,6 +99,7 @@ const runtime = createRuntimeLifecycle({
 runtime.installSignals();
 
 const app = express();
+app.use('/api/integrations/iam', require('./routes/iam_push'));
 
 // 9mb：给 JSON 包裹开销（字段名/引号/花括号等）留余量，让路由自身的内容上限校验真正能命中，
 // 而不是被这里的通用限制提前拦截掉（body-parser 超限直接抛 Express 内置 413，绕过路由的
@@ -177,6 +178,8 @@ app.use((req, res, next) => {
   if (process.env.REQUEST_LOGS !== '0') console.log(`${req.method} ${searchRequestLogTarget(req)}`);
   next();
 });
+app.use('/api/auth/iam', require('./routes/auth_iam'));
+app.use('/api', require('./lib/iam_account_guard').bearerGuard(keys.JWT_SECRET));
 
 // ============ API 璺敱 ============
 app.use('/api/projects', projectsRouter);

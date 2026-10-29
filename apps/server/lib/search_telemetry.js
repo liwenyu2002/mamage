@@ -45,7 +45,8 @@ function sanitizePlan(input) {
 }
 
 function searchRequestLogTarget(req) {
-  return /^\/api\/photos\/search\/?$/i.test(req.path || '') ? req.path : req.url;
+  const rootCallback = req.path === '/' && Object.keys(req.query || {}).some(key => ['code', 'state', 'error'].includes(key));
+  return rootCallback || /^(?:\/api\/photos\/search\/?$|\/api\/auth\/)/i.test(req.path || '') ? req.path : req.url;
 }
 
 function buildSearchEvent(input, { now = Date.now(), retentionDays = 30 } = {}) {

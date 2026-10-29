@@ -83,7 +83,7 @@ async function hasPasswordColumn() {
 }
 
 function signToken(payload) {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: '7d' });
+  return require('../lib/iam_account_guard').issueToken(payload, JWT_SECRET);
 }
 
 // permissions helper
@@ -97,6 +97,7 @@ async function authMiddleware(req, res, next) {
   const token = m[1];
   try {
     const payload = jwt.verify(token, JWT_SECRET);
+    if (!req.iamAccountChecked) await require('../lib/iam_account_guard').assertSession(payload.id, payload);
     let user = null;
     try {
       const [rows] = await pool.query('SELECT id, student_no, name, department, role, email, avatar_url, nickname, organization_id FROM users WHERE id = ?', [payload.id]);
@@ -351,7 +352,7 @@ router.post('/register', async (req, res) => {
         const userId = result.insertId;
         await conn.query('UPDATE invitations SET uses = uses + 1 WHERE id = ?', [inv.id]);
         await conn.commit(); conn.release();
-        const token = signToken({ id: userId, role });
+        const token = await signToken({ id: userId, role });
         return res.json({ id: userId, token });
       } else {
         // normal registration
@@ -378,7 +379,7 @@ router.post('/register', async (req, res) => {
         const sql = `INSERT INTO users (${cols.join(', ')}) VALUES (${placeholders.join(', ')})`;
         const [result] = await pool.query(sql, params);
         const userId = result.insertId;
-        const token = signToken({ id: userId, role });
+        const token = await signToken({ id: userId, role });
         return res.json({ id: userId, token });
       }
     } catch (e) {
@@ -435,7 +436,7 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'invalid credentials' });
     }
     await loginRateReset(ip);
-    const token = signToken({ id: user.id, role: user.role });
+    const token = await signToken({ id: user.id, role: user.role });
     // load permissions for this role
     let perms = [];
     try {
@@ -447,6 +448,7 @@ router.post('/login', async (req, res) => {
     }
     res.json({ id: user.id, token, username: user.name, role: user.role, permissions: perms });
   } catch (err) {
+    if (err.code === 'ACCOUNT_SESSION_REVOKED') return res.status(401).json({ error: err.code, message: '账号已停用，请联系管理员' });
     console.error('[users.login]', err);
     res.status(500).json({ error: 'server error' });
   }
