@@ -23,17 +23,30 @@
 :root .mamage-nav-link { font-size: 13px; padding-inline: 10px; font-weight: 550; }
 :root .mamage-nav-link.is-active { background: var(--glass-active); color: var(--glass-ink); }
 :root .mamage-header .mamage-nav-actions { flex: 1 1 580px; display: flex; flex-wrap: wrap; gap: 10px; max-width: none; min-width: 0; width: auto; }
-:root .mamage-nav-search-group { display: flex; align-items: center; gap: 4px; padding: 5px; min-width: 150px; min-height: 46px; flex: 1 1 160px; border-radius: 26px; }
+:root .mamage-nav-search-group { display: flex; align-items: center; gap: 4px; padding: 5px; min-width: 150px; min-height: 46px; flex: 0 1 340px; max-width: 360px; border-radius: 26px; }
 :root .mamage-header .mamage-nav-search-field { min-width: 0; max-width: none; width: 100%; }
 :root .mamage-header .mamage-nav-search-input { border: 0; background: transparent; box-shadow: none; font-size: 13px; }
 :root .mamage-nav-actions > .mamage-action-button { min-height: 42px; border-radius: 24px; }
 :root .mamage-account-group { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 12px; max-width: 100%; margin-left: auto; }
-:root .mamage-account-group .mamage-user-menu { max-width: min(350px, calc(100vw - 80px)); margin: 0; }
-:root .mamage-header .mamage-user-chip { min-height: 46px; padding: 6px 12px 6px 6px; gap: 10px; justify-content: flex-start; }
-:root .mamage-user-name { background: var(--glass-active); padding: 7px 12px; font-size: 13px; max-width: 10em; }
-:root .mamage-header .mamage-user-email { display: block; max-width: 150px; font-size: 13px; }
+:root .mamage-account-group .mamage-user-menu {
+  width: 320px; max-width: min(350px, calc(100vw - 80px)); height: var(--account-head-height, 46px); margin: 0;
+  z-index: 20; pointer-events: none;
+}
+:root .mamage-account-surface { position: absolute; top: 0; right: 0; width: calc(100% - 32px); border-radius: 24px; pointer-events: auto; transition: width 520ms var(--glass-spring); }
+:root .mamage-user-menu[data-open='true'] .mamage-account-surface { width: 100%; }
+:root .mamage-account-group .glass-settings-slot { transform: translateX(32px); transition: width 520ms var(--glass-spring), flex-basis 520ms var(--glass-spring), transform 520ms var(--glass-spring); }
+:root .mamage-account-group:has(.mamage-user-menu[data-open='true']) .glass-settings-slot { transform: none; }
+:root .mamage-header .mamage-user-chip { display: flex; width: 100%; min-height: 46px; padding: 6px 12px 6px 6px; gap: 10px; justify-content: flex-start; color: var(--glass-ink); }
+:root .mamage-user-name { background: var(--glass-active); padding: 7px 12px; font-size: 13px; max-width: 10em; flex-shrink: 0; }
+:root .mamage-header .mamage-user-email { display: block; min-width: 0; max-width: 150px; font-size: 13px; }
 :root .mamage-user-chevron { width: 16px; height: 16px; flex: 0 0 16px; margin-left: auto; transition: transform 300ms var(--glass-spring); }
-:root .mamage-user-menu[open] .mamage-user-chevron { transform: rotate(90deg); }
+:root .mamage-user-menu[data-open='true'] .mamage-user-chevron { transform: rotate(90deg); }
+:root .mamage-user-menu .mamage-user-menu-panel {
+  position: static; width: 100%; padding: 8px; border-radius: 0;
+  max-height: calc(100dvh - var(--account-head-height) - 96px); overflow-y: auto;
+}
+:root .mamage-user-menu .mamage-user-menu-panel::before { content: ''; height: 1px; background: var(--glass-line); margin: 0 8px 4px; }
+:root .mamage-user-menu-panel button { font-size: 13px; }
 :root .mamage-header.is-desktop-header.is-project-detail { margin-bottom: 0; padding-bottom: 0; }
 :root .mamage-header.is-desktop-header.is-project-detail .mamage-nav-actions { max-width: none; flex: 1 1 580px; }
 :root .mamage-header.is-desktop-header.is-project-detail .mamage-nav-search-field { max-width: none; }
@@ -60,11 +73,14 @@
 }
 @media (max-width: 700px) {
   :root .mamage-header .mamage-nav-actions { width: 100%; flex-basis: 100%; gap: 8px; }
+  :root .mamage-nav-search-group { flex: 1 1 180px; max-width: 340px; }
   :root .mamage-account-group { width: 100%; }
-  :root .mamage-account-group .mamage-user-menu { flex: 1 1 220px; max-width: calc(100% - 48px); }
+  :root .mamage-account-group .mamage-user-menu { flex: 0 1 auto; max-width: calc(100% - 48px); }
+  :root .mamage-account-surface { width: 100%; }
+  :root .mamage-account-group .glass-settings-slot { transform: none; }
   :root .mamage-header .mamage-user-chip { width: 100%; }
   :root .mamage-header .mamage-user-email { flex: 1; min-width: 0; max-width: none; }
   :root .mamage-header .mamage-user-name { flex-shrink: 0; max-width: 9em; }
   :root .mamage-account-group:has(.glass-settings.is-open) .mamage-user-menu { max-width: 100%; }
 }
-@media (prefers-reduced-motion: reduce) { :root .mamage-user-chevron { transition: none; } }
+@media (prefers-reduced-motion: reduce) { :root :is(.mamage-user-chevron, .mamage-account-surface, .mamage-account-group .glass-settings-slot) { transition: none; } }

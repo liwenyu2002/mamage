@@ -16,7 +16,7 @@ import { fetchWorkspaces, setActiveWorkspace } from './services/workspaceService
 import { resolveAssetUrl, rewriteMediaUrlsDeep } from './services/request';
 import IfCan from './permissions/IfCan';
 import { LiquidGlassDefs } from './liquidGlass';
-import { ViewerDisplaySettings, useViewerAppearance } from './ui/Glass';
+import { GlassAccountMenu, ViewerDisplaySettings, useViewerAppearance } from './ui/Glass';
 import UiZoomControl, { useUiZoom, applyDocumentZoom } from './UiZoomControl';
 import { IconFaceScan, IconSparkleAI, IconChevronRight } from './ui/icons';
 
@@ -251,32 +251,9 @@ function App() {
   const photoSearchAbortRef = React.useRef(null);
   const photoSearchResultsRef = React.useRef([]);
   const [photoSearchPhase, setPhotoSearchPhase] = React.useState('idle');
-  const userMenuRef = React.useRef(null);
   React.useEffect(() => () => {
     latestPhotoSearchReqRef.current += 1;
     photoSearchAbortRef.current?.abort();
-  }, []);
-
-  // 用户菜单（原生 <details>）：点外部/按 Esc 关闭；点菜单项后也自动收起
-  React.useEffect(() => {
-    const onDocClick = (e) => {
-      const el = userMenuRef.current;
-      if (!el || !el.open) return;
-      const summary = el.querySelector('summary');
-      if (summary && summary.contains(e.target)) return; // 原生 toggle 自己处理
-      if (e.target.closest && e.target.closest('.mamage-workspace-control')) return;
-      el.open = false;
-    };
-    const onKey = (e) => {
-      const el = userMenuRef.current;
-      if (e.key === 'Escape' && el && el.open) el.open = false;
-    };
-    document.addEventListener('click', onDocClick);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('click', onDocClick);
-      document.removeEventListener('keydown', onKey);
-    };
   }, []);
 
   const preloadProjectDetail = React.useCallback(() => {
@@ -1428,18 +1405,13 @@ function App() {
             <div className="mamage-account-group">
             <ViewerDisplaySettings appearance={displaySettings.appearance} onChange={displaySettings.update} darkLabel="深色查看器" />
             {currentUser ? (
-              <details
-                className="mamage-user-menu"
-                ref={(el) => { userMenuRef.current = el; }}
-              >
-                <summary className="mamage-user-chip" aria-label={`${userName}，账户菜单`}>
+              <GlassAccountMenu label={`${userName}，账户菜单`} triggerContent={<>
                   <span className="mamage-user-name">{userName}</span>
                   {workspaceInfo ? <span className="mamage-user-email">
                     {workspaceInfo.units.find((unit) => Number(unit.id) === Number(workspaceInfo.activeUnitId))?.name || '历史相册'}
                   </span> : null}
                   <IconChevronRight className="mamage-user-chevron" />
-                </summary>
-                <div className="mamage-user-menu-panel">
+                </>}>
                   {workspaceInfo ? (
                     <label className="mamage-workspace-control">
                       <span>当前工作空间</span>
@@ -1458,17 +1430,15 @@ function App() {
                   ) : null}
                   {workspaceInfo?.activeUnitId ? (
                     <button type="button" onClick={() => {
-                      if (userMenuRef.current) userMenuRef.current.open = false;
                       setAlbumShareProject(null);
                       setWorkspacePanelPhotoIds([]);
                       setWorkspacePanelOpen(true);
                     }}>工作空间管理</button>
                   ) : null}
-                  <FolderStyleMenu value={folderStyle} onChange={style => { setFolderStyle(style); if (userMenuRef.current) userMenuRef.current.open = false; }} />
+                  <FolderStyleMenu value={folderStyle} onChange={setFolderStyle} />
                   <button type="button" onClick={handleNavigateAccount}>账户信息</button>
                   <button type="button" onClick={handleLogout}>退出账号</button>
-                </div>
-              </details>
+              </GlassAccountMenu>
             ) : (
               <button
                 type="button"

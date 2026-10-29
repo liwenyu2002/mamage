@@ -57,7 +57,7 @@ async function main() {
         });
         const page = await context.newPage(); page.on('pageerror', e => errors.push(e.message));
         await page.goto(base);
-        await page.locator('.mamage-user-menu summary').click();
+        await page.locator('.mamage-user-chip').click();
         await page.getByRole('button', { name: '账户信息', exact: true }).click();
         const account = page.locator('body');
         await page.getByText('身份：', { exact: true }).waitFor();
@@ -67,7 +67,7 @@ async function main() {
         assert.equal(await page.getByText('管理员：管理邀请码', { exact: true }).count(), identity === 'organization_admin' ? 1 : 0);
         if (artifacts) await page.screenshot({ path: path.join(artifacts, `account-${identity}-${width}.png`), fullPage: true });
         assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `Account overflow: ${identity}-${width}`);
-        await page.locator('.mamage-user-menu summary').click();
+        await page.locator('.mamage-user-chip').click();
         await page.getByRole('button', { name: '工作空间管理', exact: true }).click();
         const dialog = page.getByRole('dialog'); await dialog.waitFor();
         assert.equal(await dialog.getByRole('tab', { name: '成员', exact: true }).count(), access.access.canManageMembers ? 1 : 0);

@@ -83,7 +83,7 @@ async function main() {
             await oldPage.close();
           }
           await page.locator('.mamage-user-chip').click();
-          const accountMaterial = await page.locator('.mamage-user-menu-panel').evaluate(el => {
+          const accountMaterial = await page.locator('.mamage-account-surface').evaluate(el => {
             const s = getComputedStyle(el); return { background: s.background, edge: s.boxShadow, blur: s.backdropFilter };
           });
           assert.equal(accountMaterial.blur, 'blur(20px) saturate(1.45)');

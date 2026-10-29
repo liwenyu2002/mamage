@@ -16,7 +16,7 @@ async function main() {
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const browser = await chromium.launch(), base = `http://127.0.0.1:${server.address().port}`, cases = [];
   try {
-    for (const width of [320, 390, 1024, 1100, 1440]) for (const name of ['李文宇', '欧阳思远', 'Alexandria Montgomery']) {
+    for (const width of [320, 390, 1024, 1100, 1440, 1920, 2560]) for (const name of ['李文宇', '欧阳思远', 'Alexandria Montgomery']) {
       const context = await browser.newContext({ viewport: { width, height: 900 } });
       const errors = [], writes = [];
       try {
@@ -38,10 +38,11 @@ async function main() {
         for (const route of ['/', '/?projectId=84']) {
           await page.goto(base + route);
           const label = page.locator('.mamage-user-name'); await label.waitFor();
+          await page.waitForTimeout(100);
           assert.equal(await label.innerText(), name);
           assert.equal(await page.locator('.mamage-avatar').count(), 0);
           const geometry = await label.evaluate(el => {
-            const rect = el.getBoundingClientRect(), chip = el.closest('summary').getBoundingClientRect();
+            const rect = el.getBoundingClientRect(), chip = el.closest('.mamage-user-chip').getBoundingClientRect();
             const input = document.querySelector('.mamage-nav-search-input').getBoundingClientRect();
             return { textFits: el.scrollWidth <= el.clientWidth + 1 && el.scrollHeight <= el.clientHeight + 1,
               withinChip: rect.left >= chip.left && rect.right <= chip.right + 1,
@@ -53,10 +54,52 @@ async function main() {
             const right = el.getBoundingClientRect().right;
             return innerWidth - right < 40;
           }), 'Account capsule stays at the right edge');
+          assert.ok((await page.locator('.mamage-nav-search-group').boundingBox()).width <= 361, 'Search must not fill unused desktop space');
+          const closed = await page.locator('.mamage-account-surface').boundingBox();
+          const pageTop = await page.locator('.mamage-content').evaluate(el => el.getBoundingClientRect().top);
           await page.locator('.mamage-user-chip').focus(); await page.locator('.mamage-user-chip').press('Enter');
           assert.equal(await page.locator('.mamage-user-chip').evaluate(el => getComputedStyle(el).outlineColor), 'rgba(0, 0, 0, 0.24)');
           await page.getByRole('button', { name: '账户信息', exact: true }).waitFor();
-          await page.locator('.mamage-user-chip').press('Enter');
+          await page.waitForTimeout(600);
+          const opened = await page.locator('.mamage-account-surface').boundingBox();
+          assert.ok(opened.height > closed.height + 100, 'The capsule unfolds down into its menu');
+          if (width >= 1024) assert.ok(opened.width > closed.width + 20, 'The same capsule stretches horizontally');
+          assert.ok(Math.abs(opened.x + opened.width - closed.x - closed.width) < 1, 'Unfolding keeps the right edge anchored');
+          const openedPageTop = await page.locator('.mamage-content').evaluate(el => el.getBoundingClientRect().top);
+          assert.ok(Math.abs(openedPageTop - pageTop) < 1, `Unfolding must not push content down: ${width} ${name} ${route} ${pageTop} -> ${openedPageTop}`);
+          assert.equal(await page.locator('.mamage-user-menu-panel').evaluate(el => getComputedStyle(el).backdropFilter), 'none', 'No separate nested glass panel');
+          if (artifacts) await page.screenshot({ path: path.join(artifacts, `account-open-${width}-${name.length}-${route === '/' ? 'home' : 'album'}.png`) });
+          await page.keyboard.press('Escape');
+          assert.equal(await page.locator('.mamage-user-chip').getAttribute('aria-expanded'), 'false');
+          assert.equal(await page.locator('.glass-unfold-body').evaluate(el => el.inert), true);
+          await page.waitForTimeout(600);
+          assert.ok(Math.abs((await page.locator('.mamage-account-surface').boundingBox()).height - closed.height) < 1);
+          if (width === 1440 && name === '李文宇' && route === '/') {
+            const frames = await page.evaluate(async () => {
+              const trigger = document.querySelector('.mamage-user-chip'), surface = document.querySelector('.mamage-account-surface');
+              const frames = [];
+              for (const duration of [180, 160, 650, 650]) {
+                trigger.click();
+                const start = performance.now();
+                do {
+                  await new Promise(requestAnimationFrame);
+                  const r = surface.getBoundingClientRect(), css = getComputedStyle(surface);
+                  frames.push({ width: r.width, height: r.height, right: r.right, opacity: css.opacity, blur: css.backdropFilter,
+                    top: document.querySelector('.mamage-content').getBoundingClientRect().top });
+                } while (performance.now() - start < duration);
+              }
+              return frames;
+            });
+            assert.ok(frames.some(f => f.width > closed.width + 3 && f.width < opened.width - 3), 'Width interpolates, rather than appearing at its final size');
+            assert.ok(frames.some(f => f.height > closed.height + 15 && f.height < opened.height - 15), 'Body is pulled open rather than popping in');
+            assert.ok(frames.every(f => f.opacity === '1' && f.blur === 'blur(20px) saturate(1.45)' && Math.abs(f.right - closed.x - closed.width) < 1 && Math.abs(f.top - pageTop) < 1), 'No fade, filter flash, moving anchor or page reflow during rapid reversals');
+            await page.emulateMedia({ reducedMotion: 'reduce' });
+            await page.locator('.mamage-user-chip').click();
+            assert.equal(await page.locator('.mamage-account-surface').evaluate(el => getComputedStyle(el).transitionDuration), '0s');
+            await page.locator('.mamage-brand-button').click();
+            assert.equal(await page.locator('.mamage-user-chip').getAttribute('aria-expanded'), 'false', 'Outside click closes the account menu');
+            await page.emulateMedia({ reducedMotion: 'no-preference' });
+          }
           await page.locator('.mamage-user-chip').evaluate(el => el.blur());
           if (artifacts) await page.screenshot({ path: path.join(artifacts, `header-${width}-${name.length}-${route === '/' ? 'home' : 'album'}.png`) });
           cases.push({ width, name, route });

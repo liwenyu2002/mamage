@@ -7,6 +7,45 @@ export function GlassReveal({ open, children, className = '' }) {
   </div>;
 }
 
+export function GlassAccountMenu({ label, triggerContent, children }) {
+  const [open, setOpen] = React.useState(false);
+  const [headHeight, setHeadHeight] = React.useState(46);
+  const root = React.useRef(null);
+  const trigger = React.useRef(null);
+  const id = React.useId();
+  React.useLayoutEffect(() => {
+    // Reserve only the trigger's height; unfolding must not push the page down.
+    const measure = () => setHeadHeight(trigger.current?.offsetHeight || 46);
+    const observer = new ResizeObserver(measure);
+    observer.observe(trigger.current);
+    measure();
+    return () => observer.disconnect();
+  }, []);
+  React.useEffect(() => {
+    if (!open) return undefined;
+    const outside = event => { if (!root.current?.contains(event.target)) setOpen(false); };
+    const escape = event => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault(); event.stopPropagation();
+      setOpen(false); trigger.current?.focus();
+    };
+    document.addEventListener('pointerdown', outside);
+    document.addEventListener('keydown', escape, true);
+    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape, true); };
+  }, [open]);
+  return <div className="mamage-user-menu" data-open={open} ref={root} style={{ '--account-head-height': `${headHeight}px` }}>
+    <div className="mamage-account-surface" data-glass="clear">
+      <button type="button" className="mamage-user-chip" ref={trigger} aria-label={label}
+        aria-expanded={open} aria-controls={id} onClick={() => setOpen(value => !value)}>{triggerContent}</button>
+      <div className="glass-unfold-body" id={id} aria-hidden={!open} inert={!open ? '' : undefined}>
+        <div><div className="mamage-user-menu-panel" onClick={event => {
+          if (event.target.closest('button')) setOpen(false);
+        }}>{children}</div></div>
+      </div>
+    </div>
+  </div>;
+}
+
 const VIEWER_APPEARANCE_KEY = 'mamage-viewer-appearance';
 export function useViewerAppearance() {
   const [appearance, setAppearance] = React.useState(() => {

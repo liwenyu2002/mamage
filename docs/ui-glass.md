@@ -2,7 +2,8 @@
 
 `apps/web/src/ui/glass.css` owns the production chrome material, thin rim,
 readable surfaces, dark viewer palette, and spring motion. `ui/Glass.jsx` owns
-the clipped panel reveal and persistent viewer display preferences.
+the clipped panel reveal, continuous account disclosure, and persistent viewer
+display preferences.
 
 ## Contract
 
@@ -21,6 +22,10 @@ the clipped panel reveal and persistent viewer display preferences.
 - Headers with dropdown children render their material on a pseudo-element;
   applying backdrop blur to the parent prevents the dropdown seeing the page.
   Expanding display settings reserves header space instead of covering controls.
+- `GlassAccountMenu` uses one glass surface for the trigger and menu. Its reserved
+  slot prevents navigation reflow while the surface stretches left and unfolds
+  down. The body stays mounted for the reverse animation but is inert when closed.
+  Never add a second backdrop or a detached dropdown plate inside this surface.
 
 ## Preserved Surfaces
 
@@ -36,6 +41,7 @@ shared chrome, while "dark viewer" changes only the viewer, preserving folder
 styles. Changes synchronize across mounted viewers and browser tabs.
 `ui/navigation.css` owns the separated navigation/search/account capsule layout,
 not a second material system. Small screens wrap groups without hiding names.
+Search stays around 340px (maximum 360px); unused wide-screen space stays blank.
 
 ## Verification
 
