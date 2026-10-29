@@ -22,6 +22,7 @@
     "test:permissions-browser": "node scripts/test-access-policy-browser.cjs",
     "test:iam": "node --test scripts/test-iam-login.cjs",
     "test:iam-browser": "node scripts/test-iam-login-browser.cjs",
+    "test:user-name-browser": "node scripts/test-user-name-browser.cjs",
     "pretest:audit": "npm run test:iam",
     "test:news-browser": "node scripts/test-news-usability-browser.cjs",
     "test:news-selection": "node scripts/test-news-editor-selection.cjs",

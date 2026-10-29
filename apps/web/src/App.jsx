@@ -1085,8 +1085,7 @@ function App() {
     return items;
   }, [currentProjectId, projectHeader, projectHeaderReady]);
 
-  const userLabel = currentUser && (currentUser.displayName || currentUser.email || currentUser.name);
-  const userInitial = String(userLabel || 'U').trim().charAt(0).toUpperCase() || 'U';
+  const userName = String(currentUser?.name || currentUser?.displayName || '账户').trim() || '账户';
   const activeMediaPlatform = MEDIA_STUDIO_PLATFORMS.find((item) => item.key === functionPage) || DEFAULT_MEDIA_PLATFORM;
   const activeMediaSection = activeMediaPlatform.editor === 'video' ? 'video' : 'text';
   const activeTextPlatformIndex = Math.max(0, TEXT_MEDIA_PLATFORMS.findIndex((item) => item.key === activeMediaPlatform.key));
@@ -1436,11 +1435,11 @@ function App() {
                 className="mamage-user-menu"
                 ref={(el) => { userMenuRef.current = el; }}
               >
-                <summary className="mamage-user-chip">
-                  <span className="mamage-avatar" aria-hidden="true">{userInitial}</span>
-                  <span className="mamage-user-email">
-                    {workspaceInfo ? (workspaceInfo.units.find((unit) => Number(unit.id) === Number(workspaceInfo.activeUnitId))?.name || '历史相册') : userLabel}
-                  </span>
+                <summary className="mamage-user-chip" aria-label={`${userName}，账户菜单`}>
+                  <span className="mamage-user-name">{userName}</span>
+                  {workspaceInfo ? <span className="mamage-user-email">
+                    {workspaceInfo.units.find((unit) => Number(unit.id) === Number(workspaceInfo.activeUnitId))?.name || '历史相册'}
+                  </span> : null}
                 </summary>
                 <div className="mamage-user-menu-panel">
                   {workspaceInfo ? (
