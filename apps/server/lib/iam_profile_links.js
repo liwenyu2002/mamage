@@ -5,6 +5,24 @@ function scalar(value) {
   if (Array.isArray(value)) return value.length === 1 ? scalar(value[0]) : '';
   return typeof value === 'string' ? value.trim() : '';
 }
+function configuredClaim(profile, path) {
+  let value = profile;
+  for (const key of path.split('.')) {
+    if (Array.isArray(value)) {
+      if (value.length !== 1) throw error('IAM_PROFILE_CLAIMS_CONFLICT', 403);
+      value = value[0];
+    }
+    if (!value || typeof value !== 'object' || !Object.hasOwn(value, key)) return '';
+    value = value[key];
+  }
+  if (Array.isArray(value)) {
+    if (value.length !== 1) throw error('IAM_PROFILE_CLAIMS_CONFLICT', 403);
+    value = value[0];
+  }
+  if (value == null) return '';
+  if (typeof value !== 'string') throw error('IAM_PROFILE_CLAIMS_CONFLICT', 403);
+  return value.trim();
+}
 function claimsFromProfile(profile, cfg = {}) {
   const attributes = profile?.attributes && typeof profile.attributes === 'object' && !Array.isArray(profile.attributes) ? profile.attributes : {};
   const pick = keys => {
@@ -12,8 +30,11 @@ function claimsFromProfile(profile, cfg = {}) {
     if (values.length > 1) throw error('IAM_PROFILE_CLAIMS_CONFLICT', 403);
     return values[0] || '';
   };
-  const claims = { name: name(pick(['name', 'displayName', 'cn'])), email: email(pick(['email', 'mail'])),
-    studentNo: name(pick(['studentNo', 'student_no', 'employeeNumber', 'workNo', 'jobNumber'])) };
+  // Explicit mappings avoid confusing login names, phone numbers and separate campus account numbers.
+  const read = (path, aliases) => path ? configuredClaim(profile, path) : pick(aliases);
+  const claims = { name: name(read(cfg.profileNamePath, ['name', 'displayName', 'cn'])),
+    email: email(read(cfg.profileEmailPath, ['email', 'mail'])),
+    studentNo: name(read(cfg.profileStudentPath, ['studentNo', 'student_no', 'employeeNumber', 'workNo', 'jobNumber'])) };
   const subject = email(profile?.id);
   if (cfg.subjectEmailDomain && cfg.profileIdPath === 'id' && /^[^\s@]+@[^\s@]+$/.test(subject)
     && subject.split('@')[1] === cfg.subjectEmailDomain) {
@@ -34,6 +55,9 @@ async function matchUser(conn, cfg, claims) {
   if (!user) return null;
   if (!claims.name && !claims.subjectEmail) throw error('IAM_ACCOUNT_LINK_REQUIRED', 403);
   if (claims.name && name(user.name) !== claims.name) throw error('IAM_ACCOUNT_MATCH_CONFLICT', 403);
+  const [[bound]] = await conn.query('SELECT subject_id FROM iam_login_identities WHERE source_key = ? AND user_id = ? FOR UPDATE',
+    [cfg.sourceKey, user.id]);
+  if (bound) throw error('IAM_ACCOUNT_MATCH_CONFLICT', 403);
   return Number(user.id);
 }
 async function resolveProfile(db, cfg, profile, subject) {
@@ -48,13 +72,14 @@ async function resolveProfile(db, cfg, profile, subject) {
       try {
         claims = claimsFromProfile(profile, cfg); userId = await matchUser(conn, cfg, claims);
         if (!userId && cfg.autoProvision) {
+          if (!claims.name) throw error('IAM_PROFILE_INCOMPLETE', 403);
           const [conflicts] = await conn.query(`SELECT id FROM users WHERE
             (email = ? AND email <> '') OR (student_no = ? AND student_no <> '') OR (name = ? AND name <> '') LIMIT 1 FOR UPDATE`,
-          [claims.email || '', claims.studentNo || '', claims.name || '']);
+          [claims.email || '', claims.studentNo || '', claims.email || claims.studentNo ? '' : claims.name || '']);
           if (conflicts.length) throw error('IAM_ACCOUNT_LINK_REQUIRED', 403);
           const studentNo = 'iam_' + sha256(`${cfg.sourceKey}\n${subject}`).slice(0, 28);
           const [created] = await conn.query("INSERT INTO users (student_no, name, email, role, organization_id) VALUES (?, ?, ?, 'visitor', ?)",
-            [studentNo, claims.name || '校园用户', claims.email || null, cfg.orgId]);
+            [studentNo, claims.name, claims.email || null, cfg.orgId]);
           userId = Number(created.insertId);
         }
       }
@@ -69,6 +94,7 @@ async function resolveProfile(db, cfg, profile, subject) {
         await conn.query('INSERT INTO iam_login_identities (source_key, subject_id, user_id) VALUES (?, ?, ?)', [cfg.sourceKey, subject, userId]);
         await conn.query('INSERT INTO iam_identity_audit (source_key, identity_hash, user_id, action) VALUES (?, ?, ?, ?)',
           [cfg.sourceKey, sha256(subject), userId, 'profile_account_linked']);
+        await conn.query('DELETE FROM iam_login_pending WHERE source_key = ? AND subject_id = ?', [cfg.sourceKey, subject]);
       }
     }
     if (!result?.error) {

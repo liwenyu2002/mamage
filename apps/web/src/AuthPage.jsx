@@ -52,7 +52,8 @@ export default function AuthPage({ onAuthenticated }) {
       if (m) {
         const code = decodeURIComponent(m[1]);
         const message = code.startsWith('IAM_') ? code === 'IAM_ACCOUNT_LINK_REQUIRED'
-          ? '校园账号尚未关联，请联系管理员' : '校园登录未完成，请重试或联系管理员' : code;
+          ? '校园账号尚未关联，请联系管理员' : code === 'IAM_PROFILE_INCOMPLETE' || code === 'IAM_PROFILE_ID_MISSING'
+            ? '校园身份资料不完整，请联系管理员核对登录资料配置' : '校园登录未完成，请重试或联系管理员' : code;
         setLoginAlert(message); Toast.error(message);
         window.history.replaceState({}, '', window.location.pathname + window.location.search);
       }

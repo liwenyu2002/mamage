@@ -269,3 +269,104 @@ test('new IAM-authorized users can provision without a local list but never gain
     assert.equal(own.id,7);
   }finally{f.close();}
 });
+
+const campusProfile = (patch = {}) => ({ id:'synthetic-mobile', attributes:{
+  userId:'stable-campus-user', mainAccount:{name:'Original owner'},
+  appAccount:{attributes:{realName:'Original owner',orgemail:'existing@example.edu',employeeNum:'student-7',jobnumber:'other-number',...patch}}
+} });
+const campusConfig = () => iamConfig({...env,IAM_AUTO_PROVISION:'1',IAM_PROFILE_LOGIN_MATCHING:'1',
+  IAM_PROFILE_ID_PATH:'attributes.userId',IAM_PROFILE_NAME_PATH:'attributes.mainAccount.name',
+  IAM_PROFILE_EMAIL_PATH:'attributes.appAccount.attributes.orgemail',
+  IAM_PROFILE_STUDENT_PATH:'attributes.appAccount.attributes.employeeNum'});
+
+test('school nested profile fields bind by verified identifiers, not display name or a mobile subject',async()=>{
+  const {resolveProfile,claimsFromProfile}=require('../lib/iam_profile_links'),{profileId}=require('../routes/auth_iam'),f=fixture(),config=campusConfig();
+  try {
+    const profile=campusProfile();
+    assert.deepEqual(claimsFromProfile(profile,config),{name:'Original owner',email:'existing@example.edu',studentNo:'student-7'});
+    assert.equal(profileId(profile,config.profileIdPath),'stable-campus-user');
+    const user=await resolveProfile(f.pool,config,profile,profileId(profile,config.profileIdPath));
+    assert.equal(user.id,7);assert.equal(user.role,'admin');
+    assert.equal(f.sql.prepare('SELECT COUNT(*) n FROM users').get().n,2);
+    assert.equal(f.sql.prepare('SELECT photographer_id FROM photos').get().photographer_id,7);
+    assert.equal(f.sql.prepare('SELECT role FROM organization_unit_memberships').get().role,'manager');
+    const changed={id:'changed-mobile',attributes:{userId:'stable-campus-user',mainAccount:{name:'Changed display name'}}};
+    assert.equal((await resolveProfile(f.pool,config,changed,profileId(changed,config.profileIdPath))).id,7);
+    assert.equal(f.sql.prepare('SELECT subject_id FROM iam_login_identities').get().subject_id,'stable-campus-user');
+    await assert.rejects(resolveProfile(f.pool,config,profile,'different-campus-user'),/IAM_ACCOUNT_MATCH_CONFLICT/);
+    assert.equal(f.sql.prepare('SELECT COUNT(*) n FROM iam_login_identities').get().n,1);
+  }finally{f.close();}
+});
+
+test('configured identity paths do not guess email or account numbers from unrelated profile fields',()=>{
+  const {claimsFromProfile}=require('../lib/iam_profile_links'),config=campusConfig();
+  const profile={...campusProfile(),email:'decoy@example.edu',name:'Decoy',studentNo:'decoy'};
+  assert.equal(claimsFromProfile(profile,config).email,'existing@example.edu');
+  assert.equal(claimsFromProfile(profile,config).studentNo,'student-7');
+  assert.equal(claimsFromProfile(campusProfile({orgemail:'  Existing@Example.EDU  '}),config).email,'existing@example.edu');
+  assert.equal(claimsFromProfile(campusProfile({orgemail:undefined}),config).email,'');
+  assert.throws(()=>claimsFromProfile(campusProfile({orgemail:['one@example.edu','two@example.edu']}),config),/IAM_PROFILE_CLAIMS_CONFLICT/);
+  assert.throws(()=>claimsFromProfile(campusProfile({orgemail:{value:'existing@example.edu'}}),config),/IAM_PROFILE_CLAIMS_CONFLICT/);
+});
+
+test('missing school profile fields never create a nameless visitor or bind a same-name account',async()=>{
+  const {resolveProfile}=require('../lib/iam_profile_links'),f=fixture(),config=campusConfig();
+  try {
+    for(const profile of [{id:'mobile',attributes:{userId:'stable-id'}},campusProfile({orgemail:'',employeeNum:''})]) {
+      await assert.rejects(resolveProfile(f.pool,config,profile,'unproven'),/IAM_PROFILE_INCOMPLETE|IAM_ACCOUNT_LINK_REQUIRED/);
+    }
+    assert.equal(f.sql.prepare('SELECT COUNT(*) n FROM users').get().n,2);
+    assert.equal(f.sql.prepare('SELECT COUNT(*) n FROM iam_login_identities').get().n,0);
+    assert.equal(f.sql.prepare('SELECT COUNT(*) n FROM iam_login_pending').get().n,1);
+    const fresh=campusProfile({orgemail:'new@example.edu',employeeNum:'new-number'});
+    fresh.attributes.mainAccount.name='New student';
+    assert.equal((await resolveProfile(f.pool,config,fresh,'new-stable-user')).role,'visitor');
+  }finally{f.close();}
+});
+
+test('nested school identifiers conflicting across accounts or missing stable ID fail closed',async()=>{
+  const {resolveProfile}=require('../lib/iam_profile_links'),{profileId}=require('../routes/auth_iam'),f=fixture(),config=campusConfig();
+  try {
+    f.sql.exec("INSERT INTO users VALUES(9,'other-student','Original owner','other@example.edu','visitor',2)");
+    await assert.rejects(resolveProfile(f.pool,config,campusProfile({employeeNum:'other-student'}),'conflict'),/IAM_ACCOUNT_MATCH_CONFLICT/);
+    assert.throws(()=>profileId({id:'synthetic-mobile',attributes:{}},config.profileIdPath),/IAM_PROFILE_ID_MISSING/);
+    assert.equal(f.sql.prepare('SELECT COUNT(*) n FROM iam_login_identities').get().n,0);
+  }finally{f.close();}
+});
+
+test('two people with the same name and distinct verified school identifiers never inherit each other\'s permissions',async()=>{
+  const {resolveProfile}=require('../lib/iam_profile_links'),f=fixture(),config=campusConfig();
+  try {
+    const fresh=await resolveProfile(f.pool,config,campusProfile({orgemail:'different@example.edu',employeeNum:'different-student'}),'different-stable-id');
+    assert.notEqual(fresh.id,7);assert.equal(fresh.role,'visitor');
+    assert.equal(f.sql.prepare('SELECT COUNT(*) n FROM organization_unit_memberships WHERE user_id=?').get(fresh.id).n,0);
+    assert.equal((await resolveProfile(f.pool,config,campusProfile(),'original-stable-id')).id,7);
+    assert.equal(f.sql.prepare('SELECT photographer_id FROM photos').get().photographer_id,7);
+  }finally{f.close();}
+});
+
+test('OAuth callback reads the actual nested profile shape and issues a session for the existing account',async()=>{
+  const f=fixture(),config=campusConfig(),app=express();
+  app.use('/api/auth/iam',createIamAuthRouter({db:f.pool,config:()=>config,store:createSharedStore('nested-profile',{enabled:false}),
+    secret:()=>secret,rate:{take:async()=>({allowed:true})},request:async url=>url===config.tokenUrl?{access_token:'private-token'}:campusProfile()}));
+  try{await serve(app,async base=>{
+    const login=await fetch(base+'/api/auth/iam/login',{redirect:'manual'}),cookie=login.headers.get('set-cookie').split(';')[0];
+    const state=new URL(login.headers.get('location')).searchParams.get('state');
+    const callback=await fetch(base+'/api/auth/iam/callback?code=test-code&state='+state,{redirect:'manual',headers:{cookie}});
+    const location=callback.headers.get('location');assert.match(location,/^\/login#iam_code=/);
+    const response=await fetch(base+'/api/auth/iam/session',{method:'POST',headers:{cookie,origin:config.publicOrigin,'Content-Type':'application/json'},body:JSON.stringify({code:location.split('iam_code=')[1]})});
+    assert.equal(response.status,200);
+    const payload=jwt.verify((await response.json()).token,secret);assert.equal(payload.id,7);assert.equal(payload.role,'admin');
+    assert.equal(f.sql.prepare('SELECT COUNT(*) n FROM users').get().n,2);
+  });}finally{f.close();}
+});
+
+test('invalid identity field mappings disable login and mapping changes invalidate old OAuth states',()=>{
+  const baseline=campusConfig();
+  assert.equal(baseline.loginReady,true);
+  assert.notEqual(baseline.flowKey,iamConfig({...env,IAM_PROFILE_ID_PATH:'attributes.userId'}).flowKey);
+  for(const field of ['IAM_PROFILE_NAME_PATH','IAM_PROFILE_EMAIL_PATH','IAM_PROFILE_STUDENT_PATH']) {
+    for(const value of ['attributes.__proto__.email','attributes.constructor','attributes..name'])
+      assert.equal(iamConfig({...env,[field]:value}).loginReady,false);
+  }
+});

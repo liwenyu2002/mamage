@@ -53,6 +53,23 @@ MaMage 接学校的芯盾时代 IAM，由 IAM 处理校园身份认证；若学�
 
 ## 上线顺序
 
+### 已验证的学校 OAuth 字段
+
+2026-10-29 经服务端真实授权码兑换确认，学校资料不是扁平结构。学校当前应使用以下精确映射，不从同名字段或手机号猜测身份：
+
+```dotenv
+IAM_PROFILE_ID_PATH=attributes.userId
+IAM_PROFILE_NAME_PATH=attributes.mainAccount.name
+IAM_PROFILE_EMAIL_PATH=attributes.appAccount.attributes.orgemail
+IAM_PROFILE_STUDENT_PATH=attributes.appAccount.attributes.employeeNum
+```
+
+`attributes.userId` 是此次返回的独立用户 ID；根 `id` 是应用登录手机号，不作为持久绑定主键。`employeeNum` 与 `jobnumber` 是不同字段，不合并为同一个编号；后续接入目录推送仍须验证它们与推送 `externalId` 的对应关系。以上只记录字段路径，不保存真实用户资料或令牌。
+
+首次匹配使用学校返回的唯一邮箱或账号编号，姓名仅辅助核对；之后按固定 IAM 用户 ID 找回原用户 ID，不因为姓名、邮箱或手机号变化重新绑定。不同人即使同名，只要有不同的可靠身份标识，也不会继承对方权限。没有可靠标识又撞上旧账号姓名的，仍进入待核对；资料缺失不会创建“校园用户”空白账号。
+
+切换已上线站点的主标识前须审计已有绑定。旧缺陷产生的空资料访客必须单独核对真实学校邮箱与原用户 ID，保留账号和媒体数据，撤销旧访客会话并记录修复审计；不能自动将所有同名用户合并，也不能将未知访客提升为管理员。
+
 先备份数据库，再用现有 `npm run db:migrate` 执行增量迁移，包含 `20261028_001_iam_integration.sql` 和 `20261029_001_iam_login_links.sql`，不删除旧表或媒体。配置示例见 `apps/server/.env.example`，不要直接复制空值覆盖现有运行配置。
 
 配置完成后执行 `npm run iam:check -- --database`，只输出脱敏的配置和表检查，不访问 IAM、不宣称真实登录成功。多副本继续使用现有 `MAMAGE_DISTRIBUTED_RUNTIME=1` 与共享数据库，OAuth 临时状态使用已有共享存储和锁。
