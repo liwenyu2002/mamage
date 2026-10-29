@@ -1,5 +1,7 @@
 import React from 'react';
-import { Card, Input, Button, Toast } from './ui';
+import { Input, Button, Toast } from './ui';
+import { IconChevronRight } from './ui/icons';
+import { campusLoginUrl, autoStartCampusLogin } from './services/iamLogin';
 import './AuthPage.css';
 import * as authService from './services/authService';
 
@@ -22,25 +24,56 @@ function validateLoginInput({ email, password }) {
 
 export default function AuthPage({ onAuthenticated }) {
   const [authProviders, setAuthProviders] = React.useState({ password: true, dingtalk: false, iam: false });
+  const [providersLoading, setProvidersLoading] = React.useState(true);
+  const [providersFailed, setProvidersFailed] = React.useState(false);
+  const [providerRetry, setProviderRetry] = React.useState(0);
+  const [loginMode, setLoginMode] = React.useState(null);
+  const [redirecting, setRedirecting] = React.useState(false);
+  const [loginAlert, setLoginAlert] = React.useState('');
+  const initialLoginFailure = React.useRef(/(?:iam|dingtalk)_error=/.test(window.location.hash));
+  React.useEffect(() => {
+    const returned = () => setRedirecting(false);
+    window.addEventListener('pageshow', returned);
+    return () => window.removeEventListener('pageshow', returned);
+  }, []);
   React.useEffect(() => {
     let canceled = false;
-    fetch('/api/auth/providers')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (!canceled && d) setAuthProviders(d); })
-      .catch(() => {});
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    setProvidersLoading(true); setProvidersFailed(false);
+    fetch('/api/auth/providers', { signal: controller.signal })
+      .then((r) => { if (!r.ok) throw Error('Providers unavailable'); return r.json(); })
+      .then((d) => { if (!canceled) setAuthProviders({ password: true, iam: d.iam === true, dingtalk: d.dingtalk === true }); })
+      .catch(() => { if (!canceled) setProvidersFailed(true); })
+      .finally(() => { clearTimeout(timeout); if (!canceled) setProvidersLoading(false); });
     // 钉钉回调失败时错误信息挂在 hash 上
     try {
       const m = String(window.location.hash || '').match(/(?:dingtalk|iam)_error=([^&]+)/);
       if (m) {
         const code = decodeURIComponent(m[1]);
-        Toast.error(code.startsWith('IAM_') ? code === 'IAM_ACCOUNT_LINK_REQUIRED'
-          ? '校园账号尚未关联，请联系管理员' : '校园登录未完成，请重试或联系管理员' : code);
+        const message = code.startsWith('IAM_') ? code === 'IAM_ACCOUNT_LINK_REQUIRED'
+          ? '校园账号尚未关联，请联系管理员' : '校园登录未完成，请重试或联系管理员' : code;
+        setLoginAlert(message); Toast.error(message);
         window.history.replaceState({}, '', window.location.pathname + window.location.search);
       }
     } catch (e) { /* ignore */ }
-    return () => { canceled = true; };
-  }, []);
+    return () => { canceled = true; clearTimeout(timeout); controller.abort(); };
+  }, [providerRetry]);
   const [active, setActive] = React.useState('login');
+  const hasCampusLogin = authProviders.iam || authProviders.dingtalk;
+  const currentLoginMode = loginMode || (hasCampusLogin ? 'campus' : 'password');
+  React.useEffect(() => {
+    if (providersLoading || providersFailed || active !== 'login' || loginMode || initialLoginFailure.current) return;
+    try {
+      if (autoStartCampusLogin({ providers: authProviders, location: window.location,
+        userAgent: navigator.userAgent, storage: window.sessionStorage })) setRedirecting(true);
+    } catch { /* Manual login remains available when browser storage is unavailable. */ }
+  }, [providersLoading, providersFailed, active, loginMode, authProviders]);
+  const beginCampusLogin = () => {
+    const url = campusLoginUrl(authProviders, window.location);
+    if (!url || redirecting) return;
+    setRedirecting(true); window.location.assign(url);
+  };
   const [loading, setLoading] = React.useState(false);
   // controlled fields
   const [loginEmail, setLoginEmail] = React.useState('');
@@ -309,60 +342,78 @@ export default function AuthPage({ onAuthenticated }) {
 
   return (
     <div className="auth-page-root">
-      <Card className="auth-card" title="MaMage 登录 / 注册" bordered>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-          <Button type={active === 'login' ? 'primary' : 'tertiary'} onClick={() => setActive('login')}>登录</Button>
-          <Button type={active === 'register' ? 'primary' : 'tertiary'} onClick={() => setActive('register')}>注册</Button>
+      <header className="auth-brand">
+        <img src="/favicon-32x32.png" alt="" width="26" height="26" />
+        <span>MaMage</span><span className="auth-brand-caption">校园素材库</span>
+      </header>
+      <main className="auth-body">
+      <section className="auth-content" aria-labelledby="auth-title">
+        {active === 'login' && hasCampusLogin && !providersLoading ? (
+          <div className="auth-login-tabs" role="tablist" aria-label="登录方式" onKeyDown={(event) => {
+            if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+            event.preventDefault();
+            const index = event.key === 'Home' ? 0 : event.key === 'End' ? 1 : currentLoginMode === 'campus' ? 1 : 0;
+            setLoginMode(index === 0 ? 'campus' : 'password'); event.currentTarget.querySelectorAll('[role="tab"]')[index].focus();
+          }}>
+            <button type="button" role="tab" id="campus-login-tab" aria-controls="campus-login-panel" aria-selected={currentLoginMode === 'campus'} tabIndex={currentLoginMode === 'campus' ? 0 : -1}
+              onClick={() => setLoginMode('campus')}>{authProviders.iam ? '校园登录' : '钉钉登录'}</button>
+            <button type="button" role="tab" id="password-login-tab" aria-controls="password-login-panel" aria-selected={currentLoginMode === 'password'} tabIndex={currentLoginMode === 'password' ? 0 : -1}
+              onClick={() => setLoginMode('password')}>账号密码</button>
+          </div>
+        ) : null}
+        <div className="auth-intro">
+          <img className="auth-product-mark" src="/icons/icon-192.png" alt="MaMage" width="52" height="52" />
+          <h1 id="auth-title">{active === 'register' ? '创建 MaMage 账号' : '登录 MaMage'}</h1>
+          <p>{active === 'register' ? '校园素材库' : '欢迎回来'}</p>
         </div>
+        {loginAlert && <div className="auth-notice" role="alert">{loginAlert}</div>}
         {active === 'login' ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          providersLoading && !loginMode ? <div className="auth-provider-loading" role="status"><span className="mamage-button-spinner" />正在连接登录服务</div> :
+          currentLoginMode === 'campus' && hasCampusLogin ? (
+          <div className="auth-campus-panel" id="campus-login-panel" role="tabpanel" aria-labelledby="campus-login-tab">
+            <h2>{authProviders.iam ? '校园统一身份认证' : '使用钉钉扫码或点击头像授权登录'}</h2>
+            <Button className="auth-primary" loading={redirecting} onClick={beginCampusLogin}>
+              {authProviders.iam ? '前往校园登录' : '使用钉钉登录'}<IconChevronRight />
+            </Button>
+          </div>
+          ) : (
+          <form className="auth-login-form" id="password-login-panel" role={hasCampusLogin ? 'tabpanel' : undefined}
+            aria-labelledby={hasCampusLogin ? 'password-login-tab' : 'auth-title'} onSubmit={(event) => { event.preventDefault(); if (!loading) void handleLogin(); }}>
             <div style={{ position: 'relative' }}>
               <Input
-                placeholder="邮箱"
+                placeholder="邮箱或学号"
+                aria-label="邮箱或学号"
+                autoComplete="username"
                 value={loginEmail}
                 onChange={(v) => { setLoginEmail(v); setLoginErrors({ ...loginErrors, email: '', general: '' }); }}
-                onEnterPress={handleLogin}
               />
             </div>
 
             <div>
               <Input
                 placeholder="密码"
+                aria-label="密码"
+                autoComplete="current-password"
                 type="password"
                 value={loginPassword}
                 onChange={(v) => {
                   setLoginPassword(v);
                   setLoginErrors({ ...loginErrors, password: '' });
                 }}
-                onEnterPress={handleLogin}
               />
               {loginErrors.password && <div style={{ color: '#e53935', fontSize: 12, marginTop: 4 }}>{loginErrors.password}</div>}
-              {loginErrors.general && <div style={{ color: '#e53935', fontSize: 12, marginTop: 6 }}>{loginErrors.general}</div>}
+              {loginErrors.general && <div role="alert" className="auth-error">{loginErrors.general}</div>}
             </div>
 
-            {/* login errors shown via Toast, no inline general message */}
-
-            <div style={{ marginTop: 12 }}>
-              <Button type="primary" theme="solid" loading={loading} onClick={handleLogin}>登录</Button>
-            </div>
-            {authProviders.iam ? (
-              <div className="auth-sso-row">
-                <span className="auth-sso-divider">或</span>
-                <Button onClick={() => { window.location.href = '/api/auth/iam/login?returnTo=' + encodeURIComponent(window.location.pathname + window.location.search); }}>
-                  校园统一登录（钉钉）
-                </Button>
-              </div>
-            ) : authProviders.dingtalk ? (
-              <div className="auth-sso-row">
-                <span className="auth-sso-divider">或</span>
-                <Button onClick={() => { window.location.href = '/api/auth/dingtalk/login'; }}>
-                  使用钉钉登录
-                </Button>
-              </div>
-            ) : null}
-          </div>
+            <button type="submit" className="auth-primary" disabled={loading} aria-busy={loading || undefined}>
+              {loading ? <span className="mamage-button-spinner" aria-hidden="true" /> : null}{loading ? '正在登录' : '登录'}
+            </button>
+            {providersFailed && <div className="auth-provider-fallback"><span>校园登录暂不可用</span>
+              <button type="button" className="auth-text-button" onClick={() => setProviderRetry(value => value + 1)}>重试</button></div>}
+          </form>
+          )
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div className="auth-register-form">
             <div>
               <Input placeholder="姓名" value={regName} onChange={(v) => { setRegName(v); setRegErrors((prev) => ({ ...prev, name: '' })); }} />
               {regErrors.name && <div style={{ color: '#e53935', fontSize: 12, marginTop: 4 }}>{regErrors.name}</div>}
@@ -483,6 +534,7 @@ export default function AuthPage({ onAuthenticated }) {
 
             <div style={{ marginTop: 12 }}>
               <Button
+                className="auth-primary"
                 type="primary"
                 theme="solid"
                 disabled={loading}
@@ -495,11 +547,17 @@ export default function AuthPage({ onAuthenticated }) {
           </div>
         )}
 
+        <div className="auth-account-switch">
+          {active === 'login' ? <button type="button" className="auth-text-button" onClick={() => setActive('register')}>创建账号</button>
+            : <button type="button" className="auth-text-button" onClick={() => setActive('login')}>返回登录</button>}
+        </div>
         <div className="auth-consent-row">
           登录即代表同意
           <a href="/privacy">《隐私说明》</a>
         </div>
-      </Card>
+      </section>
+      </main>
+      <footer className="auth-footer">MaMage © {new Date().getFullYear()}</footer>
     </div>
   );
 }

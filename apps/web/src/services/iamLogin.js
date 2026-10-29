@@ -1,6 +1,23 @@
 export function hasIamHandoff(location) {
   return /(?:^#|&)iam_(?:code|error)=/.test(location.hash || '');
 }
+export function campusLoginUrl(providers, location) {
+  if (providers.iam) return '/api/auth/iam/login?returnTo=' + encodeURIComponent(location.pathname + location.search);
+  return providers.dingtalk ? '/api/auth/dingtalk/login' : null;
+}
+export function autoStartCampusLogin({ providers, location, userAgent, storage, now = Date.now() }) {
+  const url = campusLoginUrl(providers, location);
+  if (!url || !/DingTalk/i.test(userAgent || '') || /(?:iam|dingtalk)_(?:error|code|token)=/.test(location.hash || '')) return false;
+  const params = new URLSearchParams(location.search);
+  if (['invite', 'invite_code', 'inviteCode'].some(key => params.has(key))) return false;
+  try {
+    const previous = Number(storage.getItem('mamage_campus_login_attempt'));
+    if (previous > 0 && now - previous < 120000) return false;
+    storage.setItem('mamage_campus_login_attempt', String(now));
+  } catch { return false; }
+  location.replace(url);
+  return true;
+}
 export async function finishIamLogin({ location = window.location, history = window.history, storage = window.localStorage, request = fetch } = {}) {
   const match = String(location.hash || '').match(/(?:^#|&)iam_code=([^&]*)/);
   if (!match && !hasIamHandoff(location)) return;
