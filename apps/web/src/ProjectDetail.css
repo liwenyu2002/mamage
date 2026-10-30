@@ -4367,7 +4367,8 @@ body.mamage-viewer-open [data-transfer-station-root="1"] {
   overflow-wrap: anywhere;
 }
 
-.viewer-info-card:not(.is-editing):has(.viewer-photo-details[open]) {
+/* Floating captions are capped; workspace sidebars use their full grid track. */
+.viewer-overlay:not(.viewer-overlay--workspace) .viewer-info-card:not(.is-editing):has(.viewer-photo-details[open]) {
   max-height: min(55dvh, 460px);
 }
 

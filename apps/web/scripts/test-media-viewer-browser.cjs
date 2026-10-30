@@ -5,6 +5,7 @@ const runtime = createRequire(path.resolve(__dirname, '../../server/package.json
 const { chromium } = runtime('playwright'), sharp = runtime('sharp');
 const dist = process.env.MAMAGE_VIEWER_QA_DIST || path.resolve(__dirname, '../dist');
 const artifactDir = process.env.MAMAGE_VIEWER_QA_DIR;
+const detailsOnly = process.env.MAMAGE_VIEWER_QA_DETAILS === '1';
 const overlap = (a, b) => Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
 
 (async () => {
@@ -27,7 +28,19 @@ const overlap = (a, b) => Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${server.address().port}`, browser = await chromium.launch(), results = [];
   try {
-    const scenarios = process.env.MAMAGE_VIEWER_QA_RED ? [{ width: 1440, height: 1000, zoom: 1, kind: 'video' }]
+    const scenarios = detailsOnly ? [
+      { width: 1440, height: 960, zoom: 1, kind: 'landscape' },
+      { width: 1440, height: 640, zoom: 1, kind: 'portrait' },
+      { width: 1440, height: 960, zoom: 0.8, kind: 'landscape' },
+      { width: 1440, height: 960, zoom: 1.5, kind: 'portrait' },
+      { width: 1440, height: 960, zoom: 2, kind: 'landscape' },
+      { width: 390, height: 844, zoom: 1, kind: 'portrait' },
+      { width: 844, height: 390, zoom: 1, kind: 'landscape' },
+      { width: 320, height: 640, zoom: 1, kind: 'portrait' },
+    ].flatMap(scenario => [
+      { ...scenario, editable: true, theme: 'dark' },
+      { ...scenario, editable: false, theme: 'light' },
+    ]) : process.env.MAMAGE_VIEWER_QA_RED ? [{ width: 1440, height: 1000, zoom: 1, kind: 'video' }]
       : [
         { width: 1440, height: 960, zoom: 1, kind: 'video' }, { width: 1440, height: 960, zoom: 1, kind: 'landscape' },
         { width: 1024, height: 768, zoom: 1.5, kind: 'portrait' }, { width: 1440, height: 900, zoom: 0.8, kind: 'video' },
@@ -39,12 +52,15 @@ const overlap = (a, b) => Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(
       const { width, height, zoom, kind } = scenario, context = await browser.newContext({ viewport: { width, height } });
       try {
         await context.addInitScript(zoom => { localStorage.setItem('mamage_jwt_token', 'isolated-viewer-fixture'); localStorage.setItem('mamage-ui-zoom', String(zoom)); }, zoom);
+        if (scenario.theme) await context.addInitScript(theme => localStorage.setItem('mamage-viewer-appearance', JSON.stringify({ dark: theme === 'dark', blur: 20 })), scenario.theme);
         const description = '活动现场，两名工作人员正在整理物资，桌面摆有证件和资料。';
         const photos = ['landscape', 'video', 'portrait'].map((kind, index) => ({ id: index + 11, projectId: 9001, title: kind === 'video' ? '活动现场 · 竖屏视频' : '校园活动纪实照片',
           originalFilename: '相机原片文件名_'.repeat(8) + kind + (kind === 'video' ? '.MOV' : '.JPG'),
           type: kind === 'video' ? 'video' : 'normal', url: `/api/image/${kind === 'video' ? 'video.mp4' : kind + '.jpg'}`, thumbUrl: `/api/image/${kind === 'portrait' ? 'portrait' : 'landscape'}.jpg`, unitId: 1,
-          videoPlaybackUrl: '/api/image/video.mp4', photographerName: '摄影老师', photographerId: 7,
+          videoPlaybackUrl: '/api/image/video.mp4', photographerName: '摄影老师', photographerId: scenario.editable === false ? 8 : 7,
           description, tags: ['校园活动', '纪实', '多人', '物资整理'], aiStatus: 'done', detailedDescription: description.repeat(8),
+          personObservationsEnabled: true,
+          aiScore: 80, aiQuality: { reason: '主体清楚，画面完整。', flags: [] },
           videoAnalysis: kind === 'video' ? { global: { description: description.repeat(3), totalSemantic: description.repeat(10), tags: ['室内', '整理物资'] },
             coverage: { duration: 4 }, segments: [{ start: 0, end: 2, description }, { start: 2, end: 4, description }], transcript: { status: 'disabled' } } : null,
         }));
@@ -85,7 +101,11 @@ const overlap = (a, b) => Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(
           else if (p === '/api/projects/9001') data = album;
           else if (p === '/api/photos') data = { list: photos, total: 3, hasMore: false };
           else if (/^\/api\/photos\/\d+$/.test(p)) data = photos.find(photo => String(photo.id) === p.split('/').pop());
-          else if (p.endsWith('/person-observations')) data = { enabled: false, people: [] };
+          else if (p.endsWith('/faces/observations')) data = { enabled: true, status: 'done', people: Array.from({ length: 6 }, (_, index) => ({
+            faceId: index + 1, faceNo: index + 1, personName: `测试人物 ${index + 1}`, identityStatus: 'confirmed', status: 'ready',
+            position: '前排右侧', clothing: { upper: '深色外套，蓝色衬衫', lower: '黑色长裤' }, actions: ['端坐', '双手交握'], heldObjects: [],
+            description: '位于前排右侧，身穿深色外套和蓝色衬衫，端坐并双手交握。'.repeat(3),
+          })) };
           else if (p === '/api/album-desktop') data = { albums: [album], groups: [], preferences: { pins: [], recentItems: [], colors: {}, dismissed: [] }, workspaceRevision: 1, userRevision: 1, scope: { userId: 7, organizationId: 2, unitId: 1 } };
           return route.fulfill({ contentType: 'application/json', body: JSON.stringify(data) });
         });
@@ -118,6 +138,61 @@ const overlap = (a, b) => Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(
         };
         if (artifactDir) await page.screenshot({ path: path.join(artifactDir, `${kind}-${width}-${height}-${zoom}-before.png`), animations: 'disabled' });
         await measure();
+        if (kind !== 'video') {
+          const detail = page.locator('.viewer-photo-details').filter({ has: page.getByText('详细描述', { exact: true }) });
+          const people = page.locator('.viewer-person-observations');
+          const assertReachable = async (target, label) => {
+            await target.evaluate(el => el.scrollIntoView({ block: 'end', behavior: 'instant' }));
+            const visibility = await target.evaluate(el => {
+              const text = el.firstChild, range = document.createRange();
+              range.setStart(text, text.textContent.length - 1); range.setEnd(text, text.textContent.length);
+              const r = range.getBoundingClientRect(), clipping = [];
+              for (let parent = el.parentElement; parent && parent !== document.body; parent = parent.parentElement) {
+                const css = getComputedStyle(parent), p = parent.getBoundingClientRect();
+                if (/(auto|scroll|hidden|clip)/.test(css.overflowY) && (r.bottom > p.bottom + 1 || r.top < p.top - 1)) {
+                  clipping.push({ class: parent.className, overflow: css.overflowY, top: p.top, bottom: p.bottom });
+                }
+              }
+              const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+              return { top: r.top, bottom: r.bottom, clipping, covered: !hit || !(el.contains(hit) || hit.contains(el)) };
+            });
+            assert.deepEqual(visibility.clipping, [], `${label} is clipped: ${JSON.stringify(visibility)}`);
+            assert.equal(visibility.covered, false, `${label} is covered: ${JSON.stringify(visibility)}`);
+          };
+          const assertPanelFilled = async () => {
+            const bounds = await page.locator('.viewer-details-panel').evaluate(panel => {
+              const head = panel.querySelector('.viewer-sidebar-head').getBoundingClientRect();
+              const body = panel.querySelector('.viewer-info-card').getBoundingClientRect();
+              return { headBottom: head.bottom, bodyTop: body.top, bodyBottom: body.bottom, panelBottom: panel.getBoundingClientRect().bottom };
+            });
+            assert.ok(Math.abs(bounds.bodyTop - bounds.headBottom) < 2 && Math.abs(bounds.panelBottom - bounds.bodyBottom) < 3,
+              `Expanded content leaves unused sidebar height: ${JSON.stringify(bounds)}`);
+          };
+          await detail.locator('summary').click();
+          await assertPanelFilled();
+          await assertReachable(detail.locator('p'), 'Expanded detailed description');
+          await detail.locator('summary').click();
+          await people.locator('summary').click();
+          await people.locator('.viewer-person-observation').nth(5).waitFor();
+          await assertPanelFilled();
+          await assertReachable(people.locator('.viewer-person-observation-description').last(), 'Last person observation');
+          await detail.locator('summary').click();
+          await assertReachable(people.locator('.viewer-person-observation-description').last(), 'Last observation with both sections open');
+          await assertReachable(page.locator('.viewer-ai-verdict-reason'), 'AI verdict below expanded sections');
+          await assertPanelFilled();
+          if (artifactDir) await page.screenshot({ path: path.join(artifactDir, `people-${width}-${height}-${zoom}-${scenario.theme || 'light'}.png`), animations: 'disabled' });
+          await detail.locator('summary').click();
+          await people.locator('summary').click();
+          await assertReachable(page.locator(scenario.editable === false ? '.viewer-description' : '.viewer-edit-label').first(), 'Description after collapsing sections');
+          if (detailsOnly) {
+            assert.equal(await page.locator('.viewer-edit-panel').count(), scenario.editable === false ? 0 : 1);
+            assert.equal(await page.locator('.viewer-overlay').getAttribute('data-glass-theme'), scenario.theme);
+            await measure();
+            assert.deepEqual(errors, []);
+            results.push({ ...scenario, expandedDetailsReachable: true });
+            continue;
+          }
+        }
         const editor = page.getByRole('textbox', { name: '描述', exact: true });
         assert.equal(await editor.count(), 1, 'Description is editable directly inside details');
         await editor.fill(description + '补充现场信息');
@@ -205,7 +280,9 @@ const overlap = (a, b) => Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(
         results.push({ ...scenario, effectiveZoom: await page.evaluate(() => Number(getComputedStyle(document.documentElement).zoom)), noObstruction: true });
       } finally { await context.close(); }
     }
-    if (artifactDir) fs.writeFileSync(path.join(artifactDir, 'results.json'), JSON.stringify({ passed: true, scenarios: results, globalPhotoPreviewChecked: true, editAndToneChecked: true, inlineEdits: true, permissionFailureRetainsDraft: true, otherUploadsReadOnly: true, noStorageWrites: true }, null, 2));
+    if (artifactDir) fs.writeFileSync(path.join(artifactDir, 'results.json'), JSON.stringify(detailsOnly
+      ? { passed: true, scenarios: results, expandedDetailsReachable: true, noStorageWrites: true }
+      : { passed: true, scenarios: results, globalPhotoPreviewChecked: true, editAndToneChecked: true, inlineEdits: true, permissionFailureRetainsDraft: true, otherUploadsReadOnly: true, noStorageWrites: true }, null, 2));
     console.log(JSON.stringify(results));
   } finally { await browser.close(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); fs.rmSync(temp, { recursive: true }); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

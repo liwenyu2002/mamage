@@ -13,6 +13,9 @@ display preferences.
 - Reuse `--glass-spring`, `--glass-duration` and `--glass-layout-ease` for motion.
 - Keep content, media and tools in separate layout tracks. A panel's spring
   transform must remain inside `GlassReveal`; the toolbar spans the entire viewer.
+- The information sidebar fills its grid track. Only its body scrolls; expanding
+  descriptions or person observations must not inherit floating-caption height
+  limits. Keep its heading outside that scrolling body.
 - Do not animate backdrop blur, surface opacity or filters on entry. The display
   setting may change blur explicitly. Closed controls are inert; reduced motion
   disables transitions.
@@ -50,6 +53,7 @@ After `npm run build`, run from `apps/web`:
 ```sh
 node scripts/test-glass-library-browser.cjs
 node scripts/test-media-viewer-browser.cjs
+MAMAGE_VIEWER_QA_DETAILS=1 node scripts/test-media-viewer-browser.cjs
 node scripts/test-folder-sharing-browser.cjs
 npm run test:user-name-browser
 ```
