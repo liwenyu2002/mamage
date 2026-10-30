@@ -6,6 +6,7 @@ const { createSharedStore } = require('../lib/shared_runtime_state');
 const { createIamDirectory } = require('../lib/iam_directory');
 const { createRateLimit } = require('../lib/shared_rate_limit');
 const { assertSession, issueToken } = require('../lib/iam_account_guard');
+const { mountIamQr } = require('./iam_qr');
 const COOKIE = '__Host-mamage_iam';
 const cookieOptions = { httpOnly: true, secure: true, sameSite: 'lax', path: '/', maxAge: 10 * 60000 };
 const random = () => crypto.randomBytes(32).toString('base64url');
@@ -43,7 +44,7 @@ async function fetchJson(url, options = {}) {
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { throw error('IAM_INVALID_RESPONSE', 502); }
 }
 function createIamAuthRouter({ db, config = iamConfig, store = createSharedStore('iam-login'), request = fetchJson,
-  rate = createRateLimit('iam-login'), secret = () => require('../config/keys').JWT_SECRET } = {}) {
+  rate = createRateLimit('iam-login'), secret = () => require('../config/keys').JWT_SECRET, qrGateway } = {}) {
   const router = express.Router();
   let nextPrune = 0;
   const database = () => db || require('../db').pool;
@@ -52,21 +53,25 @@ function createIamAuthRouter({ db, config = iamConfig, store = createSharedStore
     if (!cfg.loginReady) return res.status(404).json({ error: 'IAM_LOGIN_DISABLED' });
     if (cfg.insecureHttp && req.get('host') !== new URL(cfg.publicOrigin).host) return res.status(403).json({ error: 'IAM_ORIGIN_DENIED' });
     next(); });
+  async function createFlow(req, res, cfg, returnTo) {
+    if (Date.now() >= nextPrune && store.pruneExpired) { nextPrune = Date.now() + 60000; await store.pruneExpired(); }
+    const browser = browserCookie(req, cfg) || random(), state = random(), verifier = random();
+    await store.set(sha256(state), { kind: 'oauth', browserHash: sha256(browser), verifier, sourceKey: cfg.sourceKey, flowKey: cfg.flowKey,
+      returnTo: returnPath(returnTo, cfg.publicOrigin), expiresAt: Date.now() + 10 * 60000 });
+    res.cookie(cookieName(cfg), browser, optionsFor(cfg));
+    const url = new URL(cfg.authorizeUrl);
+    for (const [key, value] of Object.entries({ client_id: cfg.clientId, redirect_uri: cfg.callback, response_type: 'code', state })) url.searchParams.set(key, value);
+    if (cfg.pkce) { url.searchParams.set('code_challenge', crypto.createHash('sha256').update(verifier).digest('base64url')); url.searchParams.set('code_challenge_method', 'S256'); }
+    return { url: url.href, stateKey: sha256(state), browserHash: sha256(browser) };
+  }
   router.get('/login', async (req, res) => {
     try {
       const cfg = config(), limit = await rate.take(req.socket.remoteAddress, 30, 60000);
       if (!limit.allowed) return res.status(429).set('Retry-After', String(limit.retryAfterSec)).json({ error: 'IAM_LOGIN_BUSY' });
-      if (Date.now() >= nextPrune && store.pruneExpired) { nextPrune = Date.now() + 60000; await store.pruneExpired(); }
-      const browser = browserCookie(req, cfg) || random(), state = random(), verifier = random();
-      await store.set(sha256(state), { kind: 'oauth', browserHash: sha256(browser), verifier, sourceKey: cfg.sourceKey, flowKey: cfg.flowKey,
-        returnTo: returnPath(req.query.returnTo, cfg.publicOrigin), expiresAt: Date.now() + 10 * 60000 });
-      res.cookie(cookieName(cfg), browser, optionsFor(cfg));
-      const url = new URL(cfg.authorizeUrl);
-      for (const [key, value] of Object.entries({ client_id: cfg.clientId, redirect_uri: cfg.callback, response_type: 'code', state })) url.searchParams.set(key, value);
-      if (cfg.pkce) { url.searchParams.set('code_challenge', crypto.createHash('sha256').update(verifier).digest('base64url')); url.searchParams.set('code_challenge_method', 'S256'); }
-      res.redirect(url.href);
+      res.redirect((await createFlow(req, res, cfg, req.query.returnTo)).url);
     } catch { res.status(503).json({ error: 'IAM_LOGIN_UNAVAILABLE' }); }
   });
+  mountIamQr(router, { config, store, rate, createFlow, browserCookie, gateway: qrGateway });
   async function consume(key, req, cfg, kind) {
     if (typeof key !== 'string' || !/^[\w-]{43}$/.test(key)) throw error('IAM_LOGIN_EXPIRED', 401);
     return store.withLock(sha256(key), async () => {

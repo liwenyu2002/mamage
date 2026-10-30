@@ -49,7 +49,8 @@ function redirectWithError(res, message) {
 
 // 前端用它决定是否渲染第三方登录按钮
 router.get('/providers', (req, res) => {
-  res.json({ password: true, dingtalk: getConfig().enabled, iam: require('../lib/iam_config').iamConfig().loginReady });
+  const iam = require('../lib/iam_config').iamConfig();
+  res.json({ password: true, dingtalk: getConfig().enabled, iam: iam.loginReady, iamQr: iam.loginReady && iam.qrEnabled });
 });
 
 router.get('/dingtalk/login', (req, res) => {

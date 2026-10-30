@@ -30,7 +30,7 @@
     "test:ai-regression": "node scripts/run_ai_regression.js",
     "integrations:check": "node scripts/check_school_integrations.js",
     "iam:check": "node scripts/check_iam_integration.js",
-    "test:iam": "node --test scripts/test_iam_integration.js",
+    "test:iam": "node --test scripts/test_iam_integration.js scripts/test_iam_qr.js",
     "test:iam-mysql": "node --test scripts/test_iam_mysql.js",
     "pretest:audit": "npm run test:iam",
     "test:permissions": "node --test scripts/test_access_policy.js scripts/test_face_access_policy.js scripts/test_invitation_management.js",

@@ -50,6 +50,7 @@ function iamConfig(env = process.env) {
   if (!profilePathsReady) missing.push('有效的 IAM 身份字段映射');
   return { enabled: env.IAM_ENABLED === '1', pushEnabled: env.IAM_PUSH_ENABLED === '1', guardEnabled: requested(env),
     loginReady: env.IAM_ENABLED === '1' && valid && Boolean(clientId && clientSecret && callback),
+    qrEnabled: env.IAM_QR_ENABLED === '1',
     pushReady: env.IAM_PUSH_ENABLED === '1' && valid && cipherReady && sourceAddresses.length > 0, missing,
     clientId, clientSecret, appId, appSecret, orgId, profileIdPath, profileNamePath, profileEmailPath, profileStudentPath, sourceAddresses, cipher,
     trustedProxyAddresses: String(env.IAM_TRUSTED_PROXY_ADDRESSES || '').split(',').map(x => x.trim()).filter(Boolean),

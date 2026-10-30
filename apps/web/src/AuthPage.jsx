@@ -4,6 +4,7 @@ import { IconChevronRight } from './ui/icons';
 import { campusLoginUrl, autoStartCampusLogin } from './services/iamLogin';
 import './AuthPage.css';
 import * as authService from './services/authService';
+import CampusLoginQr from './CampusLoginQr';
 
 const PASSWORD_RE = /^(?![0-9]+$)(?![a-zA-Z]+$)[0-9A-Za-z]{8,16}$/;
 const EMAIL_RE = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
@@ -43,7 +44,7 @@ export default function AuthPage({ onAuthenticated }) {
     setProvidersLoading(true); setProvidersFailed(false);
     fetch('/api/auth/providers', { signal: controller.signal })
       .then((r) => { if (!r.ok) throw Error('Providers unavailable'); return r.json(); })
-      .then((d) => { if (!canceled) setAuthProviders({ password: true, iam: d.iam === true, dingtalk: d.dingtalk === true }); })
+      .then((d) => { if (!canceled) setAuthProviders({ password: true, iam: d.iam === true, iamQr: d.iamQr === true, dingtalk: d.dingtalk === true }); })
       .catch(() => { if (!canceled) setProvidersFailed(true); })
       .finally(() => { clearTimeout(timeout); if (!canceled) setProvidersLoading(false); });
     // 钉钉回调失败时错误信息挂在 hash 上
@@ -373,6 +374,7 @@ export default function AuthPage({ onAuthenticated }) {
           currentLoginMode === 'campus' && hasCampusLogin ? (
           <div className="auth-campus-panel" id="campus-login-panel" role="tabpanel" aria-labelledby="campus-login-tab">
             <h2>{authProviders.iam ? '校园统一身份认证' : '使用钉钉扫码或点击头像授权登录'}</h2>
+            {authProviders.iam && authProviders.iamQr && !redirecting && !/DingTalk/i.test(navigator.userAgent) ? <CampusLoginQr /> : null}
             <Button className="auth-primary" loading={redirecting} onClick={beginCampusLogin}>
               {authProviders.iam ? '前往校园登录' : '使用钉钉登录'}<IconChevronRight />
             </Button>
