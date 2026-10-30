@@ -37,9 +37,11 @@ async function main() {
         const page = await context.newPage(); page.on('pageerror', error => errors.push(error.message));
         for (const route of ['/', '/?projectId=84']) {
           await page.goto(base + route);
-          const label = page.locator('.mamage-user-name'); await label.waitFor();
+          const mobile = width <= 1024;
+          const chip = page.locator('.mamage-user-chip'); await chip.waitFor();
+          const label = mobile ? chip : page.locator('.mamage-user-name');
           await page.waitForTimeout(100);
-          assert.equal(await label.innerText(), name);
+          assert.equal(await label.innerText(), mobile ? Array.from(name)[0] : name);
           assert.equal(await page.locator('.mamage-avatar').count(), 0);
           const geometry = await label.evaluate(el => {
             const rect = el.getBoundingClientRect(), chip = el.closest('.mamage-user-chip').getBoundingClientRect();
@@ -62,16 +64,23 @@ async function main() {
           await page.getByRole('button', { name: '账户信息', exact: true }).waitFor();
           await page.waitForTimeout(600);
           const opened = await page.locator('.mamage-account-surface').boundingBox();
-          assert.ok(opened.height > closed.height + 100, 'The capsule unfolds down into its menu');
-          if (width >= 1024) assert.ok(opened.width > closed.width + 20, 'The same capsule stretches horizontally');
+          if (mobile) {
+            assert.equal(await page.locator('.mamage-account-summary .mamage-user-name').innerText(), name);
+            assert.ok(await page.locator('.mamage-account-summary .mamage-user-name').evaluate(el => el.scrollWidth <= el.clientWidth + 1 && el.scrollHeight <= el.clientHeight + 1));
+            assert.ok(Math.abs(opened.height - closed.height) < 1, 'Mobile trigger remains a fixed circle');
+            assert.ok((await page.locator('.mamage-user-menu-panel').boundingBox()).height > 100);
+          } else {
+            assert.ok(opened.height > closed.height + 100, 'The capsule unfolds down into its menu');
+            assert.ok(opened.width > closed.width + 20, 'The same capsule stretches horizontally');
+          }
           assert.ok(Math.abs(opened.x + opened.width - closed.x - closed.width) < 1, 'Unfolding keeps the right edge anchored');
           const openedPageTop = await page.locator('.mamage-content').evaluate(el => el.getBoundingClientRect().top);
           assert.ok(Math.abs(openedPageTop - pageTop) < 1, `Unfolding must not push content down: ${width} ${name} ${route} ${pageTop} -> ${openedPageTop}`);
-          assert.equal(await page.locator('.mamage-user-menu-panel').evaluate(el => getComputedStyle(el).backdropFilter), 'none', 'No separate nested glass panel');
+          assert.equal(await page.locator('.mamage-user-menu-panel').evaluate(el => getComputedStyle(el).backdropFilter), mobile ? 'blur(20px) saturate(1.45)' : 'none', 'Only mobile renders an independent popover');
           if (artifacts) await page.screenshot({ path: path.join(artifacts, `account-open-${width}-${name.length}-${route === '/' ? 'home' : 'album'}.png`) });
           await page.keyboard.press('Escape');
           assert.equal(await page.locator('.mamage-user-chip').getAttribute('aria-expanded'), 'false');
-          assert.equal(await page.locator('.glass-unfold-body').evaluate(el => el.inert), true);
+          assert.equal(await page.locator('.mamage-user-menu .glass-unfold-body').evaluate(el => el.inert), true);
           await page.waitForTimeout(600);
           assert.ok(Math.abs((await page.locator('.mamage-account-surface').boundingBox()).height - closed.height) < 1);
           if (width === 1440 && name === '李文宇' && route === '/') {

@@ -25,10 +25,12 @@ display preferences.
 - Headers with dropdown children render their material on a pseudo-element;
   applying backdrop blur to the parent prevents the dropdown seeing the page.
   Expanding display settings reserves header space instead of covering controls.
-- `GlassAccountMenu` uses one glass surface for the trigger and menu. Its reserved
+- Desktop `GlassAccountMenu` uses one glass surface for the trigger and menu. Its reserved
   slot prevents navigation reflow while the surface stretches left and unfolds
   down. The body stays mounted for the reverse animation but is inert when closed.
-  Never add a second backdrop or a detached dropdown plate inside this surface.
+  Never add a second backdrop inside this surface. The compact mobile variant
+  keeps a fixed circular trigger and unfolds a separate, token-based glass menu
+  below it; the menu must not increase header height or cover the other triggers.
 
 ## Preserved Surfaces
 
@@ -43,7 +45,17 @@ Display preferences are local to the photo/video viewer and persist in
 shared chrome, while "dark viewer" changes only the viewer, preserving folder
 styles. Changes synchronize across mounted viewers and browser tabs.
 `ui/navigation.css` owns the separated navigation/search/account capsule layout,
-not a second material system. Small screens wrap groups without hiding names.
+not a second material system. At 1024px and below, the header stays on one 40px
+row. The account trigger shows the first character, with the full name and
+workspace in its menu. Home/navigation, create-album and appearance controls
+are compact circles. Album names truncate; opening one expands its grid track
+while search contracts to an icon. The same album surface unfolds downward:
+its title wraps in place and metadata follows underneath, without a duplicate
+heading or nested glass panel. Only the closed 40px slot participates in layout.
+The mounted content is measured for smooth height transitions and is inert when
+closed. Focusing search reverses the allocation.
+Dropdowns are viewport-bounded, keyboard-dismissible, mutually exclusive and
+inert when closed. Full album titles remain available in the expanded heading.
 Search stays around 340px (maximum 360px); unused wide-screen space stays blank.
 
 ## Verification
@@ -56,6 +68,7 @@ node scripts/test-media-viewer-browser.cjs
 MAMAGE_VIEWER_QA_DETAILS=1 node scripts/test-media-viewer-browser.cjs
 node scripts/test-folder-sharing-browser.cjs
 npm run test:user-name-browser
+MAMAGE_NAV_TEST_URL=http://127.0.0.1:5197 npm run test:mobile-nav
 ```
 
 Set `MAMAGE_GLASS_BASELINE_DIST` to a pre-change web build for exact computed-style

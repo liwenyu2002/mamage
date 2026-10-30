@@ -18,7 +18,7 @@ import IfCan from './permissions/IfCan';
 import { LiquidGlassDefs } from './liquidGlass';
 import { GlassAccountMenu, ViewerDisplaySettings, useViewerAppearance } from './ui/Glass';
 import UiZoomControl, { useUiZoom, applyDocumentZoom } from './UiZoomControl';
-import { IconFaceScan, IconSparkleAI, IconChevronRight } from './ui/icons';
+import { IconFaceScan, IconSparkleAI, IconChevronRight, IconPlus } from './ui/icons';
 
 const lazyWithPreload = (loader) => {
   const Component = React.lazy(loader);
@@ -200,6 +200,22 @@ function App() {
   const [uiZoom, setUiZoom] = useUiZoom();
   const [mobileNavVisible, setMobileNavVisible] = React.useState(false);
   const [projectInfoOpen, setProjectInfoOpen] = React.useState(false);
+  const [mobileHeaderPanel, setMobileHeaderPanel] = React.useState(null);
+  const headerBrandRef = React.useRef(null);
+  const headerAlbumContentRef = React.useRef(null);
+  const headerSearchRef = React.useRef(null);
+  React.useEffect(() => {
+    setMobileHeaderPanel(null);
+    setProjectInfoOpen(false);
+  }, [isMobileHeader, currentProjectId]);
+  React.useEffect(() => {
+    if (!projectInfoOpen) return undefined;
+    const outside = event => { if (!headerBrandRef.current?.contains(event.target) && !event.target.closest('.mamage-nav-search-group')) setProjectInfoOpen(false); };
+    const escape = event => { if (event.key === 'Escape') setProjectInfoOpen(false); };
+    document.addEventListener('pointerdown', outside);
+    document.addEventListener('keydown', escape);
+    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape); };
+  }, [projectInfoOpen]);
   const [shareMode, setShareMode] = React.useState(false);
   const [shareInitialProject, setShareInitialProject] = React.useState(null);
   const [photoSearchMode, setPhotoSearchMode] = React.useState(false);
@@ -1042,6 +1058,16 @@ function App() {
   const projectHeaderTitle = currentProjectId
     ? (projectHeaderReady ? (projectHeader?.title || '未命名相册') : '正在加载相册')
     : 'MaMage 图库';
+  React.useLayoutEffect(() => {
+    const content = headerAlbumContentRef.current;
+    if (!isMobileHeader || !currentProjectId || !content) return undefined;
+    // Measure the one continuous surface, including wrapped titles at each width.
+    const measure = () => content.parentElement.style.setProperty('--album-unfold-height', `${Math.max(40, content.scrollHeight + 2)}px`);
+    const observer = new ResizeObserver(measure);
+    observer.observe(content);
+    measure();
+    return () => observer.disconnect();
+  }, [isMobileHeader, currentProjectId, projectInfoOpen, projectHeaderTitle]);
   const projectHeaderDescription = String(projectHeader?.description || projectHeader?.subtitle || '').trim();
   const projectHeaderOrigin = String(projectHeader?.originLabel || '').trim();
   const projectHeaderDescriptionText = currentProjectId
@@ -1280,9 +1306,12 @@ function App() {
     <div className="mamage-shell" style={{ '--glass-blur': `${displaySettings.appearance.blur}px` }}>
       <LiquidGlassDefs />
       <div className="mamage-dynamic-backdrop" aria-hidden="true" />
-      <header className={`mamage-header${currentProjectId ? ' is-project-detail' : ''}${isMobileHeader ? ' is-mobile-header' : ' is-desktop-header'}`}>
+      <header className={`mamage-header${currentProjectId ? ' is-project-detail' : ''}${isMobileHeader ? ' is-mobile-header' : ' is-desktop-header'}`}
+        data-title-open={isMobileHeader && projectInfoOpen} data-search-open={isMobileHeader && mobileHeaderPanel === 'search'}>
         <div className={`mamage-topbar${currentProjectId ? ' is-project-detail' : ''}`}>
-          <div className="mamage-nav-brand-group" data-glass="clear">
+          <div className="mamage-nav-brand-slot" ref={headerBrandRef}>
+          <div className="mamage-nav-brand-group" data-glass="clear" data-open={isMobileHeader && projectInfoOpen}>
+          <div className="mamage-nav-brand-content" ref={headerAlbumContentRef}>
           <div className="mamage-brand-area">
             {isMobileHeader ? (
               <button
@@ -1301,10 +1330,11 @@ function App() {
 
             <button
               type="button"
-              onClick={currentProjectId && isMobileHeader ? () => setProjectInfoOpen((prev) => !prev) : handleBackToList}
+              onClick={currentProjectId && isMobileHeader ? () => { setMobileHeaderPanel(null); setProjectInfoOpen((prev) => !prev); } : handleBackToList}
               className={`mamage-brand-button${currentProjectId && isMobileHeader ? ' is-project-title' : ''}`}
               title={currentProjectId && isMobileHeader ? '查看相册信息' : (currentProjectId ? '返回项目列表' : '返回首页')}
               aria-expanded={currentProjectId && isMobileHeader ? projectInfoOpen : undefined}
+              aria-controls={currentProjectId && isMobileHeader ? 'mamage-album-header-info' : undefined}
             >
               {currentProjectId && isMobileHeader ? (
                 <span className="mamage-project-title-text">{projectHeaderTitle}</span>
@@ -1313,10 +1343,9 @@ function App() {
               )}
             </button>
 
+          </div>
             {currentProjectId && isMobileHeader ? (
-              projectInfoOpen ? (
-                <div className="mamage-project-info-panel">
-                  <div className="mamage-project-info-title">{projectHeaderTitle}</div>
+                  <div className="mamage-project-info-panel" id="mamage-album-header-info" aria-hidden={!projectInfoOpen} inert={!projectInfoOpen ? '' : undefined}>
                   {projectHeaderMeta.length > 0 ? (
                     <div className="mamage-project-info-meta">
                       {projectHeaderMeta.map((item) => <span key={item}>{item}</span>)}
@@ -1325,7 +1354,6 @@ function App() {
                   <div className="mamage-project-info-desc">描述：{projectHeaderDescriptionText}</div>
                   {projectHeaderOrigin ? <div className="mamage-project-info-desc">来自：{projectHeaderOrigin}</div> : null}
                 </div>
-              ) : null
             ) : null}
           </div>
 
@@ -1337,17 +1365,26 @@ function App() {
             </>
           ) : null}
           </div>
+          </div>
 
           <div className="mamage-nav-actions">
             <div className="mamage-nav-search-group" data-glass="clear">
             <div className="mamage-nav-search-field">
               <input
+                ref={headerSearchRef}
                 className="mamage-nav-search-input"
                 aria-label={currentProjectId ? '当前相册内智能检索' : folderSearchScope ? '当前文件夹内智能检索' : '用自然语言搜索项目、照片、人物或场景'}
-                placeholder={currentProjectId ? '在当前相册内搜索' : folderSearchScope ? `在「${folderSearchScope.name}」内搜索` : `试试：${searchSuggestion}`}
+                placeholder={isMobileHeader && mobileHeaderPanel !== 'search' ? '搜索' : currentProjectId ? '在当前相册内搜索' : folderSearchScope ? `在「${folderSearchScope.name}」内搜索` : `试试：${searchSuggestion}`}
                 value={keyword}
+                onFocus={() => { if (isMobileHeader) { setProjectInfoOpen(false); setMobileHeaderPanel('search'); } }}
+                onBlur={event => {
+                  if (!event.currentTarget.closest('.mamage-nav-search-group')?.contains(event.relatedTarget)) {
+                    setMobileHeaderPanel(current => current === 'search' ? null : current);
+                  }
+                }}
                 onChange={(event) => setKeyword(event.target.value)}
                 onKeyDown={(event) => {
+                  if (event.key === 'Escape' && isMobileHeader) { setMobileHeaderPanel(null); event.currentTarget.blur(); }
                   if (event.key === 'Enter' && !event.nativeEvent.isComposing && event.keyCode !== 229) handleSearchSubmit();
                 }}
               />
@@ -1375,7 +1412,12 @@ function App() {
                 type="button"
                 className="mamage-search-submit"
                 aria-label="搜索"
-                onClick={handleSearchSubmit}
+                onClick={() => {
+                  if (isMobileHeader && projectInfoOpen) {
+                    setProjectInfoOpen(false); setMobileHeaderPanel('search');
+                    requestAnimationFrame(() => headerSearchRef.current?.focus());
+                  } else handleSearchSubmit();
+                }}
               >
                 <span className="mamage-search-symbol" aria-hidden="true" />
               </button>
@@ -1390,7 +1432,8 @@ function App() {
               <IfCan perms={['projects.create']}>
                 <button
                   type="button"
-                  className="mamage-action-button is-secondary"
+                  className="mamage-action-button is-secondary mamage-create-album"
+                  aria-label="新建相册" title="新建相册"
                   data-glass="clear"
                   onPointerEnter={preloadCreateAlbum}
                   onFocus={preloadCreateAlbum}
@@ -1398,14 +1441,20 @@ function App() {
                 >
                   <span className="mamage-label-full">新建相册</span>
                   <span className="mamage-label-short">新建</span>
+                  <IconPlus className="mamage-create-album-icon" />
                 </button>
               </IfCan>
             ) : null}
 
             <div className="mamage-account-group">
-            <ViewerDisplaySettings appearance={displaySettings.appearance} onChange={displaySettings.update} darkLabel="深色查看器" />
+            <ViewerDisplaySettings appearance={displaySettings.appearance} onChange={displaySettings.update} darkLabel="深色查看器"
+              compact={isMobileHeader} open={isMobileHeader ? mobileHeaderPanel === 'settings' : undefined}
+              onOpenChange={open => { if (isMobileHeader) { setMobileHeaderPanel(current => open ? 'settings' : current === 'settings' ? null : current); if (open) setProjectInfoOpen(false); } }} />
             {currentUser ? (
-              <GlassAccountMenu label={`${userName}，账户菜单`} triggerContent={<>
+              <GlassAccountMenu label={`${userName}，账户菜单`} compactContent={isMobileHeader ? Array.from(userName)[0] : undefined}
+                open={isMobileHeader ? mobileHeaderPanel === 'account' : undefined}
+                onOpenChange={open => { if (isMobileHeader) { setMobileHeaderPanel(current => open ? 'account' : current === 'account' ? null : current); if (open) setProjectInfoOpen(false); } }}
+                triggerContent={<>
                   <span className="mamage-user-name">{userName}</span>
                   {workspaceInfo ? <span className="mamage-user-email">
                     {workspaceInfo.units.find((unit) => Number(unit.id) === Number(workspaceInfo.activeUnitId))?.name || '历史相册'}

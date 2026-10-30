@@ -18,6 +18,7 @@
   padding: 0;
 }
 :root .mamage-nav-brand-group { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 6px 10px 6px 16px; border-radius: 28px; min-height: 48px; }
+.mamage-nav-brand-slot, .mamage-nav-brand-content { display: contents; }
 :root .mamage-nav-brand-group .mamage-brand-name { font-size: 18px; font-weight: 700; }
 :root .mamage-nav-brand-group .mamage-nav-links { border-left: 1px solid var(--glass-line); padding-left: 10px; }
 :root .mamage-nav-link { font-size: 13px; padding-inline: 10px; font-weight: 550; }
@@ -27,6 +28,7 @@
 :root .mamage-header .mamage-nav-search-field { min-width: 0; max-width: none; width: 100%; }
 :root .mamage-header .mamage-nav-search-input { border: 0; background: transparent; box-shadow: none; font-size: 13px; }
 :root .mamage-nav-actions > .mamage-action-button { min-height: 42px; border-radius: 24px; }
+.mamage-create-album-icon { display: none; }
 :root .mamage-account-group { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 12px; max-width: 100%; margin-left: auto; }
 :root .mamage-account-group .mamage-user-menu {
   width: 320px; max-width: min(350px, calc(100vw - 80px)); height: var(--account-head-height, 46px); margin: 0;
@@ -65,22 +67,120 @@
   :root .mamage-header .mamage-user-email { max-width: 126px; }
 }
 @media (max-width: 1024px) {
-  :root .mamage-header { margin: 8px 10px 0; }
-  :root .mamage-nav-brand-group { max-width: 100%; padding: 5px 14px 5px 6px; }
-  :root .mamage-header .mamage-nav-actions { flex-basis: 500px; }
-  :root .mamage-header .mamage-brand-button.is-project-title { max-width: min(65vw, 360px); }
-  :root .mamage-header .mamage-project-title-text { font-size: 15px; }
+  :root .mamage-header.is-mobile-header,
+  :root .mamage-header.is-mobile-header.is-project-detail {
+    margin: 8px max(8px, env(safe-area-inset-right)) 0 max(8px, env(safe-area-inset-left));
+    background: transparent !important; box-shadow: none !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important;
+  }
+  :root .mamage-header.is-mobile-header .mamage-topbar,
+  :root .mamage-header.is-mobile-header.is-project-detail .mamage-topbar {
+    display: grid; grid-template-columns: 40px minmax(0, 1fr) 40px 40px;
+    align-items: center; gap: 6px; min-height: 40px; padding: 0;
+    transition: grid-template-columns 480ms var(--glass-layout-ease);
+  }
+  :root .mamage-header.is-mobile-header .mamage-topbar:has(.mamage-create-album) {
+    grid-template-columns: 40px minmax(0, 1fr) 40px 40px 40px;
+  }
+  :root .mamage-header.is-mobile-header.is-project-detail .mamage-topbar {
+    grid-template-columns: minmax(0, 1.1fr) minmax(40px, .9fr) 40px 40px;
+  }
+  :root .mamage-header.is-mobile-header[data-title-open='true'] .mamage-topbar {
+    grid-template-columns: minmax(0, 2fr) minmax(40px, 0fr) 40px 40px;
+  }
+  :root .mamage-header.is-mobile-header.is-project-detail[data-search-open='true'] .mamage-topbar {
+    grid-template-columns: minmax(40px, 0fr) minmax(0, 2fr) 40px 40px;
+  }
+  :root .mamage-header.is-mobile-header .mamage-nav-actions,
+  :root .mamage-header.is-mobile-header .mamage-account-group { display: contents; }
+  :root .mamage-header.is-mobile-header .mamage-nav-brand-group {
+    width: 100%; min-width: 0; min-height: 40px; height: 40px; padding: 0 8px 0 2px; gap: 0; border-radius: 24px;
+  }
+  :root .mamage-header.is-mobile-header .mamage-nav-brand-slot { display: block; position: relative; min-width: 0; height: 40px; z-index: 21; }
+  :root .mamage-header.is-mobile-header.is-project-detail .mamage-nav-brand-group {
+    position: absolute; inset: 0 0 auto; display: block; overflow: hidden;
+    transition: height 420ms var(--glass-layout-ease), border-radius 420ms var(--glass-spring);
+  }
+  :root .mamage-header.is-mobile-header.is-project-detail .mamage-nav-brand-group[data-open='true'] {
+    height: var(--album-unfold-height, 40px); border-radius: 22px;
+  }
+  :root .mamage-header.is-mobile-header .mamage-nav-brand-content { display: block; width: 100%; }
+  :root .mamage-header.is-mobile-header:not(.is-project-detail) .mamage-nav-brand-group,
+  :root .mamage-header.is-mobile-header[data-search-open='true'] .mamage-nav-brand-group { padding: 0 2px; }
+  :root .mamage-header.is-mobile-header .mamage-brand-area { width: 100%; min-width: 0; min-height: 38px; gap: 2px; }
+  :root .mamage-header.is-mobile-header .mamage-menu-trigger {
+    width: 36px; min-width: 36px; height: 40px; flex: 0 0 36px; padding: 0;
+    background: transparent; border: 0; box-shadow: none;
+  }
+  :root .mamage-header.is-mobile-header .mamage-brand-button.is-project-title { min-width: 0; max-width: none; flex: 1; }
+  :root .mamage-header.is-mobile-header .mamage-project-title-text { display: block; font-size: 15px; font-weight: 650; line-height: 1.4; }
+  :root .mamage-header.is-mobile-header[data-title-open='true'] .mamage-brand-area { align-items: flex-start; }
+  :root .mamage-header.is-mobile-header[data-title-open='true'] .mamage-brand-button.is-project-title { padding: 9px 0 8px; white-space: normal; }
+  :root .mamage-header.is-mobile-header[data-title-open='true'] .mamage-project-title-text { white-space: normal; overflow-wrap: anywhere; }
+  :root .mamage-header.is-mobile-header:not(.is-project-detail) .mamage-brand-button,
+  :root .mamage-header.is-mobile-header[data-search-open='true'] .mamage-brand-button { display: none; }
+  :root .mamage-header.is-mobile-header .mamage-project-info-panel {
+    position: static; width: 100%; max-width: none; max-height: min(360px, calc(100dvh - 200px)); overflow: auto;
+    padding: 0 6px 14px 12px; border: 0; border-radius: 0; background: transparent; box-shadow: none;
+    backdrop-filter: none; -webkit-backdrop-filter: none;
+    visibility: hidden; opacity: 0; transition: opacity 180ms, visibility 0s 420ms;
+  }
+  :root .mamage-header.is-mobile-header[data-title-open='true'] .mamage-project-info-panel { opacity: 1; visibility: visible; transition-delay: 70ms, 0s; }
+  :root .mamage-header.is-mobile-header .mamage-project-info-meta { border-top: 1px solid var(--glass-line); padding-top: 10px; margin-top: 2px; gap: 5px 10px; }
+  :root .mamage-header.is-mobile-header .mamage-project-info-meta span { padding: 0; border: 0; background: none; border-radius: 0; white-space: normal; }
+  :root .mamage-header.is-mobile-header .mamage-project-info-desc { display: block; margin-top: 8px; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+  :root .mamage-header.is-mobile-header .mamage-nav-search-group {
+    width: 100%; min-width: 0; max-width: 360px; height: 40px; min-height: 40px; padding: 0; gap: 0;
+  }
+  :root .mamage-header.is-mobile-header .mamage-nav-search-field { min-width: 0; max-width: none; height: 40px; }
+  :root .mamage-header.is-mobile-header .mamage-nav-search-input { height: 40px; padding: 0 34px 0 12px; font-size: 16px; text-overflow: ellipsis; }
+  :root .mamage-header.is-mobile-header .mamage-nav-search-field:has(.mamage-search-clear) .mamage-nav-search-input { padding-right: 60px; }
+  :root .mamage-header.is-mobile-header .mamage-search-submit { right: 2px; width: 32px; height: 36px; }
+  :root .mamage-header.is-mobile-header .mamage-search-clear { right: 34px; }
+  :root .mamage-header.is-mobile-header[data-title-open='true'] .mamage-nav-search-input,
+  :root .mamage-header.is-mobile-header[data-title-open='true'] .mamage-search-clear { visibility: hidden; pointer-events: none; }
+  :root .mamage-header.is-mobile-header[data-title-open='true'] .mamage-search-submit { width: 40px; right: 0; }
+  :root .mamage-header.is-mobile-header .mamage-create-album {
+    width: 40px; min-width: 40px; min-height: 40px; height: 40px; padding: 0; display: grid; place-items: center; border-radius: 50%;
+  }
+  :root .mamage-header.is-mobile-header .mamage-create-album > span { display: none; }
+  :root .mamage-header.is-mobile-header .mamage-create-album-icon { display: block; width: 19px; height: 19px; }
+  :root .mamage-header.is-mobile-header .mamage-user-menu,
+  :root .mamage-header.is-mobile-header .glass-settings-slot,
+  :root .mamage-header.is-mobile-header .glass-settings-slot.is-open {
+    width: 40px; max-width: 40px; height: 40px; margin: 0; transform: none; flex-basis: 40px;
+  }
+  :root .mamage-header.is-mobile-header .mamage-account-surface { width: 40px; border-radius: 50%; }
+  :root .mamage-header.is-mobile-header .mamage-user-chip { width: 40px; min-height: 40px; height: 40px; padding: 0; justify-content: center; font-size: 16px; font-weight: 650; }
+  :root .mamage-header.is-mobile-header .mamage-user-menu > .glass-unfold-body {
+    position: absolute; top: 48px; right: 0; width: min(320px, calc(100vw - 16px));
+    pointer-events: auto;
+    transform-origin: top right; transform: translateY(-6px) scale(.97);
+    transition: grid-template-rows 420ms var(--glass-layout-ease), transform 420ms var(--glass-spring), visibility 0s 420ms;
+  }
+  :root .mamage-header.is-mobile-header .mamage-user-menu[data-open='true'] > .glass-unfold-body {
+    grid-template-rows: 1fr; visibility: visible; transform: none; transition-delay: 0s;
+  }
+  :root .mamage-header.is-mobile-header .mamage-user-menu > .glass-unfold-body > div { border-radius: 22px; }
+  :root .mamage-header.is-mobile-header .mamage-user-menu-panel { padding: 10px; max-height: calc(100dvh - 80px); border-radius: 22px; }
+  :root .mamage-header.is-mobile-header .mamage-user-menu-panel::before { content: none; }
+  :root .mamage-account-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 8px 8px 12px; border-bottom: 1px solid var(--glass-line); margin-bottom: 6px; }
+  :root .mamage-account-summary .mamage-user-name { padding: 0; background: none; font-size: 15px; }
+  :root .mamage-account-summary .mamage-user-email { max-width: 100%; font-size: 12px; overflow-wrap: anywhere; }
+  :root .mamage-account-summary .mamage-user-chevron { display: none; }
+  :root .mamage-header.is-mobile-header .glass-settings-slot > .glass-settings-trigger { width: 40px; height: 40px; border-radius: 50%; }
+  :root .mamage-header.is-mobile-header .glass-settings {
+    top: 48px; right: -46px; width: min(280px, calc(100vw - 16px)); border-radius: 22px;
+    visibility: hidden; opacity: 0; transform-origin: top right; transform: translateY(-6px) scale(.97);
+    transition: opacity 160ms, transform 420ms var(--glass-spring), visibility 0s 420ms;
+  }
+  :root .mamage-header.is-mobile-header .glass-settings.is-open { visibility: visible; opacity: 1; transform: none; transition-delay: 0s; }
+  :root .mamage-header.is-mobile-header .glass-settings-head { height: 40px; }
+  :root .mamage-header.is-mobile-header .glass-settings-body { max-height: calc(100dvh - 124px); overflow: auto; }
 }
-@media (max-width: 700px) {
-  :root .mamage-header .mamage-nav-actions { width: 100%; flex-basis: 100%; gap: 8px; }
-  :root .mamage-nav-search-group { flex: 1 1 180px; max-width: 340px; }
-  :root .mamage-account-group { width: 100%; }
-  :root .mamage-account-group .mamage-user-menu { flex: 0 1 auto; max-width: calc(100% - 48px); }
-  :root .mamage-account-surface { width: 100%; }
-  :root .mamage-account-group .glass-settings-slot { transform: none; }
-  :root .mamage-header .mamage-user-chip { width: 100%; }
-  :root .mamage-header .mamage-user-email { flex: 1; min-width: 0; max-width: none; }
-  :root .mamage-header .mamage-user-name { flex-shrink: 0; max-width: 9em; }
-  :root .mamage-account-group:has(.glass-settings.is-open) .mamage-user-menu { max-width: 100%; }
+@media (prefers-reduced-motion: reduce) {
+  :root :is(.mamage-user-chevron, .mamage-account-surface, .mamage-account-group .glass-settings-slot,
+    .mamage-header.is-mobile-header .mamage-topbar, .mamage-header.is-mobile-header.is-project-detail .mamage-topbar,
+    .mamage-header.is-mobile-header .glass-settings,
+    .mamage-header.is-mobile-header .glass-unfold-body, .mamage-header.is-mobile-header.is-project-detail .mamage-nav-brand-group,
+    .mamage-header.is-mobile-header .mamage-project-info-panel) { transition: none; }
 }
-@media (prefers-reduced-motion: reduce) { :root :is(.mamage-user-chevron, .mamage-account-surface, .mamage-account-group .glass-settings-slot) { transition: none; } }
