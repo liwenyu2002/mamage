@@ -818,7 +818,16 @@ function ProjectDetail({
   const [faceSplitMoveIds, setFaceSplitMoveIds] = React.useState(() => new Set());
   const [faceSplitNewName, setFaceSplitNewName] = React.useState('');
   const [faceSplitSubmitting, setFaceSplitSubmitting] = React.useState(false);
+  const [faceSplitConfirming, setFaceSplitConfirming] = React.useState(false);
+  const faceSplitSubmittingRef = React.useRef(false);
+  const faceSplitConfirmRef = React.useRef(null);
   const [faceSplitError, setFaceSplitError] = React.useState('');
+  React.useEffect(() => {
+    if (faceSplitConfirming) {
+      faceSplitConfirmRef.current?.focus({ preventScroll: true });
+      faceSplitConfirmRef.current?.scrollIntoView({ block: 'nearest' });
+    }
+  }, [faceSplitConfirming]);
   // parsed photo tags and descriptions indexed by photo ID
   const [photoTagsMap, setPhotoTagsMap] = React.useState({});
   const [photoDescMap, setPhotoDescMap] = React.useState({});
@@ -3818,6 +3827,7 @@ function ProjectDetail({
   }, []);
 
   const closeFacePersonModal = React.useCallback(() => {
+    if (faceSplitSubmittingRef.current) return;
     facePersonRequestRef.current?.abort();
     facePersonRequestRef.current = null;
     facePersonPageRequestRef.current = null;
@@ -3844,6 +3854,7 @@ function ProjectDetail({
     setFaceSplitMoveIds(new Set());
     setFaceSplitNewName('');
     setFaceSplitSubmitting(false);
+    setFaceSplitConfirming(false);
     setFaceSplitError('');
   }, []);
 
@@ -3933,6 +3944,7 @@ function ProjectDetail({
     setFaceSplitError('');
     setFaceSplitPreviewing(false);
     setFaceSplitSubmitting(false);
+    setFaceSplitConfirming(false);
   }, []);
 
   const exitFaceSplit = React.useCallback(() => {
@@ -3959,7 +3971,7 @@ function ProjectDetail({
       setFaceSplitHasMore(Boolean(data?.hasMore));
     } catch (err) {
       console.error('getPersonFaces failed', err);
-      setFaceSplitError(err?.body || err?.message || '拉取人物人脸失败');
+      setFaceSplitError(err?.message || '拉取人物人脸失败');
     } finally {
       setFaceSplitLoading(false);
     }
@@ -3979,7 +3991,7 @@ function ProjectDetail({
       setFaceSplitHasMore(Boolean(data?.hasMore));
       setFaceSplitNextPage((p) => p + 1);
     } catch (err) {
-      setFaceSplitError(err?.body || err?.message || '加载更多失败');
+      setFaceSplitError(err?.message || '加载更多失败');
     } finally {
       setFaceSplitLoadingMore(false);
     }
@@ -4019,7 +4031,7 @@ function ProjectDetail({
       setFaceSplitMode('preview');
     } catch (err) {
       console.error('previewPersonSplit failed', err);
-      setFaceSplitError(err?.body || err?.message || '生成拆分预览失败');
+      setFaceSplitError(err?.message || '生成拆分预览失败');
     } finally {
       setFaceSplitPreviewing(false);
     }
@@ -4037,18 +4049,23 @@ function ProjectDetail({
   }, []);
 
   const confirmFaceSplit = React.useCallback(async () => {
-    if (!facePersonData?.personId || !faceSplitMoveIds.size || !faceSplitPreview) return;
+    if (faceSplitSubmittingRef.current || !facePersonData?.personId || !faceSplitMoveIds.size || !faceSplitPreview) return;
     const stats = faceSplitPreview.stats || {};
-    const totalFaces = Number(stats.totalFaces) || 0;
+    const totalFaces = Number(stats.totalFaces) || new Set([
+      ...(faceSplitPreview.moveFaces || []), ...(faceSplitPreview.keepFaces || []),
+      ...(faceSplitPreview.undecidedFaces || []),
+    ].map((face) => String(face.faceId))).size;
     if (faceSplitMoveIds.size >= totalFaces) {
-      Toast.warning('至少保留一张脸给原人物');
+      setFaceSplitError('至少保留一张脸给原人物');
       return;
     }
-    const confirmed = window.confirm(
-      `确认拆分？将把 ${faceSplitMoveIds.size} 张脸从「${facePersonData.displayName || `人物#${facePersonData.personId}`}」拆出到新人物，原人物保留其余脸。`
-    );
-    if (!confirmed) return;
+    if (!faceSplitConfirming) {
+      setFaceSplitError('');
+      setFaceSplitConfirming(true);
+      return;
+    }
 
+    faceSplitSubmittingRef.current = true;
     setFaceSplitSubmitting(true);
     setFaceSplitError('');
     try {
@@ -4103,11 +4120,13 @@ function ProjectDetail({
       }
     } catch (err) {
       console.error('splitPerson failed', err);
-      setFaceSplitError(err?.body || err?.message || '拆分失败，请重试');
+      setFaceSplitError(err?.message || '拆分失败，请重试');
     } finally {
+      faceSplitSubmittingRef.current = false;
       setFaceSplitSubmitting(false);
+      setFaceSplitConfirming(false);
     }
-  }, [facePersonData, faceSplitMoveIds, faceSplitSeedIds, faceSplitPreview, faceSplitNewName, resetFaceSplitState, projectId, pickFacePersonHeroPhoto, loadFacePersonAvatar]);
+  }, [facePersonData, faceSplitMoveIds, faceSplitSeedIds, faceSplitPreview, faceSplitNewName, faceSplitConfirming, resetFaceSplitState, projectId, pickFacePersonHeroPhoto, loadFacePersonAvatar]);
   // ---- 拆分流程结束 ----
 
   const handleFacePersonsMerged = React.useCallback((result) => {
@@ -6441,6 +6460,7 @@ function ProjectDetail({
           className="person-sheet-modal"
           visible={facePersonVisible}
           onCancel={closeFacePersonModal}
+          closable={!faceSplitSubmitting}
           footer={null}
           zIndex={10050}
           width={isMobile ? 'calc(100vw - 12px)' : 760}
@@ -6548,7 +6568,7 @@ function ProjectDetail({
                       <div className="person-split-head">
                         <div className="person-split-title">系统认错人了？</div>
                         <div className="person-split-sub">
-                          点选不属于「{facePersonData.displayName || `人物#${facePersonData.personId}`}」的脸（可多选），AI 会连同长得像的脸一起拆出去
+                          点选不属于「{facePersonData.displayName || `人物#${facePersonData.personId}`}」的脸（可多选），预览中会建议本人物下相似的人脸一起拆出，由你确认后保存
                         </div>
                       </div>
                       {faceSplitError ? (
@@ -6641,6 +6661,7 @@ function ProjectDetail({
                               <button
                                 type="button"
                                 key={`split-move-${f.faceId}`}
+                                disabled={faceSplitConfirming || faceSplitSubmitting}
                                 className="person-split-chip is-move"
                                 onClick={(e) => { e.stopPropagation(); toggleFaceSplitMove(f.faceId); }}
                                 title={`${f.photoTitle || `照片 ${f.photoId}`}${Number.isFinite(Number(f.scoreSeed)) ? ` · 与种子相似度 ${f.scoreSeed}` : ''}`}
@@ -6663,6 +6684,7 @@ function ProjectDetail({
                               <button
                                 type="button"
                                 key={`split-keep-${f.faceId}`}
+                                disabled={faceSplitConfirming || faceSplitSubmitting}
                                 className="person-split-chip"
                                 onClick={(e) => { e.stopPropagation(); toggleFaceSplitMove(f.faceId); }}
                                 title={f.photoTitle || `照片 ${f.photoId}`}
@@ -6680,12 +6702,25 @@ function ProjectDetail({
                         <div className="person-split-name">
                           <Input
                             value={faceSplitNewName}
+                            disabled={faceSplitConfirming || faceSplitSubmitting}
                             onChange={(v) => setFaceSplitNewName(v)}
                             placeholder="新人物姓名（可选，可稍后再改）"
                             maxLength={80}
                           />
                         </div>
-                        <div className="person-split-actions">
+                        {faceSplitConfirming ? (
+                          <div className="person-split-confirm" role="alertdialog" aria-label="确认拆分"
+                            aria-describedby="person-split-confirm-description" tabIndex={-1} ref={faceSplitConfirmRef}>
+                            <strong>确认拆分</strong>
+                            <p id="person-split-confirm-description">从「{facePersonData.displayName || `人物#${facePersonData.personId}`}」拆出 {moveList.length} 张脸到{faceSplitNewName.trim() ? `「${faceSplitNewName.trim()}」` : '新人物'}，原人物保留 {Math.max(0, totalFaces - moveList.length)} 张。不会删除照片。</p>
+                            <div className="person-split-actions-btns">
+                              <Button size="small" theme="borderless" disabled={faceSplitSubmitting}
+                                onClick={() => setFaceSplitConfirming(false)}>返回检查</Button>
+                              <Button size="small" theme="solid" type="danger" loading={faceSplitSubmitting}
+                                onClick={confirmFaceSplit}>确认并保存</Button>
+                            </div>
+                          </div>
+                        ) : <div className="person-split-actions">
                           <Text type="tertiary" size="small">确认后保存本次分组，拿不准的人脸可继续手动调整</Text>
                           <div className="person-split-actions-btns">
                             <Button size="small" theme="borderless" onClick={() => setFaceSplitMode('select')}>返回重选</Button>
@@ -6700,7 +6735,7 @@ function ProjectDetail({
                               确认拆分
                             </Button>
                           </div>
-                        </div>
+                        </div>}
                       </div>
                     );
                   })() : null}

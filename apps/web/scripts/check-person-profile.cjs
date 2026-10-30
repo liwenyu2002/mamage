@@ -24,7 +24,7 @@ async function main() {
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const browser = await chromium.launch({ headless: true, ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}) });
   try {
-    const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } }); page.setDefaultTimeout(12000);
+    const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, reducedMotion: 'reduce' }); page.setDefaultTimeout(12000);
     const errors = []; page.on('pageerror', error => errors.push(error.message));
     await page.addInitScript(() => { localStorage.setItem('mamage_jwt_token', 'isolated-person-test'); localStorage.setItem('mamage-entry-pref', 'public'); });
     await page.route('https://profiles.test/**', route => route.fulfill({ contentType: 'image/svg+xml', headers: { 'access-control-allow-origin': '*' }, body: '<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000"><rect width="1600" height="1000" fill="#c2cbd0"/></svg>' }));
