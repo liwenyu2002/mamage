@@ -45,7 +45,7 @@
 :root .mamage-user-menu[data-open='true'] .mamage-user-chevron { transform: rotate(90deg); }
 :root .mamage-user-menu .mamage-user-menu-panel {
   position: static; width: 100%; padding: 8px; border-radius: 0;
-  max-height: calc(100dvh - var(--account-head-height) - 96px); overflow-y: auto;
+  max-height: calc(100vh - var(--account-head-height) - 96px); max-height: calc(100dvh - var(--account-head-height) - 96px); overflow-y: auto;
 }
 :root .mamage-user-menu .mamage-user-menu-panel::before { content: ''; height: 1px; background: var(--glass-line); margin: 0 8px 4px; }
 :root .mamage-user-menu-panel button { font-size: 13px; }
@@ -78,7 +78,7 @@
     align-items: center; gap: 6px; min-height: 40px; padding: 0;
     transition: grid-template-columns 480ms var(--glass-layout-ease);
   }
-  :root .mamage-header.is-mobile-header .mamage-topbar:has(.mamage-create-album) {
+  :root .mamage-header.is-mobile-header .mamage-topbar[data-create-visible='true'] {
     grid-template-columns: 40px minmax(0, 1fr) 40px 40px 40px;
   }
   :root .mamage-header.is-mobile-header.is-project-detail .mamage-topbar {
@@ -119,7 +119,7 @@
   :root .mamage-header.is-mobile-header:not(.is-project-detail) .mamage-brand-button,
   :root .mamage-header.is-mobile-header[data-search-open='true'] .mamage-brand-button { display: none; }
   :root .mamage-header.is-mobile-header .mamage-project-info-panel {
-    position: static; width: 100%; max-width: none; max-height: min(360px, calc(100dvh - 200px)); overflow: auto;
+    position: static; width: 100%; max-width: none; max-height: min(360px, calc(100vh - 200px)); max-height: min(360px, calc(100dvh - 200px)); overflow: auto;
     padding: 0 6px 14px 12px; border: 0; border-radius: 0; background: transparent; box-shadow: none;
     backdrop-filter: none; -webkit-backdrop-filter: none;
     visibility: hidden; opacity: 0; transition: opacity 180ms, visibility 0s 420ms;
@@ -133,7 +133,7 @@
   }
   :root .mamage-header.is-mobile-header .mamage-nav-search-field { min-width: 0; max-width: none; height: 40px; }
   :root .mamage-header.is-mobile-header .mamage-nav-search-input { height: 40px; padding: 0 34px 0 12px; font-size: 16px; text-overflow: ellipsis; }
-  :root .mamage-header.is-mobile-header .mamage-nav-search-field:has(.mamage-search-clear) .mamage-nav-search-input { padding-right: 60px; }
+  :root .mamage-header.is-mobile-header .mamage-nav-search-field[data-has-keyword='true'] .mamage-nav-search-input { padding-right: 60px; }
   :root .mamage-header.is-mobile-header .mamage-search-submit { right: 2px; width: 32px; height: 36px; }
   :root .mamage-header.is-mobile-header .mamage-search-clear { right: 34px; }
   :root .mamage-header.is-mobile-header[data-title-open='true'] .mamage-nav-search-input,
@@ -161,7 +161,7 @@
     grid-template-rows: 1fr; visibility: visible; transform: none; transition-delay: 0s;
   }
   :root .mamage-header.is-mobile-header .mamage-user-menu > .glass-unfold-body > div { border-radius: 22px; }
-  :root .mamage-header.is-mobile-header .mamage-user-menu-panel { padding: 10px; max-height: calc(100dvh - 80px); border-radius: 22px; }
+  :root .mamage-header.is-mobile-header .mamage-user-menu-panel { padding: 10px; max-height: calc(100vh - 80px); max-height: calc(100dvh - 80px); border-radius: 22px; }
   :root .mamage-header.is-mobile-header .mamage-user-menu-panel::before { content: none; }
   :root .mamage-account-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 8px 8px 12px; border-bottom: 1px solid var(--glass-line); margin-bottom: 6px; }
   :root .mamage-account-summary .mamage-user-name { padding: 0; background: none; font-size: 15px; }
@@ -175,7 +175,7 @@
   }
   :root .mamage-header.is-mobile-header .glass-settings.is-open { visibility: visible; opacity: 1; transform: none; transition-delay: 0s; }
   :root .mamage-header.is-mobile-header .glass-settings-head { height: 40px; }
-  :root .mamage-header.is-mobile-header .glass-settings-body { max-height: calc(100dvh - 124px); overflow: auto; }
+  :root .mamage-header.is-mobile-header .glass-settings-body { max-height: calc(100vh - 124px); max-height: calc(100dvh - 124px); overflow: auto; }
 }
 @media (prefers-reduced-motion: reduce) {
   :root :is(.mamage-user-chevron, .mamage-account-surface, .mamage-account-group .glass-settings-slot,

@@ -5,6 +5,7 @@ import { folderPath, groupAlbums, folderPreviewItems, ROOT_DROP_ID } from './fol
 import CardSharingStatus from '../CardSharingStatus';
 const DEFAULT_COLLECTION_COLOR = '#ffffff';
 const SUPPORTS_FAN_DEPTH = typeof CSS !== 'undefined' && CSS.supports('translate', '0 0 1px');
+const SUPPORTS_CONTAINER_UNITS = typeof CSS !== 'undefined' && CSS.supports('width', '1cqi');
 function GroupSymbol({ group }) {
   const Icon = { timeline: IconTimelineFlow, image: IconSimilarStack, grid: IconGridView }[group.symbol] || IconGridView;
   return <Icon />;
@@ -42,6 +43,16 @@ export function CollectionCard({ group, groups = [], albums, onSelect, onOpen, p
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [menuPosition, setMenuPosition] = React.useState({});
   const cardRef = React.useRef(null);
+  React.useLayoutEffect(() => {
+    if (SUPPORTS_CONTAINER_UNITS) return undefined;
+    const card = cardRef.current;
+    // Older embedded WebViews need the same container size in pixels, including after resize.
+    const updateWidth = width => card.style.setProperty('--acp-card-inline-size', `${width}px`);
+    updateWidth(card.clientWidth);
+    const observer = new ResizeObserver(([entry]) => updateWidth(entry.contentRect.width));
+    observer.observe(card);
+    return () => observer.disconnect();
+  }, []);
   const coverRefs = React.useRef([]);
   const footerRef = React.useRef(null);
   const toolsRef = React.useRef(null);

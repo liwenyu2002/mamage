@@ -189,7 +189,9 @@
 .acp-fan-viewport { position: absolute; inset: -190px 0 0; overflow: visible; pointer-events: none; }
 .acp-fan-stage { position: absolute; left: 16px; right: 16px; bottom: 36px; height: calc(100% - 241px); touch-action: pan-y; pointer-events: auto; }
 .acp-fan-cover { --fan-spread: 20%; --fan-rotation: 5deg; --fan-curve: 4px; --fan-lift: 0px; --fan-scale: 1; position: absolute; z-index: var(--fan-depth); left: 50%; bottom: 15px; width: max-content; padding: 0; border: 0; border-radius: 12px; background: #edf0ed; overflow: hidden; cursor: pointer; box-shadow: var(--acp-photo-shadow); transform-origin: 50% 90%; transform: translateX(-50%) translateX(calc(var(--fan-position) * var(--fan-spread))) translateY(calc(var(--fan-arc) * var(--fan-curve) + var(--fan-lift))) rotate(calc(var(--fan-position) * var(--fan-rotation))) scale(var(--fan-scale)); transition: transform .28s cubic-bezier(.2,.8,.2,1); }
-.acp-fan-cover img { display: block; width: auto; height: auto; max-width: min(calc((100cqi - 32px) * .82), 232px); max-height: min(192px, calc(max(var(--acp-card-min-height), 100cqi / var(--acp-card-ratio)) - 54px)); pointer-events: none; }
+.acp-collection { --acp-card-inline-size: 240px; }
+@supports (width: 1cqi) { .acp-collection { --acp-card-inline-size: 100cqi; } }
+.acp-fan-cover img { display: block; width: auto; height: auto; max-width: min(calc((var(--acp-card-inline-size) - 32px) * .82), 232px); max-height: min(192px, calc(max(var(--acp-card-min-height), var(--acp-card-inline-size) / var(--acp-card-ratio)) - 54px)); pointer-events: none; }
 .acp-fan-album-stamp { position: absolute; top: 9px; right: 9px; display: flex; align-items: center; gap: 4px; height: 21px; padding: 0 5px; border: 1px solid #ffffff47; border-radius: 5px; background: #131a235e; color: #fff; font-size: 9px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1; pointer-events: none; }
 .acp-fan-album-stamp svg { width: 11px; height: 11px; }
 .acp-fan-cover:disabled { opacity: 1; cursor: default; }

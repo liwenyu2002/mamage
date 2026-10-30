@@ -58,6 +58,14 @@ Dropdowns are viewport-bounded, keyboard-dismissible, mutually exclusive and
 inert when closed. Full album titles remain available in the expanded heading.
 Search stays around 340px (maximum 360px); unused wide-screen space stays blank.
 
+Embedded browsers may predate `:has`, container units and dynamic viewport units.
+Header columns must follow explicit rendered-button state, not `:has`. Keep `vh`
+fallbacks for viewport-bounded menus. Folder previews use native container units
+where supported; older engines measure each card with a cleaned-up ResizeObserver.
+Do not leave absolute-positioned previews at their images' intrinsic dimensions.
+Unsupported `color-mix` needs a feature-gated background fallback, including child
+folder shells; variables can defer invalid-value detection past the cascade.
+
 ## Verification
 
 After `npm run build`, run from `apps/web`:
@@ -69,9 +77,19 @@ MAMAGE_VIEWER_QA_DETAILS=1 node scripts/test-media-viewer-browser.cjs
 node scripts/test-folder-sharing-browser.cjs
 npm run test:user-name-browser
 MAMAGE_NAV_TEST_URL=http://127.0.0.1:5197 npm run test:mobile-nav
+npm run test:embedded-webview
+MAMAGE_WEBVIEW_EXECUTABLE=/path/to/chromium-104 npm run test:embedded-webview
 ```
 
 Set `MAMAGE_GLASS_BASELINE_DIST` to a pre-change web build for exact computed-style
 comparison of both folder variants at 320, 390, 900 and 1440 pixels. Optional
 `MAMAGE_GLASS_QA_DIR` saves screenshots. Browser tests use isolated local fixtures,
 never live storage mutations.
+
+The embedded-browser regression runs against the built app with isolated API and
+large-image fixtures. Run it in both current Chromium and an actual older engine
+(Chromium 104 reproduces the DingTalk layout failure); changing the user agent
+alone does not test CSS support. It covers 320/390px, create permissions, nested
+folders, resize, menus and album-title expansion. `MAMAGE_WEBVIEW_QA_DIR` saves
+screenshots; `MAMAGE_WEBVIEW_TEST_URL` can check deployed static assets while all
+API calls remain mocked.

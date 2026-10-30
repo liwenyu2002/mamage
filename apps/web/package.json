@@ -25,6 +25,7 @@
     "test:user-name-browser": "node scripts/test-user-name-browser.cjs",
     "test:glass-browser": "node scripts/test-glass-library-browser.cjs",
     "test:mobile-nav": "node scripts/test-mobile-navigation-browser.cjs",
+    "test:embedded-webview": "node scripts/test-embedded-webview-browser.cjs",
     "pretest:audit": "npm run test:iam",
     "test:news-browser": "node scripts/test-news-usability-browser.cjs",
     "test:news-selection": "node scripts/test-news-editor-selection.cjs",

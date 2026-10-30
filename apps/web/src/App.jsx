@@ -14,7 +14,7 @@ import { fetchProjectList, fetchProjectImportStatuses, createProject } from './s
 import { searchPhotos } from './services/photoQueryService';
 import { fetchWorkspaces, setActiveWorkspace } from './services/workspaceService';
 import { resolveAssetUrl, rewriteMediaUrlsDeep } from './services/request';
-import IfCan from './permissions/IfCan';
+import { canAll } from './permissions/permissionStore';
 import { LiquidGlassDefs } from './liquidGlass';
 import { GlassAccountMenu, ViewerDisplaySettings, useViewerAppearance } from './ui/Glass';
 import UiZoomControl, { useUiZoom, applyDocumentZoom } from './UiZoomControl';
@@ -1292,6 +1292,7 @@ function App() {
   }
 
   const columnWorkspace = folderStyle === 'classic' && !currentProjectId && selectedNav === 'projects' && !photoSearchMode && currentUser && !isDemoPath;
+  const showCreateAlbum = !isDemoPath && !currentProjectId && canAll('projects.create');
   const uploadWorkspacePending = Boolean(albumUploadIntent?.unitId
     && Number(workspaceInfo?.activeUnitId) !== Number(albumUploadIntent.unitId));
   const appFooter = <footer className="mamage-footer" style={{ textAlign: 'center' }}>
@@ -1308,7 +1309,7 @@ function App() {
       <div className="mamage-dynamic-backdrop" aria-hidden="true" />
       <header className={`mamage-header${currentProjectId ? ' is-project-detail' : ''}${isMobileHeader ? ' is-mobile-header' : ' is-desktop-header'}`}
         data-title-open={isMobileHeader && projectInfoOpen} data-search-open={isMobileHeader && mobileHeaderPanel === 'search'}>
-        <div className={`mamage-topbar${currentProjectId ? ' is-project-detail' : ''}`}>
+        <div className={`mamage-topbar${currentProjectId ? ' is-project-detail' : ''}`} data-create-visible={showCreateAlbum}>
           <div className="mamage-nav-brand-slot" ref={headerBrandRef}>
           <div className="mamage-nav-brand-group" data-glass="clear" data-open={isMobileHeader && projectInfoOpen}>
           <div className="mamage-nav-brand-content" ref={headerAlbumContentRef}>
@@ -1369,7 +1370,7 @@ function App() {
 
           <div className="mamage-nav-actions">
             <div className="mamage-nav-search-group" data-glass="clear">
-            <div className="mamage-nav-search-field">
+            <div className="mamage-nav-search-field" data-has-keyword={Boolean(keyword)}>
               <input
                 ref={headerSearchRef}
                 className="mamage-nav-search-input"
@@ -1428,8 +1429,7 @@ function App() {
             </button>
             </div>
 
-            {!isDemoPath && !currentProjectId ? (
-              <IfCan perms={['projects.create']}>
+            {showCreateAlbum ? (
                 <button
                   type="button"
                   className="mamage-action-button is-secondary mamage-create-album"
@@ -1443,7 +1443,6 @@ function App() {
                   <span className="mamage-label-short">新建</span>
                   <IconPlus className="mamage-create-album-icon" />
                 </button>
-              </IfCan>
             ) : null}
 
             <div className="mamage-account-group">
