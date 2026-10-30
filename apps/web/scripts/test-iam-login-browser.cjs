@@ -4,6 +4,21 @@ const { createRequire } = require('node:module');
 const { chromium } = createRequire(path.resolve(__dirname, '../../server/package.json'))('playwright');
 const dist = path.resolve(__dirname, '../dist'), artifacts = process.env.MAMAGE_IAM_QA_DIR;
 const fixtures = [{name:'password',iam:false,dingtalk:false},{name:'campus',iam:true,dingtalk:false},{name:'dingtalk',iam:false,dingtalk:true}];
+async function assertPrimaryVisible(page) {
+  const button = page.locator('.auth-primary');
+  for (const hover of [false, true]) {
+    if (hover) await button.hover();
+    else await page.mouse.move(0, 0);
+    await page.waitForFunction(() => {
+      const button = document.querySelector('.auth-primary');
+      const style = getComputedStyle(button);
+      const rgba = style.backgroundColor.match(/[\d.]+/g)?.map(Number);
+      return rgba && (rgba.length === 3 || rgba[3] === 1)
+        && style.color !== style.backgroundColor;
+    }, null, { timeout: 2000 });
+    assert.ok(await button.innerText(), 'primary login action has a visible label');
+  }
+}
 async function main() {
   if (artifacts) fs.mkdirSync(artifacts, { recursive: true });
   const server = http.createServer((req, res) => {
@@ -16,7 +31,7 @@ async function main() {
   const base=`http://127.0.0.1:${server.address().port}`;
   let browser;
   try {
-    browser = await chromium.launch();
+    browser = await chromium.launch({ executablePath: process.env.MAMAGE_CHROMIUM_PATH || undefined });
     for (const width of [1440,390,320]) for (const provider of fixtures) {
       const context = await browser.newContext({ viewport: { width, height: 860 } });
       try {
@@ -45,10 +60,12 @@ async function main() {
           assert.equal(await campusTab.getAttribute('aria-selected'),'true');
           assert.equal(await page.locator('input[type="password"]').count(),0);
           assert.equal(await page.locator('.auth-content iframe,.auth-content canvas').count(),0,'no fake QR or unconfigured frame');
+          await assertPrimaryVisible(page);
           if(artifacts) await page.screenshot({path:path.join(artifacts,`login-${provider.name}-${width}.png`),fullPage:true});
           await campusTab.focus();await campusTab.press('ArrowRight');
           assert.equal(await page.getByRole('tab',{name:'账号密码',exact:true}).getAttribute('aria-selected'),'true');
         }
+        await assertPrimaryVisible(page);
         await page.getByRole('button',{name:'登录',exact:true}).click();
         await page.getByText('请输入邮箱或学号',{exact:true}).waitFor();
         assert.equal(writes.length,0);
@@ -62,6 +79,7 @@ async function main() {
         if(artifacts) await page.screenshot({path:path.join(artifacts,`password-${provider.name}-${width}.png`),fullPage:true});
         await page.getByRole('button',{name:'创建账号',exact:true}).click();
         await page.getByRole('heading',{name:'创建 MaMage 账号',exact:true}).waitFor();
+        await assertPrimaryVisible(page);
         await page.getByPlaceholder('姓名',{exact:true}).fill('Fixture');
         assert.ok(await page.getByText('组织代号',{exact:true}).isVisible());
         assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));

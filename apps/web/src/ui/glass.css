@@ -120,12 +120,12 @@
 :root [data-glass-button] {
   transition: transform 280ms var(--glass-spring), background 160ms ease, box-shadow 160ms ease;
 }
-:root [data-glass-button]:not(.mamage-button-primary):not(.mamage-button-danger) {
+:root [data-glass-button]:not(.mamage-button-primary):not(.mamage-button-danger):not(.auth-primary) {
   background: var(--glass-material);
   border-color: transparent;
   box-shadow: var(--glass-edge);
 }
-:root [data-glass-button]:not(.mamage-button-disabled):not(.mamage-button-primary):not(.mamage-button-danger):hover {
+:root [data-glass-button]:not(.mamage-button-disabled):not(.mamage-button-primary):not(.mamage-button-danger):not(.auth-primary):hover {
   background: var(--glass-hover);
   box-shadow: var(--glass-edge);
 }
