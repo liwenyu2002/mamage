@@ -208,7 +208,10 @@ async function main() {
             await modal.locator('.detail-upload-preview-section').first().selectOption('21');
           }
           assert.ok(await page.evaluate(async src => {
-            try { return (await fetch(src)).ok; } catch (_) { return false; }
+            // Load a fresh image so revoked URLs cannot pass via an existing image's
+            // cache, while respecting production CSP (blob images, not blob fetch).
+            try { const image = new Image(); image.src = src; await image.decode(); return image.naturalWidth > 0; }
+            catch (_) { return false; }
           }, retainedPreview), 'Removing another file must not revoke the retained photo preview');
           await modal.locator('.detail-upload-preview-media').evaluate(image => image.decode());
           if (mobile) await noDropPresentation(modal);
