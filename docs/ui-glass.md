@@ -9,6 +9,9 @@ display preferences.
 
 - Use `data-glass="clear"` for navigation, toolbars and display controls.
 - Use `data-glass="readable"` for text-heavy panels and dialogs.
+- Open navigation, account and display-settings menus use readable material too.
+  Do not increase the clear adapter's specificity with compound selectors inside
+  `:is()`; use `:where()` for their conditions so readable/floating win the cascade.
 - Use `data-glass-theme="dark"` on a containing surface, not on individual controls.
 - Reuse `--glass-spring`, `--glass-duration` and `--glass-layout-ease` for motion.
 - Keep content, media and tools in separate layout tracks. A panel's spring
@@ -66,12 +69,22 @@ Do not leave absolute-positioned previews at their images' intrinsic dimensions.
 Unsupported `color-mix` needs a feature-gated background fallback, including child
 folder shells; variables can defer invalid-value detection past the cascade.
 
+`ui/glassCompatibility.js` runs before React mounts. Mobile DingTalk and engines
+without CSS backdrop-filter support set `html[data-glass-fallback="true"]`.
+CSS syntax support cannot verify the embedded compositor actually paints blur.
+In this mode shared clear/readable/floating tokens use a 97% opaque surface and
+disable backdrop filtering, retaining the same edges, shadows and motion. Normal
+browsers keep the original glass. The CSS-only unsupported-filter fallback and
+nested light/dark themes use the same tokens; portals inherit the root mode.
+
 ## Verification
 
 After `npm run build`, run from `apps/web`:
 
 ```sh
 node scripts/test-glass-library-browser.cjs
+node --test scripts/test-glass-compatibility.cjs
+node scripts/test-glass-fallback-browser.cjs
 node scripts/test-media-viewer-browser.cjs
 MAMAGE_VIEWER_QA_DETAILS=1 node scripts/test-media-viewer-browser.cjs
 node scripts/test-folder-sharing-browser.cjs

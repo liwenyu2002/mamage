@@ -38,7 +38,7 @@ export function GlassAccountMenu({ label, triggerContent, compactContent, open: 
     return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape, true); };
   }, [open]);
   const panel = <div className="glass-unfold-body" id={id} aria-hidden={!open} inert={!open ? '' : undefined}>
-    <div><div className="mamage-user-menu-panel" data-glass={compact ? 'clear' : undefined} onClick={event => {
+    <div><div className="mamage-user-menu-panel" data-glass={compact ? 'readable' : undefined} onClick={event => {
       if (event.target.closest('button')) setOpen(false);
     }}>
       {compact ? <div className="mamage-account-summary">{triggerContent}</div> : null}
@@ -46,7 +46,7 @@ export function GlassAccountMenu({ label, triggerContent, compactContent, open: 
     </div></div>
   </div>;
   return <div className="mamage-user-menu" data-open={open} data-compact={compact} ref={root} style={{ '--account-head-height': `${headHeight}px` }}>
-    <div className="mamage-account-surface" data-glass="clear">
+    <div className="mamage-account-surface" data-glass={open && !compact ? 'readable' : 'clear'}>
       <button type="button" className="mamage-user-chip" ref={trigger} aria-label={label}
         aria-expanded={open} aria-controls={id} onClick={() => setOpen(value => !value)}>{compact ? compactContent : triggerContent}</button>
       {!compact ? panel : null}
@@ -108,7 +108,7 @@ export function ViewerDisplaySettings({ appearance, onChange, darkLabel = '深�
     aria-label="显示设置" title="显示设置" aria-expanded={open} aria-controls={id} onClick={() => setOpen(value => !value)}><IconSliders /></button>;
   return <div className={`glass-settings-slot${open ? ' is-open' : ''}${compact ? ' is-compact' : ''}`} ref={root}>
     {compact ? button : null}
-    <div className={`glass-settings${open ? ' is-open' : ''}`} data-glass="clear">
+    <div className={`glass-settings${open ? ' is-open' : ''}`} data-glass={open ? 'readable' : 'clear'}>
       <div className="glass-settings-head">
         <strong aria-hidden={!open}>{open ? '显示设置' : ''}</strong>
         {!compact ? button : null}

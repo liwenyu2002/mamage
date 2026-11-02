@@ -5,13 +5,15 @@
   --glass-muted: #727477;
   --glass-fill: rgba(255, 255, 255, .02);
   --glass-readable-fill: rgba(250, 251, 252, .82);
+  --glass-fallback-fill: rgba(248, 249, 250, .97);
+  --glass-floating-fill: var(--glass-fill);
   --glass-rim: rgba(30, 35, 40, .09);
   --glass-glint: rgba(255, 255, 255, .85);
   --glass-edge: 0 0 0 .5px var(--glass-rim), inset 0 .5px 0 var(--glass-glint);
   --glass-float-shadow: 0 12px 32px rgba(20, 24, 28, .08);
   --glass-material: linear-gradient(180deg, rgba(255,255,255,.035), transparent 40%, rgba(255,255,255,.015)), var(--glass-fill);
   --glass-readable-material: linear-gradient(180deg, rgba(255,255,255,.035), transparent 40%, rgba(255,255,255,.015)), var(--glass-readable-fill);
-  --glass-floating-material: linear-gradient(155deg, rgba(255,255,255,.48), rgba(255,255,255,.1) 46%, rgba(255,255,255,.2)), var(--glass-fill);
+  --glass-floating-material: linear-gradient(155deg, rgba(255,255,255,.48), rgba(255,255,255,.1) 46%, rgba(255,255,255,.2)), var(--glass-floating-fill);
   --glass-floating-edge: 0 0 0 .5px var(--glass-rim), inset 0 1px 0 var(--glass-glint), inset 0 -1px 0 rgba(30,35,40,.06);
   --glass-floating-shadow-color: rgba(20,24,28,.12);
   --glass-blur: 20px;
@@ -32,23 +34,26 @@
   --glass-ink: #f3f3f4;
   --glass-muted: #abaeb2;
   --glass-readable-fill: rgba(26, 28, 31, .86);
+  --glass-fallback-fill: rgba(26, 28, 31, .97);
+  --glass-floating-fill: rgba(26,28,31,.42);
   --glass-rim: rgba(255,255,255,.13);
   --glass-glint: rgba(255,255,255,.24);
   --glass-hover: rgba(255,255,255,.09);
   --glass-active: #46494e;
   --glass-line: rgba(255,255,255,.12);
-  --glass-floating-material: linear-gradient(155deg, rgba(255,255,255,.13), rgba(255,255,255,.025) 46%, rgba(255,255,255,.055)), rgba(26,28,31,.42);
+  --glass-floating-material: linear-gradient(155deg, rgba(255,255,255,.13), rgba(255,255,255,.025) 46%, rgba(255,255,255,.055)), var(--glass-floating-fill);
   --glass-floating-shadow-color: rgba(0,0,0,.28);
   color-scheme: dark;
 }
 
-/* These adapters are the migration boundary. New components use data-glass. */
-:root :is([data-glass], .mamage-header:not(.is-project-detail), .mamage-mobile-nav-panel,
+/* Keep every adapter at the same specificity so readable/floating can override
+   clear. A compound selector inside :is() otherwise raises the entire rule. */
+:root :is([data-glass], .mamage-header:where(:not(.is-project-detail)), .mamage-mobile-nav-panel,
   .mamage-popover-content,
-  .mamage-dtp-pop, .album-library-panel, .acp-column-context-menu,
+  .mamage-dtp-pop, .album-library-panel, .acp-column-context-menu, .desktop-photo-menu,
   .acp-album-actions, .acp-collection-popup, .detail-bottom-nav,
   .detail-bottom-upload, .detail-select-fab, .detail-actions-fab,
-  .detail-selection-inline.is-expanded, .mamage-modal-content,
+  .detail-selection-inline:where(.is-expanded), .mamage-modal-content,
   .mamage-sidesheet-content, .detail-actions-sheet, .acp-sidebar-directory,
   .scenery-toolbar, .auth-card, .viewer-topbar, .viewer-dock-actions,
   .viewer-details-panel, .viewer-tone-panel) {
@@ -59,10 +64,11 @@
   -webkit-backdrop-filter: var(--glass-backdrop) !important;
 }
 
-:root :is([data-glass='readable'], .mamage-modal-content, .mamage-sidesheet-content,
+:root :is([data-glass='readable'], .mamage-modal-content, .mamage-sidesheet-content, .mamage-mobile-nav-panel,
   .detail-actions-sheet, .auth-card, .viewer-details-panel, .viewer-tone-panel,
   .mamage-popover-content, .mamage-dtp-pop, .album-library-panel,
-  .acp-column-context-menu, .acp-album-actions, .acp-collection-popup) {
+  .acp-column-context-menu, .acp-album-actions, .acp-collection-popup, .desktop-photo-menu,
+  .detail-selection-inline:where(.is-expanded)) {
   background: var(--glass-readable-material) !important;
   box-shadow: var(--glass-edge), var(--glass-float-shadow) !important;
 }
@@ -198,9 +204,21 @@
   .viewer-topbar:has(.glass-settings.is-open) .viewer-topbar-left > :not(.viewer-topbar-close) { display: none; }
 }
 
+/* Mobile DingTalk may accept backdrop-filter without compositing it. Set the
+   tokens before React mounts; nested themes/portals must inherit the same mode. */
+:root[data-glass-fallback='true'], :root[data-glass-fallback='true'] [data-glass-theme] {
+  --glass-fill: var(--glass-fallback-fill);
+  --glass-readable-fill: var(--glass-fallback-fill);
+  --glass-floating-fill: var(--glass-fallback-fill);
+  --glass-backdrop: none;
+}
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  :root { --glass-fill: #f5f6f7; --glass-readable-fill: #f5f6f7; }
-  [data-glass-theme='dark'] { --glass-fill: #232528; --glass-readable-fill: #232528; }
+  :root, [data-glass-theme] {
+    --glass-fill: var(--glass-fallback-fill);
+    --glass-readable-fill: var(--glass-fallback-fill);
+    --glass-floating-fill: var(--glass-fallback-fill);
+    --glass-backdrop: none;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   :root, [data-glass-theme] { --glass-duration: 0ms; }

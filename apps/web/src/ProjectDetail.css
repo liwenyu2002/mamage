@@ -3227,7 +3227,6 @@
 }
 
 .detail-select-fab,
-.detail-selection-inline.is-expanded,
 .detail-selection-btn.mamage-button {
   border-color: var(--liquid-glass-border, rgba(255, 255, 255, 0.62)) !important;
   background: var(--liquid-glass-material, rgba(255, 255, 255, 0.38)) !important;
