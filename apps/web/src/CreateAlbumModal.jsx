@@ -169,6 +169,8 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
     };
   }, []);
 
+  React.useEffect(() => { if (isMobileLayout) setDraggingOverGroup(null); }, [isMobileLayout]);
+
   const moveTimelineSection = React.useCallback((idx, direction) => {
     setTimelineSections((prev) => {
       const target = idx + direction;
@@ -556,7 +558,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
           </div>
         ) : null}
 
-        <section className="cam-upload-block">
+        <section className={`cam-upload-block${isMobileLayout ? ' is-mobile-upload' : ''}`}>
           {!compact && <div className="cam-section-heading"><strong>照片与视频</strong><span>{stagingFiles.length ? `已选 ${stagingFiles.length} 个` : '可选'}</span></div>}
           <input
             ref={filePickerRef}
@@ -577,13 +579,13 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
               <section
                 key={group.key || '__all__'}
                 className={`cam-upload-group${compact && !timelineEnabled ? ' cam-upload-group--simple' : ''}${draggingOverGroup === group.key ? ' is-drag-over' : ''}`}
-                onDragOver={(e) => {
+                onDragOver={isMobileLayout ? undefined : (e) => {
                   e.preventDefault();
                   if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
                   setDraggingOverGroup(group.key);
                 }}
-                onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDraggingOverGroup(null); }}
-                onDrop={(e) => {
+                onDragLeave={isMobileLayout ? undefined : (e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDraggingOverGroup(null); }}
+                onDrop={isMobileLayout ? undefined : (e) => {
                   e.preventDefault();
                   setDraggingOverGroup(null);
                   if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
@@ -665,7 +667,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
                     })}
                   </div>
                 ) : (
-                  compact ? <button type="button" className="cam-media-add" disabled={submitting} onClick={() => openFilePicker(group.key)}><IconSimilarStack /><span>添加照片或视频</span><IconPlus /></button> : <div className="cam-upload-group-empty">未选择照片或视频</div>
+                  compact || isMobileLayout ? <button type="button" className="cam-media-add" disabled={submitting} onClick={() => openFilePicker(group.key)}><IconSimilarStack /><span>添加照片或视频</span><IconPlus /></button> : <div className="cam-upload-group-empty">未选择照片或视频</div>
                 )}
               </section>
             ))}

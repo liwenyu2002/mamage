@@ -1,9 +1,9 @@
 # Shared Glass UI
 
 `apps/web/src/ui/glass.css` owns the production chrome material, thin rim,
-readable surfaces, dark viewer palette, and spring motion. `ui/Glass.jsx` owns
+readable surfaces, dark palette, and spring motion. `ui/Glass.jsx` owns
 the clipped panel reveal, continuous account disclosure, and persistent viewer
-display preferences.
+display controls; `ui/glassAppearance.js` owns the shared, persistent appearance.
 
 ## Contract
 
@@ -37,16 +37,23 @@ display preferences.
 
 ## Preserved Surfaces
 
-The existing stacked folder cards, classic folder glyphs/column browser, album
-preview images and folder hover interactions remain unchanged. Their original
-`--liquid-glass-*` tokens in `liquidGlass.css` are intentionally retained. This
-release does not rewrite stored folder styles, workspace state, or user roles.
+The existing stacked folder geometry, classic folder glyphs/column browser, album
+preview images and folder hover interactions remain unchanged. Their light-theme
+`--liquid-glass-*` tokens in `liquidGlass.css` are retained; dark mode adapts the
+surfaces and text without changing stored folder styles, workspace state or roles.
 The prototype's sample data and routes are not deployed.
 
-Display preferences are local to the photo/video viewer and persist in
-`mamage-viewer-appearance`. Header settings use the same store: blur applies to
-shared chrome, while "dark viewer" changes only the viewer, preserving folder
-styles. Changes synchronize across mounted viewers and browser tabs.
+Display preferences apply to the whole site and retain the existing
+`mamage-viewer-appearance` key for compatibility. The saved theme is applied to
+the HTML root before React mounts, including portal dialogs and login pages.
+Header and viewer settings both change the same appearance. Changes synchronize
+across mounted surfaces and browser tabs, including in-memory updates when storage
+is blocked. `ui/darkTheme.css` adapts legacy content surfaces and controls; media
+pixels, folder geometry and preview interactions are never recolored or inverted.
+On mobile layouts (up to 768px), album creation and uploads use tap-to-select
+controls without drag/drop targets or hints. Desktop file drops remain enabled.
+Run `npm --prefix apps/web run test:mobile-upload` after building to check file
+selection, preview retention, removal and timeline assignment in both themes.
 `ui/navigation.css` owns the separated navigation/search/account capsule layout,
 not a second material system. At 1024px and below, the header stays on one 40px
 row. The account trigger shows the first character, with the full name and

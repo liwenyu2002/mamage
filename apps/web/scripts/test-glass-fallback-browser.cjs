@@ -148,6 +148,9 @@ async function main() {
             check(material.theme === 'dark', `${name}: dark theme was not activated`);
             if (fallback) check(material.rgba.slice(0, 3).every(channel => channel < 80), `${name}: dark fallback fill is not dark`);
           }
+          if (material.theme === 'dark' && material.alpha > .5) {
+            check(material.rgba.slice(0, 3).every(channel => channel < 80), `${name}: dark panel stayed light`);
+          }
           await page.screenshot({ path: path.join(output, `${prefix}-${name}.png`), animations: 'disabled' });
         };
         const step = async (name, run) => {
@@ -157,6 +160,33 @@ async function main() {
           }
         };
         const home = async () => { await page.goto(base); await page.locator('.detail-bottom-nav--adaptive').waitFor(); };
+        const checkViewerTheme = async dark => {
+          await page.locator('.viewer-overlay').evaluate(async node => {
+            await new Promise(requestAnimationFrame);
+            await Promise.all(node.getAnimations({ subtree: true }).filter(animation => animation.effect?.getTiming().iterations !== Infinity)
+              .map(animation => animation.finished.catch(() => {})));
+          });
+          const state = await page.locator('.viewer-overlay').evaluate(node => {
+            const css = getComputedStyle(node), backdrop = getComputedStyle(node.querySelector('.viewer-backdrop'));
+            return { theme: node.dataset.glassTheme, background: css.backgroundColor,
+              backdrop: { background: backdrop.backgroundColor, filter: backdrop.filter },
+              saved: JSON.parse(localStorage.getItem('mamage-viewer-appearance')) };
+          });
+          const pixels = await sharp(await page.screenshot()).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+          // The far right of the stage is outside the fixture photo and all controls.
+          const offset = (Math.round(pixels.info.height * .35) * pixels.info.width + pixels.info.width - 3) * pixels.info.channels;
+          const rgb = [...pixels.data.subarray(offset, offset + 3)];
+          const mediaBox = await page.locator('.viewer-slide.is-active img').first().boundingBox();
+          const mediaOffset = (Math.round(mediaBox.y + mediaBox.height / 2) * pixels.info.width
+            + Math.round(mediaBox.x + mediaBox.width / 2)) * pixels.info.channels;
+          const mediaRgb = [...pixels.data.subarray(mediaOffset, mediaOffset + 3)];
+          (result.themes ||= []).push({ dark, ...state, rgb, mediaRgb });
+          check(mediaRgb.every((value, index) => Math.abs(value - [86, 125, 114][index]) < 4),
+            `Appearance changed photo pixels: ${mediaRgb}`);
+          check(state.theme === (dark ? 'dark' : 'light'), `Viewer theme did not follow ${dark ? 'dark' : 'light'} selection`);
+          check(dark ? rgb.every(value => value < 100) : rgb.every(value => value > 180),
+            `Viewer stage should be ${dark ? 'dark' : 'light'}, got pixel ${rgb} (${JSON.stringify(state)})`);
+        };
         await step('display-settings', async () => {
           await home();
           await page.locator('.mamage-header').getByRole('button', { name: '显示设置', exact: true }).click();
@@ -201,18 +231,76 @@ async function main() {
           await inspect('album-selection-actions', '.detail-selection-inline.is-expanded');
         });
         await step('viewer-dark', async () => {
+          await home();
+          await page.locator('.mamage-header').getByRole('button', { name: '显示设置', exact: true }).click();
+          await page.getByRole('checkbox', { name: '深色外观', exact: true }).check();
+          const siteTheme = await page.evaluate(() => {
+            const rgba = color => { const canvas = document.createElement('canvas'); canvas.width = canvas.height = 1;
+              const ctx = canvas.getContext('2d'); ctx.fillStyle = color; ctx.fillRect(0, 0, 1, 1);
+              return [...ctx.getImageData(0, 0, 1, 1).data]; };
+            return { theme: document.documentElement.dataset.glassTheme,
+              body: rgba(getComputedStyle(document.body).backgroundColor),
+              title: rgba(getComputedStyle(document.querySelector('h1')).color),
+              folderTitle: rgba(getComputedStyle(document.querySelector('.acp-collection-caption strong')).color) };
+          });
+          result.siteTheme = siteTheme;
+          check(siteTheme.theme === 'dark', `All-site appearance must apply to the root, got ${JSON.stringify(siteTheme)}`);
+          check(siteTheme.body.slice(0, 3).every(value => value < 80), 'Site background stayed light');
+          check(siteTheme.title.slice(0, 3).every(value => value > 180), 'Site heading is not readable in dark mode');
+          check(siteTheme.folderTitle.slice(0, 3).every(value => value > 180), 'Folder heading is not readable in dark mode');
+          await inspect('site-dark-settings', '.mamage-header .glass-settings.is-open');
+          await page.keyboard.press('Escape');
+          await page.getByRole('button', { name: '打开导航', exact: true }).click();
+          await inspect('site-dark-navigation', '.mamage-mobile-nav-panel.is-open');
+          await page.keyboard.press('Escape');
+          await page.locator('.mamage-user-chip').click();
+          await page.getByRole('button', { name: '退出账号', exact: true }).waitFor();
+          await inspect('site-dark-account', '.mamage-user-menu[data-compact="true"] .mamage-user-menu-panel, .mamage-user-menu[data-compact="false"] .mamage-account-surface');
+          await page.keyboard.press('Escape');
+          await page.screenshot({ path: path.join(output, `${prefix}-site-dark.png`), animations: 'disabled' });
+          await page.reload();
+          check(await page.locator('html').getAttribute('data-glass-theme') === 'dark', 'Theme was lost on reload');
+          await page.getByRole('button', { name: '更多操作 Fixture folder', exact: true }).click();
+          await page.getByRole('menu', { name: '文件夹操作 Fixture folder', exact: true }).waitFor();
+          const portal = await page.locator('.acp-collection-popup').evaluate(node => ({
+            theme: node.closest('[data-glass-theme]')?.getAttribute('data-glass-theme'),
+            fill: getComputedStyle(node).backgroundColor,
+          }));
+          check(portal.theme === 'dark', `Portal missed site theme: ${JSON.stringify(portal)}`);
+          check(/rgba?\(26, 28, 31/.test(portal.fill), `Portal stayed light: ${portal.fill}`);
+          await page.screenshot({ path: path.join(output, `${prefix}-site-dark-menu.png`), animations: 'disabled' });
+          await page.goto(`${base}/?projectId=9001`);
+          await page.getByRole('navigation', { name: '相册底部操作', exact: true })
+            .getByRole('button', { name: '打开功能', exact: true }).click();
+          await inspect('site-dark-album-actions', '.detail-actions-sheet.is-open');
+          const actionColor = await page.locator('.detail-action-tile').first().evaluate(node => getComputedStyle(node).color);
+          check(actionColor.match(/[\d.]+/g)?.slice(0, 3).every(channel => Number(channel) > 180),
+            `Dark album action text is not readable: ${actionColor}`);
           await page.goto(`${base}/?projectId=9001&photoId=11`);
           const viewer = page.locator('.viewer-overlay'); await viewer.waitFor();
           await page.locator('.viewer-slide.is-active img').first().evaluate(img => img.decode());
+          await checkViewerTheme(true);
+          await viewer.getByRole('button', { name: '显示设置', exact: true }).click();
+          await viewer.getByRole('checkbox', { name: '深色外观', exact: true }).uncheck();
+          await viewer.getByRole('button', { name: '显示设置', exact: true }).click();
+          await checkViewerTheme(false);
           await viewer.getByRole('button', { name: '显示设置', exact: true }).click();
           await viewer.getByRole('checkbox', { name: '深色外观', exact: true }).check();
+          await viewer.getByRole('button', { name: '显示设置', exact: true }).click();
+          await checkViewerTheme(true);
+          await viewer.getByRole('button', { name: '显示设置', exact: true }).click();
           await inspect('viewer-dark-settings', '.viewer-overlay .glass-settings.is-open');
           await page.keyboard.press('Escape');
           await viewer.getByRole('button', { name: '显示信息', exact: true }).click();
           await inspect('viewer-dark-details', '.viewer-details-panel');
           await inspect('viewer-dark-dock', '.viewer-dock-actions');
+          await viewer.getByRole('button', { name: '显示设置', exact: true }).click();
+          await viewer.getByRole('checkbox', { name: '深色外观', exact: true }).uncheck();
+          await home();
+          check(await page.locator('html').getAttribute('data-glass-theme') === 'light', 'Viewer switch did not restore the whole site to light');
+          await page.screenshot({ path: path.join(output, `${prefix}-site-restored-light.png`), animations: 'disabled' });
         });
-        check(result.surfaces.length === 14, `Expected all 14 material surfaces, got ${result.surfaces.length}`);
+        check(result.surfaces.length === 18, `Expected all 18 material surfaces, got ${result.surfaces.length}`);
         check(result.errors.length === 0, `Page errors: ${JSON.stringify(result.errors)}`);
         check(result.unexpectedRequests.length === 0, `Blocked external requests: ${JSON.stringify(result.unexpectedRequests)}`);
         check(result.writes.length === 0, `Unexpected writes blocked: ${JSON.stringify(result.writes)}`);

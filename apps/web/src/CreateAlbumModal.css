@@ -38,6 +38,15 @@
 .cam-media-add > span { margin-right: auto; }
 :root .cam-modal--compact .cam-media-add:hover { background: var(--glass-hover); border-color: var(--glass-rim); }
 .cam-modal--compact .is-drag-over .cam-media-add { outline: 2px solid var(--glass-ink); outline-offset: -2px; }
+:root .cam-modal .is-mobile-upload .cam-upload-group { padding: 0; border: 0; background: transparent; box-shadow: none; }
+:root .cam-modal .is-mobile-upload .cam-media-add {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 48px; padding: 10px 14px;
+  border: 0; border-radius: 8px; background: var(--glass-line); box-shadow: none;
+  color: var(--glass-ink); font: inherit; font-size: 14px; cursor: pointer;
+}
+.cam-modal .is-mobile-upload .cam-media-add > svg:first-child { width: 22px; height: 22px; }
+.cam-modal .is-mobile-upload .cam-upload-group-title { color: var(--glass-ink); }
+.cam-modal .is-mobile-upload :is(.cam-upload-group-count, .cam-upload-group-title em) { color: var(--glass-muted); }
 :root .cam-modal--compact .cam-file-picker { min-height: 32px; border: 0; border-radius: 8px; box-shadow: none; background: transparent; gap: 4px; padding: 4px 8px; }
 .cam-file-picker svg { width: 16px; height: 16px; flex: none; }
 :root .cam-modal--compact .mamage-modal-header { padding: 16px 22px 0; border: 0; }

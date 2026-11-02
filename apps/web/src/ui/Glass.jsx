@@ -1,5 +1,7 @@
 import React from 'react';
 import { IconSliders } from './icons';
+import { GLASS_APPEARANCE_KEY, GLASS_APPEARANCE_EVENT, readGlassAppearance, normalizeGlassAppearance,
+  applyGlassAppearance, saveGlassAppearance } from './glassAppearance';
 
 export function GlassReveal({ open, children, className = '' }) {
   return <div className={`glass-reveal ${className}`} data-open={Boolean(open)} aria-hidden={!open} inert={!open ? '' : undefined}>
@@ -55,31 +57,21 @@ export function GlassAccountMenu({ label, triggerContent, compactContent, open: 
   </div>;
 }
 
-const VIEWER_APPEARANCE_KEY = 'mamage-viewer-appearance';
 export function useViewerAppearance() {
-  const [appearance, setAppearance] = React.useState(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem(VIEWER_APPEARANCE_KEY));
-      return { dark: saved?.dark === true, blur: Number.isFinite(saved?.blur) ? Math.max(9, Math.min(28, saved.blur)) : 20 };
-    } catch { return { dark: false, blur: 20 }; }
-  });
+  const [appearance, setAppearance] = React.useState(() => readGlassAppearance());
   React.useEffect(() => {
     const sync = event => {
-      if (event.type === 'storage' && event.key !== VIEWER_APPEARANCE_KEY) return;
-      try {
-        const saved = JSON.parse(localStorage.getItem(VIEWER_APPEARANCE_KEY));
-        setAppearance({ dark: saved?.dark === true, blur: Number.isFinite(saved?.blur) ? Math.max(9, Math.min(28, saved.blur)) : 20 });
-      } catch { /* Ignore unavailable storage. */ }
+      if (event.type === 'storage' && event.key !== GLASS_APPEARANCE_KEY && event.key !== null) return;
+      const next = event.type === GLASS_APPEARANCE_EVENT ? normalizeGlassAppearance(event.detail) : readGlassAppearance();
+      applyGlassAppearance(next);
+      setAppearance(next);
     };
     window.addEventListener('storage', sync);
-    window.addEventListener('mamage-appearance-change', sync);
-    return () => { window.removeEventListener('storage', sync); window.removeEventListener('mamage-appearance-change', sync); };
+    window.addEventListener(GLASS_APPEARANCE_EVENT, sync);
+    return () => { window.removeEventListener('storage', sync); window.removeEventListener(GLASS_APPEARANCE_EVENT, sync); };
   }, []);
   const update = patch => {
-    const next = { ...appearance, ...patch };
-    setAppearance(next);
-    try { localStorage.setItem(VIEWER_APPEARANCE_KEY, JSON.stringify(next)); } catch { /* Storage can be disabled. */ }
-    window.dispatchEvent(new Event('mamage-appearance-change'));
+    setAppearance(saveGlassAppearance({ ...appearance, ...patch }));
   };
   return { appearance, update, surfaceProps: { 'data-glass-theme': appearance.dark ? 'dark' : 'light', style: { '--glass-blur': `${appearance.blur}px` } } };
 }

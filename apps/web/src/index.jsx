@@ -6,9 +6,12 @@ import './liquidGlass.css';
 import './ui/glass.css';
 import './ui/navigation.css';
 import App from './App';
+import './ui/darkTheme.css';
 import { applyGlassCompatibility } from './ui/glassCompatibility';
+import { applyGlassAppearance, readGlassAppearance } from './ui/glassAppearance';
 
 applyGlassCompatibility(window);
+applyGlassAppearance(readGlassAppearance());
 const container = document.getElementById('root');
 const root = createRoot(container);
 

@@ -27,6 +27,7 @@
     "test:glass-browser": "node scripts/test-glass-library-browser.cjs",
     "test:glass-compatibility": "node --test scripts/test-glass-compatibility.cjs",
     "test:glass-fallback": "node scripts/test-glass-fallback-browser.cjs",
+    "test:mobile-upload": "node scripts/test-mobile-upload-browser.cjs",
     "test:mobile-nav": "node scripts/test-mobile-navigation-browser.cjs",
     "test:embedded-webview": "node scripts/test-embedded-webview-browser.cjs",
     "test:person-split-browser": "node scripts/check-person-split.cjs",

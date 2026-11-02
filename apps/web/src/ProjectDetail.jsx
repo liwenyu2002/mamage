@@ -677,6 +677,7 @@ function ProjectDetail({
   const uploadLinkHandled = React.useRef(false);
   const [stagingFiles, setStagingFiles] = React.useState([]); // File objects
   const [stagingPreviews, setStagingPreviews] = React.useState([]); // object URLs
+  const stagingPreviewsRef = React.useRef(stagingPreviews);
   const [stagingSectionIds, setStagingSectionIds] = React.useState([]);
   // 预览解码失败的 objectURL（heic 在非 Safari 浏览器）→ 退占位图
   const [failedPreviews, setFailedPreviews] = React.useState(() => new Set());
@@ -1293,14 +1294,15 @@ function ProjectDetail({
     return { images: normalized.map((n) => n.src), metas: normalized.map((n) => n.meta) };
   }, []);
 
+  React.useEffect(() => { stagingPreviewsRef.current = stagingPreviews; }, [stagingPreviews]);
   React.useEffect(() => {
-    // cleanup previews on unmount
+    // Only unmount releases retained previews; remove/cancel release their own URLs.
     return () => {
-      stagingPreviews.forEach((u) => {
+      stagingPreviewsRef.current.forEach((u) => {
         try { URL.revokeObjectURL(u); } catch (e) { }
       });
     };
-  }, [stagingPreviews]);
+  }, []);
 
   React.useEffect(() => {
     if (!projectId) return undefined;
@@ -2470,6 +2472,7 @@ function ProjectDetail({
   const handleDirectFileDrop = React.useCallback((e, sectionId) => {
     e.preventDefault();
     if (typeof e.stopPropagation === 'function') e.stopPropagation();
+    if (isMobile) return;
     fileDragDepthRef.current = 0;
     setFileDragActive(false);
     setRailDropKey(null);
@@ -2493,7 +2496,7 @@ function ProjectDetail({
     if (uploadTimelineEnabled && uploadTimelineSections.length) setSelectedUploadSectionId(key);
     setUploadMode(true);
     performUploadGroups(new Map([[key, accepted]]), accepted);
-  }, [canUploadPhotos, uploading, uploadTimelineEnabled, uploadTimelineSections, performUploadGroups]);
+  }, [isMobile, canUploadPhotos, uploading, uploadTimelineEnabled, uploadTimelineSections, performUploadGroups]);
 
   React.useEffect(() => { directFileDropRef.current = handleDirectFileDrop; }, [handleDirectFileDrop]);
 
@@ -2536,6 +2539,11 @@ function ProjectDetail({
   // 窗口级文件拖入侦测：进入相册页任意位置即提示可上传；
   // 无环节相册整页即落点，带环节相册在窗口级 drop 仅收尾（各环节区/导航各自处理）
   React.useEffect(() => {
+    if (isMobile) {
+      fileDragDepthRef.current = 0;
+      setFileDragActive(false); setDragActive(false); setRailDropKey(null);
+      return undefined;
+    }
     if (!canUploadPhotos || typeof window === 'undefined') return undefined;
     const hasFiles = (e) => {
       try { return Array.from(e.dataTransfer?.types || []).includes('Files'); } catch (err) { return false; }
@@ -2574,7 +2582,7 @@ function ProjectDetail({
       window.removeEventListener('dragover', onOver);
       window.removeEventListener('drop', onDrop);
     };
-  }, [canUploadPhotos]);
+  }, [canUploadPhotos, isMobile]);
 
   const handleDeleteProject = React.useCallback(() => {
     if (DISABLE_DELETE_FEATURE) {
@@ -5420,28 +5428,28 @@ function ProjectDetail({
         onDelete={canDeletePhotos ? confirmDelete : undefined}
         deleteDisabled={deletingPhotos || !canDeletePhotos || !canDeleteSelection}
         onFunctions={() => setActionSheetOpen(true)} functionsOpen={actionSheetOpen}
-        dragActive={dragActive} hovered={uploadHover} primaryDisabled={!canUploadPhotos}
+        dragActive={!isMobile && dragActive} hovered={uploadHover} primaryDisabled={!canUploadPhotos}
         primaryLabel={!canUploadPhotos ? '上传不可用' : stagingFiles?.length ? `${stagingFiles.length} 个待上传` : '上传照片或视频'}
-        primaryHint={dragActive ? '松开上传' : '上传'} primaryProps={canUploadPhotos ? {
+        primaryHint={!isMobile && dragActive ? '松开上传' : '上传'} primaryProps={canUploadPhotos ? {
             ref: uploadDockRef,
             onClick: openUploadPicker,
-            title: stagingFiles?.length ? `${stagingFiles.length} 个待上传` : '点击或拖入照片/视频',
+            title: stagingFiles?.length ? `${stagingFiles.length} 个待上传` : isMobile ? '选择照片或视频' : '点击或拖入照片/视频',
             onMouseEnter: () => setUploadHover(true),
             onMouseLeave: () => setUploadHover(false),
-            onDragOver: (e) => {
+            onDragOver: isMobile ? undefined : (e) => {
               e.preventDefault();
               if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
               setDragActive(true);
             },
-            onDragEnter: (e) => {
+            onDragEnter: isMobile ? undefined : (e) => {
               e.preventDefault();
               setDragActive(true);
             },
-            onDragLeave: (e) => {
+            onDragLeave: isMobile ? undefined : (e) => {
               e.preventDefault();
               setDragActive(false);
             },
-            onDrop: (e) => {
+            onDrop: isMobile ? undefined : (e) => {
               e.preventDefault();
               setDragActive(false);
               if (e.dataTransfer && e.dataTransfer.files) handleFilesSelected(e.dataTransfer.files);
@@ -5854,11 +5862,11 @@ function ProjectDetail({
                     </div>
                     {group.items.length ? renderTimelineGroupItems(group) : (
                       <div
-                        className={`detail-timeline-empty${photoDragActive || fileDragActive ? ' is-drop-ready' : ''}`}
+                        className={`detail-timeline-empty${isMobile ? ' is-mobile-upload' : photoDragActive || fileDragActive ? ' is-drop-ready' : ''}`}
                         onDragOver={(e) => { if (photoDragActive || fileDragActive) { e.preventDefault(); e.dataTransfer.dropEffect = fileDragActive ? 'copy' : 'move'; } }}
                         onDrop={(e) => handleRailDrop(e, group)}
                       >
-                        {fileDragActive ? '松手上传到该环节' : (photoDragActive ? '松手移入该环节' : '该环节暂无照片 · 可拖拽照片移入')}
+                        {isMobile ? '该环节暂无照片' : fileDragActive ? '松手上传到该环节' : (photoDragActive ? '松手移入该环节' : '该环节暂无照片 · 可拖拽照片移入')}
                       </div>
                     )}
                   </section>
@@ -5915,7 +5923,7 @@ function ProjectDetail({
           </div>
         ) : null}
 
-        {fileDragActive && canUploadPhotos ? (
+        {!isMobile && fileDragActive && canUploadPhotos ? (
           <div className="detail-file-drop-overlay" aria-hidden="true">
             <div className="detail-file-drop-overlay-card">
               {useTimelineGallery ? '拖到目标环节或左侧导航，松手上传' : '松手上传到相册'}
@@ -6258,7 +6266,7 @@ function ProjectDetail({
           width={isMobile ? 'calc(100vw - 12px)' : 720}
           className="detail-upload-modal"
         >
-          <div className="detail-upload-body">
+          <div className={`detail-upload-body${isMobile ? ' is-mobile-upload' : ''}`}>
             {uploadTimelineEnabled && uploadTimelineSections.length ? (
               <div className="detail-upload-timeline-panel">
                 <div className="detail-upload-timeline-title">选择上传环节</div>
@@ -6294,7 +6302,7 @@ function ProjectDetail({
 
             {!uploading ? <button
               type="button"
-              className={`detail-upload-dropzone${dragActive ? ' is-drag-active' : ''}`}
+              className={isMobile ? 'detail-upload-picker' : `detail-upload-dropzone${dragActive ? ' is-drag-active' : ''}`}
               onClick={() => {
                 if (uploadTimelineEnabled && uploadTimelineSections.length && !selectedUploadSectionId) {
                   Toast.warning('请先选择要上传的环节');
@@ -6302,20 +6310,20 @@ function ProjectDetail({
                 }
                 if (fileInputRef.current) fileInputRef.current.click();
               }}
-              onDragOver={(e) => {
+              onDragOver={isMobile ? undefined : (e) => {
                 e.preventDefault();
                 if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
                 setDragActive(true);
               }}
-              onDragEnter={(e) => {
+              onDragEnter={isMobile ? undefined : (e) => {
                 e.preventDefault();
                 setDragActive(true);
               }}
-              onDragLeave={(e) => {
+              onDragLeave={isMobile ? undefined : (e) => {
                 e.preventDefault();
                 setDragActive(false);
               }}
-              onDrop={(e) => {
+              onDrop={isMobile ? undefined : (e) => {
                 e.preventDefault();
                 setDragActive(false);
                 if (e.dataTransfer && e.dataTransfer.files) handleFilesSelected(e.dataTransfer.files, selectedUploadSectionId);
@@ -6325,7 +6333,7 @@ function ProjectDetail({
               <span>
                 {uploadTimelineEnabled && uploadTimelineSections.length
                   ? (selectedUploadSection ? `为「${selectedUploadSection.name}」添加照片/视频` : '请选择环节后上传')
-                  : (stagingFiles.length ? `继续添加（${stagingFiles.length} 个）` : '选择或拖入照片/视频')}
+                  : (stagingFiles.length ? `继续添加（${stagingFiles.length} 个）` : isMobile ? '选择照片或视频' : '选择或拖入照片/视频')}
               </span>
             </button> : null}
 
@@ -6336,11 +6344,11 @@ function ProjectDetail({
                 <section
                   key={group.key}
                   className={`detail-upload-section-group${group.active ? ' is-active' : ''}`}
-                  onDragOver={(e) => {
+                  onDragOver={isMobile ? undefined : (e) => {
                     e.preventDefault();
                     if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
                   }}
-                  onDrop={(e) => {
+                  onDrop={isMobile ? undefined : (e) => {
                     e.preventDefault();
                     if (uploading) { Toast.warning('正在上传，请等待完成'); return; }
                     if (e.dataTransfer && e.dataTransfer.files) handleFilesSelected(e.dataTransfer.files, group.sectionId);
@@ -6434,7 +6442,7 @@ function ProjectDetail({
                       })}
                     </div>
                   ) : (
-                    <div className="detail-upload-section-empty">暂无媒体，可直接拖入这一环节</div>
+                    <div className="detail-upload-section-empty">{isMobile ? '暂无媒体' : '暂无媒体，可直接拖入这一环节'}</div>
                   )}
                 </section>
               ))}

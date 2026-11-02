@@ -749,7 +749,7 @@ export default function TransferStation({ onInternalShare, hideLauncher = false 
     borderRadius: 18,
     transition: 'transform 180ms ease, background 180ms ease, box-shadow 180ms ease, padding 180ms ease',
     transform: `translateY(-50%) scale(${dragOver ? 1.12 : (isDraggingPhoto ? 1.07 : 1)})`,
-    background: isDraggingPhoto ? 'rgba(0, 0, 0, 0.09)' : 'transparent',
+    background: isDraggingPhoto ? 'var(--app-hover, rgba(0, 0, 0, 0.09))' : 'transparent',
     boxShadow: isDraggingPhoto ? '0 10px 26px rgba(0,0,0,0.2)' : 'none',
   };
 
@@ -757,7 +757,7 @@ export default function TransferStation({ onInternalShare, hideLauncher = false 
     width: 58,
     height: 58,
     borderRadius: 999,
-    border: dragOver ? '1px solid rgba(17,17,17,0.55)' : 'var(--liquid-glass-stroke-width) solid var(--liquid-glass-border)',
+    border: dragOver ? '1px solid var(--app-muted, rgba(17,17,17,0.55))' : 'var(--liquid-glass-stroke-width) solid var(--liquid-glass-border)',
     background: dragOver
       ? 'var(--liquid-glass-material-readable)'
       : 'var(--liquid-glass-material)',
@@ -778,7 +778,7 @@ export default function TransferStation({ onInternalShare, hideLauncher = false 
     width: isDraggingPhoto ? 132 : 116,
     height: isDraggingPhoto ? 64 : 56,
     borderRadius: 14,
-    border: dragOver ? '1px solid rgba(17,17,17,0.55)' : 'var(--liquid-glass-stroke-width) solid var(--liquid-glass-border)',
+    border: dragOver ? '1px solid var(--app-muted, rgba(17,17,17,0.55))' : 'var(--liquid-glass-stroke-width) solid var(--liquid-glass-border)',
     background: dragOver
       ? 'var(--liquid-glass-material-readable)'
       : 'var(--liquid-glass-material)',
@@ -872,6 +872,7 @@ export default function TransferStation({ onInternalShare, hideLauncher = false 
   // 打包进度卡（桌面/手机共用）：fixed 贴视口——桌面在中转站左侧，手机浮在 FAB 上方
   const packProgressNode = packProgress ? (
     <div
+      className="transfer-pack-progress"
       style={{
         position: 'fixed', zIndex: 2700,
         ...(isMobile
@@ -879,13 +880,13 @@ export default function TransferStation({ onInternalShare, hideLauncher = false 
           // 中转站浮窗占右缘 16~132px，进度卡放它左边不遮挡
           : { right: 144, top: '50%', transform: 'translateY(-50%)', width: 212 }),
         padding: '10px 12px', borderRadius: 12,
-        background: 'rgba(255,255,255,0.97)', border: '1px solid rgba(15,23,42,0.08)',
+        background: 'var(--app-surface, rgba(255,255,255,0.97))', border: '1px solid var(--app-line, rgba(15,23,42,0.08))',
         boxShadow: '0 10px 26px rgba(0,0,0,0.18)', pointerEvents: 'auto',
       }}
     >
       <style>{'@keyframes mm-pack-indet{0%{left:-40%}100%{left:100%}}'}</style>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-        <div style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 700, color: '#0f172a' }}>
+        <div style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 700, color: 'var(--app-text, #0f172a)' }}>
           {packProgress.phase === 'preparing' && packProgress.status === 'cancelling'
             ? '正在中断压缩任务…'
             : packProgress.phase === 'preparing' && packProgress.queueAhead > 0
@@ -896,32 +897,33 @@ export default function TransferStation({ onInternalShare, hideLauncher = false 
         </div>
         {packProgress.phase === 'preparing' && packProgress.jobId ? (
           <button
+            className="transfer-action--danger"
             type="button"
             onClick={handleCancelDirectPack}
             disabled={packProgress.status === 'cancelling'}
-            style={{ flex: '0 0 auto', border: '1px solid rgba(185,28,28,0.24)', borderRadius: 7, padding: '3px 6px', background: '#fff5f5', color: '#b91c1c', fontSize: 11, fontWeight: 700, cursor: packProgress.status === 'cancelling' ? 'wait' : 'pointer', opacity: packProgress.status === 'cancelling' ? 0.6 : 1 }}
+            style={{ flex: '0 0 auto', border: '1px solid var(--app-line, rgba(185,28,28,0.24))', borderRadius: 7, padding: '3px 6px', background: 'var(--app-danger-fill, #fff5f5)', color: 'var(--app-danger, #b91c1c)', fontSize: 11, fontWeight: 700, cursor: packProgress.status === 'cancelling' ? 'wait' : 'pointer', opacity: packProgress.status === 'cancelling' ? 0.6 : 1 }}
           >
             中断
           </button>
         ) : null}
       </div>
-      <div style={{ position: 'relative', height: 6, borderRadius: 999, background: '#e5e7eb', overflow: 'hidden' }}>
+      <div className="transfer-progress-track" style={{ position: 'relative', height: 6, borderRadius: 999, background: 'var(--app-hover, #e5e7eb)', overflow: 'hidden' }}>
         {packProgress.total > 0 ? (
-          <div style={{
+          <div className="transfer-progress-fill" style={{
             position: 'absolute', left: 0, top: 0, bottom: 0,
             width: `${Math.min(100, (packProgress.loaded / packProgress.total) * 100)}%`,
-            background: 'linear-gradient(90deg,#2f2f2f,#101010)', borderRadius: 999, transition: 'width .12s linear',
+            background: 'var(--app-text, linear-gradient(90deg,#2f2f2f,#101010))', borderRadius: 999, transition: 'width .12s linear',
           }} />
         ) : (
           // 服务端流式打包无总长度 → 不定长动画条，只表达"在动"
-          <div style={{
+          <div className="transfer-progress-fill" style={{
             position: 'absolute', top: 0, bottom: 0, width: '40%', borderRadius: 999,
-            background: 'linear-gradient(90deg,#2f2f2f,#101010)',
+            background: 'var(--app-text, linear-gradient(90deg,#2f2f2f,#101010))',
             animation: 'mm-pack-indet 1.1s ease-in-out infinite',
           }} />
         )}
       </div>
-      <div style={{ fontSize: 11, color: '#64748b', marginTop: 6, fontVariantNumeric: 'tabular-nums' }}>
+      <div style={{ fontSize: 11, color: 'var(--app-muted, #64748b)', marginTop: 6, fontVariantNumeric: 'tabular-nums' }}>
         {packProgress.queueAhead > 0
           ? `前方还有 ${packProgress.queueAhead} 个任务`
           : <>{packProgress.phase === 'preparing' ? '已处理 ' : '已下载 '}{formatBytes(packProgress.loaded)}
@@ -929,11 +931,11 @@ export default function TransferStation({ onInternalShare, hideLauncher = false 
             {packProgress.speedBps > 1024 ? ` · ${formatBytes(packProgress.speedBps)}/s` : ''}</>}
       </div>
       {packProgress.queueAhead === 0 && Number.isFinite(packProgress.etaSeconds) && packProgress.etaSeconds > 0.5 ? (
-        <div style={{ fontSize: 11, color: '#0f172a', fontWeight: 600, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
+        <div style={{ fontSize: 11, color: 'var(--app-text, #0f172a)', fontWeight: 600, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
           剩余约 {formatDuration(packProgress.etaSeconds)}
         </div>
       ) : (packProgress.queueAhead === 0 && packProgress.phase === 'preparing' && packProgress.total > 0 ? (
-        <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+        <div style={{ fontSize: 11, color: 'var(--app-muted, #64748b)', marginTop: 2 }}>
           正在测算完成时间…
         </div>
       ) : null)}
@@ -943,6 +945,7 @@ export default function TransferStation({ onInternalShare, hideLauncher = false 
   const resumedTaskJobs = (resumedDirectZipJobs || []).filter((job) => job && job.id !== packProgress?.jobId);
   const resumedTaskTray = resumedTaskJobs.length ? (
     <div
+      className="transfer-task-tray"
       style={{
         position: 'fixed', zIndex: 2690,
         ...(isMobile
@@ -959,7 +962,7 @@ export default function TransferStation({ onInternalShare, hideLauncher = false 
       }}
     >
       <style>{'@keyframes mm-pack-indet{0%{left:-40%}100%{left:100%}}'}</style>
-      <div style={{ fontSize: 12, color: '#0f172a', fontWeight: 800, padding: '0 2px' }}>正在处理的下载</div>
+      <div style={{ fontSize: 12, color: 'var(--app-text, #0f172a)', fontWeight: 800, padding: '0 2px' }}>正在处理的下载</div>
       {resumedTaskJobs.map((job) => {
         const total = Math.max(0, Number(job.totalBytes) || 0);
         const loaded = Math.max(0, Number(job.processedBytes) || 0);
@@ -971,23 +974,23 @@ export default function TransferStation({ onInternalShare, hideLauncher = false 
           ? (Number(job.queueAhead) > 0 ? `正在排队，前方 ${job.queueAhead} 个任务` : '等待开始准备')
           : '正在准备压缩包';
         return (
-          <div key={job.id} style={{ padding: '8px', borderRadius: 9, background: 'rgba(255,255,255,0.58)', border: '1px solid rgba(15,23,42,0.08)' }}>
+          <div key={job.id} className="transfer-task-card" style={{ padding: '8px', borderRadius: 9, background: 'var(--app-raised, rgba(255,255,255,0.58))', border: '1px solid var(--app-line, rgba(15,23,42,0.08))' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-              <div style={{ flex: 1, minWidth: 0, color: '#0f172a', fontSize: 11.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <div style={{ flex: 1, minWidth: 0, color: 'var(--app-text, #0f172a)', fontSize: 11.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {label}{job.fileCount ? ` · ${job.fileCount} 项` : ''}
               </div>
               {ready ? (
                 <button type="button" onClick={() => handleResumeDirectZipDownload(job.id)} style={{ border: 0, borderRadius: 7, padding: '4px 7px', background: '#111827', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>下载</button>
               ) : (
-                <button type="button" onClick={() => handleResumeDirectZipCancel(job.id)} style={{ border: '1px solid rgba(185,28,28,0.2)', borderRadius: 7, padding: '3px 6px', background: '#fff5f5', color: '#b91c1c', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>中断</button>
+                <button className="transfer-action--danger" type="button" onClick={() => handleResumeDirectZipCancel(job.id)} style={{ border: '1px solid var(--app-line, rgba(185,28,28,0.2))', borderRadius: 7, padding: '3px 6px', background: 'var(--app-danger-fill, #fff5f5)', color: 'var(--app-danger, #b91c1c)', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>中断</button>
               )}
             </div>
             {!ready && !queued ? (
               <>
-                <div style={{ position: 'relative', height: 5, borderRadius: 999, overflow: 'hidden', background: '#e5e7eb', marginTop: 7 }}>
-                  <div style={{ position: 'absolute', inset: '0 auto 0 0', width: total > 0 ? `${Math.min(100, (loaded / total) * 100)}%` : '36%', borderRadius: 999, background: '#111827', animation: total > 0 ? undefined : 'mm-pack-indet 1.1s ease-in-out infinite' }} />
+                <div className="transfer-progress-track" style={{ position: 'relative', height: 5, borderRadius: 999, overflow: 'hidden', background: 'var(--app-hover, #e5e7eb)', marginTop: 7 }}>
+                  <div className="transfer-progress-fill" style={{ position: 'absolute', inset: '0 auto 0 0', width: total > 0 ? `${Math.min(100, (loaded / total) * 100)}%` : '36%', borderRadius: 999, background: 'var(--app-text, #111827)', animation: total > 0 ? undefined : 'mm-pack-indet 1.1s ease-in-out infinite' }} />
                 </div>
-                <div style={{ color: '#64748b', fontSize: 10.5, marginTop: 5, fontVariantNumeric: 'tabular-nums' }}>已处理 {formatBytes(loaded)}{total > 0 ? ` / ${formatBytes(total)}` : ''}</div>
+                <div style={{ color: 'var(--app-muted, #64748b)', fontSize: 10.5, marginTop: 5, fontVariantNumeric: 'tabular-nums' }}>已处理 {formatBytes(loaded)}{total > 0 ? ` / ${formatBytes(total)}` : ''}</div>
               </>
             ) : null}
           </div>
@@ -1012,10 +1015,10 @@ export default function TransferStation({ onInternalShare, hideLauncher = false 
         }
       }}
     >
-      {!isMobile && <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', whiteSpace: 'nowrap', marginLeft: 6 }}>中转站</span>}
+      {!isMobile && <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--app-text, #0f172a)', whiteSpace: 'nowrap', marginLeft: 6 }}>中转站</span>}
       <span
         style={isMobile
-          ? { position: 'absolute', right: -3, top: -3, minWidth: 22, height: 22, borderRadius: 11, background: 'linear-gradient(135deg, #2f2f2f, #101010)', color: '#fff', fontSize: 11, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '0 6px', border: '2px solid #fff' }
+          ? { position: 'absolute', right: -3, top: -3, minWidth: 22, height: 22, borderRadius: 11, background: 'linear-gradient(135deg, #2f2f2f, #101010)', color: '#fff', fontSize: 11, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '0 6px', border: '2px solid var(--app-line, #fff)' }
           : { marginLeft: 'auto', minWidth: 24, height: 24, borderRadius: 12, background: 'linear-gradient(135deg, #2f2f2f, #101010)', color: '#fff', fontSize: 12, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '0 6px' }}
       >
         {count}
@@ -1025,6 +1028,7 @@ export default function TransferStation({ onInternalShare, hideLauncher = false 
 
   const previewPanelNode = (
     <div
+      className="transfer-preview-panel"
       style={{
         ...(isMobile
           ? {
@@ -1035,7 +1039,7 @@ export default function TransferStation({ onInternalShare, hideLauncher = false 
             overflowX: 'hidden',
             padding: 8,
             borderRadius: 16,
-            border: '1px solid rgba(255,255,255,0.62)',
+            border: '1px solid var(--app-line, rgba(255,255,255,0.62))',
             background: 'var(--liquid-glass-material-readable, rgba(255,255,255,0.82))',
             boxShadow: 'var(--liquid-glass-shadow-tight, 0 10px 26px rgba(0,0,0,0.096))',
             backdropFilter: 'blur(16px) saturate(1.35)',
@@ -1050,7 +1054,7 @@ export default function TransferStation({ onInternalShare, hideLauncher = false 
             background: 'var(--liquid-glass-material-readable, rgba(255,255,255,0.86))',
             boxShadow: 'var(--liquid-glass-shadow, 0 18px 44px rgba(0,0,0,0.144))',
             borderRadius: 16,
-            border: '1px solid rgba(255,255,255,0.62)',
+            border: '1px solid var(--app-line, rgba(255,255,255,0.62))',
             backdropFilter: 'blur(18px) saturate(1.4)',
             WebkitBackdropFilter: 'blur(18px) saturate(1.4)',
             padding: 10,
@@ -1066,15 +1070,15 @@ export default function TransferStation({ onInternalShare, hideLauncher = false 
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 6px' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <div style={{ fontSize: 13, color: '#0f172a', fontWeight: 700 }}>已存入 ({count})</div>
-          <div style={{ fontSize: 11, color: '#64748b' }}>{stationMediaSummary}</div>
+          <div style={{ fontSize: 13, color: 'var(--app-text, #0f172a)', fontWeight: 700 }}>已存入 ({count})</div>
+          <div style={{ fontSize: 11, color: 'var(--app-muted, #64748b)' }}>{stationMediaSummary}</div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           {onInternalShare && <button type="button" onClick={startInternalShare}
-            style={{ border: 0, background: 'transparent', color: '#111', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+            style={{ border: 0, background: 'transparent', color: 'var(--app-text, #111)', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
             内部分享
           </button>}
-          <button type="button" style={{ border: 0, background: 'transparent', color: '#26333b', fontSize: 12, cursor: 'pointer' }}
+          <button type="button" style={{ border: 0, background: 'transparent', color: 'var(--app-text, #26333b)', fontSize: 12, cursor: 'pointer' }}
             onClick={() => setExpanded(false)}>关闭</button>
         </div>
       </div>
@@ -1083,24 +1087,25 @@ export default function TransferStation({ onInternalShare, hideLauncher = false 
         {items && items.length ? items.map((p, idx) => (
           <div
             key={idx}
+            className="transfer-media-item"
             draggable
             onDragStart={(e) => handleItemDragStart(e, p)}
             onDragEnd={handleItemDragEnd}
             title="可拖到全媒体编辑台使用"
-            style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px', borderRadius: 12, background: 'rgba(255,255,255,0.55)', border: '1px solid rgba(255,255,255,0.66)', cursor: 'grab' }}
+            style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px', borderRadius: 12, background: 'var(--app-surface, rgba(255,255,255,0.55))', border: '1px solid var(--app-line, rgba(255,255,255,0.66))', cursor: 'grab' }}
           >
-            <div style={{ width: 72, height: 72, overflow: 'hidden', borderRadius: 8, flex: '0 0 72px', background: '#f1f5f9', position: 'relative' }}>
+            <div className="transfer-thumb" style={{ width: 72, height: 72, overflow: 'hidden', borderRadius: 8, flex: '0 0 72px', background: 'var(--app-raised, #f1f5f9)', position: 'relative' }}>
               <img src={p.thumbSrc || p.url} alt={`thumb-${idx}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
               <span style={{ position: 'absolute', right: 4, bottom: 4, padding: '2px 5px', borderRadius: 6, background: 'rgba(15,23,42,0.78)', color: '#fff', fontSize: 10, fontWeight: 700 }}>
                 {getMediaLabel(p)}
               </span>
             </div>
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}>
-              <div style={{ fontSize: 12, color: '#1e293b' }}>
+              <div style={{ fontSize: 12, color: 'var(--app-text, #1e293b)' }}>
                 {p.projectTitle ? (
                   <>
                     来自
-                    <span style={{ fontWeight: 700, color: '#111', display: 'inline', whiteSpace: 'normal', wordBreak: 'break-word', margin: '0 4px' }}>
+                    <span style={{ fontWeight: 700, color: 'var(--app-text, #111)', display: 'inline', whiteSpace: 'normal', wordBreak: 'break-word', margin: '0 4px' }}>
                       {p.projectTitle.length > 12 ? (p.projectTitle.slice(0, 12) + '...') : p.projectTitle}
                     </span>
                     的{getMediaLabel(p)}
@@ -1108,12 +1113,12 @@ export default function TransferStation({ onInternalShare, hideLauncher = false 
                 ) : (p.id || p.url || '未命名')}
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
-                <div style={{ fontSize: 12, color: '#111', cursor: 'pointer', fontWeight: 600 }} onClick={() => handleRemove(p)}>删除</div>
+                <div className="transfer-item-remove" style={{ fontSize: 12, color: 'var(--app-text, #111)', cursor: 'pointer', fontWeight: 600 }} onClick={() => handleRemove(p)}>删除</div>
               </div>
             </div>
           </div>
         )) : (
-          <div style={{ padding: '22px 12px', color: 'rgba(20,32,50,0.5)', textAlign: 'center', fontSize: 12.5, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+          <div className="transfer-empty" style={{ padding: '22px 12px', color: 'var(--app-muted, rgba(20,32,50,0.5))', textAlign: 'center', fontSize: 12.5, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
             <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M4 8h16M6 8l1.2 11a2 2 0 0 0 2 1.8h5.6a2 2 0 0 0 2-1.8L18 8M9 8V6a3 3 0 0 1 6 0v2" />
             </svg>
@@ -1169,6 +1174,7 @@ export default function TransferStation({ onInternalShare, hideLauncher = false 
 
         {expanded && (
           <div
+            className="transfer-preview-shell"
             data-transfer-station-root="1"
             style={{
               position: 'fixed',
@@ -1179,8 +1185,8 @@ export default function TransferStation({ onInternalShare, hideLauncher = false 
               overflowY: 'auto',
               zIndex: 2110,
               borderRadius: 14,
-              border: '1px solid rgba(15,23,42,0.1)',
-              background: 'rgba(255,255,255,0.98)',
+              border: '1px solid var(--app-line, rgba(15,23,42,0.1))',
+              background: 'var(--app-surface, rgba(255,255,255,0.98))',
               boxShadow: '0 18px 32px rgba(0,0,0,0.24)',
               padding: 10,
             }}
@@ -1214,6 +1220,7 @@ export default function TransferStation({ onInternalShare, hideLauncher = false 
               return (
                 <button
                   key={a.key}
+                  className={a.key === 'clear' ? 'transfer-action transfer-action--danger' : 'transfer-action'}
                   title={a.key === 'preview' ? '预览列表' : a.key === 'share' ? '分享' : undefined}
                   onClick={a.onClick}
                   style={{
@@ -1224,8 +1231,8 @@ export default function TransferStation({ onInternalShare, hideLauncher = false 
                     height: 42,
                     border: 'var(--liquid-glass-stroke-width) solid var(--liquid-glass-border-soft)',
                     borderRadius: 999,
-                    background: a.key === 'clear' ? 'rgba(255,241,242,0.78)' : 'var(--liquid-glass-material-readable)',
-                    color: a.key === 'clear' ? '#b91c1c' : '#0f172a',
+                    background: a.key === 'clear' ? 'var(--app-danger-fill, rgba(255,241,242,0.78))' : 'var(--liquid-glass-material-readable)',
+                    color: a.key === 'clear' ? 'var(--app-danger, #b91c1c)' : 'var(--app-text, #0f172a)',
                     boxShadow: 'var(--liquid-glass-shadow-tight), var(--liquid-glass-edge)',
                     backdropFilter: 'var(--liquid-glass-backdrop)',
                     WebkitBackdropFilter: 'var(--liquid-glass-backdrop)',
@@ -1256,6 +1263,7 @@ export default function TransferStation({ onInternalShare, hideLauncher = false 
               return (
                 <button
                   key={`share-${opt.label}`}
+                  className="transfer-expiry-option"
                   title={`分享有效期：${opt.label}`}
                   onClick={() => { setShareOptionsOpen(false); setOpen(false); createShareWithExpiry(opt.s); }}
                   style={{
@@ -1264,10 +1272,10 @@ export default function TransferStation({ onInternalShare, hideLauncher = false 
                     bottom: 6,
                     width: 46,
                     height: 46,
-                    border: 'var(--liquid-glass-stroke-width) solid rgba(0,0,0,0.12)',
+                    border: 'var(--liquid-glass-stroke-width) solid var(--app-line, rgba(0,0,0,0.12))',
                     borderRadius: 999,
                     background: 'var(--liquid-glass-material-readable)',
-                    color: '#111',
+                    color: 'var(--app-text, #111)',
                     boxShadow: 'var(--liquid-glass-shadow-tight), var(--liquid-glass-edge)',
                     backdropFilter: 'var(--liquid-glass-backdrop)',
                     WebkitBackdropFilter: 'var(--liquid-glass-backdrop)',
@@ -1298,7 +1306,7 @@ export default function TransferStation({ onInternalShare, hideLauncher = false 
                 width: fabSize,
                 height: fabSize,
                 borderRadius: 999,
-                border: dragOver ? '1px solid #111' : 'var(--liquid-glass-stroke-width) solid var(--liquid-glass-border)',
+                border: dragOver ? '1px solid var(--app-muted, #111)' : 'var(--liquid-glass-stroke-width) solid var(--liquid-glass-border)',
                 background: 'var(--liquid-glass-material-readable)',
                 boxShadow: open ? '0 12px 24px rgba(0,0,0,0.24), var(--liquid-glass-edge)' : 'var(--liquid-glass-shadow-tight), var(--liquid-glass-edge)',
                 backdropFilter: 'var(--liquid-glass-backdrop)',
@@ -1333,7 +1341,7 @@ export default function TransferStation({ onInternalShare, hideLauncher = false 
                 alignItems: 'center',
                 justifyContent: 'center',
                 padding: '0 6px',
-                border: '2px solid #fff',
+                border: '2px solid var(--app-line, #fff)',
               }}
             >
               {count}
@@ -1366,7 +1374,7 @@ export default function TransferStation({ onInternalShare, hideLauncher = false 
         rel="noopener noreferrer"
         style={{ textDecoration: 'none', marginBottom: 8 }}
       >
-        <div style={{ padding: '7px 12px', borderRadius: 999, background: 'var(--liquid-glass-material-readable, rgba(255,255,255,0.72))', color: 'var(--lg-blue, #111)', fontSize: 12, fontWeight: 700, cursor: 'pointer', border: '1px solid rgba(255,255,255,0.62)', boxShadow: 'var(--liquid-glass-shadow-tight, 0 8px 18px rgba(0,0,0,0.096))', backdropFilter: 'blur(12px) saturate(1.3)', WebkitBackdropFilter: 'blur(12px) saturate(1.3)' }}>反馈问题</div>
+        <div style={{ padding: '7px 12px', borderRadius: 999, background: 'var(--liquid-glass-material-readable, rgba(255,255,255,0.72))', color: 'var(--lg-blue, #111)', fontSize: 12, fontWeight: 700, cursor: 'pointer', border: '1px solid var(--app-line, rgba(255,255,255,0.62))', boxShadow: 'var(--liquid-glass-shadow-tight, 0 8px 18px rgba(0,0,0,0.096))', backdropFilter: 'blur(12px) saturate(1.3)', WebkitBackdropFilter: 'blur(12px) saturate(1.3)' }}>反馈问题</div>
       </a>
 
       {packProgressNode}
@@ -1389,22 +1397,24 @@ export default function TransferStation({ onInternalShare, hideLauncher = false 
             <div style={actionButtonStyle('pack')} title="打包下载" onClick={handlePackDownload} {...bindCircleEvents('pack')}>打包</div>
             <div style={actionButtonStyle('share')} title="分享中转站" onClick={() => setShareOptionsOpen((v) => !v)} {...bindCircleEvents('share')}>分享</div>
             <div style={actionButtonStyle('copy')} title="复制为富文本 (HTML)" onClick={handleCopyRichHtml} {...bindCircleEvents('copy')}>复制</div>
-            <div style={actionButtonStyle('clear', { background: '#fff1f2', color: '#b91c1c' })} title="清空中转站" onClick={handleClear} {...bindCircleEvents('clear')}>清空</div>
+            <div className="transfer-action--danger" style={actionButtonStyle('clear', { background: 'var(--app-danger-fill, #fff1f2)', color: 'var(--app-danger, #b91c1c)' })} title="清空中转站" onClick={handleClear} {...bindCircleEvents('clear')}>清空</div>
           </div>
 
           {shareOptionsOpen && (
             <div
-              style={{ position: 'absolute', top: 0, left: -242, width: 210, background: '#fff', boxShadow: '0 8px 20px rgba(0,0,0,0.14)', borderRadius: 10, padding: 8, zIndex: 2600, border: '1px solid rgba(15,23,42,0.08)' }}
+              className="transfer-expiry-menu"
+              style={{ position: 'absolute', top: 0, left: -242, width: 210, background: 'var(--app-surface, #fff)', boxShadow: '0 8px 20px rgba(0,0,0,0.14)', borderRadius: 10, padding: 8, zIndex: 2600, border: '1px solid var(--app-line, rgba(15,23,42,0.08))' }}
               onMouseEnter={() => setShareOptionsOpen(true)}
               onMouseLeave={() => setShareOptionsOpen(false)}
             >
-              <div style={{ fontSize: 13, marginBottom: 8, color: '#334155', fontWeight: 700 }}>分享过期时间</div>
+              <div style={{ fontSize: 13, marginBottom: 8, color: 'var(--app-text, #334155)', fontWeight: 700 }}>分享过期时间</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {shareExpiryOptions.map((opt) => (
                   <button
                     key={opt.label}
+                    className="transfer-expiry-option"
                     onClick={() => { setShareOptionsOpen(false); createShareWithExpiry(opt.s); }}
-                    style={{ textAlign: 'left', padding: '8px 10px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#f8fafc', cursor: 'pointer', color: '#334155', fontWeight: 600 }}
+                    style={{ textAlign: 'left', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--app-line, #e2e8f0)', background: 'var(--app-raised, #f8fafc)', cursor: 'pointer', color: 'var(--app-text, #334155)', fontWeight: 600 }}
                   >
                     {opt.label}
                   </button>

@@ -1,0 +1,399 @@
+/* Root-only legacy bridge. Nested viewer materials remain owned by glass.css. */
+:root[data-glass-theme='dark'] {
+  color-scheme: dark;
+  --app-canvas: #17191c;
+  --app-surface: #222529;
+  --app-raised: #2b2f34;
+  --app-hover: #343a41;
+  --app-text: #f0f2f5;
+  --app-muted: #adb4bd;
+  --app-line: rgba(225, 230, 237, .16);
+  --app-success: #8cd5b0;
+  --app-success-fill: #233c31;
+  --app-warning: #e8c582;
+  --app-warning-fill: #3c3425;
+  --app-danger: #f0a0a5;
+  --app-danger-fill: #40292e;
+  --glass-fill: rgba(225, 230, 237, .12);
+  --lg-text: #f0f2f5;
+  --lg-muted: var(--app-muted);
+  --lg-text-tertiary: var(--app-muted);
+  --lg-blue: #adc9ed;
+  --lg-teal: #9fc9bc;
+  --lg-stroke-dark: var(--app-line);
+  --mamage-text: var(--lg-text);
+  --liquid-glass-surface-a: rgba(44, 48, 54, .92);
+  --liquid-glass-surface-b: rgba(30, 33, 38, .88);
+  --liquid-glass-readable-a: rgba(43, 47, 53, .97);
+  --liquid-glass-readable-b: rgba(31, 34, 39, .95);
+  --liquid-glass-material: var(--glass-material);
+  --liquid-glass-material-readable: var(--glass-readable-material);
+  --liquid-glass-border: var(--app-line);
+  --liquid-glass-border-soft: rgba(225, 230, 237, .1);
+  --liquid-glass-edge: inset 0 1px 0 rgba(255, 255, 255, .1);
+  --liquid-glass-shadow: 0 18px 48px rgba(0, 0, 0, .3);
+  --liquid-glass-shadow-tight: 0 8px 24px rgba(0, 0, 0, .24);
+  --liquid-glass-backdrop: var(--glass-backdrop);
+  --liquid-glass-backdrop-rich: var(--glass-backdrop);
+  --liquid-glass-caustic: linear-gradient(135deg, rgba(255, 255, 255, .05), transparent);
+  --mamage-glass-shine: linear-gradient(135deg, rgba(255, 255, 255, .06), transparent);
+  --mamage-selected-bg: #3b424a;
+  --mamage-selected-border: #697684;
+  --mamage-selected-color: #f3f5f7;
+  --mamage-selected-shadow: inset 0 0 0 1px rgba(255, 255, 255, .1);
+  --mamage-selected-shadow-hover: inset 0 0 0 1px rgba(255, 255, 255, .2);
+}
+
+/* Import order must not undo the compositor fallback. */
+:root[data-glass-theme='dark'][data-glass-fallback='true'] {
+  --glass-fill: var(--glass-fallback-fill);
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root[data-glass-theme='dark'] { --glass-fill: var(--glass-fallback-fill); }
+}
+
+:root[data-glass-theme='dark'] body,
+:root[data-glass-theme='dark'] .auth-page-root {
+  background: var(--app-canvas);
+  color: var(--lg-text);
+}
+:root[data-glass-theme='dark'] :is(.project-page, .acp-page) {
+  background: transparent;
+  color: var(--lg-text);
+}
+/* Only the empty decorative backdrop is inverted, never a media ancestor. */
+:root[data-glass-theme='dark'] .mamage-dynamic-backdrop:where(:not(.viewer-backdrop)) { filter: invert(.9); }
+
+/* Shared controls and portals, including those mounted directly under body. */
+:root[data-glass-theme='dark'] :is(.mamage-card, .app-card, .app-empty-state,
+  .mamage-toast, .operations-panel, .lg-popover-menu, .lan-entry-banner) {
+  background: var(--glass-readable-material);
+  color: var(--glass-ink);
+  border-color: var(--glass-line);
+  box-shadow: var(--glass-edge);
+}
+:root[data-glass-theme='dark'] :is(.mamage-modal-content, .mamage-sidesheet-content,
+  .mamage-popover-content, .mamage-dtp-pop) { color: var(--glass-ink); }
+:root[data-glass-theme='dark'] :is(.mamage-modal-mask, .mamage-sidesheet-mask) { background: rgba(0, 0, 0, .48); }
+:root[data-glass-theme='dark'] :is(.mamage-modal-title, .mamage-confirm-content,
+  .mamage-card-header-title, .mamage-typography, .mamage-typography-h3,
+  .mamage-field-label, .mamage-spin, .app-loading-title, .app-loading-state) { color: var(--glass-ink); }
+:root[data-glass-theme='dark'] :is(.mamage-empty, .mamage-typography.is-tertiary,
+  .app-text.is-tertiary, .app-loading-subtitle, .mamage-footer,
+  .mamage-input-prefix, .mamage-input-suffix, .mamage-dtp-placeholder,
+  .mamage-dtp-icon, .mamage-dtp-week span) { color: var(--glass-muted); }
+:root[data-glass-theme='dark'] :is(.mamage-input-wrapper, .mamage-select-selection,
+  .mamage-textarea-wrapper, .mamage-input-textarea-wrapper, .mamage-dtp-time select,
+  .mamage-workspace-control select, .lg-dfilter-row input) {
+  background: var(--glass-hover);
+  color: var(--glass-ink);
+  border-color: var(--glass-line);
+  box-shadow: none;
+}
+:root[data-glass-theme='dark'] :is(.mamage-input-wrapper, .mamage-textarea-wrapper,
+  .mamage-input-textarea-wrapper, .mamage-nav-search-input)::placeholder { color: var(--glass-muted); opacity: 1; }
+:root[data-glass-theme='dark'] :is(.mamage-select-selection, .mamage-workspace-control select) option {
+  background: var(--app-surface); color: var(--lg-text);
+}
+:root[data-glass-theme='dark'] .mamage-button:not(.mamage-button-primary):not(.mamage-button-danger) {
+  background: var(--glass-hover);
+  color: var(--glass-ink);
+  border-color: var(--glass-line);
+  box-shadow: var(--glass-edge);
+}
+:root[data-glass-theme='dark'] :is(.mamage-modal-close, .mamage-input-clear,
+  .mamage-dtp-head button, .mamage-dtp-clear, .mamage-tabs-tab,
+  .mamage-tag, .mamage-segmented, .lg-popover-trigger, .app-inline-button) {
+  background: var(--glass-hover); color: var(--glass-ink); border-color: var(--glass-line);
+}
+:root[data-glass-theme='dark'] :is(.mamage-glass-select-menu button, .mamage-segmented button,
+  .mamage-glass-select-trigger, .mamage-dtp-day) { color: var(--glass-ink); }
+:root[data-glass-theme='dark'] :is(.mamage-glass-select-menu button:hover,
+  .mamage-dtp-day:hover, .mamage-dtp-head button:hover) { background: var(--glass-active); }
+:root[data-glass-theme='dark'] :is(.mamage-dtp-day.is-selected, .mamage-dtp-ok) {
+  background: var(--glass-ink); color: var(--glass-readable-fill);
+}
+:root[data-glass-theme='dark'] .mamage-divider { background: var(--glass-line); }
+
+/* Navigation and search capsules retain their existing transparent wrappers. */
+:root[data-glass-theme='dark'] :is(.mamage-nav-link, .mamage-user-name, .mamage-user-chip,
+  .mamage-brand-button, .mamage-brand-name, .mamage-project-title-text,
+  .mamage-search-clear, .mamage-search-submit, .mamage-desktop-project-notch,
+  .mamage-desktop-project-title:hover, .mamage-notch-description,
+  .mamage-mobile-nav-head button) { color: var(--glass-ink); }
+:root[data-glass-theme='dark'] :is(.mamage-nav-link:hover, .mamage-user-menu-panel button:hover,
+  .mamage-search-clear:hover, .mamage-search-submit:hover, .mamage-mobile-nav-item) {
+  background: var(--glass-hover);
+}
+:root[data-glass-theme='dark'] :is(.mamage-mobile-nav-item.is-active, .mamage-nav-link.is-active) {
+  background: var(--glass-active); color: var(--glass-ink);
+}
+:root[data-glass-theme='dark'] .mamage-menu-trigger span { background: var(--glass-ink); }
+:root[data-glass-theme='dark'] .mamage-search-symbol { border-color: var(--glass-ink); }
+:root[data-glass-theme='dark'] .mamage-search-symbol::after { background: var(--glass-ink); }
+:root[data-glass-theme='dark'] :is(.mamage-user-email, .mamage-project-info-meta,
+  .mamage-project-info-desc, .mamage-notch-meta) { color: var(--glass-muted); }
+
+/* Homepage, sidebar, folder titles and album metadata on desktop and mobile. */
+:root[data-glass-theme='dark'] :is(.acp-icon, .acp-header nav button, .acp-directory-team,
+  .acp-directory-links > button, .acp-directory .acp-folder-link, .acp-folder-link > small,
+  .acp-directory .acp-folder-toggle, .acp-folder-toggle-space, .acp-breadcrumb button,
+  .acp-folder-breadcrumb > button, .acp-folder-breadcrumb > span, .acp-folder-create,
+  .acp-folder-empty, .acp-folder-limit, .acp-section-toggle, .acp-text-button,
+  .acp-shortcut > button, .acp-album-open, .acp-album-copy, .acp-album-copy > strong,
+  .acp-collection-label, .acp-collection-meta, .acp-collection-stamp, .acp-collection-more,
+  .acp-album-more, .acp-collection-actions > button, .acp-drop-confirm,
+  .acp-folder-move-picker > button, .acp-folder-move-paths dt, .collection-tools-list > button,
+  .project-card.project-card--visual, .project-card__title, .project-card__origin,
+  .project-card__description, .project-card__cover-empty, .project-card__import,
+  .desktop-album-menu-trigger, .folder-style-menu label, .shared-album-link,
+  .shared-albums-heading, .scoped-search, .app-search-insight) { color: var(--lg-text); }
+:root[data-glass-theme='dark'] :is(.acp-directory-brand small, .acp-directory-heading h2,
+  .acp-directory-links > button > small, .acp-directory-foot, .acp-personal-label,
+  .acp-caption, .acp-pins-empty, .acp-shortcut-copy small, .acp-search-summary > div > span:last-child,
+  .acp-preview-footer, .acp-personal-pins .acp-checks small, .acp-appearance-heading > span,
+  .folder-style-menu legend, .shared-album-origin, .shared-album-meta,
+  .shared-album-arrow, .shared-albums-heading > span, .shared-folder-context,
+  .shared-albums-compact .shared-albums-heading h2) { color: var(--app-muted); }
+:root[data-glass-theme='dark'] :is(.acp-directory-team, .acp-search,
+  .acp-shortcut, .acp-section-spotlight, .shared-album-entry, .shared-folder-row,
+  .acp-folder-root-drop, .acp-folder-move-summary > span, .project-card__import,
+  .scoped-search-chips > span, .scoped-search-resources button) {
+  background: var(--app-surface); border-color: var(--app-line); box-shadow: var(--glass-edge);
+}
+:root[data-glass-theme='dark'] :is(.acp-search input, .acp-form > label > input) { color: var(--lg-text); }
+:root[data-glass-theme='dark'] .acp-search input::placeholder { color: var(--app-muted); }
+:root[data-glass-theme='dark'] .acp-form > label > input { background: var(--app-raised); border-color: var(--app-line); }
+:root[data-glass-theme='dark'] :is(.acp-icon:hover, .acp-directory-links > button:hover,
+  .acp-directory .acp-directory-create:hover, .acp-directory .acp-folder-toggle:hover,
+  .acp-folder-row:hover, .acp-shortcut:hover, .acp-collection-actions > button:hover,
+  .acp-collection-actions > button:focus-visible, .folder-style-menu label:hover,
+  .shared-album-link:hover, .shared-folder-row:hover, .collection-tools-list > button:hover:not(:disabled)) {
+  background: var(--app-hover);
+}
+:root[data-glass-theme='dark'] :is(.acp-directory-links > button.is-selected,
+  .acp-folder-row.is-selected, .folder-style-menu label.is-selected) {
+  background: var(--mamage-selected-bg); box-shadow: var(--glass-edge);
+}
+:root[data-glass-theme='dark'] :is(.acp-toast, .acp-folder-drag-feedback,
+  .acp-collection-drop-label, .desktop-album-menu summary) { background: var(--app-raised); color: var(--lg-text); }
+:root[data-glass-theme='dark'] :is(.project-card.project-card--visual, .acp-album-compact) {
+  border-color: var(--app-line); box-shadow: var(--glass-edge), var(--liquid-glass-shadow-tight);
+}
+:root[data-glass-theme='dark'] :is(.desktop-album-menu-trigger, .acp-album-more, .acp-collection-more)::before {
+  background: var(--app-raised); border-color: var(--app-line); box-shadow: var(--glass-edge);
+}
+:root[data-glass-theme='dark'] :is(.desktop-empty-cover, .project-card__cover-image,
+  .project-card__thumb, .acp-album-media, .acp-album-previews > button, .shared-album-cover) {
+  background: var(--app-raised); color: var(--app-muted);
+}
+
+/* Folder glass changes, but user-assigned folder colors and photo pixels do not. */
+:root[data-glass-theme='dark'] .acp-collection { --acp-glass-coat: linear-gradient(125deg, #ffffff0d, #ffffff03); }
+:root[data-glass-theme='dark'] .acp-collection::before,
+:root[data-glass-theme='dark'] :is(.acp-collection-glass, .acp-page .acp-folder-tab,
+  .acp-fan-folder-pocket) { background: var(--app-raised); border-color: var(--app-line); }
+:root[data-glass-theme='dark'] .acp-fan-folder-shell::before,
+:root[data-glass-theme='dark'] .acp-fan-folder-shell::after,
+:root[data-glass-theme='dark'] .acp-fan-folder-sheets,
+:root[data-glass-theme='dark'] .acp-fan-folder-sheets::after { background: var(--app-surface); border-color: var(--app-line); }
+:root[data-glass-theme='dark'] :is(.acp-page .acp-folder-tab, .acp-fan-folder-copy) { color: var(--lg-text); }
+:root[data-glass-theme='dark'] :is(.acp-collection-stamp small, .acp-fan-folder-topline > small,
+  .acp-fan-overflow) { background: var(--app-hover); color: var(--lg-text); }
+@supports (background: color-mix(in srgb, black, white)) {
+  :root[data-glass-theme='dark'] .acp-collection::before,
+  :root[data-glass-theme='dark'] :is(.acp-collection-glass, .acp-page .acp-folder-tab) {
+    background: color-mix(in srgb, var(--acp-surface, #fff) 12%, var(--app-raised));
+  }
+  :root[data-glass-theme='dark'] .acp-fan-folder-pocket {
+    background: color-mix(in srgb, var(--child-folder-surface, #fff) 12%, var(--app-raised));
+  }
+}
+
+/* Classic browser chrome; the colored folder glyphs are intentionally excluded. */
+:root[data-glass-theme='dark'] :is(.acp-column-browser, .acp-folder-column,
+  .acp-column-inspector, .acp-column-rest) { background: var(--app-surface); border-color: var(--app-line); box-shadow: var(--glass-edge); }
+:root[data-glass-theme='dark'] :is(.acp-column-toolbar, .acp-column-path,
+  .acp-column-search, .acp-column-open, .acp-column-empty > button) { background: var(--app-raised); border-color: var(--app-line); }
+:root[data-glass-theme='dark'] :is(.acp-column-row, .acp-column-unfiled,
+  .acp-column-search > input, .acp-column-path > button, .acp-column-path > span,
+  .acp-column-open, .acp-column-album-preview dd, .acp-column-context-menu > button,
+  .acp-column-empty > button) { color: var(--lg-text); }
+:root[data-glass-theme='dark'] :is(.acp-column-heading, .acp-column-toolbar > div > span,
+  .acp-column-section-label, .acp-column-section-label small, .acp-folder-column > footer,
+  .acp-column-rest > span:last-child, .acp-column-empty, .acp-column-album-preview dt) { color: var(--app-muted); border-color: var(--app-line); }
+:root[data-glass-theme='dark'] :is(.acp-column-row:hover, .acp-column-unfiled:hover,
+  .acp-column-open:hover, .acp-column-path > button:hover) { background: var(--app-hover); }
+:root[data-glass-theme='dark'] :is(.acp-column-row.is-selected, .acp-column-unfiled.is-selected,
+  .acp-column-context-menu > button:hover, .acp-column-context-menu > button:focus-visible) {
+  background: #365473; color: #f4f7fb;
+}
+:root[data-glass-theme='dark'] .acp-column-row.is-selected.is-ancestor { background: var(--app-hover); color: var(--lg-text); }
+
+/* Search filters and their independent portal menus. */
+:root[data-glass-theme='dark'] :is(.album-library-controls, .album-library-controls .album-library-trigger,
+  .album-library-controls .album-library-clear, .album-library-sort-menu > button,
+  .album-library-sort-menu small, .album-library-range-fields > button,
+  .album-library-calendar-header button, .album-library-controls .album-library-days > button,
+  .album-library-controls .album-library-date-actions button, .scoped-search-resources button,
+  .scoped-search-photo, .app-photo-search-card__people) { color: var(--lg-text); }
+:root[data-glass-theme='dark'] :is(.album-library-trigger:hover, .album-library-trigger.is-open,
+  .album-library-sort-menu > button:hover, .album-library-sort-menu > button[aria-checked='true'],
+  .album-library-range-fields > button[aria-pressed='true'], .album-library-days > button:hover,
+  .album-library-calendar-header button:hover, .album-library-date-actions button:hover,
+  .app-search-insight__mode, .app-search-insight__chips span, .app-photo-search-card__people) { background: var(--app-hover); }
+:root[data-glass-theme='dark'] .album-library-controls .album-library-days > button.is-outside { color: var(--app-muted); }
+:root[data-glass-theme='dark'] .album-library-days > button.is-in-range { background: var(--app-raised); }
+:root[data-glass-theme='dark'] .album-library-controls .album-library-days > button.is-selected,
+:root[data-glass-theme='dark'] .album-library-controls .album-library-date-actions button:last-child {
+  background: #dce2e9; color: #20252b;
+}
+:root[data-glass-theme='dark'] .album-library-radio { border-color: var(--app-muted); }
+:root[data-glass-theme='dark'] [aria-checked='true'] > .album-library-radio::after { background: var(--lg-text); }
+:root[data-glass-theme='dark'] :is(.album-library-divider, .acp-folder-context i) { background: var(--app-line); }
+:root[data-glass-theme='dark'] .app-search-relaxed { background: #253443; color: #b3cee9; }
+
+/* Auth has its own opaque layout. Keep the QR substrate white for scanning. */
+:root[data-glass-theme='dark'] .auth-page-root .mamage-input-wrapper {
+  background: var(--app-surface); color: var(--lg-text); border-color: var(--app-line);
+}
+:root[data-glass-theme='dark'] :is(.auth-login-tabs, .auth-page-root .auth-code-button,
+  .auth-email-suggestions) { background: var(--app-surface); border-color: var(--app-line); }
+:root[data-glass-theme='dark'] :is(.auth-login-tabs button, .auth-campus-panel h2,
+  .auth-qr-caption, .auth-email-suggestion) { color: var(--lg-text); }
+:root[data-glass-theme='dark'] :is(.auth-brand-caption, .auth-intro p, .auth-provider-loading,
+  .auth-qr-state, .auth-provider-fallback, .auth-consent-row, .auth-footer,
+  .auth-consent-row a, .auth-page-root .auth-text-button) { color: var(--app-muted); }
+:root[data-glass-theme='dark'] :is(.auth-login-tabs button[aria-selected='true'], .auth-email-suggestion:hover) {
+  background: var(--app-hover); color: var(--lg-text); box-shadow: var(--glass-edge);
+}
+:root[data-glass-theme='dark'] .auth-page-root .mamage-input-wrapper::placeholder { color: var(--app-muted); }
+:root[data-glass-theme='dark'] .auth-notice { background: var(--app-warning-fill); color: var(--app-warning); }
+:root[data-glass-theme='dark'] .auth-qr-frame { color-scheme: light; background: #fff; }
+
+/* Administrative and sharing panels use the same semantic colors as the shell. */
+:root[data-glass-theme='dark'] :is(.workspace-album-summary, .workspace-album-summary span:first-child,
+  .workspace-tabs button, .workspace-row-main strong, .workspace-row-main span,
+  .workspace-share-context, .workspace-field-label, .workspace-mode-list strong,
+  .workspace-row button, .workspace-detail-head button, .workspace-share-detail > button,
+  .workspace-member-add button, .workspace-photo-grid a, .workspace-select-chevron,
+  .user-access-panel, .operations-panel) { color: var(--lg-text); }
+:root[data-glass-theme='dark'] :is(.workspace-empty, .workspace-mode-help,
+  .user-access-heading span, .user-access-identity > span, .user-access-identity small,
+  .user-access-memberships small, .user-access-editor legend, .user-access-empty,
+  .operations-muted, .operations-header span, .operations-metrics dt,
+  .operations-details dt, .operations-panel th) { color: var(--app-muted); }
+:root[data-glass-theme='dark'] :is(.workspace-tabs, .workspace-mode-list,
+  .workspace-row button, .workspace-detail-head button, .workspace-share-detail > button,
+  .workspace-member-add button, .workspace-select select, .workspace-member-add input,
+  .workspace-selected-count) { background: var(--app-raised); color: var(--lg-text); border-color: var(--app-line); }
+:root[data-glass-theme='dark'] .workspace-select select option { background: var(--app-surface); color: var(--lg-text); }
+:root[data-glass-theme='dark'] :is(.workspace-tabs button.is-active, .workspace-mode-list label.is-selected) { background: var(--mamage-selected-bg); }
+:root[data-glass-theme='dark'] :is(.workspace-mode-list label.is-selected strong, .workspace-tabs button.is-active) { color: var(--mamage-selected-color); }
+:root[data-glass-theme='dark'] :is(.mamage-toast.is-error, .mamage-typography.is-danger,
+  .app-text.is-danger, .auth-error, .user-access-error, .operations-error,
+  .operations-failures small, .shared-folder-error) { color: var(--app-danger); }
+:root[data-glass-theme='dark'] :is(.mamage-toast.is-warning, .user-access-memberships .is-pending) { color: var(--app-warning); }
+:root[data-glass-theme='dark'] :is(.mamage-toast.is-success, .user-access-notice) { color: var(--app-success); }
+:root[data-glass-theme='dark'] :is(.operations-alerts > span, .acp-drop-warning) { background: var(--app-warning-fill); color: var(--app-warning); }
+:root[data-glass-theme='dark'] :is(.operations-alerts > [data-severity='critical'],
+  .desktop-save-error, .workspace-row-meta .workspace-status.is-error,
+  .acp-folders [data-folder-drop='blocked']) { background: var(--app-danger-fill); color: var(--app-danger); }
+:root[data-glass-theme='dark'] :is(.operations-alerts > [data-severity='healthy'],
+  .workspace-row-meta .workspace-status, .acp-folders [data-folder-drop='ready']) { background: var(--app-success-fill); color: var(--app-success); }
+
+/* Detail chrome only. Viewer materials and photo/video presentation stay local. */
+:root[data-glass-theme='dark'] :is(.detail-copy-origin, .detail-loading-state,
+  .detail-timeline-rail-item, .detail-timeline-section-selectall,
+  .similarity-group-head, .similarity-thumb-title, .person-sheet-progress,
+  .person-sheet-more, .person-loading-copy, .person-sheet-card-title,
+  .person-sheet-album-link, .person-split-title, .person-split-group-title) { color: var(--glass-ink); }
+:root[data-glass-theme='dark'] :is(.detail-loading-subtitle, .detail-timeline-rail-text em,
+  .detail-timeline-title em, .detail-timeline-count, .similarity-group-count,
+  .person-loading-subtitle, .person-sheet-desc, .person-sheet-stats,
+  .person-split-sub) { color: var(--glass-muted); }
+:root[data-glass-theme='dark'] :is(.detail-timeline-head, .detail-file-drop-overlay-card,
+  .detail-timeline-rail.is-drop-mode, .person-sheet-hero, .person-sheet-card,
+  .person-sheet-loading, .person-split, .similarity-group) {
+  background: var(--glass-readable-material);
+  border-color: var(--glass-line);
+  box-shadow: var(--glass-edge);
+}
+:root[data-glass-theme='dark'] :is(.detail-timeline-empty:not(.is-mobile-upload),
+  .detail-timeline-rail-widen, .detail-timeline-rail-toggle, .detail-timeline-rail-hint,
+  .detail-timeline-rail-item strong, .detail-actions-info, .detail-media-filter,
+  .detail-photo-chip, .detail-tag-chip, .detail-video-badge.is-processing,
+  .detail-video-processing-mark, .similarity-group-selectall, .similarity-thumb,
+  .similarity-thumb-empty, .similarity-thumb-ai:not(.is-best), .similarity-thumb-delete,
+  .person-sheet-avatar, .person-sheet-avatar-empty, .person-sheet-thumb-empty,
+  .person-split-chip-empty, .person-loading-visual) {
+  background: var(--app-raised);
+  color: var(--glass-ink);
+  border-color: var(--glass-line);
+  box-shadow: var(--glass-edge);
+}
+:root[data-glass-theme='dark'] :is(.detail-timeline-rail-item:hover,
+  .detail-timeline-rail-item.is-drag-over, .detail-timeline-empty.is-drop-ready,
+  .detail-timeline-rail-widen:hover, .detail-timeline-rail-toggle:hover,
+  .detail-media-filter-btn:hover, .detail-media-filter-btn.is-active,
+  .similarity-group-selectall:hover, .similarity-thumb:hover, .similarity-thumb.is-selected) {
+  background: var(--glass-active); color: var(--glass-ink); box-shadow: var(--glass-edge);
+}
+:root[data-glass-theme='dark'] :is(.detail-actions-grip, .detail-media-filter-btn strong,
+  .detail-media-owner-switch, .person-loading-visual span, .person-loading-skeleton span) {
+  background: var(--glass-line);
+}
+:root[data-glass-theme='dark'] .detail-media-owner-filter input:checked + .detail-media-owner-switch { background: #547ca4; }
+:root[data-glass-theme='dark'] .detail-media-owner-filter:focus-within { outline-color: var(--glass-ink); }
+:root[data-glass-theme='dark'] .detail-timeline-rail-line { background: var(--glass-line); }
+:root[data-glass-theme='dark'] .detail-timeline-gallery::before {
+  border-color: var(--glass-line);
+  background-image: repeating-linear-gradient(to bottom, var(--glass-line) 0 1px, transparent 1px 12px);
+}
+:root[data-glass-theme='dark'] .detail-timeline-section::after { background: var(--glass-muted); }
+:root[data-glass-theme='dark'] .detail-timeline-section.is-file-drop-over {
+  background: var(--glass-hover); box-shadow: inset 0 0 0 2px var(--glass-line);
+}
+:root[data-glass-theme='dark'] .detail-video-processing-mark::before,
+:root[data-glass-theme='dark'] .person-sheet-progress > span {
+  border-color: var(--glass-line); border-top-color: var(--glass-ink);
+}
+:root[data-glass-theme='dark'] :is(.detail-photo-chip--section, .detail-timeline-empty) { color: var(--glass-muted); }
+:root[data-glass-theme='dark'] .detail-tag-chip--failed { color: var(--app-danger); }
+:root[data-glass-theme='dark'] :is(.person-sheet-error, .similarity-thumb-delete:hover,
+  .similarity-thumb-delete:focus-visible) { background: var(--app-danger-fill); color: var(--app-danger); }
+
+/* These legacy controls declare their colors important in ProjectDetail.css. */
+:root[data-glass-theme='dark'] .detail-action-tile.mamage-button,
+:root[data-glass-theme='dark'] .detail-selection-actions .detail-selection-btn.mamage-button {
+  color: var(--glass-ink) !important;
+  background: var(--app-raised) !important;
+  border-color: var(--glass-line) !important;
+  box-shadow: var(--glass-edge) !important;
+}
+:root[data-glass-theme='dark'] .detail-action-tile.mamage-button:is(:hover, .is-hovered, .is-active, .is-drag-active) {
+  background: var(--glass-active) !important; border-color: var(--glass-muted) !important;
+}
+:root[data-glass-theme='dark'] .detail-selection-actions .detail-selection-btn--danger.mamage-button {
+  background: var(--app-danger-fill) !important; color: var(--app-danger) !important;
+}
+:root[data-glass-theme='dark'] .detail-selection-actions .detail-selection-btn--download.mamage-button {
+  background: #365473 !important; color: #f4f7fb !important;
+}
+
+/* Upload labels only; upload layout and component behavior belong to their owner. */
+:root[data-glass-theme='dark'] :is(.detail-upload-timeline-title, .detail-upload-timeline-node,
+  .detail-upload-section-title, .detail-upload-section-count) { color: var(--glass-ink); }
+:root[data-glass-theme='dark'] :is(.detail-upload-node-time, .detail-upload-section-title em,
+  .detail-upload-section-empty) { color: var(--glass-muted); }
+:root[data-glass-theme='dark'] :is(.detail-upload-current-hint, .detail-upload-node-dot,
+  .detail-upload-preview-remove, .detail-upload-preview-section, .detail-upload-preview-status) {
+  background: var(--app-raised); color: var(--glass-ink); border-color: var(--glass-line); box-shadow: var(--glass-edge);
+}
+:root[data-glass-theme='dark'] .detail-upload-timeline-track { background: var(--glass-line); }
+:root[data-glass-theme='dark'] .detail-upload-preview-status.is-done { background: var(--app-success-fill); color: var(--app-success); }
+:root[data-glass-theme='dark'] .detail-upload-preview-status.is-failed { background: var(--app-danger-fill); color: var(--app-danger); }
+
+/* Raw imported article text keeps its original light-document inheritance.
+   Inline document colors still win; no descendants or export styles are reset. */
+:root[data-glass-theme='dark'] .cve-canvas { color: #000; color-scheme: light; }

@@ -1447,7 +1447,7 @@ function App() {
             ) : null}
 
             <div className="mamage-account-group">
-            <ViewerDisplaySettings appearance={displaySettings.appearance} onChange={displaySettings.update} darkLabel="深色查看器"
+            <ViewerDisplaySettings appearance={displaySettings.appearance} onChange={displaySettings.update}
               compact={isMobileHeader} open={isMobileHeader ? mobileHeaderPanel === 'settings' : undefined}
               onOpenChange={open => { if (isMobileHeader) { setMobileHeaderPanel(current => open ? 'settings' : current === 'settings' ? null : current); if (open) setProjectInfoOpen(false); } }} />
             {currentUser ? (
