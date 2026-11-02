@@ -157,7 +157,7 @@ function formatDateTimeValue(p, dateOnly) {
   return dateOnly ? d : `${d}T${pad2(p.hh)}:${pad2(p.mi)}`;
 }
 
-function DateTimePicker({ className = '', onChange, value, placeholder = '选择时间', clearable, style, title, disabled, dateOnly = false }) {
+function DateTimePicker({ className = '', popoverClassName = '', followScroll = false, onChange, value, placeholder = '选择时间', clearable, style, title, disabled, dateOnly = false }) {
   const parsed = parseDateTimeValue(value);
   const [open, setOpen] = React.useState(false);
   const [pos, setPos] = React.useState(null);
@@ -169,20 +169,39 @@ function DateTimePicker({ className = '', onChange, value, placeholder = '选择
   const triggerRef = React.useRef(null);
   const popRef = React.useRef(null);
 
-  const openPop = () => {
-    if (disabled || !triggerRef.current) return;
+  const updatePosition = React.useCallback(() => {
+    if (!triggerRef.current) return;
     const r = triggerRef.current.getBoundingClientRect();
-    const width = 256;
-    const height = dateOnly ? 286 : 330;
+    const width = (followScroll && popRef.current?.offsetWidth) || 256;
+    const height = (followScroll && popRef.current?.offsetHeight) || (dateOnly ? 286 : 330);
+    const viewport = followScroll && window.visualViewport;
+    const viewportTop = viewport?.offsetTop || 0;
+    const viewportHeight = viewport?.height || window.innerHeight;
+    const bottom = viewportTop + viewportHeight - 8;
     const left = Math.min(Math.max(8, r.left), Math.max(8, window.innerWidth - width - 8));
     let top = r.bottom + 6;
-    if (top + height > window.innerHeight - 8) top = Math.max(8, r.top - height - 6);
-    setPos({ left, top });
+    if (!followScroll) {
+      if (top + height > window.innerHeight - 8) top = Math.max(8, r.top - height - 6);
+      setPos({ left, top });
+      return;
+    }
+    if (top + height > bottom) top = r.top - height - 6;
+    top = Math.max(viewportTop + 8, Math.min(top, bottom - height));
+    setPos({ left, top, ...(followScroll ? { maxHeight: viewportHeight - 16, overflowY: 'auto' } : {}) });
+  }, [dateOnly, followScroll]);
+
+  const openPop = () => {
+    if (disabled || !triggerRef.current) return;
+    updatePosition();
     const p = parseDateTimeValue(value);
     const now = new Date();
     setView({ y: p ? p.y : now.getFullYear(), mo: p ? p.mo : now.getMonth() + 1 });
     setOpen(true);
   };
+
+  React.useLayoutEffect(() => {
+    if (open && followScroll) updatePosition();
+  }, [open, followScroll, updatePosition, view.y, view.mo]);
 
   React.useEffect(() => {
     if (!open) return undefined;
@@ -193,7 +212,8 @@ function DateTimePicker({ className = '', onChange, value, placeholder = '选择
     };
     const onScroll = (e) => {
       if (popRef.current && popRef.current.contains(e.target)) return;
-      setOpen(false);
+      if (followScroll) updatePosition();
+      else setOpen(false);
     };
     document.addEventListener('mousedown', onDown);
     window.addEventListener('scroll', onScroll, true);
@@ -203,7 +223,7 @@ function DateTimePicker({ className = '', onChange, value, placeholder = '选择
       window.removeEventListener('scroll', onScroll, true);
       window.removeEventListener('resize', onScroll);
     };
-  }, [open]);
+  }, [open, followScroll, updatePosition]);
 
   const commitDate = (d) => {
     const base = parsed || { hh: 9, mi: 0 };
@@ -243,7 +263,7 @@ function DateTimePicker({ className = '', onChange, value, placeholder = '选择
   }
 
   const pop = open && pos && typeof document !== 'undefined' ? createPortal(
-    <div ref={popRef} className="mamage-dtp-pop" style={{ left: pos.left, top: pos.top }} role="dialog" aria-label="选择日期时间">
+    <div ref={popRef} className={cx('mamage-dtp-pop', popoverClassName)} style={pos} role="dialog" aria-label="选择日期时间">
       <div className="mamage-dtp-head">
         <button type="button" onClick={() => shiftMonth(-1)} aria-label="上个月">‹</button>
         <span>{view.y} 年 {view.mo} 月</span>
@@ -585,6 +605,9 @@ function Modal({
   bodyStyle,
   closable = true,
   maskClosable = true,
+  maskClassName = '',
+  maskStyle,
+  maskRef,
   zIndex,
 }) {
   const [pending, setPending] = React.useState(false);
@@ -613,8 +636,9 @@ function Modal({
 
   const node = (
     <div
-      className="mamage-modal-mask"
-      style={{ zIndex }}
+      ref={maskRef}
+      className={cx('mamage-modal-mask', maskClassName)}
+      style={{ ...maskStyle, zIndex }}
       onMouseDown={(e) => {
         // 点遮罩空白处关闭（按下即判定，避免拖选文本误关）
         if (maskClosable && closable && e.target === e.currentTarget) onCancel?.();

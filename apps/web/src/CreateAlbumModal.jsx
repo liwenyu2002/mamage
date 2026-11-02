@@ -1,7 +1,8 @@
 ﻿import React from 'react';
-import { MotionModal, DateTimePicker, Input, Toast } from './ui';
-import { IconClose, IconPlus } from './ui/icons';
+import { DateTimePicker, Input, Toast } from './ui';
+import { IconClose, IconPlus, IconTimelineFlow, IconDownload, IconSimilarStack } from './ui/icons';
 import AlbumDetailsFields from './AlbumDetailsFields';
+import AlbumFormModal from './AlbumFormModal';
 import UploadProgressSummary from './UploadProgressSummary';
 import { sectionTimeToInputValue, inputValueToSectionTime } from './utils/sectionTime';
 import './CreateAlbumModal.css';
@@ -24,7 +25,13 @@ function isVideoFile(file) {
   return /\.(mp4|m4v|mov|webm|ogv|ogg)$/i.test(name);
 }
 
-export default function CreateAlbumModal({ visible, onClose, onCreated, createProject }) {
+export default function CreateAlbumModal({ visible, onClose, onCreated, createProject, presentation, originRef,
+  compact = true, createFolder, parentName, initialType = 'album', allowAlbum = true }) {
+  const [creationType, setCreationType] = React.useState(initialType);
+  const [timelineOpen, setTimelineOpen] = React.useState(false);
+  const [importOpen, setImportOpen] = React.useState(false);
+  const [folderName, setFolderName] = React.useState('');
+  const isFolder = Boolean(createFolder) && (creationType === 'folder' || !allowAlbum);
   const [name, setName] = React.useState('');
   const [description, setDescription] = React.useState('');
   const [tags, setTags] = React.useState([]);
@@ -55,6 +62,9 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
     const reducedMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     const timer = window.setTimeout(() => {
       setName('');
+      setFolderName('');
+      setTimelineOpen(false);
+      setImportOpen(false);
       setDescription('');
       setTags([]);
       setStartDate(null);
@@ -76,7 +86,8 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
   React.useEffect(() => {
     if (!visible) return;
     setUserPermissions(getPermissions());
-  }, [visible]);
+    setCreationType(initialType);
+  }, [visible, initialType]);
 
   const normalizedTimelineSections = React.useMemo(() => timelineSections
     .map((section, idx) => ({
@@ -270,6 +281,14 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
 
   const handleSubmit = React.useCallback(async () => {
     if (submitting) return;
+    if (isFolder) {
+      if (!folderName.trim()) return Toast.warning('请填写文件夹名称');
+      setSubmitting(true);
+      try { await createFolder({ name: folderName.trim() }); Toast.success('已创建文件夹'); onClose?.(); }
+      catch (error) { Toast.error(error?.message || '文件夹创建失败，请重试'); }
+      finally { setSubmitting(false); }
+      return;
+    }
     const importUrl = externalImportUrl.trim();
     if (!name.trim() && !importUrl) return Toast.warning('相册名称为必填项');
     if (timelineEnabled && normalizedTimelineSections.length === 0) {
@@ -405,27 +424,44 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
     } finally {
       setSubmitting(false);
     }
-  }, [submitting, name, description, tags, startDate, externalImportUrl, timelineEnabled, normalizedTimelineSections, stagingSectionKeys, createProject, onCreated, onClose, stagingFiles, userPermissions]);
+  }, [submitting, isFolder, folderName, createFolder, name, description, tags, startDate, externalImportUrl, timelineEnabled, normalizedTimelineSections, stagingSectionKeys, createProject, onCreated, onClose, stagingFiles, userPermissions]);
 
   return (
-    <MotionModal
-      title="新建相册"
-      className="album-form-modal cam-modal"
-      width={680}
+    <AlbumFormModal
+      presentation={presentation}
+      originRef={originRef}
+      title={createFolder ? '新建' : '新建相册'}
+      className={`cam-modal${compact ? ' cam-modal--compact' : ''}`}
+      width={compact ? 520 : 680}
       visible={visible}
       onCancel={submitting ? () => Toast.warning('正在创建或上传，请等待完成') : onClose}
       onOk={handleSubmit}
-      okButtonProps={{ loading: submitting }}
+      okButtonProps={{ loading: submitting, disabled: isFolder ? !folderName.trim() : (!name.trim() && !externalImportUrl.trim()) }}
       cancelText="取消"
-      okText={externalImportUrl.trim() ? '创建并转存' : '创建'}
+      okText={isFolder ? '创建文件夹' : externalImportUrl.trim() ? '创建并转存' : '创建'}
       closable={!submitting}
     >
-      <div className="cam-form">
+      <fieldset className="cam-form" disabled={submitting}>
+        {parentName && <p className="cam-create-location">创建到 <strong>{parentName}</strong></p>}
+        {createFolder && allowAlbum && <div className="cam-type-switch" role="group" aria-label="新建类型">
+          <button type="button" aria-pressed={!isFolder} onClick={() => setCreationType('album')}>相册</button>
+          <button type="button" aria-pressed={isFolder} onClick={() => setCreationType('folder')}>文件夹</button>
+        </div>}
+        <div className={`cam-folder-fields${compact ? ' album-title-field' : ''}`} hidden={!isFolder}>
+          <label className="album-field-label" htmlFor="cam-folder-name">文件夹名称 <span className="album-field-required">*</span></label>
+          <Input className={compact ? 'album-title-input' : undefined} id="cam-folder-name" value={folderName} onChange={setFolderName} placeholder="文件夹名称" maxLength={80} autoComplete="off" />
+        </div>
+        <div className="cam-album-fields" hidden={isFolder}>
         <AlbumDetailsFields
+          compact={compact}
+          tools={<>
+            <button type="button" title="设置活动环节" aria-expanded={timelineOpen} data-filled={timelineEnabled} onClick={() => setTimelineOpen(value => !value)}><IconTimelineFlow /><span>时间轴</span></button>
+            {userPermissions.includes('upload.photo') && <button type="button" title="从外部相册导入" aria-expanded={importOpen} data-filled={Boolean(externalImportUrl.trim())} onClick={() => setImportOpen(value => !value)}><IconDownload /><span>链接导入</span></button>}
+          </>}
           title={name}
           onTitleChange={setName}
           titleOptional={Boolean(externalImportUrl.trim())}
-          titlePlaceholder={externalImportUrl.trim() ? '从链接自动识别相册名' : '输入相册名称'}
+          titlePlaceholder={externalImportUrl.trim() ? '从链接自动识别相册名' : compact ? '相册名称' : '输入相册名称'}
           description={description}
           onDescriptionChange={setDescription}
           eventDate={startDate}
@@ -436,6 +472,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
           disabled={submitting}
         />
 
+        <div className="cam-timeline-disclosure" hidden={compact && !timelineOpen}>
         <section className={`cam-timeline-panel${timelineEnabled ? ' is-enabled' : ''}`}>
           <label className="cam-timeline-toggle">
             <input
@@ -482,6 +519,8 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
                   />
                   <DateTimePicker
                     className="cam-timeline-time"
+                    popoverClassName="album-form-calendar"
+                    followScroll
                     value={sectionTimeToInputValue(section.sectionTime)}
                     onChange={(v) => updateTimelineSection(section.key, { sectionTime: inputValueToSectionTime(v) })}
                     placeholder="时间（可选）"
@@ -497,12 +536,11 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
             </div>
           ) : null}
         </section>
+        </div>
 
         {userPermissions.includes('upload.photo') ? (
-          <section className="cam-link-import">
-            <label className="album-field-label" htmlFor="cam-external-import-url">
-              链接转存 <span className="album-field-optional">可选</span>
-            </label>
+          <div className="cam-link-import" hidden={compact && !importOpen}>
+            <label className="album-field-label" htmlFor="cam-external-import-url">相册链接</label>
             <Input
               id="cam-external-import-url"
               className="cam-link-import-input"
@@ -515,11 +553,11 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
               disabled={submitting}
             />
             {externalImportUrl.trim() ? <span className="cam-link-import-note">请仅转存已获授权的照片。</span> : null}
-          </section>
+          </div>
         ) : null}
 
         <section className="cam-upload-block">
-          <div className="cam-section-heading"><strong>照片与视频</strong><span>{stagingFiles.length ? `已选 ${stagingFiles.length} 个` : '可选'}</span></div>
+          {!compact && <div className="cam-section-heading"><strong>照片与视频</strong><span>{stagingFiles.length ? `已选 ${stagingFiles.length} 个` : '可选'}</span></div>}
           <input
             ref={filePickerRef}
             type="file"
@@ -538,7 +576,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
             {stagedUploadGroups.map((group) => (
               <section
                 key={group.key || '__all__'}
-                className={`cam-upload-group${draggingOverGroup === group.key ? ' is-drag-over' : ''}`}
+                className={`cam-upload-group${compact && !timelineEnabled ? ' cam-upload-group--simple' : ''}${draggingOverGroup === group.key ? ' is-drag-over' : ''}`}
                 onDragOver={(e) => {
                   e.preventDefault();
                   if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
@@ -553,18 +591,18 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
                   }
                 }}
               >
-                <div className="cam-upload-group-head">
+                {(!compact || timelineEnabled || group.items.length > 0) && <div className="cam-upload-group-head">
                   <div className="cam-upload-group-title">
-                    <span>{group.name}</span>
+                    <span>{compact && !timelineEnabled ? `${group.items.length} 个文件` : group.name}</span>
                     {group.sectionTime ? <em>{group.sectionTime}</em> : null}
                   </div>
                   <div className="cam-upload-group-actions">
-                    <span className="cam-upload-group-count">{group.items.length} 个</span>
+                    {(!compact || timelineEnabled) && <span className="cam-upload-group-count">{group.items.length} 个</span>}
                     <button type="button" className="cam-file-picker cam-file-picker--sm" disabled={submitting} onClick={() => openFilePicker(group.key)}>
-                      添加
+                      <IconPlus /><span>添加</span>
                     </button>
                   </div>
-                </div>
+                </div>}
                 {group.items.length ? (
                   <div className="cam-preview-row">
                     {group.items.map((item) => {
@@ -627,13 +665,14 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
                     })}
                   </div>
                 ) : (
-                  <div className="cam-upload-group-empty">点击"添加"或把文件拖到这里</div>
+                  compact ? <button type="button" className="cam-media-add" disabled={submitting} onClick={() => openFilePicker(group.key)}><IconSimilarStack /><span>添加照片或视频</span><IconPlus /></button> : <div className="cam-upload-group-empty">未选择照片或视频</div>
                 )}
               </section>
             ))}
           </div>
         </section>
-      </div>
-    </MotionModal>
+        </div>
+      </fieldset>
+    </AlbumFormModal>
   );
 }

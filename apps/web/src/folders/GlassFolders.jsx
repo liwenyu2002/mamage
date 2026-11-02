@@ -30,7 +30,8 @@ const CollectionCaption = React.memo(function CollectionCaption({ group, entry, 
 });
 
 export function CollectionCard({ group, groups = [], albums, onSelect, onOpen, pinned, onPin, onAppearance, onMove, onManage, onShare, surfaceColor = DEFAULT_COLLECTION_COLOR, folderColors = {}, preview = false,
-  getAlbumDragProps, getFolderDragProps, dropProps, sortDragProps, dropActive = false, isAlbumDragging = false, dropMessage }) {
+  getAlbumDragProps, getFolderDragProps, dropProps, sortDragProps, dropActive = false, isAlbumDragging = false, dropMessage,
+  selecting = false, selected = false, onToggle }) {
   const items = React.useMemo(() => groupAlbums(group, albums, groups), [group, albums, groups]);
   const childCount = groups.filter(item => item.parentId === group.id).length;
   const previewItems = React.useMemo(() => folderPreviewItems(group, albums, groups), [group, albums, groups]);
@@ -41,6 +42,7 @@ export function CollectionCard({ group, groups = [], albums, onSelect, onOpen, p
   const [folderTarget, setFolderTarget] = React.useState(false);
   const [activeIndex, setActiveIndex] = React.useState(0);
   const [menuOpen, setMenuOpen] = React.useState(false);
+  React.useEffect(() => { if (selecting) { setMenuOpen(false); setExpanded(false); } }, [selecting]);
   const [menuPosition, setMenuPosition] = React.useState({});
   const cardRef = React.useRef(null);
   React.useLayoutEffect(() => {
@@ -167,7 +169,11 @@ export function CollectionCard({ group, groups = [], albums, onSelect, onOpen, p
     }
     openEntry(covers[event.detail === 0 || pointerType.current !== 'mouse' || !expanded ? index : activeRef.current]);
   };
-  return <article {...dropProps} ref={cardRef} className={`acp-collection${childCount ? ' acp-collection-folder' : ''}${expanded && active ? ' is-expanded' : ''}${folderTarget ? ' is-folder-target' : ''}${menuOpen ? ' is-menu-open' : ''}${dropActive ? ' is-drop-target' : ''}`} aria-label={group.name}
+  return <article {...dropProps} ref={cardRef} className={`acp-collection${selecting ? ' is-selecting' : ''}${selected ? ' is-selected' : ''}${childCount ? ' acp-collection-folder' : ''}${expanded && active ? ' is-expanded' : ''}${folderTarget ? ' is-folder-target' : ''}${menuOpen ? ' is-menu-open' : ''}${dropActive ? ' is-drop-target' : ''}`} aria-label={group.name}
+    onClickCapture={event => {
+      if (!selecting || event.target.closest('.collection-album-check')) return;
+      event.preventDefault(); event.stopPropagation(); onToggle?.(group.id);
+    }}
     style={{ '--acp-accent': group.color, '--acp-tint': group.tint, '--acp-surface': surfaceColor }}
     onPointerDown={(event) => { pointerType.current = event.pointerType; }}
     onPointerLeave={(event) => { if (event.pointerType === 'mouse') { cancelScrub(); setExpanded(false); setFolderTarget(false); } }}
@@ -180,7 +186,7 @@ export function CollectionCard({ group, groups = [], albums, onSelect, onOpen, p
         : (activeIndex + (event.key === 'ArrowRight' ? 1 : -1) + covers.length) % covers.length;
       coverRefs.current[next]?.focus();
     }}>
-    {childCount > 0 && <button className="acp-folder-tab" aria-label={`进入子目录 ${group.name}`} title={`进入 ${group.name}`} disabled={preview} onClick={() => onSelect(group.id)}><GroupSymbol group={group} /><span>{childCount}</span></button>}
+    {childCount > 0 && <button className="acp-folder-tab" aria-label={`进入子目录 ${group.name}`} title={`进入 ${group.name}`} disabled={preview} tabIndex={selecting ? -1 : undefined} onClick={() => onSelect(group.id)}><GroupSymbol group={group} /><span>{childCount}</span></button>}
     <div className="acp-fan-viewport"><div className="acp-fan-stage" onPointerEnter={(event) => {
       if (event.pointerType !== 'mouse' || menuOpen || isAlbumDragging) return;
       fitFanToViewport();
@@ -191,7 +197,7 @@ export function CollectionCard({ group, groups = [], albums, onSelect, onOpen, p
         const folder = kind === 'folder';
         const position = covers.length === 1 ? 0 : (index / (covers.length - 1)) * 2 - 1;
         return <button {...(!preview && (folder ? getFolderDragProps?.(item) : getAlbumDragProps?.(item)))} key={`${kind}:${item.id}`} ref={(element) => { coverRefs.current[index] = element; }}
-          className={`acp-fan-cover${folder ? ' acp-fan-folder' : ''}${expanded && index === activeIndex ? ' is-active' : ''}`} disabled={preview}
+          className={`acp-fan-cover${folder ? ' acp-fan-folder' : ''}${expanded && index === activeIndex ? ' is-active' : ''}`} disabled={preview} tabIndex={selecting ? -1 : undefined}
           aria-label={`${folder ? '进入子文件夹' : '预览相册'} ${item.name}`} aria-pressed={expanded && index === activeIndex}
           style={{ '--fan-position': position, '--fan-arc': Math.abs(position), '--fan-depth': 10 + covers.length - index,
             '--child-folder-surface': folder ? folderColors[item.id] || DEFAULT_COLLECTION_COLOR : undefined,
@@ -225,7 +231,8 @@ export function CollectionCard({ group, groups = [], albums, onSelect, onOpen, p
           coverCount={covers.length} visible={expanded && index === activeIndex} />)}
       </button>
     </div>
-    <div ref={toolsRef} className="acp-collection-tools">
+    {selecting && <label className="collection-album-check"><input type="checkbox" aria-label={`选择文件夹 ${group.name}`} checked={selected} onChange={() => onToggle?.(group.id)} /><span aria-hidden="true" /></label>}
+    <div ref={toolsRef} className="acp-collection-tools" hidden={selecting}>
       <button ref={menuTriggerRef} className="acp-collection-more" disabled={preview} title="更多操作"
         aria-label={`更多操作 ${group.name}`} aria-haspopup="menu" aria-expanded={menuOpen} aria-controls={menuOpen ? menuId : undefined}
         onClick={() => menuOpen ? closeMenu() : openMenu()} onKeyDown={(event) => {
@@ -255,12 +262,14 @@ export function CollectionCard({ group, groups = [], albums, onSelect, onOpen, p
   </article>;
 }
 
-export function AlbumShortcut({ album, group, groups, albums, onOpen, onSelect, sortDragProps, sortDropProps, dropTargetId, description }) {
+export function AlbumShortcut({ album, group, groups, albums, onOpen, onSelect, sortDragProps, sortDropProps, dropTargetId, description, selecting = false, selected = false, onToggle }) {
   const items = group ? albums.filter(item => item.groups.includes(group.id)) : [];
   const childCount = group ? groups.filter(item => item.parentId === group.id).length : 0;
   const name = group?.name || album.name;
   return <article {...sortDropProps} className={`acp-shortcut acp-shortcut-${group?.layout || 'album'}${group && dropTargetId === group.id ? ' is-drop-target' : ''}`} style={{ '--acp-accent': group?.color || '#515c67', '--acp-tint': group?.tint || '#e6e9ec' }}>
-    <button {...sortDragProps} data-collection-id={group?.id} title={`${name}${description ? `\n${description}` : ''}\n拖拽调整顺序`} aria-label={group ? `打开文件夹 ${name}` : `打开 ${name}`} onClick={() => group ? onSelect(group.id) : onOpen(album)}>
+    <button {...sortDragProps} data-collection-id={group?.id} title={selecting ? name : `${name}${description ? `\n${description}` : ''}\n拖拽调整顺序`}
+      aria-pressed={selecting ? selected : undefined} aria-label={selecting ? `选择置顶 ${name}` : group ? `打开文件夹 ${name}` : `打开 ${name}`}
+      onClick={() => selecting ? onToggle?.() : group ? onSelect(group.id) : onOpen(album)}>
       <span className="acp-shortcut-media">{childCount ? <GroupSymbol group={group} /> : <span className="acp-shortcut-thumbs">{(group ? items.slice(0, group.layout === 'panorama' ? 1 : 2) : [album]).map((item) => <img src={item.image} alt="" key={item.id} draggable={false} />)}</span>}
         {group && <span className="acp-shortcut-symbol"><GroupSymbol group={group} /></span>}</span>
       <span className="acp-shortcut-copy"><strong>{name}</strong><span className="acp-shortcut-meta"><small>{description ?? (group ? childCount ? `${childCount} 个子文件夹 · ${items.length} 册` : `文件夹 · ${items.length} 册` : `相册 · ${album.count} 张`)}</small>

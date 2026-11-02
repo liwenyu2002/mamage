@@ -1292,7 +1292,8 @@ function App() {
   }
 
   const columnWorkspace = folderStyle === 'classic' && !currentProjectId && selectedNav === 'projects' && !photoSearchMode && currentUser && !isDemoPath;
-  const showCreateAlbum = !isDemoPath && !currentProjectId && canAll('projects.create');
+  const workspaceHasCreateDock = selectedNav === 'projects' && !photoSearchMode && Boolean(currentUser);
+  const showCreateAlbum = !isDemoPath && !currentProjectId && !workspaceHasCreateDock && canAll('projects.create');
   const uploadWorkspacePending = Boolean(albumUploadIntent?.unitId
     && Number(workspaceInfo?.activeUnitId) !== Number(albumUploadIntent.unitId));
   const appFooter = <footer className="mamage-footer" style={{ textAlign: 'center' }}>
@@ -1485,6 +1486,7 @@ function App() {
                   ) : null}
                   <FolderStyleMenu value={folderStyle} onChange={setFolderStyle} />
                   <button type="button" onClick={handleNavigateAccount}>账户信息</button>
+                  {currentUser?.canManageUserAccess ? <button type="button" onClick={handleNavigateAccount}>用户与权限</button> : null}
                   <button type="button" onClick={handleLogout}>退出账号</button>
               </GlassAccountMenu>
             ) : (
@@ -1957,7 +1959,7 @@ function App() {
       ) : null}
       {mountTransferStation ? (
         <LazySilent>
-          <TransferStation onInternalShare={(photoIds) => {
+          <TransferStation hideLauncher={selectedNav === 'account'} onInternalShare={(photoIds) => {
             if (!workspaceInfo?.activeUnitId) return Toast.warning('请先切换到部门工作空间');
             setAlbumShareProject(null);
             setWorkspacePanelPhotoIds(photoIds);

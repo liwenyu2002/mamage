@@ -1,0 +1,66 @@
+.afp-page { min-height: 100vh; padding: 16px 28px 100px; font-family: system-ui, sans-serif; }
+.afp-nav { display: flex; align-items: center; gap: 8px; max-width: 760px; margin: 0 auto 32px; }
+.afp-nav > button { flex: 0 0 44px; width: 44px; height: 44px; padding: 10px; border: 0; border-radius: 50%; color: var(--glass-ink); font: 700 18px system-ui; cursor: pointer; }
+.afp-nav svg { width: 22px; height: 22px; flex: none; }
+.afp-search { display: flex; align-items: center; justify-content: space-between; flex: 1; min-width: 0; height: 44px; padding: 0 14px; border-radius: 24px; }
+.afp-workspace { max-width: 1080px; margin: 0 auto; }
+.afp-breadcrumb { color: var(--glass-muted); font-size: 13px; }
+.afp-breadcrumb span { margin: 0 10px; }
+.afp-workspace > header { display: flex; align-items: baseline; flex-wrap: wrap; gap: 10px; }
+.afp-workspace h1 { margin: 0; font-size: 26px; }
+.afp-workspace header > span { font-size: 13px; }
+.afp-workspace h2 { font-size: 17px; margin-top: 28px; }
+.afp-workspace h2 small { margin-left: 8px; font-size: 12px; font-weight: 400; }
+.afp-album { position: relative; width: 280px; max-width: 100%; border-radius: 8px; background: #ffffffa8; padding: 12px; box-shadow: var(--glass-edge); }
+.afp-album.is-selected { outline: 1.5px solid var(--glass-muted); outline-offset: 1px; }
+.afp-album-selection { position: absolute; z-index: 1; top: 16px; left: 16px; width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; background: #fafbfc; box-shadow: var(--glass-edge); }
+.afp-album-selection input { width: 20px; height: 20px; accent-color: #242628; cursor: pointer; }
+.afp-album .afp-album-cover { display: block; width: 100%; height: 190px; padding: 0; border-radius: 6px; overflow: hidden; }
+.afp-album-cover img { display: block; width: 100%; height: 100%; object-fit: scale-down; padding: 32px; background: #e7ecf0; }
+.afp-album > div { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; }
+.afp-album strong { font-size: 16px; }
+.afp-album button { flex: 0 0 32px; width: 32px; height: 32px; border: 0; border-radius: 50%; background: #fff; cursor: pointer; }
+.afp-album button svg { width: 16px; height: 16px; }
+.afp-album p, .afp-album time { font-size: 12px; color: var(--glass-muted); }
+:root .afp-functions {
+  position: fixed; z-index: 1453; top: 68px;
+  right: max(28px, calc((100vw - 760px) / 2 + 52px)); width: 200px;
+  padding: 6px; border-radius: 16px;
+  box-shadow: var(--glass-edge), var(--glass-float-shadow) !important;
+  transform-origin: top right;
+  animation: afp-menu-enter var(--glass-duration) var(--glass-spring) both;
+}
+.afp-functions button { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; border: 0; border-radius: 10px; padding: 10px; background: transparent; color: var(--glass-ink); font: inherit; font-size: 14px; cursor: pointer; }
+.afp-functions button:hover { background: var(--glass-hover); }
+.afp-functions svg { width: 18px; height: 18px; flex: none; }
+:root .afp-functions--dock { top: auto; bottom: calc(max(14px, env(safe-area-inset-bottom)) + 104px); right: max(16px, calc(50vw - 170px)); width: 244px; transform-origin: bottom right; }
+.afp-media-filter { display: flex; gap: 4px; padding: 4px; margin-bottom: 6px; border-bottom: 1px solid var(--glass-line); }
+.afp-media-filter button { justify-content: center; padding: 8px; }
+.afp-media-filter button[aria-pressed='true'] { background: var(--glass-active); }
+.afp-media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-top: 24px; }
+.afp-media { position: relative; display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 8px; border-radius: 8px; box-shadow: var(--glass-edge); }
+.afp-media :is(img, video) { width: 100%; aspect-ratio: 1; object-fit: contain; border-radius: 6px; background: #e7ecf0; }
+.afp-media span { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.afp-media input { position: absolute; top: 16px; left: 16px; width: 22px; height: 22px; accent-color: #242628; }
+.afp-media.is-selected { outline: 1.5px solid var(--glass-muted); }
+.afp-upload-picker { position: relative; display: flex; gap: 10px; align-items: center; justify-content: center; min-height: 100px; border: 1px dashed var(--glass-muted); border-radius: 8px; cursor: pointer; }
+.afp-upload-picker svg { width: 24px; height: 24px; }
+.afp-upload-picker input { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; }
+.afp-upload-picker:focus-within { outline: 2px solid var(--glass-ink); outline-offset: 3px; }
+.afp-upload-list { list-style: none; margin: 16px 0 0; padding: 0; }
+.afp-upload-list li { display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--glass-line); }
+.afp-upload-list li span { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 14px; }
+.afp-upload-list button { flex: none; width: 44px; height: 44px; display: grid; place-items: center; background: none; border: 0; color: var(--glass-ink); cursor: pointer; }
+.afp-upload-list svg { width: 18px; height: 18px; }
+@keyframes afp-menu-enter { from { transform: translateY(10px) scale(.96); } to { transform: none; } }
+@media (prefers-reduced-motion: reduce) { .afp-functions { animation: none !important; } }
+@media (max-width: 640px) {
+  .afp-page { padding: 10px 14px 100px; }
+  .afp-nav { gap: 6px; margin-bottom: 24px; }
+  .afp-nav > button { flex-basis: 40px; width: 40px; height: 40px; padding: 9px; }
+  .afp-search { height: 40px; }
+  .afp-workspace h1 { font-size: 22px; }
+  .afp-album { width: 220px; }
+  :root .afp-functions { top: 58px; right: 60px; }
+  :root .afp-functions--dock { top: auto; right: max(16px, calc(50vw - 170px)); }
+}

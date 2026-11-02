@@ -462,8 +462,14 @@ router.get('/me', authMiddleware, async (req, res) => {
     const { getFacePermissions } = require('../lib/face_access');
     const workspace = await resolveWorkspace(req);
     const faces = await getFacePermissions(workspace);
+    const [[identity]] = await pool.query('SELECT user_id FROM iam_login_identities WHERE user_id = ? LIMIT 1', [req.user.id]);
+    const [[membership]] = await pool.query('SELECT user_id FROM organization_unit_memberships WHERE user_id = ? AND removed_at IS NULL LIMIT 1', [req.user.id]);
+    const accessAdmin = await require('../lib/user_access_admin').accessAdministrator(pool, req.user.id);
     res.json({ ...req.user, ...userAccessProfile(workspace, req.user.permissions, faces), activeUnitId: workspace.unitId,
-      unitRole: workspace.role, collegeAdmin: workspace.collegeAdmin, workspaceEnabled: workspace.enabled });
+      unitRole: workspace.role, collegeAdmin: workspace.collegeAdmin, workspaceEnabled: workspace.enabled,
+      iamManaged: Boolean(identity), campusStudentNo: require('../lib/user_access_admin').displayStudentNo(req.user.student_no),
+      canManageUserAccess: accessAdmin.allowed,
+      needsAssignment: Boolean(identity && !membership && !workspace.collegeAdmin && req.user.role !== 'superadmin') });
   } catch (err) {
     console.error('[users.me]', err);
     res.status(500).json({ error: 'INTERNAL_ERROR' });
@@ -472,39 +478,63 @@ router.get('/me', authMiddleware, async (req, res) => {
 
 // 更新当前用户资料（允许更新: name, department, avatar_url, nickname, email）
 router.put('/me', authMiddleware, async (req, res) => {
+  let conn;
+  let inTransaction = false;
+  const fail = (status, code, message) => Object.assign(new Error(code), { status, code, userMessage: message });
   try {
-    if (req.body.avatar_url !== undefined && !validAvatar(req.body.avatar_url, req.user.id)) {
-      return res.status(400).json({ error: 'INVALID_AVATAR' });
+    conn = await pool.getConnection();
+    await conn.beginTransaction();
+    inTransaction = true;
+    const [[current]] = await conn.query('SELECT id, name, email FROM users WHERE id = ? FOR UPDATE', [req.user.id]);
+    if (!current) throw fail(404, 'USER_NOT_FOUND');
+    // First consistent read follows the user lock, which IAM also holds before binding.
+    // Do not lock identities here: IAM locks identity -> users, so that would invert the order.
+    const [[identity]] = await conn.query('SELECT user_id FROM iam_login_identities WHERE user_id = ? LIMIT 1', [req.user.id]);
+    const body = req.body || {};
+    if (identity && ['name', 'email'].some(key => body[key] !== undefined && body[key] !== current[key])) {
+      throw fail(409, 'IAM_MANAGED_PROFILE', '姓名和邮箱由校园 IAM 同步，请在校园账号中修改');
+    }
+    if (body.avatar_url !== undefined && !validAvatar(body.avatar_url, req.user.id)) {
+      throw fail(400, 'INVALID_AVATAR');
     }
     const allowed = ['name', 'department', 'avatar_url', 'nickname', 'email'];
+    if (!allowed.some(key => body[key] !== undefined)) throw fail(400, 'no updatable fields provided');
     const updates = [];
     const params = [];
     for (const k of allowed) {
-      if (req.body[k] !== undefined) {
+      if (identity && (k === 'name' || k === 'email')) continue;
+      if (body[k] !== undefined) {
         updates.push(`${k} = ?`);
-        params.push(req.body[k]);
+        params.push(body[k]);
       }
     }
-    // validate email if provided
-    if (req.body.email !== undefined && req.body.email !== null && req.body.email !== '') {
-      if (!emailRegex.test(req.body.email)) {
-        return res.status(400).json({ error: 'INVALID_EMAIL', message: '邮箱格式不正确' });
+    if (!identity && body.email !== undefined && body.email !== null && body.email !== '') {
+      if (!emailRegex.test(body.email)) throw fail(400, 'INVALID_EMAIL', '邮箱格式不正确');
+      if (normalizeEmail(body.email) !== normalizeEmail(current.email)) {
+        const [conflicts] = await conn.query('SELECT id FROM users WHERE id <> ? AND email = ? LIMIT 1 FOR UPDATE',
+          [req.user.id, body.email]);
+        if (conflicts.length) throw fail(409, 'EMAIL_EXISTS', '该邮箱已被其他账号使用');
       }
     }
-    if (updates.length === 0) return res.status(400).json({ error: 'no updatable fields provided' });
-    params.push(new Date()); // updated_at
-    params.push(req.user.id);
-    const sql = `UPDATE users SET ${updates.join(', ')}, updated_at = ? WHERE id = ?`;
-    await pool.query(sql, params);
-    const [rows] = await pool.query('SELECT id, student_no, name, department, role, email, avatar_url, nickname, organization_id FROM users WHERE id = ?', [req.user.id]);
+    if (updates.length) {
+      params.push(new Date(), req.user.id);
+      await conn.query(`UPDATE users SET ${updates.join(', ')}, updated_at = ? WHERE id = ?`, params);
+    }
+    const [rows] = await conn.query('SELECT id, student_no, name, department, role, email, avatar_url, nickname, organization_id FROM users WHERE id = ?', [req.user.id]);
+    await conn.commit();
+    inTransaction = false;
     if (rows && rows[0]) {
       rows[0].avatar_url = buildAvatarUrl(rows[0].avatar_url, rows[0].id);
     }
     res.json(rows[0]);
   } catch (err) {
+    if (inTransaction) {
+      try { await conn.rollback(); } catch (rollbackError) { console.error('[users.update.rollback]', rollbackError); }
+    }
+    if (err.status) return res.status(err.status).json({ error: err.code, ...(err.userMessage ? { message: err.userMessage } : {}) });
     console.error('[users.update]', err);
     res.status(500).json({ error: 'server error' });
-  }
+  } finally { if (conn) conn.release(); }
 });
 
 // 修改当前用户密码：PUT /api/users/me/password
@@ -602,8 +632,11 @@ router.post('/me/invite', authMiddleware, async (req, res) => {
 // ==============================
 
 // 查看所有用户信息（不含密码），跨组织。GET /api/users/all
+require('../lib/user_access_admin').registerUserAccessAdmin(router, { db: pool, auth: authMiddleware });
 router.get('/all', authMiddleware, requirePermission('users.view_all'), async (req, res) => {
   try {
+    const actor = await require('../lib/user_access_admin').accessAdministrator(pool, req.user.id);
+    if (!actor.allowed) return res.status(403).json({ error: 'ACCESS_ADMIN_REQUIRED', message: '仅超级管理员可管理用户与权限' });
     const [rows] = await pool.query(
       `SELECT u.id, u.name, u.email, u.student_no, u.role, u.department,
               u.organization_id AS organizationId, o.name AS organizationName,
@@ -622,33 +655,10 @@ router.get('/all', authMiddleware, requirePermission('users.view_all'), async (r
 // 修改用户角色。PATCH /api/users/:id/role  body: { role }
 router.patch('/:id/role', authMiddleware, requirePermission('users.manage_roles'), async (req, res) => {
   try {
-    const targetId = parseInt(req.params.id, 10);
-    if (!Number.isFinite(targetId) || targetId <= 0) return res.status(400).json({ error: 'INVALID_USER_ID' });
-    if (req.user && Number(req.user.id) === targetId) {
-      return res.status(400).json({ error: 'CANNOT_CHANGE_OWN_ROLE', message: '不能修改自己的角色' });
-    }
-
-    const role = String((req.body && req.body.role) || '').trim();
-    const [roleRows] = await pool.query('SELECT DISTINCT role FROM role_permissions');
-    const validRoles = (roleRows || []).map((r) => r.role);
-    if (!validRoles.includes(role)) {
-      return res.status(400).json({ error: 'INVALID_ROLE', validRoles });
-    }
-
-    const [[target]] = await pool.query('SELECT id, role FROM users WHERE id = ?', [targetId]);
-    if (!target) return res.status(404).json({ error: 'USER_NOT_FOUND' });
-
-    // 防止把最后一个超管降级导致后台失守
-    if (target.role === 'superadmin' && role !== 'superadmin') {
-      const [[cnt]] = await pool.query("SELECT COUNT(*) AS c FROM users WHERE role = 'superadmin'");
-      if (Number(cnt.c) <= 1) {
-        return res.status(400).json({ error: 'LAST_SUPERADMIN', message: '至少保留一名超级管理员' });
-      }
-    }
-
-    await pool.query('UPDATE users SET role = ? WHERE id = ?', [role, targetId]);
-    return res.json({ ok: true, id: targetId, role });
+    return res.json(await require('../lib/user_access_admin').saveLegacyAccountRole(
+      pool, req.user.id, req.params.id, req.body?.role));
   } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.code, message: err.message });
     console.error('[PATCH /api/users/:id/role]', err && err.stack ? err.stack : err);
     return res.status(500).json({ error: 'Internal server error' });
   }

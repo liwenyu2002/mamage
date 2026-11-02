@@ -60,6 +60,27 @@ async function matchUser(conn, cfg, claims) {
   if (bound) throw error('IAM_ACCOUNT_MATCH_CONFLICT', 403);
   return Number(user.id);
 }
+async function syncProfile(conn, cfg, subject, userId, profile) {
+  const claims = claimsFromProfile(profile, cfg);
+  const [[user]] = await conn.query('SELECT name, email, student_no FROM users WHERE id = ? FOR UPDATE', [userId]);
+  if (!user) throw error('IAM_ACCOUNT_LINK_INVALID', 403);
+  const fields = { name: claims.name || user.name, email: claims.email || user.email,
+    student_no: claims.studentNo || user.student_no };
+  const changedEmail = claims.email && claims.email !== email(user.email) ? claims.email : '';
+  const changedStudentNo = claims.studentNo && claims.studentNo !== name(user.student_no) ? claims.studentNo : '';
+  if (changedEmail || changedStudentNo) {
+    const [conflicts] = await conn.query(`SELECT id FROM users WHERE id <> ? AND
+      ((email = ? AND email <> '') OR (student_no = ? AND student_no <> '')) LIMIT 1 FOR UPDATE`,
+    [userId, changedEmail, changedStudentNo]);
+    if (conflicts.length) throw error('IAM_ACCOUNT_MATCH_CONFLICT', 403);
+  }
+  if (Object.keys(fields).some(key => fields[key] !== user[key])) {
+    await conn.query('UPDATE users SET name = ?, email = ?, student_no = ? WHERE id = ?',
+      [fields.name, fields.email, fields.student_no, userId]);
+    await conn.query('INSERT INTO iam_identity_audit (source_key, identity_hash, user_id, action) VALUES (?, ?, ?, ?)',
+      [cfg.sourceKey, sha256(subject), userId, 'profile_details_synced']);
+  }
+}
 async function resolveProfile(db, cfg, profile, subject) {
   const conn = await db.getConnection();
   let result;
@@ -77,7 +98,7 @@ async function resolveProfile(db, cfg, profile, subject) {
             (email = ? AND email <> '') OR (student_no = ? AND student_no <> '') OR (name = ? AND name <> '') LIMIT 1 FOR UPDATE`,
           [claims.email || '', claims.studentNo || '', claims.email || claims.studentNo ? '' : claims.name || '']);
           if (conflicts.length) throw error('IAM_ACCOUNT_LINK_REQUIRED', 403);
-          const studentNo = 'iam_' + sha256(`${cfg.sourceKey}\n${subject}`).slice(0, 28);
+          const studentNo = claims.studentNo || 'iam_' + sha256(`${cfg.sourceKey}\n${subject}`).slice(0, 28);
           const [created] = await conn.query("INSERT INTO users (student_no, name, email, role, organization_id) VALUES (?, ?, ?, 'visitor', ?)",
             [studentNo, claims.name, claims.email || null, cfg.orgId]);
           userId = Number(created.insertId);
@@ -100,6 +121,7 @@ async function resolveProfile(db, cfg, profile, subject) {
     if (!result?.error) {
       const [[user]] = await conn.query('SELECT id, role, organization_id FROM users WHERE id = ? FOR UPDATE', [userId]);
       if (!user || Number(user.organization_id) !== cfg.orgId) throw error('IAM_ACCOUNT_LINK_INVALID', 403);
+      await syncProfile(conn, cfg, subject, userId, profile);
       result = { user };
     }
     await conn.commit();

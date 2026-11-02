@@ -1,7 +1,13 @@
 import { request } from './request';
 
-export const loadAlbumDesktop = () => request('/api/album-desktop', { timeoutMs: 20000 });
-export const saveAlbumDesktop = (data, scope) => request('/api/album-desktop/state', { method: 'PUT', data: { ...data, scope, sharedReferencesVersion: 1 },
+const desktopPreferences = ({ pins, recentItems, colors } = {}) => ({ pins, recentItems, colors });
+
+export const loadAlbumDesktop = async () => {
+  const data = await request('/api/album-desktop', { timeoutMs: 20000 });
+  return { ...data, preferences: desktopPreferences(data.preferences) };
+};
+export const saveAlbumDesktop = (data, scope) => request('/api/album-desktop/state', { method: 'PUT', data: { ...data,
+  ...(data.preferences ? { preferences: desktopPreferences(data.preferences) } : {}), scope, sharedReferencesVersion: 1 },
   headers: scope ? { 'x-mamage-unit-id': scope.unitId ? String(scope.unitId) : 'legacy' } : undefined, timeoutMs: 20000 });
 
 // Coalesce fast interactions, serialize writes, and never overwrite another tab's revision.
@@ -9,7 +15,8 @@ export function createDesktopSaver(initial, onError, onStatus) {
   let revision = { workspaceRevision: initial.workspaceRevision, userRevision: initial.userRevision };
   const groupKey = value => JSON.stringify(value.map(group => ({ ...group, projectIds: [...(group.projectIds || [])].sort((a,b)=>a-b) })));
   let groups = groupKey(initial.groups);
-  let preferences = JSON.stringify(initial.preferences);
+  const preferenceKey = value => JSON.stringify(desktopPreferences(value));
+  let preferences = preferenceKey(initial.preferences);
   let pending;
   let running;
   let blocked;
@@ -30,7 +37,7 @@ export function createDesktopSaver(initial, onError, onStatus) {
         const next = pending;
         pending = null;
         const groupJson = groupKey(next.groups);
-        const preferenceJson = JSON.stringify(next.preferences);
+        const preferenceJson = preferenceKey(next.preferences);
         if (groupJson === groups && preferenceJson === preferences) continue;
         const result = await persist({ ...revision,
           ...(groupJson !== groups ? { groups: next.groups } : {}),

@@ -3,6 +3,7 @@ import { Card, Input, Button, Toast, Typography, Select, Divider } from './ui';
 import * as authService from './services/authService';
 import { accessRoleLabel } from './utils/accessRoles';
 const OperationsPanel = React.lazy(() => import('./OperationsPanel'));
+const UserAccessPanel = React.lazy(() => import('./UserAccessPanel'));
 
 const { Text } = Typography;
 
@@ -24,7 +25,8 @@ export default function AccountPage({ currentUser, onUpdated }) {
   const [usersLoading, setUsersLoading] = React.useState(false);
   const [roleDraft, setRoleDraft] = React.useState({});
   const [roleSaving, setRoleSaving] = React.useState({});
-  const ROLE_OPTIONS = ['visitor', 'photographer', 'admin', 'superadmin'];
+  const [legacyRolesOpen, setLegacyRolesOpen] = React.useState(false);
+  const ROLE_OPTIONS = ['visitor', 'photographer', 'admin'];
 
   const fetchAllUsers = React.useCallback(async () => {
     setUsersLoading(true);
@@ -43,8 +45,8 @@ export default function AccountPage({ currentUser, onUpdated }) {
   }, []);
 
   React.useEffect(() => {
-    if (isSuperAdmin) fetchAllUsers();
-  }, [isSuperAdmin, fetchAllUsers]);
+    if (isSuperAdmin && legacyRolesOpen) fetchAllUsers();
+  }, [isSuperAdmin, legacyRolesOpen, fetchAllUsers]);
 
   const saveUserRole = React.useCallback(async (userId) => {
     const role = roleDraft[userId];
@@ -237,11 +239,13 @@ export default function AccountPage({ currentUser, onUpdated }) {
 
   return (
     <div style={{ maxWidth: 920, margin: '0 auto' }}>
+      {currentUser?.canManageUserAccess ? <React.Suspense fallback={<div>加载用户管理…</div>}><UserAccessPanel currentUser={currentUser} /></React.Suspense> : null}
       {currentUser?.permissions?.includes('users.view_all') ? <React.Suspense fallback={null}><OperationsPanel /></React.Suspense> : null}
       <Card title="账户信息" style={{ marginBottom: 16 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div><Text strong>姓名：</Text> {currentUser?.name}</div>
           <div><Text strong>邮箱：</Text> {currentUser?.email || '未填写'}</div>
+          {currentUser?.iamManaged ? <><div><Text strong>学工号：</Text> {currentUser.campusStudentNo || 'IAM 未提供'}</div><div><Text strong>资料来源：</Text> 校园 IAM</div></> : null}
           <div><Text strong>身份：</Text> {accessRoleLabel(currentUser)}</div>
           <div><Text strong>人物检索：</Text> {currentUser?.facePermissions?.search ? '已授权' : '未授权'}</div>
           <div><Text strong>人物档案维护：</Text> {currentUser?.facePermissions?.manage ? '已授权' : '未授权'}</div>
@@ -348,6 +352,7 @@ export default function AccountPage({ currentUser, onUpdated }) {
       )}
 
       {isSuperAdmin && (
+        <details open={legacyRolesOpen} onToggle={e => setLegacyRolesOpen(e.currentTarget.open)}><summary>兼容角色设置（高级）</summary>
         <Card title="系统管理：兼容角色（高级）" style={{ marginBottom: 16 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
             <Text type="tertiary" size="small">共 {allUsers.length} 名用户 · 可查看信息与调整角色（不含密码）</Text>
@@ -361,6 +366,7 @@ export default function AccountPage({ currentUser, onUpdated }) {
                 const draft = roleDraft[u.id] ?? u.role;
                 const dirty = draft !== u.role;
                 const isSelf = Number(u.id) === Number(currentUser?.id);
+                const isProtected = isSelf || u.role === 'superadmin';
                 return (
                   <div key={u.id} style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', padding: '8px 10px', background: 'rgba(255,255,255,0.45)', border: '1px solid rgba(255,255,255,0.55)', borderRadius: 12 }}>
                     <div style={{ minWidth: 130 }}>
@@ -377,16 +383,17 @@ export default function AccountPage({ currentUser, onUpdated }) {
                       <Select
                         size="small"
                         value={draft}
-                        disabled={isSelf}
+                        disabled={isProtected || !!roleSaving[u.id]}
                         onChange={(v) => setRoleDraft((prev) => ({ ...prev, [u.id]: v }))}
                         style={{ minWidth: 140 }}
                       >
+                        {u.role === 'superadmin' ? <Select.Option value="superadmin">superadmin</Select.Option> : null}
                         {ROLE_OPTIONS.map((r) => <Select.Option key={r} value={r}>{r}</Select.Option>)}
                       </Select>
                       <Button
                         size="small"
                         type="primary"
-                        disabled={!dirty || isSelf || roleSaving[u.id]}
+                        disabled={!dirty || isProtected || roleSaving[u.id]}
                         loading={!!roleSaving[u.id]}
                         onClick={() => saveUserRole(u.id)}
                       >保存</Button>
@@ -398,6 +405,7 @@ export default function AccountPage({ currentUser, onUpdated }) {
             </div>
           )}
         </Card>
+        </details>
       )}
     </div>
   );

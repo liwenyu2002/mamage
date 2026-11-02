@@ -11,6 +11,9 @@
   --glass-float-shadow: 0 12px 32px rgba(20, 24, 28, .08);
   --glass-material: linear-gradient(180deg, rgba(255,255,255,.035), transparent 40%, rgba(255,255,255,.015)), var(--glass-fill);
   --glass-readable-material: linear-gradient(180deg, rgba(255,255,255,.035), transparent 40%, rgba(255,255,255,.015)), var(--glass-readable-fill);
+  --glass-floating-material: linear-gradient(155deg, rgba(255,255,255,.48), rgba(255,255,255,.1) 46%, rgba(255,255,255,.2)), var(--glass-fill);
+  --glass-floating-edge: 0 0 0 .5px var(--glass-rim), inset 0 1px 0 var(--glass-glint), inset 0 -1px 0 rgba(30,35,40,.06);
+  --glass-floating-shadow-color: rgba(20,24,28,.12);
   --glass-blur: 20px;
   --glass-backdrop: blur(var(--glass-blur)) saturate(145%);
   --glass-hover: rgba(255, 255, 255, .46);
@@ -34,6 +37,8 @@
   --glass-hover: rgba(255,255,255,.09);
   --glass-active: #46494e;
   --glass-line: rgba(255,255,255,.12);
+  --glass-floating-material: linear-gradient(155deg, rgba(255,255,255,.13), rgba(255,255,255,.025) 46%, rgba(255,255,255,.055)), rgba(26,28,31,.42);
+  --glass-floating-shadow-color: rgba(0,0,0,.28);
   color-scheme: dark;
 }
 
@@ -60,6 +65,12 @@
   .acp-column-context-menu, .acp-album-actions, .acp-collection-popup) {
   background: var(--glass-readable-material) !important;
   box-shadow: var(--glass-edge), var(--glass-float-shadow) !important;
+}
+
+/* Floating controls share the chrome material, with a readable curved highlight. */
+:root [data-glass='floating'] {
+  background: var(--glass-floating-material) !important;
+  box-shadow: var(--glass-floating-edge), var(--glass-float-shadow) !important;
 }
 
 :root :is(.mamage-header:not(.is-project-detail), .mamage-modal-content,

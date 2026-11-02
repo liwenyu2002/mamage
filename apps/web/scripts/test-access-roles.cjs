@@ -16,6 +16,8 @@ test('account labels use the canonical identity before the legacy system role', 
   assert.equal(accessRoleLabel({ workspaceEnabled: true, role: 'admin', unitRole: 'editor' }), '协作者');
   assert.equal(accessRoleLabel({ workspaceEnabled: true, role: 'admin', unitRole: 'viewer' }), '访客');
   assert.equal(accessRoleLabel({ workspaceEnabled: true, role: 'superadmin' }), '访客');
+  assert.equal(accessRoleLabel({ role: 'superadmin', accessRole: 'organization_admin', canManageUserAccess: true }), '超级管理员');
+  assert.equal(accessRoleLabel({ role: 'visitor', needsAssignment: true }), '待分配组织');
 });
 
 test('compatibility labels remain human-readable without inventing extra roles', () => {

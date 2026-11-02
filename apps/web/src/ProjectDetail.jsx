@@ -3,6 +3,7 @@ import React from 'react';
 import { createPortal } from 'react-dom';
 import { Typography, Button, Tag, Spin, Empty, Modal, MotionModal, Input, DatePicker, DateTimePicker, TextArea, Toast, HexLoader } from './ui';
 import AlbumDetailsFields from './AlbumDetailsFields';
+import AlbumFormModal from './AlbumFormModal';
 import AlbumActionBar from './AlbumActionBar';
 import PhotoDescription from './PhotoDescription';
 import SearchFeedback, { SearchSkeleton } from './SearchFeedback';
@@ -756,6 +757,7 @@ function ProjectDetail({
   }, [selectedMap, photoMetas, canDeleteItem]);
 
   const fileInputRef = React.useRef(null);
+  const uploadDockRef = React.useRef(null);
   const dragPreviewRef = React.useRef(null);
   const photoMetasRef = React.useRef(photoMetas);
   const [hoveredPhotoIdx, setHoveredPhotoIdx] = React.useState(-1);
@@ -1997,14 +1999,8 @@ function ProjectDetail({
       Toast.warning('上传功能已禁用');
       return;
     }
-    // 手机优先把一次轻触交给原生媒体选择器。时间轴归属可在选完后立刻调整，
-    // 不让用户为了进相册先多点一层弹窗。
-    if (!isMobile && uploadTimelineEnabled && uploadTimelineSections.length) {
-      setUploadMode(true);
-      return;
-    }
-    if (fileInputRef.current) fileInputRef.current.click();
-  }, [DISABLE_UPLOAD_FEATURE, isMobile, uploadTimelineEnabled, uploadTimelineSections]);
+    setUploadMode(true);
+  }, [DISABLE_UPLOAD_FEATURE]);
 
   const handleFilesSelected = React.useCallback((files, forcedSectionId) => {
     if (DISABLE_UPLOAD_FEATURE) {
@@ -5419,11 +5415,15 @@ function ProjectDetail({
         </div>
       ) : null}
 
-      <AlbumActionBar selecting={deleteMode} selectedCount={selectedCount} onSelect={toggleDeleteMode}
+      <AlbumActionBar variant="adaptive-album" selecting={deleteMode} selectedCount={selectedCount} onSelect={toggleDeleteMode}
+        inactive={uploadMode || editVisible}
+        onDelete={canDeletePhotos ? confirmDelete : undefined}
+        deleteDisabled={deletingPhotos || !canDeletePhotos || !canDeleteSelection}
         onFunctions={() => setActionSheetOpen(true)} functionsOpen={actionSheetOpen}
         dragActive={dragActive} hovered={uploadHover} primaryDisabled={!canUploadPhotos}
         primaryLabel={!canUploadPhotos ? '上传不可用' : stagingFiles?.length ? `${stagingFiles.length} 个待上传` : '上传照片或视频'}
         primaryHint={dragActive ? '松开上传' : '上传'} primaryProps={canUploadPhotos ? {
+            ref: uploadDockRef,
             onClick: openUploadPicker,
             title: stagingFiles?.length ? `${stagingFiles.length} 个待上传` : '点击或拖入照片/视频',
             onMouseEnter: () => setUploadHover(true),
@@ -5911,17 +5911,6 @@ function ProjectDetail({
                   </Button>
                 </IfCan>
               ) : null}
-              <Button
-                className="detail-selection-btn detail-selection-btn--danger"
-                onClick={canDeletePhotos ? confirmDelete : undefined}
-                type="danger"
-                loading={deletingPhotos}
-                disabled={deletingPhotos || !canDeletePhotos || !canDeleteSelection}
-                title={!canDeletePhotos ? '当前账号没有删除权限' : (selectedCount > 0 && !canDeleteSelection
-                  ? '只能删除自己上传的照片和视频，请取消其他人的选择' : (selectedCount > 0 ? `删除 ${selectedCount} 项照片或视频` : '先选择照片或视频'))}
-              >
-                {ownPhotosOnly ? '删除我的' : '删除'}{selectedCount > 0 ? ` (${selectedCount})` : ''}
-              </Button>
             </div>
           </div>
         ) : null}
@@ -5935,9 +5924,9 @@ function ProjectDetail({
         ) : null}
 
         {/* 编辑弹窗 */}
-        <MotionModal
+        <AlbumFormModal
           title="编辑相册"
-          className="album-form-modal detail-edit-modal"
+          className="detail-edit-modal"
           visible={editVisible}
           onOk={saveEdit}
           onCancel={() => { if (!editSaving) setEditVisible(false); }}
@@ -5969,7 +5958,7 @@ function ProjectDetail({
               </div>
             ) : null}
           </div>
-        </MotionModal>
+        </AlbumFormModal>
 
         {/* 时间线环节编辑弹窗（操作即时生效） */}
         <Modal
@@ -6252,8 +6241,10 @@ function ProjectDetail({
           onStarted={() => setExternalImportRefreshKey((value) => value + 1)}
         />
 
-        <Modal
+        <AlbumFormModal
           title="上传照片与视频"
+          presentation="dock"
+          originRef={uploadDockRef}
           visible={uploadMode}
           onOk={confirmUpload}
           onCancel={uploading ? () => Toast.warning('正在上传，请等待完成') : cancelUpload}
@@ -6265,7 +6256,6 @@ function ProjectDetail({
           cancelText="取消"
           closable={!uploading}
           width={isMobile ? 'calc(100vw - 12px)' : 720}
-          bodyStyle={isMobile ? { maxHeight: '68vh', overflowY: 'auto', padding: '10px 0 0' } : undefined}
           className="detail-upload-modal"
         >
           <div className="detail-upload-body">
@@ -6388,7 +6378,7 @@ function ProjectDetail({
                                 <span className="detail-upload-preview-video-placeholder">
                                   <span>VIDEO</span>
                                 </span>
-                                <span className="detail-upload-preview-video-badge">视频</span>
+                                {!showItemStatus && <span className="detail-upload-preview-video-badge">视频</span>}
                               </>
                             ) : showPreviewPlaceholder ? (
                               <>
@@ -6453,7 +6443,7 @@ function ProjectDetail({
               ) : null}
             </div>
           </div>
-        </Modal>
+        </AlbumFormModal>
 
         <Modal
           title="人物信息"

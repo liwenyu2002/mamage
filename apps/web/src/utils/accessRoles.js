@@ -3,6 +3,8 @@ export const ACCESS_ROLE_LABELS = {
 };
 
 export function accessRoleLabel(user) {
+  if (user?.canManageUserAccess || user?.access?.canManageAccounts) return '超级管理员';
+  if (user?.needsAssignment) return '待分配组织';
   if (user?.accessRole && ACCESS_ROLE_LABELS[user.accessRole]) return ACCESS_ROLE_LABELS[user.accessRole];
   if (user?.collegeAdmin) return ACCESS_ROLE_LABELS.organization_admin;
   if (user?.unitRole === 'manager') return ACCESS_ROLE_LABELS.manager;

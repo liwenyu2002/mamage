@@ -13,7 +13,7 @@ function load(filename, dependencies) {
   return module.exports;
 }
 
-function fixture({ role='editor', accountRole='admin', collegeAdmin=false, enabled=true, race=false, authenticated=true }={}) {
+function fixture({ role='editor', accountRole='admin', collegeAdmin=false, enabled=true, race=false, authenticated=true, iamLinked=false }={}) {
   const workspace={enabled,userId:7,orgId:2,userRole:accountRole,unitId:enabled?1:null,role,collegeAdmin};
   const initial=[
     {id:11,photo_id:11,project_id:9,projectId:9,organization_id:2,unit_id:enabled?1:null,photographer_id:7,type:'normal',url:'/own.jpg'},
@@ -24,8 +24,17 @@ function fixture({ role='editor', accountRole='admin', collegeAdmin=false, enabl
     {id:16,photo_id:16,project_id:11,projectId:11,organization_id:3,unit_id:1,photographer_id:7,url:'/foreign-org.jpg'},
     {id:17,photo_id:17,project_id:12,projectId:12,organization_id:2,unit_id:1,photographer_id:7,restricted_to_user_id:99,url:'/restricted.jpg'},
   ];
-  const state={photos:structuredClone(initial),deleted:[],commits:0,rollbacks:0,cleanup:0};
+  const state={photos:structuredClone(initial),deleted:[],commits:0,rollbacks:0,cleanup:0,
+    profile:{id:7,student_no:'student-7',name:'Original owner',email:'owner@example.edu',nickname:null,role:accountRole,organization_id:2}};
   const query=async(sql,params=[])=>{
+    if(sql.startsWith('SELECT id, name, email FROM users')||sql.startsWith('SELECT id, student_no, name, department, role, email'))return [[{...state.profile}]];
+    if(sql.startsWith('UPDATE users SET nickname = ?, updated_at = ?')){
+      state.profile.nickname=params[0];return [{affectedRows:1}];
+    }
+    if(sql.startsWith('SELECT user_id FROM iam_login_identities'))return [iamLinked?[{user_id:7}]:[]];
+    if(sql.startsWith('SELECT user_id FROM organization_unit_memberships'))return [enabled&&role?[{user_id:7}]:[]];
+    if(sql.startsWith('SELECT id, role, organization_id FROM users'))return [[{id:7,role:accountRole,organization_id:2}]];
+    if(sql.startsWith('SELECT organization_id FROM organization_admin_grants'))return [collegeAdmin?[{organization_id:2}]:[]];
     if(sql.startsWith('SELECT role FROM users'))return [[{role:accountRole}]];
     if(sql.includes('FROM role_permissions'))return [accountRole==='admin'||accountRole==='superadmin'||params[1]==='upload.photo'?[{allowed:1}]:[]];
     if(sql.includes('FROM photos ph LEFT JOIN projects'))return [state.photos.filter(photo=>(Array.isArray(params[0])?params[0]:[params[0]]).includes(photo.id)).map(photo=>({...photo}))];
@@ -50,14 +59,14 @@ function fixture({ role='editor', accountRole='admin', collegeAdmin=false, enabl
     throw Error('Unexpected query: '+sql);
   };
   let snapshot;
-  const conn={query,async beginTransaction(){snapshot=structuredClone(state.photos);},
-    async commit(){state.commits++;},async rollback(){state.rollbacks++;state.photos=snapshot||state.photos;},release(){}};
+  const conn={query,async beginTransaction(){snapshot=structuredClone({photos:state.photos,profile:state.profile});},
+    async commit(){state.commits++;},async rollback(){state.rollbacks++;if(snapshot){state.photos=snapshot.photos;state.profile=snapshot.profile;}},release(){}};
   const pool={query,getConnection:async()=>conn};
   const access=load(require.resolve('../lib/workspace_access'),{'../db':{pool}});
   const permissions=load(require.resolve('../lib/permissions'),{'../db':{pool},'./workspace_access':access});
   const router=express.Router();
   const app=express();app.use(express.json());
-  app.use((req,_res,next)=>{if(authenticated)req.user={id:7,role:accountRole,organization_id:2,permissions:['photos.view','photos.delete']};req.workspace={...workspace};next();});
+  app.use((req,_res,next)=>{if(authenticated)req.user={...state.profile,permissions:['photos.view','photos.delete']};req.workspace={...workspace};next();});
   const source=fs.readFileSync(require.resolve('../routes/photos'),'utf8');
   vm.runInNewContext(source.slice(source.indexOf('// 照片删除'),source.indexOf('// POST /api/photos/assign-section')),{
     router,pool,requirePermission:permissions.requirePermission,requirePhotosAccess:access.requirePhotosAccess,
@@ -76,12 +85,15 @@ function fixture({ role='editor', accountRole='admin', collegeAdmin=false, enabl
   app.use('/api/projects',albums);
   const meRouter=express.Router();
   const users=fs.readFileSync(require.resolve('../routes/users'),'utf8');
-  vm.runInNewContext(users.slice(users.indexOf("router.get('/me'"),users.indexOf("router.put('/me'")),{
+  vm.runInNewContext(users.slice(users.indexOf("router.get('/me'"),users.indexOf("router.put('/me/password'")),{
     router:meRouter,pool,authMiddleware:(_req,_res,next)=>next(),console,
+    validAvatar:()=>true,buildAvatarUrl:value=>value,normalizeEmail:value=>String(value||'').trim().toLowerCase(),
+    emailRegex:/^[^\s@]+@[^\s@]+\.[^\s@]+$/,
     require:key=>{
       if(key==='../lib/workspace_access')return access;
       if(key==='../lib/access_policy')return require('../lib/access_policy');
       if(key==='../lib/face_access')return{getFacePermissions:async()=>({search:false,manage:false})};
+      if(key==='../lib/user_access_admin')return require('../lib/user_access_admin');
       throw Error('Unexpected module '+key);
     },
   });
@@ -123,6 +135,36 @@ test('members and editors can delete their own photo and video, without expandin
       assert.deepEqual(f.state.deleted,[11,13]);assert.equal(f.state.commits,1);
     });
   }
+});
+
+test('IAM identity metadata does not grant account administration or workspace access',async()=>{
+  const pending=fixture({iamLinked:true,role:null,accountRole:'visitor'});
+  await serve(pending,async(_remove,me)=>{
+    const user=await me();assert.equal(user.iamManaged,true);assert.equal(user.needsAssignment,true);
+    assert.equal(user.canManageUserAccess,false);assert.equal(user.metadataEditScope,'none');
+  });
+  for(const accountRole of ['admin','superadmin']) {
+    const admin=fixture({iamLinked:true,role:'manager',collegeAdmin:true,accountRole});
+    await serve(admin,async(_remove,me)=>{
+      const user=await me();assert.equal(user.needsAssignment,false);
+      assert.equal(user.canManageUserAccess,accountRole==='superadmin');
+    });
+  }
+});
+
+test('IAM profile form saves keep managed identity and photo ownership intact',async()=>{
+  const f=fixture({iamLinked:true});
+  await serve(f,async(_remove,me,request)=>{
+    const user=await me();
+    const saved=await request('/api/users/me','PUT',{name:user.name,email:user.email,nickname:'Saved nickname'});
+    assert.equal(saved.status,200);assert.equal(saved.body.nickname,'Saved nickname');
+    assert.equal(saved.body.name,user.name);assert.equal(saved.body.email,user.email);
+    const denied=await request('/api/users/me','PUT',{name:'Untrusted name'});
+    assert.equal(denied.status,409);assert.equal(denied.body.error,'IAM_MANAGED_PROFILE');
+    assert.equal(f.state.commits,1);assert.equal(f.state.rollbacks,1);
+    assert.equal(f.state.photos.find(photo=>photo.id===11).photographer_id,7);
+    assert.equal((await me()).photoDeleteScope,'own');
+  });
 });
 
 test('unit managers and college administrators retain their existing scoped deletion permissions',async()=>{

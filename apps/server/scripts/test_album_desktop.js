@@ -18,11 +18,11 @@ const preferences = validatePreferences({ pins: ['album:1','album:99','group:cam
 assert.deepEqual(preferences.pins,['album:1','group:campus']);
 assert.deepEqual(preferences.recentItems,[{id:1,visitedAt:1}]);
 assert.deepEqual(preferences.colors,{campus:'#fafafa'});
-assert.deepEqual(preferences.dismissed,[1]);
+assert.equal(Object.hasOwn(preferences, 'dismissed'), false, 'retired suggestion preferences are ignored');
 
 // Route integration with isolated SQL doubles: no production database is used.
 const shared = { state: { groups }, revision: 2 };
-const personal = { state: preferences, revision: 4 };
+const personal = { state: { ...preferences, dismissed: [1] }, revision: 4 };
 const calls = [];
 let committed = false, rolledBack = false;
 let readSnapshot;
@@ -67,12 +67,16 @@ const server=app.listen(0,'127.0.0.1',async()=>{
  try{
   const endpoint=`http://127.0.0.1:${server.address().port}/desktop/state`;
   const put=(body,headers={})=>fetch(endpoint,{method:'PUT',headers:{'Content-Type':'application/json',...headers},body:JSON.stringify(body)});
-  const ok=await put({groups,preferences,workspaceRevision:2,userRevision:4});
+  const ok=await put({groups,preferences:{...preferences,dismissed:[1]},workspaceRevision:2,userRevision:4});
   assert.equal(ok.status,200);assert.deepEqual(await ok.json(),{workspaceRevision:3,userRevision:5});assert(committed);
+  const savedPreferences=JSON.parse(calls.find(call=>call.sql.startsWith('UPDATE album_desktop_users')).params[0]);
+  assert.deepEqual(savedPreferences,preferences,'legacy suggestion fields must not be written by the API');
   const count=calls.filter(c=>c.sql.startsWith('UPDATE')).length;
   assert.equal((await put({groups:[],workspaceRevision:2,canDeleteFolders:true})).status,403,'ordinary editors must not delete folders by omitting them from a full-state save');
   assert.equal(calls.filter(c=>c.sql.startsWith('UPDATE')).length,count,'denied folder deletion must not write shared or personal state');
   const desktop=await(await fetch(endpoint.replace('/state',''))).json();
+  assert.deepEqual(desktop.preferences,preferences,'legacy suggestion fields must not be exposed by the API');
+  assert.deepEqual(personal.state.dismissed,[1],'reading desktop state must not migrate stored data');
   assert.equal(desktop.canOrganize,true);assert.equal(desktop.canDeleteFolders,false);
   assert.equal((await put({groups:[],workspaceRevision:2},{'x-test-role':'manager'})).status,200);
   assert.equal((await put({groups:[],workspaceRevision:2},{'x-test-college-admin':'1'})).status,200);

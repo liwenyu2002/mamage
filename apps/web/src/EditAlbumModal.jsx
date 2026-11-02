@@ -1,10 +1,11 @@
 import React from 'react';
-import { Button, MotionModal } from './ui';
+import { Button } from './ui';
 import AlbumDetailsFields from './AlbumDetailsFields';
+import AlbumFormModal from './AlbumFormModal';
 import { updateProject } from './services/projectService';
 import './CreateAlbumModal.css';
 
-export default function EditAlbumModal({ album, headers, onClose, onSaved }) {
+export default function EditAlbumModal({ album, headers, onClose, onSaved, saveProject = updateProject }) {
   const [title, setTitle] = React.useState(album.name || album.title || '');
   const [description, setDescription] = React.useState(album.description || '');
   const [eventDate, setEventDate] = React.useState(album.eventDate ? new Date(album.eventDate) : null);
@@ -21,7 +22,7 @@ export default function EditAlbumModal({ album, headers, onClose, onSaved }) {
       : eventDate ? String(eventDate).slice(0, 10) : null;
     const payload = { projectName: title.trim(), description: description.trim(), eventDate: date };
     try {
-      await updateProject(album.id, payload, { headers });
+      await saveProject(album.id, payload, { headers });
       if (alive.current) onSaved({ ...album, name: payload.projectName, title: payload.projectName,
         description: payload.description, eventDate: date, year: String(new Date(date || album.createdAt).getFullYear()), updatedAt: new Date().toISOString() });
     } catch (failure) {
@@ -33,14 +34,14 @@ export default function EditAlbumModal({ album, headers, onClose, onSaved }) {
       if (alive.current) setSaving(false);
     }
   };
-  return <MotionModal visible title="编辑相册" width={600} className="album-form-modal cam-modal"
-    onCancel={() => { if (!pending.current) onClose(); }} footer={null}>
+  return <AlbumFormModal visible title="编辑相册" width={600} className="cam-modal"
+    onCancel={() => { if (!pending.current) onClose(); }} closable={!saving} maskClosable={!saving}
+    footer={<><Button disabled={saving} onClick={onClose}>取消</Button>
+      <Button type="primary" loading={saving} disabled={!title.trim()} onClick={save}>保存相册</Button></>}>
     <form onSubmit={event => { event.preventDefault(); save(); }}>
       <AlbumDetailsFields title={title} onTitleChange={setTitle} description={description} onDescriptionChange={setDescription}
         eventDate={eventDate} onEventDateChange={setEventDate} showTags={false} disabled={saving} />
       {error && <p className="desktop-save-error" role="alert">{error}</p>}
-      <div className="acp-drop-confirm-actions"><Button disabled={saving} onClick={onClose}>取消</Button>
-        <Button type="primary" theme="neu" loading={saving} disabled={!title.trim()} onClick={save}>保存相册</Button></div>
     </form>
-  </MotionModal>;
+  </AlbumFormModal>;
 }

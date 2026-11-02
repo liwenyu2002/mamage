@@ -1316,7 +1316,7 @@
 .detail-upload-preview-video-badge {
   position: absolute;
   left: 7px;
-  bottom: 7px;
+  top: 7px;
   z-index: 2;
   padding: 3px 7px;
   border-radius: 999px;
@@ -1991,6 +1991,10 @@
   .detail-upload-preview-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 6px;
+  }
+
+  .detail-upload-preview-item.is-video .detail-upload-preview-video-badge {
+    padding-inline: 1px;
   }
 
   .detail-timeline-grid {
@@ -5494,7 +5498,7 @@ body.mamage-viewer-open [data-transfer-station-root="1"] {
   /* 竖排菜单：锚在底部导航"选择"钮上方，向上弹出 */
   left: max(16px, calc(50% - 172px));
   right: auto;
-  bottom: calc(max(18px, env(safe-area-inset-bottom)) + 84px);
+  bottom: calc(max(14px, env(safe-area-inset-bottom)) + 104px);
   width: max-content;
   max-width: min(280px, calc(100vw - 32px));
   border-radius: 22px;
@@ -5522,7 +5526,7 @@ body.mamage-viewer-open [data-transfer-station-root="1"] {
   .detail-selection-inline.is-expanded {
     left: 16px;
     right: auto;
-    bottom: calc(max(12px, env(safe-area-inset-bottom)) + 78px);
+    bottom: calc(max(14px, env(safe-area-inset-bottom)) + 104px);
     max-width: calc(100vw - 88px);
     transform-origin: center bottom;
   }

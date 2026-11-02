@@ -1,6 +1,6 @@
 import React from 'react';
 import { DateTimePicker, Input, TextArea, Toast } from './ui';
-import { IconClose, IconPlus } from './ui/icons';
+import { IconClose, IconPlus, IconInfoEdit } from './ui/icons';
 import './AlbumDetailsFields.css';
 
 export default function AlbumDetailsFields({
@@ -16,8 +16,11 @@ export default function AlbumDetailsFields({
   disabled = false,
   titleOptional = false,
   titlePlaceholder = '输入相册名称',
+  compact = false,
+  tools,
 }) {
   const [tagInput, setTagInput] = React.useState('');
+  const [metadataOpen, setMetadataOpen] = React.useState(false);
   const titleId = React.useId();
   const descriptionId = React.useId();
   const tagInputId = React.useId();
@@ -37,19 +40,14 @@ export default function AlbumDetailsFields({
     setTagInput('');
   }, [tagInput, tags, onTagsChange]);
 
-  return (
-    <div className="album-details-fields">
-      <div className="album-field">
-        <label className="album-field-label" htmlFor={titleId}>相册名称 <span className={titleOptional ? 'album-field-optional' : 'album-field-required'}>{titleOptional ? '将从链接识别' : '*'}</span></label>
-        <Input id={titleId} value={title} onChange={onTitleChange} disabled={disabled} placeholder={titlePlaceholder} autoComplete="off" />
-      </div>
+  const metadata = <>
       <div className="album-field">
         <label className="album-field-label" htmlFor={descriptionId}>相册描述 <span className="album-field-optional">可选</span></label>
         <TextArea id={descriptionId} value={description} onChange={onDescriptionChange} disabled={disabled} rows={3} placeholder="记录这组照片的主题" />
       </div>
       <div className="album-field">
         <span className="album-field-label">活动日期 <span className="album-field-optional">可选</span></span>
-        <DateTimePicker dateOnly value={eventDate} onChange={onEventDateChange} placeholder="选择活动日期" style={{ width: '100%' }} disabled={disabled} clearable />
+        <DateTimePicker popoverClassName="album-form-calendar" followScroll dateOnly value={eventDate} onChange={onEventDateChange} placeholder="选择活动日期" style={{ width: '100%' }} disabled={disabled} clearable />
       </div>
       {showTags ? (
         <div className="album-field">
@@ -84,6 +82,18 @@ export default function AlbumDetailsFields({
           </div>
         </div>
       ) : null}
+    </>;
+  return <div className={`album-details-fields${compact ? ' album-details-fields--compact' : ''}`}>
+    <div className={`album-field${compact ? ' album-title-field' : ''}`}>
+      <label className="album-field-label" htmlFor={titleId}>相册名称 <span className={titleOptional ? 'album-field-optional' : 'album-field-required'}>{titleOptional ? '将从链接识别' : '*'}</span></label>
+      <Input className={compact ? 'album-title-input' : undefined} id={titleId} value={title} onChange={onTitleChange} disabled={disabled} placeholder={titlePlaceholder} autoComplete="off" />
     </div>
-  );
+    {compact ? <>
+      <div className="album-field-tools" role="group" aria-label="相册选项">
+        <button type="button" disabled={disabled} aria-label="补充信息" title="描述、日期与标签" aria-expanded={metadataOpen} data-filled={Boolean(description || eventDate || tags.length)} onClick={() => setMetadataOpen(value => !value)}><IconInfoEdit /><span>详情</span></button>
+        {tools}
+      </div>
+      <div className="album-metadata-fields" hidden={!metadataOpen}>{metadata}</div>
+    </> : metadata}
+  </div>;
 }

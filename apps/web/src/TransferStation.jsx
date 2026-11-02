@@ -53,7 +53,7 @@ function getMediaLabel(item) {
   return getMediaKind(item) === 'video' ? '视频' : '照片';
 }
 
-export default function TransferStation({ onInternalShare }) {
+export default function TransferStation({ onInternalShare, hideLauncher = false }) {
   const detectMobile = React.useCallback(() => {
     if (typeof window === 'undefined') return false;
     const width = window.innerWidth || 0;
@@ -1124,6 +1124,9 @@ export default function TransferStation({ onInternalShare }) {
       </div>
     </div>
   );
+
+  // Keep download state mounted while removing the media launcher from account administration.
+  if (hideLauncher) return <>{packProgressNode}{resumedTaskTray}</>;
 
   if (isMobile) {
     const mobileRight = 12 + vvInset.right;

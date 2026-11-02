@@ -66,8 +66,7 @@ function validatePreferences(value, groups, albumIds) {
   for (const [id, color] of Object.entries(value.colors || {})) {
     if (groupIds.has(id) && /^#[a-fA-F0-9]{6}$/.test(color)) colors[id] = color;
   }
-  return { pins, recentItems, colors,
-    dismissed: [...new Set(Array.isArray(value.dismissed) ? value.dismissed.map(Number).filter(id => albumIds.has(id)) : [])] };
+  return { pins, recentItems, colors };
 }
 
 function authorizeFolderChanges(stored, submitted, { userId, canManage, canDelete }) {

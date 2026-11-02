@@ -1,6 +1,8 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const crypto = require('node:crypto');
+const fs = require('node:fs');
+const vm = require('node:vm');
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const { fixture } = require('./fixtures/iam_test_db');
@@ -29,6 +31,63 @@ function push(entries, type = '2', options = {}) {
 async function serve(app, callback) {
   const server=app.listen(0,'127.0.0.1'); await new Promise(r=>server.once('listening',r));
   try {return await callback(`http://127.0.0.1:${server.address().port}`);} finally {server.closeAllConnections();await new Promise(r=>server.close(r));}
+}
+
+function profileUpdateFixture({ afterAuth, beforeUpdate, failAfterUpdate = false } = {}) {
+  const f = fixture();
+  f.sql.exec(`ALTER TABLE users ADD COLUMN department TEXT;
+    ALTER TABLE users ADD COLUMN avatar_url TEXT;
+    ALTER TABLE users ADD COLUMN nickname TEXT;
+    ALTER TABLE users ADD COLUMN updated_at TEXT;`);
+  const state = { queries: [], begins: 0, commits: 0, rollbacks: 0, releases: 0 };
+  const query = async (db, transaction, text, values = []) => {
+    if (transaction) assert.ok(f.sql.isTransaction, 'begin the transaction before reading profile state');
+    state.queries.push({ text, transaction });
+    if (text.startsWith('UPDATE users SET')) {
+      if (beforeUpdate) await beforeUpdate(f);
+    } else if (failAfterUpdate && state.queries.some(q => q.text.startsWith('UPDATE users SET'))) {
+      throw new Error('synthetic profile read failure');
+    }
+    return db.query(text, values.map(value => value instanceof Date ? value.toISOString() : value));
+  };
+  const pool = { query: (text, values) => query(f.pool, false, text, values), async getConnection() {
+    const conn = await f.pool.getConnection();
+    return { query: (text, values) => query(conn, true, text, values),
+      async beginTransaction() { await conn.beginTransaction(); state.begins++; },
+      async commit() { await conn.commit(); state.commits++; },
+      async rollback() { await conn.rollback(); state.rollbacks++; },
+      release() { state.releases++; conn.release(); } };
+  } };
+  const router = express.Router(), app = express();
+  const source = fs.readFileSync(require.resolve('../routes/users'), 'utf8');
+  vm.runInNewContext(source.slice(source.indexOf("router.put('/me',"), source.indexOf("router.put('/me/password',")), {
+    router, pool, Date, console: { error() {} },
+    authMiddleware: async (req, _res, next) => {
+      req.user = { ...f.sql.prepare('SELECT * FROM users WHERE id = ?').get(Number(req.get('x-test-user') || 7)) };
+      if (afterAuth) await afterAuth(f, req);
+      next();
+    },
+    validAvatar: value => value !== 'invalid', buildAvatarUrl: value => value,
+    normalizeEmail: value => String(value || '').trim().toLowerCase(),
+    emailRegex: /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/,
+  });
+  app.use(express.json()); app.use('/api/users', router);
+  return { ...f, app, state };
+}
+
+async function putProfile(base, body, userId = 7) {
+  const response = await fetch(base + '/api/users/me', { method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'x-test-user': String(userId) }, body: JSON.stringify(body) });
+  return { status: response.status, body: await response.json() };
+}
+
+function assertProfileLockOrder(state) {
+  assert.equal(state.begins, 1);
+  assert.ok(state.queries.every(query => query.transaction), 'profile reads and writes must use the transaction connection');
+  assert.match(state.queries[0].text, /FROM users WHERE id = \? FOR UPDATE$/);
+  assert.match(state.queries[1].text, /FROM iam_login_identities/);
+  assert.ok(!state.queries[1].text.includes('FOR UPDATE'), 'do not invert the IAM identity -> users lock order');
+  assert.equal(state.releases, 1);
 }
 
 test('IAM stays closed without configuration, requires HTTPS and never leaks credentials in readiness',()=>{
@@ -261,9 +320,13 @@ test('verified profile binds unique existing accounts without an allowlist; name
 test('new IAM-authorized users can provision without a local list but never gain manager or face grants',async()=>{
   const {resolveProfile}=require('../lib/iam_profile_links'),f=fixture();
   try {
+    f.sql.exec(`CREATE TABLE organization_admin_grants(organization_id INTEGER,user_id INTEGER,granted_by INTEGER);
+      CREATE TABLE face_search_grants(organization_id INTEGER,user_id INTEGER,college_wide INTEGER,can_manage INTEGER,granted_by INTEGER);`);
     const fresh=await resolveProfile(f.pool,{...cfg,autoProvision:true},{attributes:{name:'New student',email:'new@example.edu',roles:['superadmin']}},'fresh-student');
     assert.equal(fresh.role,'visitor');assert.equal(fresh.organization_id,2);
     assert.equal(f.sql.prepare('SELECT COUNT(*) n FROM organization_unit_memberships WHERE user_id=?').get(fresh.id).n,0);
+    assert.equal(f.sql.prepare('SELECT COUNT(*) n FROM organization_admin_grants WHERE user_id=?').get(fresh.id).n,0);
+    assert.equal(f.sql.prepare('SELECT COUNT(*) n FROM face_search_grants WHERE user_id=?').get(fresh.id).n,0);
     await assert.rejects(resolveProfile(f.pool,{...cfg,autoProvision:true},{attributes:{name:'Original owner'}},'same-name-unproven'),/IAM_ACCOUNT_LINK_REQUIRED/);
     const own=await resolveProfile(f.pool,{...cfg,profileIdPath:'id',subjectEmailDomain:'example.edu'}, {id:'existing@example.edu'},'managed-email-subject');
     assert.equal(own.id,7);
@@ -307,6 +370,184 @@ test('configured identity paths do not guess email or account numbers from unrel
   assert.equal(claimsFromProfile(campusProfile({orgemail:undefined}),config).email,'');
   assert.throws(()=>claimsFromProfile(campusProfile({orgemail:['one@example.edu','two@example.edu']}),config),/IAM_PROFILE_CLAIMS_CONFLICT/);
   assert.throws(()=>claimsFromProfile(campusProfile({orgemail:{value:'existing@example.edu'}}),config),/IAM_PROFILE_CLAIMS_CONFLICT/);
+});
+
+test('bound IAM accounts synchronize real identity fields but preserve roles, passwords and content ownership',async()=>{
+  const {resolveProfile}=require('../lib/iam_profile_links'),f=fixture(),config=campusConfig();
+  try {
+    f.sql.exec("ALTER TABLE users ADD COLUMN password_hash TEXT; UPDATE users SET password_hash='synthetic-password-hash' WHERE id=7;");
+    await resolveProfile(f.pool,config,campusProfile(),'stable-campus-user');
+    const changed=campusProfile({orgemail:'updated@example.edu',employeeNum:'new-work-number'});
+    changed.attributes.mainAccount.name='Updated legal name';
+    await resolveProfile(f.pool,config,changed,'stable-campus-user');
+    const user=f.sql.prepare('SELECT * FROM users WHERE id=7').get();
+    assert.equal(user.name,'Updated legal name');assert.equal(user.email,'updated@example.edu');assert.equal(user.student_no,'new-work-number');
+    assert.equal(user.role,'admin');assert.equal(user.password_hash,'synthetic-password-hash');assert.equal(user.organization_id,2);
+    assert.equal(f.sql.prepare('SELECT photographer_id FROM photos').get().photographer_id,7);
+    assert.equal(f.sql.prepare('SELECT role FROM organization_unit_memberships').get().role,'manager');
+    await resolveProfile(f.pool,config,{attributes:{userId:'stable-campus-user'}},'stable-campus-user');
+    assert.deepEqual(f.sql.prepare('SELECT * FROM users WHERE id=7').get(),user,'missing fields never erase trusted profile');
+    await assert.rejects(resolveProfile(f.pool,config,campusProfile({orgemail:'foreign@example.edu'}),'stable-campus-user'),/IAM_ACCOUNT_MATCH_CONFLICT/);
+    assert.deepEqual(f.sql.prepare('SELECT * FROM users WHERE id=7').get(),user,'conflict rolls back all profile changes');
+  }finally{f.close();}
+});
+
+test('bound IAM subjects tolerate an unchanged duplicate email but still reject changed identifier conflicts', async () => {
+  const { resolveProfile } = require('../lib/iam_profile_links'), f = fixture(), config = campusConfig();
+  try {
+    await resolveProfile(f.pool, config, campusProfile(), 'stable-campus-user');
+    f.sql.exec("UPDATE users SET email='existing@example.edu' WHERE id=8");
+    assert.equal((await resolveProfile(f.pool, config, campusProfile(), 'stable-campus-user')).id, 7);
+    const renamed = campusProfile({ employeeNum: 'updated-work-number' });
+    renamed.attributes.mainAccount.name = 'Updated legal name';
+    await resolveProfile(f.pool, config, renamed, 'stable-campus-user');
+    assert.equal(f.sql.prepare('SELECT student_no FROM users WHERE id=7').get().student_no, 'updated-work-number');
+    f.sql.exec("UPDATE users SET email='occupied@example.edu' WHERE id=8");
+    const before = f.sql.prepare('SELECT * FROM users WHERE id=7').get();
+    const auditCount = f.sql.prepare('SELECT COUNT(*) n FROM iam_identity_audit').get().n;
+    for (const patch of [{ orgemail: 'occupied@example.edu' }, { employeeNum: 'student-8' }]) {
+      await assert.rejects(resolveProfile(f.pool, config, campusProfile(patch), 'stable-campus-user'), /IAM_ACCOUNT_MATCH_CONFLICT/);
+      assert.deepEqual(f.sql.prepare('SELECT * FROM users WHERE id=7').get(), before);
+      assert.equal(f.sql.prepare('SELECT COUNT(*) n FROM iam_identity_audit').get().n, auditCount);
+    }
+  } finally { f.close(); }
+});
+
+test('local profile email changes reject another account email and roll back the entire form', async () => {
+  const f = profileUpdateFixture();
+  try {
+    await serve(f.app, async base => {
+      const response = await putProfile(base, { email: 'existing@example.edu', nickname: 'Should not persist' }, 8);
+      assert.equal(response.status, 409); assert.equal(response.body.error, 'EMAIL_EXISTS');
+      const user = f.sql.prepare('SELECT email,nickname FROM users WHERE id=8').get();
+      assert.equal(user.email, 'foreign@example.edu'); assert.equal(user.nickname, null);
+    });
+    assert.equal(f.state.commits, 0); assert.equal(f.state.rollbacks, 1); assertProfileLockOrder(f.state);
+  } finally { f.close(); }
+});
+
+test('local profile forms retain unchanged duplicate emails and allow available or empty emails', async () => {
+  for (const email of ['existing@example.edu', 'available@example.edu', '', null]) {
+    const f = profileUpdateFixture();
+    try {
+      f.sql.exec("UPDATE users SET email='existing@example.edu' WHERE id=8");
+      await serve(f.app, async base => {
+        const response = await putProfile(base, { email, name: 'Local name', nickname: 'Saved' });
+        assert.equal(response.status, 200);
+        assert.equal(response.body.email, email); assert.equal(response.body.nickname, 'Saved');
+        assert.equal(response.body.name, 'Local name');
+      });
+      assert.equal(f.state.commits, 1); assert.equal(f.state.rollbacks, 0); assertProfileLockOrder(f.state);
+    } finally { f.close(); }
+  }
+});
+
+test('IAM managed profile fields never enter UPDATE even when ordinary forms submit identical values', async () => {
+  const { resolveProfile } = require('../lib/iam_profile_links');
+  for (const extra of [{ nickname: 'Saved nickname' }, {}]) {
+    const f = profileUpdateFixture();
+    try {
+      await resolveProfile(f.pool, campusConfig(), campusProfile(), 'stable-campus-user');
+      await serve(f.app, async base => {
+        const response = await putProfile(base, { name: 'Original owner', email: 'existing@example.edu', ...extra });
+        assert.equal(response.status, 200); assert.equal(response.body.name, 'Original owner');
+        assert.equal(response.body.email, 'existing@example.edu');
+        assert.equal(response.body.nickname, extra.nickname || null);
+      });
+      const updates = f.state.queries.filter(query => query.text.startsWith('UPDATE users SET'));
+      assert.equal(updates.length, extra.nickname ? 1 : 0);
+      updates.forEach(query => assert.doesNotMatch(query.text, /\b(?:name|email)\s*=/));
+      assert.equal(f.state.commits, 1); assertProfileLockOrder(f.state);
+    } finally { f.close(); }
+  }
+});
+
+test('profile checks use locked current values when IAM sync follows authentication', async () => {
+  const { resolveProfile } = require('../lib/iam_profile_links');
+  for (const submittedEmail of ['existing@example.edu', 'updated@example.edu']) {
+    const f = profileUpdateFixture({ afterAuth: db => resolveProfile(db.pool, campusConfig(),
+      campusProfile({ orgemail: 'updated@example.edu' }), 'stable-campus-user') });
+    try {
+      await resolveProfile(f.pool, campusConfig(), campusProfile(), 'stable-campus-user');
+      await serve(f.app, async base => {
+        const response = await putProfile(base, { email: submittedEmail, nickname: 'Saved' });
+        assert.equal(response.status, submittedEmail === 'existing@example.edu' ? 409 : 200);
+        if (response.status === 409) assert.equal(response.body.error, 'IAM_MANAGED_PROFILE');
+      });
+      assert.equal(f.sql.prepare('SELECT email FROM users WHERE id=7').get().email, 'updated@example.edu');
+      assertProfileLockOrder(f.state);
+    } finally { f.close(); }
+  }
+});
+
+test('first IAM binding after authentication prevents a stale local profile request overwriting synced fields', async () => {
+  const { resolveProfile } = require('../lib/iam_profile_links');
+  const f = profileUpdateFixture({ afterAuth: db => resolveProfile(db.pool, campusConfig(),
+    campusProfile({ orgemail: 'updated@example.edu' }), 'stable-campus-user') });
+  try {
+    await serve(f.app, async base => {
+      const response = await putProfile(base, { name: 'Original owner', email: 'existing@example.edu' });
+      assert.equal(response.status, 409); assert.equal(response.body.error, 'IAM_MANAGED_PROFILE');
+    });
+    const user = f.sql.prepare('SELECT name,email FROM users WHERE id=7').get();
+    assert.equal(user.name, 'Original owner'); assert.equal(user.email, 'updated@example.edu');
+    assert.equal(f.sql.prepare('SELECT user_id FROM iam_login_identities').get().user_id, 7);
+    assert.equal(f.state.rollbacks, 1); assertProfileLockOrder(f.state);
+  } finally { f.close(); }
+});
+
+test('an IAM first bind queued during a local profile transaction wins after that transaction commits', async () => {
+  const { resolveProfile } = require('../lib/iam_profile_links');
+  let binding;
+  const f = profileUpdateFixture({ beforeUpdate: async db => {
+    binding = resolveProfile(db.pool, campusConfig(), campusProfile({ orgemail: 'updated@example.edu' }), 'stable-campus-user');
+  } });
+  try {
+    await serve(f.app, async base => {
+      assert.equal((await putProfile(base, { email: 'existing@example.edu', nickname: 'Saved' })).status, 200);
+    });
+    await binding;
+    const user = f.sql.prepare('SELECT email,nickname FROM users WHERE id=7').get();
+    assert.equal(user.email, 'updated@example.edu'); assert.equal(user.nickname, 'Saved');
+    assertProfileLockOrder(f.state);
+  } finally { if (binding) await binding; f.close(); }
+});
+
+test('profile validation failures and post-update database errors roll back and release the connection', async () => {
+  for (const [body, status, failAfterUpdate] of [
+    [{ email: 'invalid' }, 400, false], [{ avatar_url: 'invalid' }, 400, false], [{}, 400, false],
+    [{ nickname: 'Must roll back' }, 500, true],
+  ]) {
+    const f = profileUpdateFixture({ failAfterUpdate });
+    try {
+      const before = f.sql.prepare('SELECT * FROM users WHERE id=7').get();
+      await serve(f.app, async base => assert.equal((await putProfile(base, body)).status, status));
+      assert.deepEqual(f.sql.prepare('SELECT * FROM users WHERE id=7').get(), before);
+      assert.equal(f.state.commits, 0); assert.equal(f.state.rollbacks, 1); assertProfileLockOrder(f.state);
+    } finally { f.close(); }
+  }
+});
+
+test('a user removed after authentication returns 404 and releases the profile transaction', async () => {
+  const f = profileUpdateFixture({ afterAuth: db => db.sql.exec('DELETE FROM users WHERE id=7') });
+  try {
+    await serve(f.app, async base => {
+      const response = await putProfile(base, { nickname: 'Missing user' });
+      assert.equal(response.status, 404); assert.equal(response.body.error, 'USER_NOT_FOUND');
+    });
+    assert.equal(f.state.commits, 0); assert.equal(f.state.rollbacks, 1); assert.equal(f.state.releases, 1);
+  } finally { f.close(); }
+});
+
+test('new IAM users store the supplied school number instead of a generated login name',async()=>{
+  const {resolveProfile}=require('../lib/iam_profile_links'),f=fixture(),config=campusConfig();
+  try {
+    const profile=campusProfile({orgemail:'teacher@example.edu',employeeNum:'teacher-2026'});
+    profile.attributes.mainAccount.name='Real teacher';
+    const user=await resolveProfile(f.pool,config,profile,'new-teacher');
+    const row=f.sql.prepare('SELECT name,email,student_no,role FROM users WHERE id=?').get(user.id);
+    assert.deepEqual({...row},{name:'Real teacher',email:'teacher@example.edu',student_no:'teacher-2026',role:'visitor'});
+  }finally{f.close();}
 });
 
 test('missing school profile fields never create a nameless visitor or bind a same-name account',async()=>{

@@ -1,31 +1,114 @@
-.album-form-modal.mamage-modal {
-  max-height: calc(100dvh - 28px);
+:is(.album-form-modal, .album-form-calendar) {
+  --album-form-surface: #f8f9fa;
+  --album-field-fill: rgba(255, 255, 255, .64);
+  --album-form-muted: #535d61;
+  --album-form-required: #b33b30;
+}
+[data-glass-theme='dark'] :is(.album-form-modal, .album-form-calendar) {
+  /* Opaque counterpart of the shared dark --glass-readable-fill. */
+  --album-form-surface: #1a1c1f;
+  --album-field-fill: rgba(255, 255, 255, .06);
+  --album-form-muted: var(--glass-muted);
+  --album-form-required: #f3988e;
+}
+:root .album-form-mask {
+  padding: 24px;
+  background: rgba(27, 30, 34, .22);
+  backdrop-filter: blur(7px);
+  -webkit-backdrop-filter: blur(7px);
+  overscroll-behavior: contain;
+  box-sizing: border-box;
 }
 
-.album-form-modal .mamage-modal-content {
-  border-radius: 22px;
+:root .album-form-modal.mamage-modal {
+  max-width: 100%;
+  max-height: calc(100vh - 48px);
+  max-height: calc(var(--album-viewport-height, 100dvh) - 48px);
+  min-height: 0;
+  color: var(--glass-ink);
 }
 
-.album-form-modal .mamage-modal-header {
-  padding: 19px 22px 12px;
+:root .album-form-modal[tabindex='-1'] { outline: none; }
+
+/* Outrank the legacy transparent-surface adapter, without changing other dialogs.
+   The solid base remains readable when an embedded browser cannot render blur. */
+:root .album-form-modal .mamage-modal-content,
+:root .album-form-calendar.mamage-dtp-pop {
+  background: var(--album-form-surface) !important;
+  box-shadow: var(--glass-edge), var(--glass-float-shadow) !important;
+  border-radius: 24px;
+  min-width: 0;
+  min-height: 0;
+  isolation: isolate;
+}
+:root .album-form-modal:not(.album-form-modal--dock) .mamage-modal-content,
+:root .album-form-calendar.mamage-dtp-pop { border-radius: 24px !important; }
+
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root .album-form-modal .mamage-modal-content,
+  :root .album-form-calendar.mamage-dtp-pop {
+    background: var(--glass-readable-material) !important;
+    background-color: var(--album-form-surface) !important;
+    backdrop-filter: var(--glass-backdrop) !important;
+    -webkit-backdrop-filter: var(--glass-backdrop) !important;
+  }
 }
 
-.album-form-modal .mamage-modal-title {
-  font-size: 20px;
+:root .album-form-modal .mamage-modal-header {
+  flex: 0 0 auto;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--glass-line);
 }
 
-.album-form-modal .mamage-modal-body {
-  padding: 0 22px 18px;
+:root .album-form-modal .mamage-modal-title {
+  color: var(--glass-ink);
+  font-size: 18px;
+  line-height: 1.4;
+  font-weight: 700;
 }
 
-.album-form-modal .mamage-modal-footer {
-  padding: 14px 22px 18px;
-  border-top: 1px solid rgba(30, 40, 45, 0.1);
+:root .album-form-modal .mamage-modal-close {
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  background: var(--glass-material);
+  box-shadow: var(--glass-edge);
+  color: var(--glass-ink);
 }
 
-.album-form-modal .mamage-modal-footer .mamage-button {
+:root .album-form-modal .mamage-modal-close:focus-visible {
+  outline: 2px solid var(--glass-ink);
+  outline-offset: 3px;
+}
+
+:root .album-form-modal .mamage-modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 22px 24px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scroll-padding-block: 16px;
+}
+
+:root .album-form-modal .mamage-modal-footer {
+  flex: 0 0 auto;
+  padding: 14px 24px;
+  border-top: 1px solid var(--glass-line);
+  background: var(--album-field-fill);
+}
+
+:root .album-form-modal .mamage-modal-footer .mamage-button {
   min-width: 96px;
   min-height: 42px;
+  border-radius: 24px;
+  font-size: 14px;
+}
+
+:root .album-form-modal .detail-edit-modal-body {
+  padding-top: 0;
 }
 
 .album-details-fields {
@@ -33,6 +116,29 @@
   grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
   gap: 14px 16px;
 }
+
+.album-details-fields--compact { display: flex; flex-direction: column; gap: 14px; }
+.album-metadata-fields { display: grid; gap: 14px; padding: 8px 0 4px; }
+.album-metadata-fields[hidden] { display: none; }
+.album-title-field > .album-field-label { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+:root .album-form-modal .album-title-field > .mamage-input-wrapper {
+  min-height: 48px; border: 0 !important; border-radius: 0 !important;
+  background: transparent !important; box-shadow: none !important; padding: 0;
+}
+:root .album-form-modal .album-title-field .album-title-input {
+  font-size: 24px; font-weight: 600; line-height: 1.4; padding: 4px 0; min-width: 0;
+}
+:root .album-form-modal .album-title-field .album-title-input::placeholder { color: var(--glass-muted); opacity: .85; }
+.album-field-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 8px; }
+.album-field-tools button {
+  position: relative; display: inline-flex; align-items: center; gap: 6px; min-height: 36px;
+  padding: 6px 8px; border: 0; border-radius: 8px; background: transparent;
+  color: var(--album-form-muted); font: inherit; font-size: 12px; cursor: pointer;
+}
+.album-field-tools button svg { width: 16px; height: 16px; flex: none; }
+.album-field-tools button:hover, .album-field-tools button[aria-expanded='true'] { background: var(--glass-line); color: var(--glass-ink); }
+.album-field-tools button[data-filled='true']::after { content: ''; width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
+.album-field-tools button:focus-visible { outline: 2px solid var(--glass-ink); outline-offset: 2px; }
 
 .album-details-fields > .album-field:nth-child(-n + 2),
 .album-details-fields > .album-field:last-child:nth-child(3) {
@@ -46,19 +152,19 @@
 }
 
 .album-field-label {
-  color: #111;
-  font-size: 12px;
-  font-weight: 750;
+  color: var(--glass-ink);
+  font-size: 13px;
+  font-weight: 650;
   line-height: 1.3;
 }
 
 .album-field-required {
-  color: #b33b30;
+  color: var(--album-form-required, #b33b30);
 }
 
 .album-field-optional {
   margin-left: 5px;
-  color: #535d61;
+  color: var(--album-form-muted, var(--glass-muted));
   font-weight: 550;
 }
 
@@ -68,12 +174,16 @@
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
-  border-radius: 10px;
+  border-radius: 14px;
 }
 
 .album-field > .mamage-input-wrapper,
 .album-field > .mamage-textarea-wrapper {
-  background: rgba(255, 255, 255, 0.44);
+  background: var(--album-field-fill, rgba(255, 255, 255, .64));
+  border: 1px solid var(--glass-line);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .album-field > .mamage-textarea-wrapper {
@@ -89,17 +199,16 @@
   min-height: 44px;
   padding: 6px 8px;
   box-sizing: border-box;
-  border: 1px solid var(--liquid-glass-border, rgba(255, 255, 255, 0.52));
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.44);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.66);
+  border: 1px solid var(--glass-line);
+  border-radius: 14px;
+  background: var(--album-field-fill, rgba(255, 255, 255, .64));
+  box-shadow: none;
   transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
 }
 
 .album-tag-editor:focus-within {
-  border-color: rgba(28, 41, 48, 0.48);
-  background: rgba(255, 255, 255, 0.58);
-  box-shadow: 0 0 0 3px rgba(23, 37, 44, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  border-color: var(--glass-ink);
+  box-shadow: 0 0 0 2px var(--glass-line);
 }
 
 .album-tag {
@@ -107,13 +216,13 @@
   align-items: center;
   gap: 5px;
   max-width: 100%;
-  min-height: 27px;
+  min-height: 30px;
   padding: 2px 5px 2px 9px;
   box-sizing: border-box;
-  border: 1px solid rgba(32, 44, 48, 0.12);
+  border: 1px solid var(--glass-line);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.65);
-  color: #111;
+  background: var(--album-field-fill, rgba(255, 255, 255, .65));
+  color: var(--glass-ink);
   font-size: 12px;
   font-weight: 700;
   animation: album-tag-in 160ms ease-out both;
@@ -130,19 +239,19 @@
   display: inline-grid;
   place-items: center;
   flex: none;
-  width: 22px;
-  height: 22px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: #30383b;
+  color: var(--glass-ink);
   cursor: pointer;
 }
 
 .album-tag button:hover,
 .album-tag-add:hover {
-  background: rgba(0, 0, 0, 0.09);
+  background: var(--glass-hover);
 }
 
 .album-tag button svg,
@@ -159,7 +268,7 @@
   border: 0;
   outline: 0;
   background: transparent;
-  color: #111;
+  color: var(--glass-ink);
   font: inherit;
   font-size: 13px;
 }
@@ -169,28 +278,117 @@
   to { opacity: 1; transform: scale(1); }
 }
 
+:root .album-form-modal :is(.mamage-input-wrapper, .mamage-textarea-wrapper, .mamage-dtp-trigger,
+  .cam-link-import-input, .cam-timeline-name, .cam-preview-section) {
+  background: var(--album-field-fill);
+  color: var(--glass-ink);
+  border-color: var(--glass-line);
+}
+:root .album-form-modal :is(input, textarea) { color: var(--glass-ink); }
+:root .album-form-modal :is(input, textarea)::placeholder { color: var(--album-form-muted); }
+:root .album-form-modal :is(.mamage-dtp-placeholder, .mamage-dtp-icon, .cam-section-heading span,
+  .cam-link-import-note, .cam-timeline-toggle em, .cam-timeline-drag, .cam-upload-group-title em,
+  .cam-upload-group-count, .cam-upload-group-empty) { color: var(--album-form-muted); }
+:root .album-form-modal :is(.cam-section-heading, .cam-timeline-toggle, .cam-upload-section) { color: var(--glass-ink); }
+:root .album-form-modal :is(.cam-icon-button, .cam-add-section, .cam-file-picker,
+  .mamage-button:not(.mamage-button-primary)) {
+  color: var(--glass-ink);
+  background: var(--album-field-fill);
+  border-color: var(--glass-line);
+  box-shadow: var(--glass-edge);
+}
+:root .album-form-modal .cam-upload-group { background: var(--album-field-fill); border-color: var(--glass-line); }
+:root .album-form-calendar { color: var(--glass-ink); }
+:root .album-form-calendar :is(.mamage-dtp-head button, .mamage-dtp-time select, .mamage-dtp-clear) {
+  color: var(--glass-ink);
+  background: var(--album-field-fill);
+  border-color: var(--glass-line);
+}
+:root .album-form-calendar .mamage-dtp-week span { color: var(--album-form-muted); }
+:root .album-form-calendar .mamage-dtp-day:hover { background: var(--glass-hover); }
+:root .album-form-calendar .mamage-dtp-day.is-today { box-shadow: inset 0 0 0 1px var(--glass-ink); }
+:root .album-form-calendar :is(.mamage-dtp-day.is-selected, .mamage-dtp-ok) {
+  background: var(--glass-ink);
+  color: var(--album-form-surface);
+}
+
 @media (max-width: 640px) {
+  :root .album-form-mask {
+    padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+  }
+
   .album-details-fields { grid-template-columns: 1fr; }
   .album-details-fields > .album-field { grid-column: 1 / -1; }
 
-  .album-form-modal.mamage-modal {
-    width: calc(100vw - 16px) !important;
-    max-height: calc(100dvh - 16px);
+  :root .album-form-modal.mamage-modal {
+    width: 100% !important;
+    max-height: calc(100vh - 16px);
+    max-height: calc(var(--album-viewport-height, 100dvh) - max(8px, env(safe-area-inset-top)) - max(8px, env(safe-area-inset-bottom)));
   }
 
-  .album-form-modal .mamage-modal-header {
-    padding: 15px 16px 10px;
+  :root .album-form-modal .mamage-modal-header {
+    padding: 12px 16px;
   }
 
-  .album-form-modal .mamage-modal-body {
-    padding: 0 16px 16px;
+  :root .album-form-modal .mamage-modal-body {
+    padding: 18px 16px;
   }
 
-  .album-form-modal .mamage-modal-footer {
-    padding: 12px 16px 14px;
+  :root .album-form-modal .mamage-modal-footer {
+    padding: 12px 16px;
+    display: grid;
+    grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr);
+    gap: 12px;
   }
+
+  :root .album-form-modal .mamage-modal-footer .mamage-button { min-width: 0; min-height: 44px; width: 100%; }
+  :root .album-form-modal :is(.mamage-input, .mamage-textarea-wrapper, .album-tag-editor input, .cam-timeline-name) { font-size: 16px; }
+  :root .album-form-modal .album-field > .mamage-input-wrapper { min-height: 44px; }
+  :root .album-form-modal .album-field > .mamage-textarea-wrapper { min-height: 88px; }
+  :root .album-form-modal .mamage-textarea-wrapper { line-height: 1.55; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .album-tag { animation: none; }
+}
+/* Opt-in dock presentation. Production dialogs keep their existing placement. */
+:root .album-form-mask.album-form-mask--dock {
+  align-items: flex-end;
+  padding: max(28px, env(safe-area-inset-top)) 16px max(12px, env(safe-area-inset-bottom));
+}
+:root .album-form-modal.album-form-modal--dock {
+  max-height: calc(var(--album-viewport-height, 100vh) - max(28px, env(safe-area-inset-top)) - max(12px, env(safe-area-inset-bottom)));
+}
+:root .album-form-modal.album-form-modal--dock .mamage-modal-content {
+  transform-origin: center bottom;
+  overflow: hidden;
+}
+:root .album-form-modal.album-form-modal--dock:not(.is-leaving) .mamage-modal-content {
+  animation: album-dock-expand var(--glass-duration) var(--glass-spring) both;
+}
+:root .album-form-modal.album-form-modal--dock.is-leaving .mamage-modal-content {
+  animation: album-dock-collapse 200ms var(--glass-layout-ease) both;
+}
+:root .album-form-modal--dock:not(.is-leaving) .mamage-modal-content > * {
+  animation: album-dock-content-in 240ms ease 90ms both;
+}
+:root .album-form-modal--dock.is-leaving .mamage-modal-content > * {
+  animation: album-dock-content-out 80ms ease both;
+}
+@keyframes album-dock-expand {
+  from { transform: translate(var(--album-dock-offset-x, 0px), var(--album-dock-offset-y, 0px)) scale(var(--album-dock-scale-x, .12), var(--album-dock-scale-y, .1)); border-radius: 50%; }
+  to { transform: scale(1); border-radius: 24px; }
+}
+@keyframes album-dock-collapse {
+  from { transform: scale(1); border-radius: 24px; }
+  to { transform: translate(var(--album-dock-offset-x, 0px), var(--album-dock-offset-y, 0px)) scale(var(--album-dock-scale-x, .12), var(--album-dock-scale-y, .1)); border-radius: 50%; }
+}
+@keyframes album-dock-content-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes album-dock-content-out { to { opacity: 0; } }
+@media (max-width: 640px) {
+  :root .album-form-mask.album-form-mask--dock { padding-inline: 8px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root .album-form-modal.album-form-modal--dock.mamage-motion-modal .mamage-modal-content,
+  :root .album-form-modal.album-form-modal--dock.mamage-motion-modal .mamage-modal-content > * { animation: none; }
 }

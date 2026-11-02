@@ -1,4 +1,4 @@
-// Selected design: sidebar directory, compact personal shortcuts and simulated recommendations.
+// Selected design: sidebar directory and compact personal shortcuts.
 // All state, including per-viewer appearance preferences, stays in memory; no production API is called.
 import React from 'react';
 import { Button, MotionModal } from '../ui';
@@ -48,10 +48,6 @@ const INITIAL_GROUPS = [
   { id: 'campus', ...COLORS[1], name: '校园风光', layout: 'panorama', symbol: 'image' },
   { id: 'admissions', ...COLORS[2], name: '招生宣传', layout: 'mosaic', symbol: 'grid' },
   { id: 'smart-term', ...COLORS[3], name: '本学期党团活动', layout: 'rule', symbol: 'smart', kind: 'smart', rule: { year: '2026', group: 'activity' } },
-];
-const DEMO_SUGGESTIONS = [
-  { id: 8, group: 'activity', reason: '该相册尚未归类，标题中的「运动会」属于校园活动主题。' },
-  { id: 10, group: 'campus', reason: '该相册尚未归类，标题与此相册集的主题一致。' },
 ];
 const DESKTOP_SECTIONS = [
   { id: 'pins', name: '我的置顶', Icon: IconStar },
@@ -391,9 +387,6 @@ export default function AlbumCollectionsPrototype({ userId = 'preview:liwenyu' }
   const [pinsModal, setPinsModal] = React.useState(false);
   const [appearance, setAppearance] = React.useState(null);
   const [colorsByUser, setColorsByUser] = React.useState({});
-  const [review, setReview] = React.useState(false);
-  const [accepted, setAccepted] = React.useState([8, 10]);
-  const [dismissed, setDismissed] = React.useState([]);
   const [directoryOpen, setDirectoryOpen] = React.useState(false);
   const [draggedAlbumId, setDraggedAlbumId] = React.useState(null);
   const [dropTargetId, setDropTargetId] = React.useState(null);
@@ -724,7 +717,6 @@ export default function AlbumCollectionsPrototype({ userId = 'preview:liwenyu' }
     setAppearance(null); setNotice('已更新我的相册集外观');
   };
   const togglePin = (key) => setPins((old) => old.includes(key) ? old.filter((item) => item !== key) : [...old, key]);
-  const suggestions = DEMO_SUGGESTIONS.filter((item) => !dismissed.includes(item.id) && !albums.find((album) => album.id === item.id)?.groups.length);
   const search = (text) => { setDraftQuery(text); setQuery(text.trim()); setSelected('all'); setView('library'); };
   const createGroup = () => {
     if (!groupName.trim()) return;
@@ -772,12 +764,6 @@ export default function AlbumCollectionsPrototype({ userId = 'preview:liwenyu' }
   const directory = <AlbumDirectory groups={groups} albums={albums} sections={desktopSections} selected={selected} view={view} isDesktop={home} activeSection={activeSection}
     onView={selectView} onJump={jumpToSection} onSelect={selectGroup}
     onCreate={() => { setDirectoryOpen(false); setGroupName(''); setNewGroup(true); }} getGroupDropProps={getGroupDropProps} dropTargetId={dropTargetId} />;
-  const suggestionPanel = suggestions.length > 0 && <section className="acp-suggestion-panel" aria-label="整理建议">
-    <div className="acp-suggestion-heading"><IconSparkleAI /><h2>整理建议</h2><span className="acp-suggestion-count" aria-label={`${suggestions.length} 个相册待整理`}>{suggestions.length}</span>
-      <button className="acp-icon" aria-label="暂时隐藏整理建议" title="暂时隐藏" onClick={() => setDismissed(suggestions.map((item) => item.id))}><IconClose /></button></div>
-    <p>{suggestions.map((item) => albums.find((album) => album.id === item.id)?.name).join('、')}</p>
-    <button className="acp-suggestion-open" onClick={() => { setDirectoryOpen(false); setAccepted(suggestions.map((item) => item.id)); setReview(true); }}>查看建议 <IconChevronRight /></button>
-  </section>;
 
   return <div className={`acp-page acp-smart-page acp-layout-sidebar acp-refined${draggedAlbumId !== null ? ' is-dragging-album' : ''}${sortSource ? ' is-sorting' : ''}`}>
     <LiquidGlassDefs /><div className="acp-backdrop" style={{ backgroundImage: `url(${IMAGES[1]})` }} />
@@ -787,7 +773,7 @@ export default function AlbumCollectionsPrototype({ userId = 'preview:liwenyu' }
         onClick={() => { if (i === 0) selectGroup('all'); else setNotice('当前预览仅展示相册整理'); }}>{name}</button>)}</nav>
       <div className="acp-account"><span>学工与融媒体中心</span><b>李</b></div></header>
     <div className="acp-workspace">
-      <aside className="acp-sidebar"><div className="acp-sidebar-directory">{directory}</div>{suggestionPanel}</aside>
+      <aside className="acp-sidebar"><div className="acp-sidebar-directory">{directory}</div></aside>
       <main className="acp-main" ref={mainRef} id="desktop" data-desktop-section="desktop">
         <div className="acp-page-heading"><div><div className="acp-breadcrumb">学工与融媒体中心 <span>/</span> {currentGroup ? <button onClick={() => selectGroup('all')}>相册</button> : '素材库'}</div>
           <h1>{currentGroup?.name || ({ all: '我的桌面', library: '全部相册', recent: '最近更新', unfiled: '未归类' }[view])}<span>{currentGroup ? groupAlbums(currentGroup, albums).length : albums.length} 个相册</span></h1></div>
@@ -820,7 +806,7 @@ export default function AlbumCollectionsPrototype({ userId = 'preview:liwenyu' }
     </div>
     <footer className="acp-preview-footer">本地交互预览 · 示例数据 · 智能规则模拟</footer>
     {notice && <div className="acp-toast" role="status">{notice}</div>}
-    <MotionModal title="相册目录" visible={directoryOpen} onCancel={() => setDirectoryOpen(false)} width={320} className="acp-directory-modal" footer={null}>{directory}{suggestionPanel}</MotionModal>
+    <MotionModal title="相册目录" visible={directoryOpen} onCancel={() => setDirectoryOpen(false)} width={320} className="acp-directory-modal" footer={null}>{directory}</MotionModal>
     <MotionModal title={alreadyInTarget ? '已在此相册集中' : '确认加入相册集'} visible={Boolean(dropAlbum && dropGroup)} onCancel={() => setPendingDrop(null)} width={520} className="acp-drop-modal" footer={null}>
       {dropAlbum && dropGroup && <div className="acp-drop-confirm">
         <div className="acp-drop-summary"><img src={dropAlbum.image} alt="" /><div><span>相册</span><strong>{dropAlbum.name}</strong><small>{dropAlbum.count} 张照片</small></div></div>
@@ -863,13 +849,6 @@ export default function AlbumCollectionsPrototype({ userId = 'preview:liwenyu' }
           <label className="acp-custom-color"><input type="color" aria-label="自定义底色" value={appearance.color} onChange={(event) => setAppearance((old) => ({ ...old, color: event.target.value }))} /><span>自定义</span></label></div>
         <div className="acp-appearance-preview"><CollectionCard group={appearanceGroup} albums={albums} surfaceColor={appearance.color} preview /></div>
         <div className="acp-appearance-actions"><Button onClick={() => setAppearance((old) => ({ ...old, color: DEFAULT_COLLECTION_COLOR }))} disabled={appearance.color === DEFAULT_COLLECTION_COLOR}>恢复默认</Button><Button type="primary" theme="neu" onClick={saveAppearance}>保存外观</Button></div></div>}
-    </MotionModal>
-    <MotionModal title="整理建议" visible={review} onCancel={() => setReview(false)} width={650} footer={null}>
-      <div className="acp-suggestion-review">{suggestions.map((item) => { const album = albums.find((entry) => entry.id === item.id), group = groups.find((entry) => entry.id === item.group); return <label className="acp-suggestion-row" key={item.id}><input type="checkbox" checked={accepted.includes(item.id)} onChange={(event) => setAccepted((old) => event.target.checked ? [...old, item.id] : old.filter((id) => id !== item.id))} />
-        <img src={album.image} alt="" /><span><strong>建议将「{album.name}」相册加入「{group.name}」相册集</strong><small>{item.reason}</small></span></label>; })}
-        <div className="acp-review-actions"><Button onClick={() => { setDismissed((old) => [...old, ...suggestions.map((item) => item.id)]); setReview(false); }}>暂时跳过</Button><Button type="primary" theme="neu" disabled={!accepted.length} onClick={() => {
-          setAlbums((old) => old.map((album) => { const suggestion = suggestions.find((item) => item.id === album.id && accepted.includes(item.id)); return suggestion ? { ...album, groups: [...new Set([...album.groups, suggestion.group])] } : album; }));
-          setReview(false); setNotice('已确认归类，置顶顺序保持不变'); }}>确认归类 {accepted.filter((id) => suggestions.some((item) => item.id === id)).length} 个</Button></div></div>
     </MotionModal>
   </div>;
 }

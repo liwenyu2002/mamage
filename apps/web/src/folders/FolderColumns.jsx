@@ -18,7 +18,8 @@ export default function FolderColumns({ groups, albums, sharedAlbums, sharedFold
   onPin, pins, onAppearance, onMove, onOrganize, onOrder, colors, getFolderDragProps, getAlbumDragProps,
   getGroupDropProps, dropTargetId, maxDepth, query, draftQuery, onSearch, onDraftQuery,
   searchGroups, searchAlbums, view, onView, onManagePins, workspaceName = '小组空间', canOrganize = false, onEditFolder, onCreateAlbum, onEditAlbum, footer,
-  canEditFolder = () => false, canEditAlbum = () => false, canReorderFolders = false, searchResults }) {
+  canEditFolder = () => false, canEditAlbum = () => false, canReorderFolders = false, searchResults,
+  creationInDock = false, selecting = false, selectedAlbumIds = [], selectedFolderIds = [], selectableAlbumIds = [], selectableFolderIds = [], onToggleAlbum, onToggleFolder }) {
   const railRef = React.useRef(null);
   const pathRef = React.useRef(null);
   const panelRefs = React.useRef([]);
@@ -42,7 +43,12 @@ export default function FolderColumns({ groups, albums, sharedAlbums, sharedFold
   }).filter(Boolean);
   const unfiledCount = albums.filter(album => !album.groups.length).length;
   const openFolder = id => { setAlbumChoice(null); setMenu(null); onSelect(id || 'all'); };
+  const selectable = entry => (entry.kind === 'folder' ? selectableFolderIds : selectableAlbumIds).includes(entry.item.id);
+  const checked = entry => (entry.kind === 'folder' ? selectedFolderIds : selectedAlbumIds).includes(entry.item.id);
+  const toggle = entry => { if (selectable(entry)) (entry.kind === 'folder' ? onToggleFolder : onToggleAlbum)?.(entry.item.id); };
+  React.useEffect(() => { if (selecting) { setMenu(null); setAlbumChoice(null); } }, [selecting]);
   const choose = (entry, columnIndex) => {
+    if (selecting) { toggle(entry); return; }
     if (entry.kind === 'folder') openFolder(entry.item.id);
     else {
       const group = columns[columnIndex];
@@ -51,6 +57,7 @@ export default function FolderColumns({ groups, albums, sharedAlbums, sharedFold
     }
   };
   const openPin = entry => {
+    if (selecting) { toggle(entry); return; }
     if (entry.kind === 'folder') openFolder(entry.item.id);
     else {
       const groupId = entry.item.groups[0];
@@ -118,6 +125,7 @@ export default function FolderColumns({ groups, albums, sharedAlbums, sharedFold
 
   const showMenu = (event, entry) => {
     event.preventDefault(); event.stopPropagation();
+    if (selecting) return;
     returnFocusRef.current = event.currentTarget.closest('.acp-column-row')?.querySelector('.acp-column-row-main, .acp-column-shortcut-main');
     const rect = event.currentTarget.getBoundingClientRect();
     const context = event.type === 'contextmenu';
@@ -131,10 +139,14 @@ export default function FolderColumns({ groups, albums, sharedAlbums, sharedFold
     const key = event.key;
     if (!['ArrowDown', 'ArrowUp', 'Home', 'End', 'ArrowLeft', 'ArrowRight', 'Enter', ' '].includes(key)) return;
     event.preventDefault(); event.stopPropagation();
+    if (selecting && !['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(key)) {
+      if (key === 'Enter' || key === ' ') toggle(entry);
+      return;
+    }
     if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(key)) {
       const index = key === 'Home' ? 0 : key === 'End' ? entries.length - 1 : Math.max(0, Math.min(entries.length - 1, rowIndex + (key === 'ArrowDown' ? 1 : -1)));
       panelRefs.current[columnIndex]?.querySelectorAll('.acp-column-row-main')[index]?.focus();
-      choose(entries[index], columnIndex);
+      if (!selecting) choose(entries[index], columnIndex);
     } else if (key === 'ArrowLeft' && columnIndex > 0) {
       pendingFocus.current = { column: columnIndex - 1, id: columns[columnIndex]?.id };
       openFolder(columns[columnIndex - 1]?.id);
@@ -160,8 +172,8 @@ export default function FolderColumns({ groups, albums, sharedAlbums, sharedFold
         <button className="acp-icon" type="submit" aria-label="搜索" title="搜索"><IconSearch /></button>
       </form>
       {canReorderFolders && <button className="acp-icon" type="button" aria-label="调整本层文件夹顺序" title="调整本层文件夹顺序" onClick={onOrder} disabled={groups.filter(group => (group.parentId || null) === parentId).length < 2}><IconSliders /></button>}
-      {canOrganize && <button className="acp-icon" type="button" aria-label={`在${parent?.name || '小组空间'}新建文件夹`} title={path.length >= maxDepth ? `最多支持 ${maxDepth} 级文件夹` : '新建文件夹'} onClick={() => onCreate(parentId)}><IconPlus /></button>}
-      {onCreateAlbum && (!parent || canEditFolder(parent)) && <button className="acp-icon" type="button" title="新建相册" aria-label="新建相册" onClick={() => onCreateAlbum(parent)}><IconSimilarStack /></button>}
+      {!creationInDock && canOrganize && <button className="acp-icon" type="button" aria-label={`在${parent?.name || '小组空间'}新建文件夹`} title={path.length >= maxDepth ? `最多支持 ${maxDepth} 级文件夹` : '新建文件夹'} onClick={() => onCreate(parentId)}><IconPlus /></button>}
+      {!creationInDock && onCreateAlbum && (!parent || canEditFolder(parent)) && <button className="acp-icon" type="button" title="新建相册" aria-label="新建相册" onClick={() => onCreateAlbum(parent)}><IconSimilarStack /></button>}
     </div>
     {searchResults ? <div className="acp-column-search-results">{searchResults}</div> : <div className="acp-column-rail" ref={railRef}>
       {columns.map((group, columnIndex) => {
@@ -181,12 +193,13 @@ export default function FolderColumns({ groups, albums, sharedAlbums, sharedFold
                 <div className="acp-column-section-label"><span>我的置顶 <small>仅自己</small></span><button className="acp-icon" type="button" aria-label="管理我的置顶" title="管理我的置顶" onClick={onManagePins}><IconSliders /></button></div>
                 {pinEntries.map(entry => <div className="acp-column-row" key={`pin:${entry.kind}:${entry.item.id}`} onContextMenu={event => showMenu(event, entry)}
                   {...(entry.kind === 'folder' ? getGroupDropProps(entry.item) : {})}>
-                  <button type="button" className="acp-column-shortcut-main" aria-label={`打开置顶 ${entry.item.name}`} title={entry.item.name}
-                    {...(entry.kind === 'folder' ? getFolderDragProps(entry.item) : getAlbumDragProps(entry.item))} onClick={() => openPin(entry)}>
+                  <button type="button" className="acp-column-shortcut-main" aria-label={`${selecting ? '选择置顶' : '打开置顶'} ${entry.item.name}`} title={entry.item.name}
+                    disabled={selecting && !selectable(entry)} aria-pressed={selecting ? checked(entry) : undefined}
+                    {...(selecting ? {} : entry.kind === 'folder' ? getFolderDragProps(entry.item) : getAlbumDragProps(entry.item))} onClick={() => openPin(entry)}>
                     {entry.kind === 'folder' ? <FolderGlyph color={colors[entry.item.id]} /> : <span className="acp-column-album-thumb">{entry.item.image ? <img src={entry.item.image} alt="" draggable={false} decoding="async" /> : <IconSimilarStack />}</span>}
                     <span className="acp-column-row-copy"><span className="acp-column-row-name">{entry.item.name}</span><CardSharingStatus item={entry.item} type={entry.kind === 'folder' ? '文件夹' : '相册'} /></span><span className="acp-column-pin"><IconStar /></span>
                   </button>
-                  <button className="acp-column-more" type="button" aria-label={`置顶操作 ${entry.item.name}`} title="更多操作" aria-haspopup="menu" onClick={event => showMenu(event, entry)}><IconMoreStroked /></button>
+                  {!selecting && <button className="acp-column-more" type="button" aria-label={`置顶操作 ${entry.item.name}`} title="更多操作" aria-haspopup="menu" onClick={event => showMenu(event, entry)}><IconMoreStroked /></button>}
                 </div>)}
               </div>}
               <SharedAlbums albums={sharedAlbums} onOpen={onOpen} onAdd={onAddSharedAlbum} savedIds={savedSharedIds} compact />
@@ -196,26 +209,26 @@ export default function FolderColumns({ groups, albums, sharedAlbums, sharedFold
             {entries.map((entry, rowIndex) => {
               const { kind, item } = entry;
               const folder = kind === 'folder';
-              const selected = folder ? path[columnIndex]?.id === item.id : chosenAlbum?.id === item.id && albumChoice?.scope === group?.id;
+              const selected = selecting ? checked(entry) : folder ? path[columnIndex]?.id === item.id : chosenAlbum?.id === item.id && albumChoice?.scope === group?.id;
               const pinned = pins.includes(`${folder ? 'group' : 'album'}:${item.id}`);
               const count = folder ? groups.filter(child => child.parentId === item.id).length + albums.filter(album => album.groups.includes(item.id)).length : item.count;
               return <div key={`${kind}:${item.id}`} className={`acp-column-row${selected ? ' is-selected' : ''}${folder && (path[columnIndex + 1] || chosenAlbum) ? ' is-ancestor' : ''}${dropTargetId === item.id ? ' is-drop-target' : ''}`}
                 {...(folder ? getGroupDropProps(item) : {})} onContextMenu={event => showMenu(event, entry)}>
-                <button type="button" className="acp-column-row-main" data-entry-id={item.id} {...(folder ? getFolderDragProps(item) : getAlbumDragProps(item))}
-                  aria-label={`${folder ? '浏览文件夹' : '预览相册'} ${item.name}`} aria-pressed={selected}
+                <button type="button" className="acp-column-row-main" data-entry-id={item.id} {...(selecting ? {} : folder ? getFolderDragProps(item) : getAlbumDragProps(item))}
+                  disabled={selecting && !selectable(entry)} aria-label={`${selecting ? folder ? '选择文件夹' : '选择相册' : folder ? '浏览文件夹' : '预览相册'} ${item.name}`} aria-pressed={selected}
                   title={`${item.name} · ${count} ${folder ? '项' : '张照片'}`} onClick={() => choose(entry, columnIndex)}
-                  onDoubleClick={() => { if (!folder) onOpen(item); }} onKeyDown={event => onRowKeyDown(event, entry, columnIndex, rowIndex, entries)}>
+                  onDoubleClick={() => { if (!selecting && !folder) onOpen(item); }} onKeyDown={event => onRowKeyDown(event, entry, columnIndex, rowIndex, entries)}>
                   {folder ? <FolderGlyph color={colors[item.id]} /> : <span className="acp-column-album-thumb">{item.image ? <img src={item.image} alt="" loading="lazy" decoding="async" draggable={false} /> : <IconSimilarStack />}</span>}
                   <span className="acp-column-row-copy"><span className="acp-column-row-name">{item.name}</span><CardSharingStatus item={item} type={folder ? '文件夹' : '相册'} /></span>
                   {pinned && <span className="acp-column-pin" aria-label="已置顶"><IconStar /></span>}
                   {folder && <IconChevronRight className="acp-column-chevron" />}
                 </button>
-                <button type="button" className="acp-column-more" title="更多操作" aria-label={`文件操作 ${item.name}`} aria-haspopup="menu" aria-expanded={menuEntry?.item.id === item.id && menuEntry?.kind === kind}
-                  onClick={event => showMenu(event, entry)}><IconMoreStroked /></button>
+                {!selecting && <button type="button" className="acp-column-more" title="更多操作" aria-label={`文件操作 ${item.name}`} aria-haspopup="menu" aria-expanded={menuEntry?.item.id === item.id && menuEntry?.kind === kind}
+                  onClick={event => showMenu(event, entry)}><IconMoreStroked /></button>}
               </div>;
             })}
             {!group && <div className="acp-column-utility"><button type="button" className={`acp-column-unfiled${view === 'unfiled' ? ' is-selected' : ''}`} onClick={() => { setAlbumChoice(null); onView('unfiled'); }}><IconSimilarStack /><span>未归类</span><small>{unfiledCount}</small><IconChevronRight /></button></div>}
-            {!entries.length && <div className="acp-column-empty"><FolderGlyph /><span>{query ? '没有匹配的结果' : group?.virtual ? '没有未归类的相册' : '空文件夹'}</span>{canOrganize && !group?.virtual && <button type="button" onClick={() => onCreate(group?.id || null)}><IconPlus />新建文件夹</button>}</div>}
+            {!entries.length && <div className="acp-column-empty"><FolderGlyph /><span>{query ? '没有匹配的结果' : group?.virtual ? '没有未归类的相册' : '空文件夹'}</span>{!creationInDock && canOrganize && !group?.virtual && <button type="button" onClick={() => onCreate(group?.id || null)}><IconPlus />新建文件夹</button>}</div>}
           </div>
           <footer>{entries.filter(entry => entry.kind === 'folder').length} 个文件夹{group && ` · ${entries.filter(entry => entry.kind === 'album').length} 个相册`}</footer>
         </section>;
