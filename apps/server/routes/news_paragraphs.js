@@ -1,8 +1,9 @@
 const crypto = require('node:crypto');
 const { createSharedStore } = require('../lib/shared_runtime_state');
 const { compareParagraphSources, buildParagraphRewrite } = require('../lib/news_paragraphs');
+const { photoContextPrompt } = require('../lib/news_photo_context');
 
-function registerNewsParagraphRoutes(router, { pool, requirePermission, validateNewsSources, checkAndReserveQuota, enqueueJob }) {
+function registerNewsParagraphRoutes(router, { pool, requirePermission, hydrateNewsPhotoContext, checkAndReserveQuota, enqueueJob }) {
   const lock = createSharedStore('news-paragraph', { db: pool });
   router.get('/rewrites/:clientRequestId', requirePermission('ai.generate'), async (req, res) => {
     const id = String(req.params.clientRequestId || '');
@@ -36,9 +37,10 @@ function registerNewsParagraphRoutes(router, { pool, requirePermission, validate
       let rewrite;
       try { rewrite = buildParagraphRewrite(body); }
       catch { return res.status(400).json({ error: 'INVALID_NEWS_SELECTION', message: '请提供现场材料并选择一个不超过 4000 字的正文段落' }); }
-      const workspace = await validateNewsSources(req, body.projectId || null, []);
+      const { workspace, photoContext } = await hydrateNewsPhotoContext(req, body, { db: pool });
+      rewrite.prompt += photoContextPrompt(photoContext);
       const fingerprint = crypto.createHash('sha256').update(JSON.stringify([rewrite.documentHash,
-        rewrite.selection.start, rewrite.selection.end, rewrite.mode, rewrite.sourceText])).digest('hex');
+        rewrite.selection.start, rewrite.selection.end, rewrite.mode, rewrite.sourceText, photoContext])).digest('hex');
       const result = await lock.withLock(`${req.user.id}:${clientId}`, async () => {
         const [existing] = await pool.query('SELECT id,options FROM ai_jobs WHERE user_id=? AND client_request_id=? LIMIT 1', [req.user.id, clientId]);
         if (existing.length) {

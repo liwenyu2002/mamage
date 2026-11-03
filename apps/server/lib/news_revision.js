@@ -51,16 +51,24 @@ function validateEditScope(plan, input) {
     if (mode === 'polish' && plan.blocks.length !== original.length) throw invalid('润色不能增删原有段落');
   }
 }
-function buildRevisionRequest(body) {
+function buildRevisionRequest(body, { photoContext = null } = {}) {
   const raw = body.source;
   if (!raw || typeof raw.title !== 'string' || raw.title.length > 255 || !Array.isArray(raw.blocks) || !raw.blocks.length || raw.blocks.length > 120) throw invalid();
   const seen = new Set();
+  const photoIds = new Set((photoContext?.photos || []).map(photo => photo.id));
   const blocks = raw.blocks.map(block => {
     if (!block || !/^b-\d{1,6}$/.test(block.uid) || seen.has(block.uid) || !['image', 'heading', 'paragraph'].includes(block.type)
       || typeof block.text !== 'string' || block.text.length > 20000) throw invalid();
     seen.add(block.uid);
     if (block.type === 'heading' && (!Number.isInteger(block.depth) || block.depth < 1 || block.depth > 6)) throw invalid();
-    return { uid: block.uid, type: block.type, text: block.text, ...(block.type === 'heading' ? { depth: block.depth } : {}) };
+    let photoId = null;
+    if (block.type === 'image' && block.photoId != null) {
+      photoId = Number(block.photoId);
+      if (!['string', 'number'].includes(typeof block.photoId) || !/^\d+$/.test(String(block.photoId))
+        || !Number.isSafeInteger(photoId) || !photoIds.has(photoId)) throw invalid('配图引用未经过授权校验，请重新选择照片');
+    }
+    return { uid: block.uid, type: block.type, text: block.text, ...(photoId ? { photoId } : {}),
+      ...(block.type === 'heading' ? { depth: block.depth } : {}) };
   });
   const source = { title: raw.title, blocks };
   const mode = body.mode || 'custom';
@@ -131,7 +139,7 @@ function buildRevisionRequest(body) {
     selectedText: blocks.find(block => block.uid === range.uid).text.slice(range.start, range.end) }));
   const prompt = JSON.stringify({ source, mode, action: EDIT_MODES[mode], target, ...(focus.length ? { focus } : {}),
     ...(originalSelection ? { originalSelection } : {}),
-    request: instruction, materials: sources, conversation });
+    request: instruction, materials: sources, conversation, ...(photoContext ? { photoContext } : {}) });
   const fingerprint = crypto.createHash('sha256').update(prompt).digest('hex');
   return { source, mode, target, instruction, conversation, sourceText, prompt, fingerprint };
 }
@@ -229,6 +237,8 @@ async function generateRevision({ options }, dependencies = {}) {
     '你是中文新闻稿和公众号内容稿改稿助手。按用户 request 修改当前稿件，保持尚未要求修改的部分。先定内容，不做样式排版。',
     '不要主动在标题、正文或图题中添加表情符号、颜文字或装饰性图标；保留用户原文中已有且未要求修改的内容及直接引语。',
     '每次都必须通读 source.title 和全部 source.blocks，并参考 materials 与 conversation。target 只限制可以修改的位置，绝不限制阅读范围；不要只看相邻段落。',
+    '如提供 photoContext，必须结合其中的照片、相册和时间线理解配图，严格遵守其 rules；这不是人工确认材料，不得据此编造身份、职务、发言或出席名单。不能将其机器观察加入已确认事实。',
+    '图片块只有通过 photoId 才能关联 photoContext.photos 中的同一张照片；没有 photoId 时不得凭排列顺序、图题或姓名猜测对应关系。',
     '用户 request 是本次修改的具体目标，优先于 mode/action 的通用文风要求；例如要求明确指代时不能用泛泛润色、概括活动内容来代替。',
     '明确“学校、他、该单位、这个项目”等指代时，先核对全文和人工材料能否唯一确定名称；有唯一明确依据才补全，缺失、多个候选无法消歧或只有不确定识别结果时先追问。不要把组织名称、页面名称或常识当作报道事实。',
     '先在全文中确定报道主体、时间线、人物指代、已介绍内容和限制条件，再完成 mode/action；避免与远处段落矛盾、重复已经介绍的内容或把计划写成已发生。',

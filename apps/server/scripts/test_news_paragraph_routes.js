@@ -22,7 +22,10 @@ test('paragraph jobs are durable, idempotent, owner-only and quota-bound', async
   const router = express.Router();
   registerNewsParagraphRoutes(router, { pool,
     requirePermission: () => (req, res, next) => req.get('x-role') === 'viewer' ? res.sendStatus(403) : next(),
-    validateNewsSources: async (_req, id) => { if (id === 999) throw Object.assign(new Error('Not found'), { status: 404 }); return { enabled: true, unitId: 1 }; },
+    hydrateNewsPhotoContext: async (_req, body) => {
+      if (body.projectId === 999) throw Object.assign(new Error('Not found'), { status: 404 });
+      return { workspace: { enabled: true, unitId: 1 }, photoContext: null };
+    },
     checkAndReserveQuota: async () => { reservations++; }, enqueueJob: async () => { enqueues++; } });
   app.use('/api/ai/news', router);
   const server = app.listen(0, '127.0.0.1'); await new Promise(resolve => server.once('listening', resolve));

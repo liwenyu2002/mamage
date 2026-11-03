@@ -228,6 +228,7 @@ test('layout and dialogue tasks are quota-bound, idempotent, owner/workspace/org
   app.use((req, _res, next) => { req.user = { id: Number(req.get('x-user') || 7), organization_id: Number(req.get('x-org') || 2) }; next(); });
   const router = express.Router();
   registerWechatLayoutRoutes(router, { pool, requirePermission: () => (req, res, next) => req.get('x-role') === 'viewer' ? res.sendStatus(403) : next(),
+    hydratePhotoContext: async () => ({ photoContext: null }),
     resolveWorkspace: async req => { if (req.get('x-space') === 'denied') throw Object.assign(Error('No workspace access'), { status: 403 }); return { enabled: true, unitId: Number(req.get('x-space') || 1) }; },
     sendWorkspaceError: (res, error) => { if (error.message === 'No workspace access') { res.status(403).json({ error: 'FORBIDDEN' }); return true; } return false; },
     checkAndReserveQuota: async () => {

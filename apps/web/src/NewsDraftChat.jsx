@@ -2,7 +2,7 @@ import React from 'react';
 import { Button, TextArea } from './ui';
 import { IconSparkleAI, IconClose } from './ui/icons';
 import { request } from './services/request';
-import { revisionSource, applyRevision, revisionTarget, contextualRevisionTarget, requiresExactSelection, revisionContinuation, REVISION_ACTIONS } from './utils/newsRevision';
+import { revisionSource, revisionPhotoReferences, applyRevision, revisionTarget, contextualRevisionTarget, requiresExactSelection, revisionContinuation, REVISION_ACTIONS } from './utils/newsRevision';
 import { contentSignature } from './utils/wechatWorkflow';
 import { floatingPosition } from './utils/newsEditorSelection';
 import { marked } from 'marked';
@@ -136,6 +136,7 @@ export default function NewsDraftChat({ article, storageKey, disabled, onApply, 
         source: snapshot.source, instruction: snapshot.instruction, clientRequestId: snapshot.clientRequestId,
         mode: snapshot.mode || 'custom', target: snapshot.target || null, originalSelection: snapshot.originalSelection || null, conversation: snapshot.conversation || [],
         form: { ...snapshot.base.formValues, confirmedParticipantNames: snapshot.base.participantChips || [] }, interviewText: snapshot.base.interviewText || '',
+        selectedPhotos: revisionPhotoReferences(snapshot.working || snapshot.base),
       } });
       if (alive.current) setEpoch(value => value + 1);
     } catch (failure) {

@@ -26,7 +26,7 @@ const { normalizeNewsPhoto, mergeNewsPhotos, newsAlbumDefaults } = load('src/uti
 const { wechatDraftKey, wechatAiDraftKey, wechatImportKey, hasWechatDraft } = load('src/utils/wechatDraftState.js');
 const { articleBlocks, changeArticleBlock, articleBodyMarkdown } = load('src/utils/newsArticle.js');
 const { freezeContent, materializeLayout, templateLayout, contentSignature, workflowKey, addObservedBrandAssets } = load('src/utils/wechatWorkflow.js');
-const { revisionSource, applyRevision, revisionTarget, contextualRevisionTarget, revisionContinuation, REVISION_ACTIONS } = load('src/utils/newsRevision.js');
+const { revisionSource, revisionPhotoReferences, applyRevision, revisionTarget, contextualRevisionTarget, revisionContinuation, REVISION_ACTIONS } = load('src/utils/newsRevision.js');
 const { sourceRanges, floatingPosition } = load('src/utils/newsEditorSelection.js');
 const { editorDocument, editorMarkdown, editorSelection } = load('src/utils/newsEditorModel.js');
 const { THEME_PRESETS } = load('src/wechat/themes.js');
@@ -167,6 +167,19 @@ test('selected observed brand images retain content and their style snapshots', 
   assert.throws(() => addObservedBrandAssets(styled, [{ ...asset, src: 'https://example.com/image' }], library, 'db-monitor-image'));
 });
 
+test('revision sends only unique photo identifiers for server-side context hydration', () => {
+  const article = { photos: [
+    { id: 31, faceNames: ['cached name'], projectTitle: 'cached album', url: '/photo?token=secret' },
+    { id: '31' }, { id: '32' }, { id: 'https://example.test/33' },
+    { id: 0 }, { id: -1 }, { id: true }, { id: '2e2' }, { id: '9007199254740993' }, null,
+  ] };
+  assert.deepEqual(revisionPhotoReferences(article), [{ id: 31 }, { id: 32 }]);
+  assert.deepEqual(revisionPhotoReferences({ photos: [] }), []);
+  assert.deepEqual(revisionPhotoReferences({ photos: 'invalid' }), []);
+  assert.deepEqual(revisionPhotoReferences(undefined), []);
+  assert.deepEqual(revisionPhotoReferences({ photos: [{ id: 32 }] }), [{ id: 32 }], 'removed materials are not kept in a separate cache');
+});
+
 test('dialogue edits preserve exact unchanged inline formatting, image URLs and support requested photo ordering', () => {
   const article = { title: '原文', markdown: '# 原文\n\n**重点**与[链接](/school)\n\n![原图](/image.jpg?auth=signature)\n\n第二段' };
   const source = revisionSource(article);
@@ -179,6 +192,19 @@ test('dialogue edits preserve exact unchanged inline formatting, image URLs and 
   assert.equal(articleBlocks(revised.markdown).find(block => block.type === 'image').href, '/image.jpg?auth=signature');
   assert.ok(revised.markdown.indexOf('![原图]') < revised.markdown.indexOf('**重点**'));
   assert.throws(() => applyRevision(article, { ...plan, blocks: plan.blocks.filter(block => block !== image) }));
+});
+
+test('revision image blocks carry only explicit or unambiguous selected photo IDs, never signed URLs', () => {
+  const article = { title: 'Test', photos: [
+    { id: 31, url: '/image.jpg?auth=signature', thumbUrl: '/thumb.jpg' },
+    { id: 32, url: '/ambiguous.jpg' }, { id: 33, url: '/ambiguous.jpg' },
+  ], markdown: '![a](PHOTO:31)\n\n![b](/image.jpg?auth=signature)\n\n![c](/thumb.jpg)\n\n![d](PHOTO:99)\n\n![e](/ambiguous.jpg)\n\n![f](https://external.test/image.jpg)' };
+  const source = revisionSource(article);
+  assert.deepEqual(source.blocks.map(block => block.photoId ?? null), [31, 31, 31, null, null, null]);
+  assert.equal(JSON.stringify(source).includes('auth=signature'), false);
+  assert.equal(JSON.stringify(source).includes('external.test'), false);
+  assert.equal(revisionSource({ ...article, photos: [] }).blocks.some(block => block.photoId), false);
+  assert.equal(revisionSource({ ...article, photos: [article.photos[2], article.photos[1]] }).blocks[4].photoId, undefined);
 });
 test('common editing actions have distinct cursor, paragraph, insertion and whole-document scopes', () => {
   const source = revisionSource({ title: '标题', markdown: '# 标题\n\n第一段。\n\n第二段。' });

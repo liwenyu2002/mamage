@@ -3,8 +3,10 @@ const { availableStyles, buildLayoutRequest } = require('../lib/wechat_layout');
 const { buildRevisionRequest } = require('../lib/news_revision');
 const { buildTemplateRequest } = require('../lib/wechat_content_template');
 const { loadObservedStyleLibrary } = require('../lib/wechat_observed_styles');
+const { hydrateNewsPhotoContext } = require('../lib/news_photo_context');
 
-function registerWechatLayoutRoutes(router, { pool, requirePermission, resolveWorkspace, enqueueJob, checkAndReserveQuota, sendWorkspaceError }) {
+function registerWechatLayoutRoutes(router, { pool, requirePermission, resolveWorkspace, enqueueJob, checkAndReserveQuota, sendWorkspaceError,
+  hydratePhotoContext = hydrateNewsPhotoContext }) {
   const lock = createSharedStore('wechat-layout', { db: pool });
   for (const task of ['layout', 'revision', 'content-template']) {
     const purpose = `wechat-${task}`;
@@ -43,7 +45,10 @@ function registerWechatLayoutRoutes(router, { pool, requirePermission, resolveWo
           try { observed = (await loadObservedStyleLibrary(pool, workspace)).blocks; }
           catch (error) { console.warn('[wechat.layout.observed]', error.code || 'OBSERVED_STYLES_UNAVAILABLE'); }
           input = buildLayoutRequest(body, availableStyles([...rows, ...observed]));
-        } else if (task === 'revision') input = buildRevisionRequest(body);
+        } else if (task === 'revision') {
+          const { photoContext } = await hydratePhotoContext(req, body, { db: pool });
+          input = buildRevisionRequest(body, { photoContext });
+        }
         else input = buildTemplateRequest(body);
         const unitId = workspace.enabled ? workspace.unitId : null;
         const result = await lock.withLock(`${req.user.id}:${id}`, async () => {

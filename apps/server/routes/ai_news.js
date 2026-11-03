@@ -4,8 +4,7 @@ const { pool } = require('../db');
 const { enqueueJob, runJobNow, getOrgIdForUser } = require('../lib/ai_job_worker');
 const { requirePermission } = require('../lib/permissions');
 const {
-  positiveId, resolveWorkspace, requireProjectAccess, requirePhotosAccess, sendWorkspaceError,
-  WorkspaceAccessError,
+  positiveId, resolveWorkspace, sendWorkspaceError,
 } = require('../lib/workspace_access');
 const { renderNewsPreviewPng } = require('../lib/news_preview_renderer');
 const { getActiveTemplates } = require('../lib/channel_templates');
@@ -15,6 +14,7 @@ const { normalizeContentTemplate } = require('../lib/wechat_content_template');
 const { usedReferenceSnapshot } = require('../lib/news_reference_provenance');
 const { selectReferences } = require('../lib/news_auto_references');
 const { sourceEmoji } = require('../lib/news_plain_text');
+const { hydrateNewsPhotoContext, photoContextPrompt } = require('../lib/news_photo_context');
 
 // basic size limits
 const MAX_REFERENCE_CHARS = 20000;
@@ -25,19 +25,6 @@ const MAX_PHOTOS = 30;
 const MAX_PREVIEW_HTML_CHARS = 300000;
 const MIN_BATCH_CHANNELS = 1;
 const MAX_BATCH_CHANNELS = 5;
-
-async function validateNewsSources(req, rawProjectId, selectedPhotos = []) {
-  const workspace = await resolveWorkspace(req);
-  if (!workspace.enabled) return workspace;
-  if (rawProjectId) {
-    const projectId = positiveId(rawProjectId);
-    if (!projectId) throw new WorkspaceAccessError('INVALID_PROJECT', 400);
-    await requireProjectAccess(req, projectId, 'read');
-  }
-  const ids = selectedPhotos.map((photo) => positiveId(photo?.id)).filter(Boolean);
-  if (ids.length) await requirePhotosAccess(req, ids, 'read');
-  return workspace;
-}
 
 function toNameList(input) {
   if (!input) return [];
@@ -204,11 +191,15 @@ function buildFactCheck({ markdown, formSnapshot, personNames, forbiddenWords })
 router.post('/preview', requirePermission('ai.generate'), async (req, res) => {
   try {
     const body = req.body || {};
+    const { selectedPhotos, photoContext } = await hydrateNewsPhotoContext(req, body);
     const fullPrompt = body.fullPrompt;
-    if (fullPrompt) return res.json({ assembledPrompt: String(fullPrompt).slice(0, MAX_FULLPROMPT_CHARS) });
+    if (fullPrompt) {
+      const assembledPrompt = String(fullPrompt) + photoContextPrompt(photoContext);
+      if (assembledPrompt.length > MAX_FULLPROMPT_CHARS) return res.status(413).json({ message: '素材总量过长，请精简后提交' });
+      return res.json({ assembledPrompt });
+    }
 
     const form = body.form || {};
-    const selectedPhotos = Array.isArray(body.selectedPhotos) ? body.selectedPhotos : [];
     const referenceArticle = body.referenceArticle || '';
     const interviewText = body.interviewText || '';
 
@@ -216,9 +207,11 @@ router.post('/preview', requirePermission('ai.generate'), async (req, res) => {
       return res.status(413).json({ code: 4131, message: 'referenceArticle too large', details: { field: 'referenceArticle', max: MAX_REFERENCE_CHARS } });
     }
 
-    const assembled = assemblePrompt(form, selectedPhotos, referenceArticle, interviewText, body.options || {});
+    const assembled = assemblePrompt(form, selectedPhotos, referenceArticle, interviewText, body.options || {}) + photoContextPrompt(photoContext);
+    if (assembled.length > MAX_FULLPROMPT_CHARS) return res.status(413).json({ message: '素材总量过长，请精简后提交' });
     res.json({ assembledPrompt: assembled });
   } catch (e) {
+    if (sendWorkspaceError(res, e)) return;
     console.error('POST /api/ai/news/preview error', e);
     res.status(500).json({ code: 5000, message: 'Internal server error' });
   }
@@ -297,7 +290,7 @@ router.post('/generate', requirePermission('ai.generate'), async (req, res) => {
     const clientRequestId = body.clientRequestId || null;
     const options = body.options || {};
     const sync = (req.query && req.query.sync === 'true') || options.sync || false;
-    const workspace = await validateNewsSources(req, projectId, body.selectedPhotos);
+    const { workspace, selectedPhotos, photoContext } = await hydrateNewsPhotoContext(req, body);
 
     let prompt = '';
     if (body.fullPrompt) {
@@ -307,7 +300,6 @@ router.post('/generate', requirePermission('ai.generate'), async (req, res) => {
       prompt = String(body.fullPrompt);
     } else {
       const form = body.form || {};
-      const selectedPhotos = Array.isArray(body.selectedPhotos) ? body.selectedPhotos : [];
       const referenceArticle = body.referenceArticle || '';
       const interviewText = body.interviewText || '';
 
@@ -331,6 +323,8 @@ router.post('/generate', requirePermission('ai.generate'), async (req, res) => {
       }
     }
 
+    prompt += photoContextPrompt(photoContext);
+    if (prompt.length > MAX_FULLPROMPT_CHARS) return res.status(413).json({ code: 4135, message: '素材总量过长，请精简后提交' });
     const [insertResult] = await pool.query(
       'INSERT INTO ai_jobs (user_id, project_id, unit_id, status, model, prompt_text, options, client_request_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())',
       [req.user && req.user.id ? req.user.id : null, projectId, workspace.enabled ? workspace.unitId : null,
@@ -439,12 +433,11 @@ router.post('/generate/batch', requirePermission('ai.generate'), async (req, res
   try {
     const body = req.body || {};
     const form = body.form || {};
-    const selectedPhotos = Array.isArray(body.selectedPhotos) ? body.selectedPhotos : [];
     const referenceArticle = body.referenceArticle || '';
     const interviewText = body.interviewText || '';
     const projectId = body.projectId || null;
     const writingRequirements = String(body.writingRequirements || '').trim();
-    const workspace = await validateNewsSources(req, projectId, selectedPhotos);
+    const { workspace, selectedPhotos, photoContext } = await hydrateNewsPhotoContext(req, body);
 
     // 去重后再校验数量，防止客户端传重复 key 绕过 5 个渠道上限
     const rawChannels = Array.isArray(body.channels) ? body.channels : [];
@@ -497,7 +490,7 @@ router.post('/generate/batch', requirePermission('ai.generate'), async (req, res
     const contentTemplate = normalizeContentTemplate(form);
     const prompts = new Map(channels.map(key => [key, assemblePrompt(form, selectedPhotos, selectedReferences.text,
       interviewText, { channelName: templateByKey.get(key).name, orgPreset, writingRequirements,
-        contentTemplate: key === 'wechat_article' ? contentTemplate : null })]));
+        contentTemplate: key === 'wechat_article' ? contentTemplate : null }) + photoContextPrompt(photoContext)]));
     if ([...prompts.values()].some(prompt => prompt.length > MAX_FULLPROMPT_CHARS)) {
       return res.status(413).json({ code: 4135, message: '素材总量过长，请精简照片描述或采访资料后提交' });
     }
@@ -780,7 +773,7 @@ router.post('/check', requirePermission('ai.generate'), async (req, res) => {
 // router 是函数，可安全挂载额外属性；导出 assemblePrompt/buildFactCheck 供 golden test 与
 // scripts/test_batch_smoke.js 在不起 HTTP 的情况下直接复用，不影响 Express 把 module.exports 当中间件挂载的用法。
 require('./news_paragraphs').registerNewsParagraphRoutes(router, { pool, requirePermission,
-  validateNewsSources, checkAndReserveQuota, enqueueJob });
+  hydrateNewsPhotoContext, checkAndReserveQuota, enqueueJob });
 module.exports = router;
 module.exports.assemblePrompt = assemblePrompt;
 module.exports.buildFactCheck = buildFactCheck;

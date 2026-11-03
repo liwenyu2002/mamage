@@ -52,11 +52,43 @@ export function revisionTarget(mode, scope, source, selection) {
   return target;
 }
 
+function photoReferenceId(raw) {
+  if (!['number', 'string'].includes(typeof raw) || !/^\d+$/.test(String(raw))) return null;
+  const id = Number(raw);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
+export function revisionPhotoReferences(article) {
+  const ids = new Set();
+  for (const photo of Array.isArray(article?.photos) ? article.photos : []) {
+    const id = photoReferenceId(photo?.id);
+    if (id) ids.add(id);
+  }
+  return [...ids].map(id => ({ id }));
+}
+
 export function revisionSource(article) {
   const blocks = articleBlocks(article.markdown).filter(block => block.type !== 'space');
   if (!blocks.length || blocks.length > 120) throw Error('内容稿需要包含 1 至 120 个内容块');
+  const ids = new Set(revisionPhotoReferences(article).map(photo => photo.id));
+  const urls = new Map();
+  for (const photo of Array.isArray(article.photos) ? article.photos : []) {
+    const id = photoReferenceId(photo?.id);
+    if (!id) continue;
+    for (const url of [photo.url, photo.thumbUrl, photo.thumbSrc, photo.thumb, photo.src]) {
+      if (typeof url !== 'string' || !url) continue;
+      urls.set(url, urls.has(url) && urls.get(url) !== id ? null : id);
+    }
+  }
+  const reference = block => {
+    if (block.type !== 'image') return null;
+    // Match only explicit IDs or exact known material URLs; never infer from order or captions.
+    const id = /^PHOTO:\d+$/.test(block.href || '') ? photoReferenceId(block.href.slice(6)) : urls.get(block.href);
+    return ids.has(id) ? id : null;
+  };
   return { title: article.title || '', blocks: blocks.map(block => ({ uid: `b-${block.id}`,
     type: block.type === 'image' ? 'image' : block.type === 'heading' ? 'heading' : 'paragraph',
+    ...(reference(block) ? { photoId: reference(block) } : {}),
     text: block.text, ...(block.type === 'heading' ? { depth: block.depth } : {}) })) };
 }
 
