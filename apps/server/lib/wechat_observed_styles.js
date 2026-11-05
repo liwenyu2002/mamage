@@ -2,6 +2,8 @@ const cheerio = require('cheerio');
 const crypto = require('node:crypto');
 const { scopeFor } = require('./wechat_monitor_store');
 const { parsed } = require('./wechat_monitor_content');
+const { observedGalleries } = require('./wechat_observed_gallery');
+const { observedGalleryTemplates } = require('./wechat_observed_gallery_templates');
 
 const ALLOWED_TAGS = new Set(['section', 'div', 'p', 'span', 'strong', 'b', 'em', 'i', 'br', 'img']);
 const TYPES = new Set(['h2', 'h3', 'quote', 'imageCard']);
@@ -36,7 +38,12 @@ function safeObservedBlock(block) {
       if (attr !== 'style' && !(node.tagName.toLowerCase() === 'img' && attr === 'src')) element.removeAttr(attr);
     }
   }
-  return $.root().html();
+  if (block.type === 'imageCard') $('img').css({ width: '100%', 'max-width': '100%', height: 'auto' });
+  const safe = $.root().html();
+  // Some observed cards contain only a photo. Keep the user's caption editable and exportable.
+  return block.type === 'imageCard' && !safe.includes('{{caption}}')
+    ? `<section>${safe}{{#caption}}<p style="margin:8px 0 12px;font-size:13px;line-height:1.6;text-align:center;color:#777777;">{{caption}}</p>{{/caption}}</section>`
+    : safe;
 }
 
 function headingScore(item) {
@@ -102,12 +109,14 @@ function buildObservedLibrary(rows, memberships) {
     const key = group ? `series-${group.id}` : `article-${row.id}`;
     const collection = collections.get(key) || { key, name: group?.name || row.title, articles: [] };
     const candidates = parsed(row.style_blocks, []).map((block, index) => ({ block, index, html: safeObservedBlock(block) })).filter(item => item.html);
-    collection.articles.push({ row, candidates }); collections.set(key, collection);
+    collection.articles.push({ row, candidates, galleries: observedGalleries(row) }); collections.set(key, collection);
   }
   const templates = [], blocks = [];
   for (const group of collections.values()) {
     group.articles.sort((a, b) => b.candidates.filter(item => item.block.type === 'h2').length - a.candidates.filter(item => item.block.type === 'h2').length
       || b.candidates.length - a.candidates.length || Number(a.row.id) - Number(b.row.id));
+    const imageGroups = group.articles.flatMap(item => item.galleries).sort((a, b) => b.occurrences - a.occurrences);
+    const imageGroup = imageGroups[0] || null;
     const seen = new Set(), selected = [];
     for (const { row, candidates } of group.articles) for (const item of candidates) {
       const fingerprint = `${item.block.type}:${item.html}`;
@@ -116,7 +125,8 @@ function buildObservedLibrary(rows, memberships) {
       const id = `monitor-${row.id}-${row.current_revision_id}-${item.index}`;
       selected.push({ id, type: item.block.type, name: `${group.name.slice(0, 40)} · ${item.block.name || item.block.type}`.slice(0, 100),
         htmlTemplate: item.html, accentEditable: !!item.block.accentEditable, source: 'observed',
-        sourceUrl: row.source_url, articleId: Number(row.id), revisionId: Number(row.current_revision_id) });
+        sourceUrl: row.source_url, articleId: Number(row.id), revisionId: Number(row.current_revision_id),
+        ...(item.block.type === 'imageCard' && imageGroup ? { imageGroup } : {}) });
     }
     const curated = [];
     for (const type of TYPES) {
@@ -138,13 +148,17 @@ function buildObservedLibrary(rows, memberships) {
         src: image.src, position: image.position, occurrences: image.articles.size }));
     templates.push({ id: group.key, name: group.name, sourceTitle: representative.title,
       articleId: Number(representative.id), revisionId: Number(representative.current_revision_id),
-      base: observedBase(representative.visual_features), brandCandidates,
+      base: observedBase(representative.visual_features), brandCandidates, imageGroup,
       count: group.articles.length, styleIds: { h2: `db-${mainHeading.id}`,
         ...(h3 ? { h3: `db-${h3.id}` } : {}),
         ...(curated.find(item => item.type === 'imageCard') ? { imageCard: `db-${curated.find(item => item.type === 'imageCard').id}` } : {}),
         ...(curated.find(item => item.type === 'quote') ? { quote: `db-${curated.find(item => item.type === 'quote').id}` } : {}) } });
   }
-  return { templates, blocks };
+  const galleries = new Map();
+  for (const row of rows) for (const gallery of observedGalleryTemplates(row)) {
+    if (!galleries.has(gallery.id)) galleries.set(gallery.id, gallery);
+  }
+  return { templates, blocks: [...blocks, ...galleries.values()] };
 }
 
 async function loadObservedStyleLibrary(db, workspace) {

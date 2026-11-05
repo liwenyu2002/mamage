@@ -1,4 +1,4 @@
-﻿// src/App.jsx
+// src/App.jsx
 import React from 'react';
 import { Typography as UiTypography, Button as UiButton, Empty as UiEmpty, Card as UiCard, Toast, HexLoader } from './ui';
 import ProjectCard from './ProjectCard';
@@ -8,6 +8,7 @@ import FolderStyleMenu, { useFolderStyle } from './folders/FolderStyleMenu';
 import ProjectLibraryToolbar from './ProjectLibraryToolbar';
 import * as authService from './services/authService';
 import { hasIamHandoff, finishIamLogin } from './services/iamLogin';
+import { hasOidcHandoff, finishOidcLogin } from './services/oidcLogin';
 import { buildAlbumUploadUrl, readAlbumUploadIntent, rememberAlbumUploadIntent, storedAlbumUploadIntent, clearAlbumUploadIntent } from './utils/albumUploadLink';
 import PrivacyPage from './PrivacyPage';
 import { fetchProjectList, fetchProjectImportStatuses, createProject } from './services/projectService';
@@ -137,6 +138,7 @@ function Card({ title, children }) {
 }
 
 const iamLoginPending = hasIamHandoff(window.location) ? finishIamLogin() : null;
+const oidcLoginPending = hasOidcHandoff(window.location) ? finishOidcLogin() : null;
 // 钉钉 OAuth 把 JWT 挂在 fragment 上（不进服务器日志）；模块加载即落地并清理
 try {
   const tokenInHash = String(window.location.hash || '').match(/dingtalk_token=([^&]+)/);
@@ -191,7 +193,7 @@ function App() {
   const [albumShareProject, setAlbumShareProject] = React.useState(null);
   const [authLoading, setAuthLoading] = React.useState(() => {
     try {
-      return Boolean(iamLoginPending || (authService.getToken && authService.getToken()));
+      return Boolean(iamLoginPending || oidcLoginPending || (authService.getToken && authService.getToken()));
     } catch (e) {
       return false;
     }
@@ -575,7 +577,7 @@ function App() {
     (async () => {
       setAuthLoading(true);
       try {
-        await iamLoginPending;
+        await Promise.all([iamLoginPending, oidcLoginPending].filter(Boolean));
         const token = (typeof authService.getToken === 'function') ? authService.getToken() : null;
         if (!token) { if (!canceled) setCurrentUser(null); return; }
         const u = await authService.me();

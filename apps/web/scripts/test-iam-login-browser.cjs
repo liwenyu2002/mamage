@@ -3,7 +3,9 @@ const fs = require('node:fs'), path = require('node:path'), http = require('node
 const { createRequire } = require('node:module');
 const { chromium } = createRequire(path.resolve(__dirname, '../../server/package.json'))('playwright');
 const dist = path.resolve(__dirname, '../dist'), artifacts = process.env.MAMAGE_IAM_QA_DIR;
-const fixtures = [{name:'password',iam:false,dingtalk:false},{name:'campus',iam:true,dingtalk:false},{name:'dingtalk',iam:false,dingtalk:true}];
+const fixtures = [{name:'password',iam:false,dingtalk:false},{name:'campus',iam:true,dingtalk:false},{name:'dingtalk',iam:false,dingtalk:true},
+  {name:'oidc',iam:false,dingtalk:false,oidc:true,oidcLabel:'研究院统一身份认证'},
+  {name:'oidc-and-iam',iam:true,dingtalk:false,oidc:true,oidcLabel:'研究院统一身份认证'}];
 async function assertPrimaryVisible(page) {
   const button = page.locator('.auth-primary');
   for (const hover of [false, true]) {
@@ -38,8 +40,8 @@ async function main() {
         const errors=[],writes=[];
         await context.route('**/api/**', async route => {
           const req=route.request(),url=new URL(req.url());
-          if(url.pathname==='/api/auth/iam/login'||url.pathname==='/api/auth/dingtalk/login') {
-            if(provider.iam) assert.equal(url.searchParams.get('returnTo'),'/?projectId=102&upload=1');
+          if(url.pathname==='/api/auth/iam/login'||url.pathname==='/api/auth/dingtalk/login'||url.pathname==='/api/auth/oidc/login') {
+            if(provider.iam||provider.oidc) assert.equal(url.searchParams.get('returnTo'),'/?projectId=102&upload=1');
             return route.fulfill({contentType:'text/plain',body:'Isolated authorization fixture'});
           }
           if(req.method()!=='GET') {
@@ -54,9 +56,11 @@ async function main() {
         await page.goto(base+'/?projectId=102&upload=1');
         await page.locator('.auth-provider-loading').waitFor({state:'hidden'});
         await page.getByRole('heading',{name:'登录 MaMage',exact:true}).waitFor();
-        const sso=provider.iam||provider.dingtalk;
+        const sso=provider.iam||provider.dingtalk||provider.oidc;
+        const campusTabName=provider.oidc?(provider.oidcLabel||'统一身份认证'):provider.iam?'校园登录':'钉钉登录';
+        const campusActionName=provider.oidc?'前往'+(provider.oidcLabel||'统一身份认证'):provider.iam?'前往校园登录':'使用钉钉登录';
         if(sso) {
-          const campusTab=page.getByRole('tab',{name:provider.iam?'校园登录':'钉钉登录',exact:true});
+          const campusTab=page.getByRole('tab',{name:campusTabName,exact:true});
           assert.equal(await campusTab.getAttribute('aria-selected'),'true');
           assert.equal(await page.locator('input[type="password"]').count(),0);
           assert.equal(await page.locator('.auth-content iframe,.auth-content canvas').count(),0,'no fake QR or unconfigured frame');
@@ -86,12 +90,20 @@ async function main() {
         if(artifacts&&width===390&&provider.iam) await page.screenshot({path:path.join(artifacts,'register-390.png'),fullPage:true});
         await page.getByRole('button',{name:'返回登录',exact:true}).click();
         if(sso) {
-          await page.getByRole('tab',{name:provider.iam?'校园登录':'钉钉登录',exact:true}).click();
-          await page.getByRole('button',{name:provider.iam?'前往校园登录':'使用钉钉登录',exact:true}).click();
+          await page.getByRole('tab',{name:campusTabName,exact:true}).click();
+          await page.getByRole('button',{name:campusActionName,exact:true}).click();
           await page.getByText('Isolated authorization fixture',{exact:true}).waitFor();
           await page.goBack();
-          const retry=page.getByRole('button',{name:provider.iam?'前往校园登录':'使用钉钉登录',exact:true});
+          const retry=page.getByRole('button',{name:campusActionName,exact:true});
           await retry.waitFor();assert.equal(await retry.isEnabled(),true,'returning from authorization does not leave a disabled button');
+          if(provider.oidc&&provider.iam) {
+            const secondary=page.getByRole('button',{name:'使用学校校园登录',exact:true});
+            await secondary.waitFor();
+            await secondary.click();
+            await page.getByText('Isolated authorization fixture',{exact:true}).waitFor();
+            await page.goBack();
+            await page.getByRole('button',{name:campusActionName,exact:true}).waitFor();
+          }
         }
         assert.deepEqual(errors,[]);
       } finally {await context.close();}

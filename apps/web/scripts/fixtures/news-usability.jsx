@@ -7,6 +7,7 @@ import WechatWorkspace from '../../src/WechatWorkspace';
 import { NewsRevisionEnvironment } from '../../src/NewsDraftChat';
 import { Button, SegmentedControl } from '../../src/ui';
 import { THEME_PRESETS } from '../../src/wechat/themes';
+import GalleryStylePreview from './news-gallery-styles';
 
 const params = new URLSearchParams(location.search);
 let userId = Number(params.get('user')) || 900003;
@@ -90,7 +91,7 @@ window.fetch = async (url, options = {}) => {
       channelKey, jobId: batch.id + i, status: pending ? 'running' : 'succeeded', result: pending ? null : {
         title: '学生分享实践项目 师生交流推进思路',
         markdown: '# 学生分享实践项目 师生交流推进思路\n\n学校在报告厅举行学生实践交流。学生介绍了各自的项目，教师在现场进行点评。\n\n交流围绕具体项目展开，学生分享实践中的思考。教师结合项目进展提出建议，师生共同讨论下一步的推进方向。\n\n'
-          + (batch.payload.selectedPhotos || []).slice(0, 2).map(photo => `![活动交流现场](PHOTO:${photo.id})`).join('\n\n'),
+          + (batch.payload.selectedPhotos || []).map(photo => `![活动交流现场](PHOTO:${photo.id})`).join('\n\n'),
         photos: (batch.payload.selectedPhotos || []).map(photo => ({ ...photo, url: photos.find(item => item.id === photo.id)?.url || photo.thumbUrl })),
         references: channelKey === 'wechat_article' && Array.isArray(batch.payload.form?.monitorReferences)
           ? batch.payload.form.monitorReferences.map(({ id, revisionId, title }) => ({ id, revisionId, title })) : null,
@@ -194,6 +195,7 @@ window.fetch = async (url, options = {}) => {
   if (pathname === '/api/favorites') return json({ items: [] });
   const observedBlock = { id: 'monitor-771-1-1', type: 'h2', name: '论坛推文 · 标题',
     htmlTemplate: '<p style="text-align:center"><strong>{{content}}</strong></p>', source: 'observed' };
+  if (window.__newsObservedLibrary && ['/api/wechat-style/blocks', '/api/wechat-style/monitor-templates'].includes(pathname)) return json(window.__newsObservedLibrary);
   if (pathname === '/api/wechat-style/blocks') return json({ blocks: [observedBlock] });
   if (pathname === '/api/wechat-style/monitor-templates') return json({ blocks: [observedBlock], templates: [{
     id: 'article-771', name: '论坛推文', sourceTitle: '校园交流范例', articleId: 771, revisionId: 1, count: 1,
@@ -220,6 +222,6 @@ function Fixture() {
       : <AiNewsWriter currentUser={{ id: userId }} workspaceId={workspaceId} initialChannelKey="press_release" />}
   </NewsRevisionEnvironment.Provider>;
 }
-ready.then(() => createRoot(document.getElementById('root')).render(<Fixture />)).catch(() => {
+ready.then(() => createRoot(document.getElementById('root')).render(params.get('view') === 'gallery-styles' ? <GalleryStylePreview /> : <Fixture />)).catch(() => {
   document.getElementById('root').textContent = '本地预览未连接，请刷新页面重试。';
 });

@@ -39,6 +39,19 @@ const planFor = input => ({ blocks: input.doc.map(block => ({ uid: block.uid, st
   : builtin.templates[0].blockConfig[block.type] })), accent: '#277a70', body: { fontSize: 16, lineHeight: 1.8 }, page: { paddingX: 20 } });
 const fakeModel = value => ({ chat: { completions: { create: async () => ({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(value) } }], usage: { total_tokens: 100 } }) } } });
 
+test('layout sees immutable image groups without photo URLs and fingerprints grouping changes', () => {
+  const doc = Array.from({ length: 4 }, (_, i) => ({ ...source.doc[2], uid: `photo-${i}`, galleryId: i < 2 ? 'group-a' : 'group-b', galleryColumns: 2 }));
+  const input = buildLayoutRequest({ source: { title: '两组图', doc }, brief: '简洁' }, catalog);
+  const groups = ['group-a', 'group-a', 'group-b', 'group-b'];
+  assert.deepEqual(input.source.doc.map(block => block.galleryId), groups);
+  assert.deepEqual(JSON.parse(input.prompt).blocks.map(block => block.galleryId), groups);
+  assert(!input.prompt.includes('secret=private'));
+  const merged = buildLayoutRequest({ source: { title: '两组图', doc: doc.map(block => ({ ...block, galleryId: 'group-a' })) }, brief: '简洁' }, catalog);
+  assert.notEqual(input.fingerprint, merged.fingerprint);
+  assert.throws(() => normalizeLayoutSource({ title: '', doc: [{ ...doc[0], galleryColumns: 10 }] }), /组图/);
+  assert.throws(() => normalizeLayoutSource({ title: '', doc: [{ ...doc[0], galleryId: '<script>' }] }), /组图/);
+});
+
 test('layout requests preserve three semantic heading levels and make them explicit to the model', async () => {
   const doc = [1, 2, 3].map(level => ({ uid: `heading-${level}`, kind: 'styled', type: level === 3 ? 'h3' : 'h2', headingLevel: level, content: `第${level}级标题` }));
   const input = buildLayoutRequest({ source: { title: '文章标题', doc }, brief: '不同标题层级使用有区分的样式，整体简洁。' }, catalog);

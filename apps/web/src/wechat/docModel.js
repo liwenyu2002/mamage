@@ -5,6 +5,11 @@
 import { applyBlock, BUILTIN_BLOCKS_BY_ID } from './themes.js';
 import { derivePalette, applyThemeMasksToHtml } from './themeColor.js';
 import DOMPurify from 'dompurify';
+import { imageRuns, imageGroupHtml } from './imageGroups';
+import { galleryStyleHtml } from './galleryStyles';
+import { observedGalleryHtml } from './observedGallery';
+import { marked } from 'marked';
+import { parseImageGroupMarker, imageGroupMetadata } from '../utils/newsImageGroups';
 
 // 全局纵深防御：整文复现允许保留 style 里的 background-image url()（否则背景丢失），
 // 但 url() 里绝不该出现 javascript:/vbscript: 伪协议。DOMPurify 默认不深解析 CSS，这里挂一个
@@ -245,6 +250,7 @@ function makeStyledBlock(type, blockConfig, fields) {
     blockId: resolveBlockId(blockConfig, type),
     content: f.content != null ? f.content : '',
     ...(f.headingLevel ? { headingLevel: f.headingLevel } : {}),
+    ...(type === 'imageCard' ? imageGroupMetadata(f) : {}),
     src: f.src != null ? f.src : '',
     caption: f.caption != null ? f.caption : '',
     accent: null,
@@ -284,7 +290,6 @@ function formatInlineMarkdown(line) {
 const HEADING_RE = /^(#{1,3})\s+(.*)$/;
 const QUOTE_RE = /^>\s?(.*)$/;
 const DIVIDER_RE = /^-{3,}$/;
-const IMAGE_RE = /^!\[([^\]]*)\]\(([^)]+)\)$/;
 const PHOTO_ID_RE = /^PHOTO:(.+)$/;
 
 /**
@@ -306,6 +311,7 @@ export function markdownToDoc(markdown, options) {
   const blocks = [];
   let paraBuf = [];
   let quoteBuf = [];
+  let pendingGroup = null;
 
   function flushPara() {
     if (!paraBuf.length) return;
@@ -327,6 +333,10 @@ export function markdownToDoc(markdown, options) {
       return;
     }
 
+    const groupMarker = parseImageGroupMarker(trimmed);
+    if (groupMarker) { flushPara(); flushQuote(); pendingGroup = groupMarker; return; }
+    const metadata = pendingGroup || {}; pendingGroup = null;
+
     const headingMatch = HEADING_RE.exec(trimmed);
     if (headingMatch) {
       flushPara();
@@ -336,23 +346,24 @@ export function markdownToDoc(markdown, options) {
       return;
     }
 
-    const imageMatch = IMAGE_RE.exec(trimmed);
-    if (imageMatch) {
+    const imageTokens = trimmed.startsWith('![') ? marked.Lexer.lexInline(trimmed) : [];
+    const image = imageTokens.length === 1 && imageTokens[0].type === 'image' ? imageTokens[0] : null;
+    if (image) {
       flushPara();
       flushQuote();
-      const alt = imageMatch[1];
-      const hrefRaw = imageMatch[2].trim();
+      const alt = image.text.replace(/\\([\\\[\]])/g, '$1');
+      const hrefRaw = image.href.trim();
       const photoMatch = PHOTO_ID_RE.exec(hrefRaw);
       if (photoMatch) {
         const url = photosMap[photoMatch[1]];
         if (url) {
-          blocks.push(makeStyledBlock('imageCard', blockConfig, { src: url, caption: alt }));
+          blocks.push(makeStyledBlock('imageCard', blockConfig, { src: url, caption: alt, ...metadata }));
         } else {
           // 查不到对应图片：保留占位符原文，降级为普通段落，不静默丢内容
           blocks.push(makeParaBlock(escapeHtml(trimmed)));
         }
       } else {
-        blocks.push(makeStyledBlock('imageCard', blockConfig, { src: hrefRaw, caption: alt }));
+        blocks.push(makeStyledBlock('imageCard', blockConfig, { src: hrefRaw, caption: alt, ...metadata }));
       }
       return;
     }
@@ -604,7 +615,12 @@ export function docToHtmlRaw(doc, options) {
     return applyBlock(styleBlock, { content: escapeContentWithBreaks(block.content || ''), accent });
   });
 
-  const html = `<section style="font-family:${FONT_STACK};color:#333333;${computePageStyleString(opts.page)}">${parts.join('\n')}</section>`;
+  const grouped = imageRuns(doc).map(run => run.template
+    ? observedGalleryHtml(run.items.map(item => item.block), run.template) : run.styleId
+    ? galleryStyleHtml(run.items.map(item => parts[item.index]), run.styleId) : run.columns > 1
+    ? imageGroupHtml(run.items.map(item => parts[item.index]), run.columns, run.insetPercent)
+    : run.items.map(item => parts[item.index]).join('\n'));
+  const html = `<section style="font-family:${FONT_STACK};color:#333333;${computePageStyleString(opts.page)}">${grouped.join('\n')}</section>`;
   return { html, imageCount };
 }
 
@@ -653,6 +669,43 @@ export function dequoteWeChatCssUrls(html) {
       .trim();
     return `url(${cleaned})`;
   });
+}
+
+// 「复制到公众号」专用：原版复刻组图里的 SVG 轮播把照片放在 CSS background-image 上（还嵌在
+// <svg>/<foreignObject> 里）。微信粘贴会强剥 SVG 与背景图，这一整组照片会丢；这里把轮播帧内按
+// 顺序出现的背景图还原成块级 <img>，顺序与槽位一致（轮播尾帧重复首图，去掉尾帧重复项）。
+// 只处理"一帧里有多张背景图"的 svg，避免误伤其他装饰图；预览不走这条路径，仍按原 SVG 保真。
+export function flattenObservedGalleryToImg(html) {
+  if (typeof DOMParser === 'undefined') return html; // 非浏览器环境(Node 自测)跳过
+  const doc = new DOMParser().parseFromString(`<div id="__mm_obs_gallery__">${String(html || '')}</div>`, 'text/html');
+  const root = doc.getElementById('__mm_obs_gallery__');
+  if (!root) return html;
+  // 只替换最外层 svg（轮播帧容器）；内部 foreignObject 的嵌套 svg 一起被移除。
+  const frames = Array.from(root.querySelectorAll('svg')).filter(svg => !svg.parentElement?.closest('svg'));
+  const bgUrl = /background-image\s*:\s*url\(\s*(?:&quot;|&#0*34;|&#0*39;|&apos;|['"])?\s*([^)"'&]+?)\s*(?:&quot;|&#0*34;|&#0*39;|&apos;|['"])?\s*\)/i;
+  frames.forEach((svg) => {
+    const photos = [];
+    for (const el of [svg, ...svg.querySelectorAll('*')]) {
+      const m = bgUrl.exec(el.getAttribute('style') || '');
+      if (!m) continue;
+      const url = m[1].trim();
+      if (!/^(?:https?:\/\/|\/(?!\/))/i.test(url) || photos.includes(url)) continue;
+      photos.push(url);
+    }
+    if (photos.length < 2) return; // 单张背景图的装饰 svg 不算轮播帧
+    if (photos.length > 2 && photos[photos.length - 1] === photos[0]) photos.pop(); // 尾帧=首图别名
+    const strip = doc.createElement('section');
+    strip.setAttribute('style', 'margin:0;padding:0;font-size:0;line-height:0;');
+    photos.forEach((url) => {
+      const img = doc.createElement('img');
+      img.setAttribute('src', url.replace(/&amp;/g, '&'));
+      img.setAttribute('referrerpolicy', 'no-referrer');
+      img.setAttribute('style', 'display:block;width:100%;height:auto;margin:0 0 6px;');
+      strip.appendChild(img);
+    });
+    svg.replaceWith(strip);
+  });
+  return root.innerHTML;
 }
 
 // 「复制到公众号」专用：把无文字的"图片容器"上的 CSS background-image 就地展平成真 <img>。

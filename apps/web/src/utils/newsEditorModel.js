@@ -1,6 +1,7 @@
 import { Schema } from 'prosemirror-model';
 import { articleBlocks, changeArticleBlock } from './newsArticle';
 import { sourceRanges } from './newsEditorSelection';
+import { withDraftImageGroups } from './newsImageGroups';
 
 const attrs = { original: { default: null } };
 export const newsEditorSchema = new Schema({ nodes: {
@@ -9,7 +10,7 @@ export const newsEditorSchema = new Schema({ nodes: {
   heading: { content: 'text*', group: 'block', defining: true, attrs: { ...attrs, depth: { default: 1 } },
     toDOM: node => [`h${node.attrs.depth}`, { class: node.attrs.depth === 1 ? 'news-edit-title' : 'news-edit-subtitle' }, 0],
     parseDOM: [1, 2, 3, 4, 5, 6].map(depth => ({ tag: `h${depth}`, attrs: { depth } })) },
-  photo: { content: 'text*', group: 'block', defining: true, isolating: true, attrs: { ...attrs, href: {} },
+  photo: { content: 'text*', group: 'block', defining: true, isolating: true, attrs: { ...attrs, href: {}, galleryId: { default: null }, galleryColumns: { default: 1 } },
     toDOM: node => ['figure', { class: 'news-edit-block news-edit-photo' },
       ['img', { src: node.attrs.href, alt: node.textContent, contenteditable: 'false', loading: 'lazy' }],
       ['figcaption', { class: 'news-edit-caption', role: 'textbox', 'aria-label': '图片说明', 'aria-multiline': 'true' }, 0]] },
@@ -24,11 +25,47 @@ export function editorDocument(markdown) {
     // Two newlines separate blocks; each additional pair represents an empty paragraph.
     empty(Math.max(0, Math.floor((gap.match(/\n/g) || []).length / 2) - (hasBlock ? 1 : 0)));
     const type = block.type === 'image' && /^(https?:\/\/|\/[^/])/.test(block.href) ? 'photo' : block.type === 'heading' ? 'heading' : 'paragraph';
-    nodes.push(newsEditorSchema.nodes[type].create({ original: block, depth: block.depth, href: block.href }, block.text ? newsEditorSchema.text(block.text) : null));
+    nodes.push(newsEditorSchema.nodes[type].create({ original: block, depth: block.depth, href: block.href,
+      galleryId: block.galleryId || null, galleryColumns: block.galleryColumns || 1 }, block.text ? newsEditorSchema.text(block.text) : null));
     gap = block.tail; hasBlock = true;
   }
   empty(Math.floor((gap.match(/\n/g) || []).length / 2) + (hasBlock ? 0 : 1));
-  return newsEditorSchema.nodes.doc.create(null, nodes.length ? nodes : newsEditorSchema.nodes.paragraph.create());
+  const grouped = withDraftImageGroups(nodes.map(node => ({ ...node.attrs, type: node.type.name })), block => block.type === 'photo');
+  return newsEditorSchema.nodes.doc.create(null, nodes.length ? nodes.map((node, i) => node.type.name === 'photo'
+    ? node.type.create({ ...node.attrs, galleryId: grouped[i].galleryId, galleryColumns: grouped[i].galleryColumns }, node.content) : node) : newsEditorSchema.nodes.paragraph.create());
+}
+
+export function editorPhotoGroups(doc) {
+  const groups = []; let previousPhoto = false;
+  doc.forEach((node, pos, index) => {
+    if (node.type.name !== 'photo') { previousPhoto = false; return; }
+    const previous = groups.at(-1);
+    if (previousPhoto && node.attrs.galleryId && previous.id === node.attrs.galleryId && previous.columns === node.attrs.galleryColumns) {
+      previous.items.push({ node, pos, index });
+    } else groups.push({ id: node.attrs.galleryId, columns: node.attrs.galleryColumns || 1, items: [{ node, pos, index }] });
+    previousPhoto = true;
+  });
+  return groups;
+}
+
+export function changeEditorImageGroup(state, pos, action, value) {
+  const groups = editorPhotoGroups(state.doc), groupIndex = groups.findIndex(group => group.items.some(item => item.pos === pos));
+  const group = groups[groupIndex];
+  if (!group) return null;
+  const transaction = state.tr, newId = () => `group-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  const assign = (items, id, columns) => items.forEach(item => transaction.setNodeMarkup(item.pos, null, { ...item.node.attrs, galleryId: id, galleryColumns: columns }));
+  if (action === 'columns' && [1, 2, 3].includes(value)) assign(group.items, group.id || newId(), value);
+  else if (action === 'splitBefore' || action === 'splitAfter') {
+    const at = group.items.findIndex(item => item.pos === pos) + (action === 'splitAfter' ? 1 : 0);
+    if (at <= 0 || at >= group.items.length) return null;
+    assign(group.items.slice(0, at), group.id || newId(), group.columns);
+    assign(group.items.slice(at), newId(), group.columns);
+  } else if (action === 'mergeNext') {
+    const next = groups[groupIndex + 1], last = group.items.at(-1);
+    if (!next || next.items[0].pos !== last.pos + last.node.nodeSize) return null;
+    assign([...group.items, ...next.items], group.id || newId(), group.columns);
+  } else return null;
+  return transaction.setMeta('newsEditBoundary', true);
 }
 
 export function editorBlockStyle(state) {
@@ -61,8 +98,9 @@ export function editorMarkdown(doc) {
   doc.forEach((node, pos) => {
     const original = node.attrs.original, text = node.textContent;
     const kind = node.type.name === 'photo' ? 'image' : node.type.name;
-    const block = original?.text === text && original.type === kind && (kind !== 'heading' || original.depth === node.attrs.depth) ? original : changeArticleBlock({
-      type: kind, depth: node.attrs.depth, href: node.attrs.href, tail: '',
+    const block = original?.text === text && original.type === kind && (kind !== 'heading' || original.depth === node.attrs.depth)
+      && (kind !== 'image' || (original.href === node.attrs.href && (original.galleryId || null) === node.attrs.galleryId && (original.galleryColumns || 1) === node.attrs.galleryColumns)) ? original : changeArticleBlock({
+      type: kind, depth: node.attrs.depth, href: node.attrs.href, galleryId: node.attrs.galleryId, galleryColumns: node.attrs.galleryColumns, tail: '',
     }, kind === 'heading' || kind === 'image' ? text.replace(/[\r\n]+/g, ' ') : text);
     const raw = block.raw.trimEnd();
     entries.push({ node, pos, block, raw, start: offset }); offset += raw.length + 2;

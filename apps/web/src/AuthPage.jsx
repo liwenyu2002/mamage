@@ -2,6 +2,7 @@ import React from 'react';
 import { Input, Button, Toast } from './ui';
 import { IconChevronRight } from './ui/icons';
 import { campusLoginUrl, autoStartCampusLogin } from './services/iamLogin';
+import { autoStartOidcLogin, oidcLoginUrl } from './services/oidcLogin';
 import './AuthPage.css';
 import * as authService from './services/authService';
 import CampusLoginQr from './CampusLoginQr';
@@ -24,14 +25,14 @@ function validateLoginInput({ email, password }) {
 }
 
 export default function AuthPage({ onAuthenticated }) {
-  const [authProviders, setAuthProviders] = React.useState({ password: true, dingtalk: false, iam: false });
+  const [authProviders, setAuthProviders] = React.useState({ password: true, dingtalk: false, iam: false, oidc: false });
   const [providersLoading, setProvidersLoading] = React.useState(true);
   const [providersFailed, setProvidersFailed] = React.useState(false);
   const [providerRetry, setProviderRetry] = React.useState(0);
   const [loginMode, setLoginMode] = React.useState(null);
   const [redirecting, setRedirecting] = React.useState(false);
   const [loginAlert, setLoginAlert] = React.useState('');
-  const initialLoginFailure = React.useRef(/(?:iam|dingtalk)_error=/.test(window.location.hash));
+  const initialLoginFailure = React.useRef(/(?:iam|oidc|dingtalk)_error=/.test(window.location.hash));
   React.useEffect(() => {
     const returned = () => setRedirecting(false);
     window.addEventListener('pageshow', returned);
@@ -44,17 +45,22 @@ export default function AuthPage({ onAuthenticated }) {
     setProvidersLoading(true); setProvidersFailed(false);
     fetch('/api/auth/providers', { signal: controller.signal })
       .then((r) => { if (!r.ok) throw Error('Providers unavailable'); return r.json(); })
-      .then((d) => { if (!canceled) setAuthProviders({ password: true, iam: d.iam === true, iamQr: d.iamQr === true, dingtalk: d.dingtalk === true }); })
+      .then((d) => { if (!canceled) setAuthProviders({ password: true, iam: d.iam === true, iamQr: d.iamQr === true, dingtalk: d.dingtalk === true,
+        oidc: d.oidc === true, oidcLabel: typeof d.oidcLabel === 'string' ? d.oidcLabel : null,
+        oidcAutoStart: d.oidcAutoStart === true }); })
       .catch(() => { if (!canceled) setProvidersFailed(true); })
       .finally(() => { clearTimeout(timeout); if (!canceled) setProvidersLoading(false); });
     // 钉钉回调失败时错误信息挂在 hash 上
     try {
-      const m = String(window.location.hash || '').match(/(?:dingtalk|iam)_error=([^&]+)/);
+      const m = String(window.location.hash || '').match(/(?:dingtalk|iam|oidc)_error=([^&]+)/);
       if (m) {
         const code = decodeURIComponent(m[1]);
-        const message = code.startsWith('IAM_') ? code === 'IAM_ACCOUNT_LINK_REQUIRED'
-          ? '校园账号尚未关联，请联系管理员' : code === 'IAM_PROFILE_INCOMPLETE' || code === 'IAM_PROFILE_ID_MISSING'
-            ? '校园身份资料不完整，请联系管理员核对登录资料配置' : '校园登录未完成，请重试或联系管理员' : code;
+        const message = code.startsWith('OIDC_') || code.startsWith('IAM_') || code.startsWith('ACCOUNT_')
+          ? /ACCOUNT_LINK_REQUIRED|ACCOUNT_MATCH_CONFLICT/.test(code) ? '统一身份尚未关联，请联系管理员'
+            : /PROFILE_INCOMPLETE|PROFILE_ID_MISSING|PROFILE_CLAIMS_CONFLICT/.test(code) ? '统一身份资料不完整，请联系管理员核对登录资料配置'
+              : /ACCOUNT_SESSION_REVOKED/.test(code) ? '账号已停用或登录已失效，请联系管理员'
+                : '统一身份登录未完成，请重试或联系管理员'
+          : code;
         setLoginAlert(message); Toast.error(message);
         window.history.replaceState({}, '', window.location.pathname + window.location.search);
       }
@@ -62,19 +68,25 @@ export default function AuthPage({ onAuthenticated }) {
     return () => { canceled = true; clearTimeout(timeout); controller.abort(); };
   }, [providerRetry]);
   const [active, setActive] = React.useState('login');
-  const hasCampusLogin = authProviders.iam || authProviders.dingtalk;
+  const hasCampusLogin = authProviders.iam || authProviders.dingtalk || authProviders.oidc;
   const currentLoginMode = loginMode || (hasCampusLogin ? 'campus' : 'password');
   React.useEffect(() => {
     if (providersLoading || providersFailed || active !== 'login' || loginMode || initialLoginFailure.current) return;
     try {
       if (autoStartCampusLogin({ providers: authProviders, location: window.location,
-        userAgent: navigator.userAgent, storage: window.sessionStorage })) setRedirecting(true);
+        userAgent: navigator.userAgent, storage: window.sessionStorage })
+        || autoStartOidcLogin({ providers: authProviders, location: window.location, storage: window.sessionStorage })) setRedirecting(true);
     } catch { /* Manual login remains available when browser storage is unavailable. */ }
   }, [providersLoading, providersFailed, active, loginMode, authProviders]);
   const beginCampusLogin = () => {
     const url = campusLoginUrl(authProviders, window.location);
     if (!url || redirecting) return;
     setRedirecting(true); window.location.assign(url);
+  };
+  // 学院 Keycloak（OIDC）优先；芯盾/钉钉入口在同时配置时保留为次选，互不覆盖。
+  const beginOidcLogin = () => {
+    if (!authProviders.oidc || redirecting) return;
+    setRedirecting(true); window.location.assign(oidcLoginUrl(window.location));
   };
   const [loading, setLoading] = React.useState(false);
   // controlled fields
@@ -358,7 +370,7 @@ export default function AuthPage({ onAuthenticated }) {
             setLoginMode(index === 0 ? 'campus' : 'password'); event.currentTarget.querySelectorAll('[role="tab"]')[index].focus();
           }}>
             <button type="button" role="tab" id="campus-login-tab" aria-controls="campus-login-panel" aria-selected={currentLoginMode === 'campus'} tabIndex={currentLoginMode === 'campus' ? 0 : -1}
-              onClick={() => setLoginMode('campus')}>{authProviders.iam ? '校园登录' : '钉钉登录'}</button>
+              onClick={() => setLoginMode('campus')}>{authProviders.oidc ? (authProviders.oidcLabel || '统一身份认证') : authProviders.iam ? '校园登录' : '钉钉登录'}</button>
             <button type="button" role="tab" id="password-login-tab" aria-controls="password-login-panel" aria-selected={currentLoginMode === 'password'} tabIndex={currentLoginMode === 'password' ? 0 : -1}
               onClick={() => setLoginMode('password')}>账号密码</button>
           </div>
@@ -373,11 +385,23 @@ export default function AuthPage({ onAuthenticated }) {
           providersLoading && !loginMode ? <div className="auth-provider-loading" role="status"><span className="mamage-button-spinner" />正在连接登录服务</div> :
           currentLoginMode === 'campus' && hasCampusLogin ? (
           <div className="auth-campus-panel" id="campus-login-panel" role="tabpanel" aria-labelledby="campus-login-tab">
-            <h2>{authProviders.iam ? '校园统一身份认证' : '使用钉钉扫码或点击头像授权登录'}</h2>
-            {authProviders.iam && authProviders.iamQr && !redirecting && !/DingTalk/i.test(navigator.userAgent) ? <CampusLoginQr /> : null}
-            <Button className="auth-primary" loading={redirecting} onClick={beginCampusLogin}>
-              {authProviders.iam ? '前往校园登录' : '使用钉钉登录'}<IconChevronRight />
-            </Button>
+            <h2>{authProviders.oidc ? (authProviders.oidcLabel || '统一身份认证') : authProviders.iam ? '校园统一身份认证' : '使用钉钉扫码或点击头像授权登录'}</h2>
+            {authProviders.iam && !authProviders.oidc && authProviders.iamQr && !redirecting && !/DingTalk/i.test(navigator.userAgent) ? <CampusLoginQr /> : null}
+            {authProviders.oidc ? (
+              <Button className="auth-primary" loading={redirecting} onClick={beginOidcLogin}>
+                前往{authProviders.oidcLabel || '统一身份认证'}<IconChevronRight />
+              </Button>
+            ) : null}
+            {authProviders.oidc && (authProviders.iam || authProviders.dingtalk) ? (
+              <button type="button" className="auth-secondary-link" disabled={redirecting} onClick={beginCampusLogin}>
+                {authProviders.iam ? '使用学校校园登录' : '使用钉钉登录'}
+              </button>
+            ) : null}
+            {!authProviders.oidc ? (
+              <Button className="auth-primary" loading={redirecting} onClick={beginCampusLogin}>
+                {authProviders.iam ? '前往校园登录' : '使用钉钉登录'}<IconChevronRight />
+              </Button>
+            ) : null}
           </div>
           ) : (
           <form className="auth-login-form" id="password-login-panel" role={hasCampusLogin ? 'tabpanel' : undefined}

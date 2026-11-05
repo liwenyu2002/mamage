@@ -33,6 +33,10 @@ function normalizeLayoutSource(raw) {
     if (block.type === 'imageCard') {
       if (!/^(https?:\/\/|\/[^/])/.test(String(block.src || ''))) throw invalid('图片地址无效，请重新选图');
       next.src = String(block.src); next.caption = String(block.caption || '');
+      if (block.galleryId != null) {
+        if (!/^[A-Za-z0-9_-]{1,80}$/.test(block.galleryId) || ![1, 2, 3].includes(block.galleryColumns)) throw invalid('组图结构无效');
+        next.galleryId = block.galleryId; next.galleryColumns = block.galleryColumns;
+      }
     }
     return next;
   });
@@ -50,6 +54,7 @@ function buildLayoutRequest(body, styles) {
   const catalog = styles.map(({ id, type, name }) => ({ id, type, name }));
   const plainBlocks = source.doc.map(block => ({ uid: block.uid, type: block.type,
     ...(block.headingLevel ? { headingLevel: block.headingLevel } : {}),
+    ...(block.galleryId ? { galleryId: block.galleryId, galleryColumns: block.galleryColumns } : {}),
     text: block.kind === 'para' ? cheerio.load(block.html, null, false).text() : block.type === 'imageCard' ? block.caption : block.content }));
   const prompt = JSON.stringify({ title: source.title, blocks: plainBlocks, styleRequest: brief, availableStyles: catalog });
   const fingerprint = crypto.createHash('sha256').update(JSON.stringify({ source, brief, catalog })).digest('hex');
@@ -108,6 +113,7 @@ async function generateLayout({ options }, dependencies = {}) {
         '只输出 JSON：{"blocks":[{"uid":"原uid","styleId":"库中id"}],"accent":"#RRGGBB","body":{"fontSize":16,"lineHeight":1.8,"textIndent":false,"justify":true},"page":{"paddingX":20}}。',
         '每个 uid 恰好一次，styleId 必须存在且类型完全一致，保持内容顺序。禁止输出文字、图片地址、HTML、CSS、额外字段。',
         'headingLevel 是不可更改的标题层级：1 为章标题，2 为节标题，3 为小标题。即使样式库类型相同也不可混淆层级；同级风格一致，一级更醒目，二级次之，三级最克制。',
+        'galleryId 标记内容稿已确定的组图，galleryColumns 是预期列数。同一组使用协调的图片样式；相邻但不同 galleryId 的图片仍是独立的组，不可合并或重新分组。',
         '依正文的导语、叙事、重点和图片内容选样式，整篇协调；常规正文保持克制，避免每段都装饰。不要生成分隔、标题或落款。',
       ].join('\n'), prompt: options.layout.prompt, maxTokens: 800 + options.layout.source.doc.length * 45 }, dependencies);
   const plan = validateLayoutPlan(response.raw, options.layout.source, options.layout.styles);

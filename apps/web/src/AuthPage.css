@@ -123,6 +123,13 @@
 .auth-page-root .auth-primary svg { width: 18px; height: 18px; flex: none; }
 .auth-primary .mamage-button-content { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
 
+.auth-page-root .auth-secondary-link {
+  align-self: center; margin-top: 10px; padding: 6px 4px; border: 0; background: none;
+  color: #0969da; font-size: 13px; line-height: 1.6; cursor: pointer;
+}
+.auth-page-root .auth-secondary-link:disabled { color: #9aa3ad; cursor: wait; }
+.auth-page-root .auth-secondary-link:hover { text-decoration: underline; }
+
 .auth-campus-panel { min-height: 152px; display: flex; flex-direction: column; justify-content: space-between; padding: 8px 0 12px; }
 .auth-campus-panel h2 { margin: 0; color: #525762; text-align: center; font-size: 16px; line-height: 1.7; font-weight: 400; }
 .auth-campus-qr { margin: 18px auto 4px; width: 240px; max-width: 100%; text-align: center; }

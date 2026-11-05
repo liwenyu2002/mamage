@@ -5,6 +5,7 @@ import { IconSparkleAI, IconChevronLeft } from './ui/icons';
 import { request } from './services/request';
 import { THEME_PRESETS, applyBlock } from './wechat/themes';
 import { normalizeLayoutLibrary, templateLayout } from './utils/wechatWorkflow';
+import { IMAGE_LAYOUTS } from './wechat/imageGroups';
 
 export default function WechatLayoutPanel({ confirmed, current, storageKey, onBack, onApply, onSaveContent }) {
   const jobKey = storageKey ? `${storageKey}:layout-job` : null;
@@ -12,6 +13,7 @@ export default function WechatLayoutPanel({ confirmed, current, storageKey, onBa
     try { return JSON.parse(localStorage.getItem(jobKey) || 'null') ? 'ai' : 'template'; } catch { return 'template'; }
   });
   const [template, setTemplate] = React.useState('');
+  const [imageLayout, setImageLayout] = React.useState('auto');
   const [observed, setObserved] = React.useState({ templates: [], library: {}, loading: true, error: '' });
   const [selectedAssets, setSelectedAssets] = React.useState([]);
   const [failedAssets, setFailedAssets] = React.useState([]);
@@ -55,7 +57,7 @@ export default function WechatLayoutPanel({ confirmed, current, storageKey, onBa
         if (response.status === 'succeeded' && response.result?.plan) {
           const library = await request('/api/wechat-style/blocks', { signal: controller.signal });
           if (controller.signal.aborted) return;
-          const applied = applyRef.current(pending.confirmed, response.result.plan, normalizeLayoutLibrary(library.blocks || []));
+          const applied = applyRef.current(pending.confirmed, { ...response.result.plan, imageLayout: pending.imageLayout || 'auto' }, normalizeLayoutLibrary(library.blocks || []));
           remember(null);
           if (!applied) setError('内容稿已修改，或已离开样式选择。原稿未覆盖，请重新确认内容后排版。');
           return;
@@ -94,11 +96,12 @@ export default function WechatLayoutPanel({ confirmed, current, storageKey, onBa
   };
   const run = () => {
     if (!current || !brief.trim() || pending) return;
-    submit({ confirmed, brief: brief.trim(), clientRequestId: typeof crypto.randomUUID === 'function' ? crypto.randomUUID()
+    submit({ confirmed, imageLayout, brief: brief.trim(), clientRequestId: typeof crypto.randomUUID === 'function' ? crypto.randomUUID()
       : `layout-${Date.now()}-${Math.random().toString(36).slice(2)}` });
   };
   const selectedTemplate = observed.templates.find(item => item.id === template);
   const templateConfig = selectedTemplate ? { ...THEME_PRESETS.minimal, ...selectedTemplate.styleIds,
+    imageGroup: selectedTemplate.imageGroup,
     accent: selectedTemplate.base?.accent || THEME_PRESETS.minimal.accent,
     body: { ...THEME_PRESETS.minimal.body, ...(selectedTemplate.base?.fontSize ? { fontSize: selectedTemplate.base.fontSize } : {}) },
     h1: selectedTemplate.styleIds.h2, bodyStyleId: 'builtin-body-plain' } : null;
@@ -108,6 +111,10 @@ export default function WechatLayoutPanel({ confirmed, current, storageKey, onBa
     {!current ? <div className="news-input-error" role="alert">内容稿已修改，请重新确认后再排版。<Button size="small" onClick={onBack}>返回确认</Button></div> : null}
     <SegmentedControl label="排版方式" value={choice} options={[{ value: 'template', label: '已有模板' }, { value: 'ai', label: 'AI 排版' }]}
       onChange={setChoice} />
+    {confirmed?.source.doc.filter(block => block.type === 'imageCard').length > 1 ? <div className="wechat-image-layout">
+      <span>组图 <small>{confirmed.source.doc.filter(block => block.type === 'imageCard').length} 张配图</small></span>
+      <SegmentedControl label="组图布局" value={imageLayout} options={IMAGE_LAYOUTS} onChange={setImageLayout} disabled={Boolean(pending)} />
+    </div> : null}
     {choice === 'template' ? <>
       {observed.loading ? <p role="status">正在读取推文观察库样式</p> : observed.error ? <p role="alert">{observed.error}</p>
         : !observed.templates.length ? <p>推文观察库暂无可用的标题样式</p> : null}
@@ -118,7 +125,7 @@ export default function WechatLayoutPanel({ confirmed, current, storageKey, onBa
         return <button type="button" key={item.id} aria-pressed={template === item.id} onClick={() => { setTemplate(item.id); setSelectedAssets([]); }}>
           <div className="wechat-template-sample" dangerouslySetInnerHTML={{ __html: sample }} />
           <div className="wechat-template-lines" aria-hidden="true"><i /><i /><i /></div>
-          <span>{item.name}</span><small>{item.count > 1 ? `系列 · ${item.count} 篇 · ${item.sourceTitle}` : '北京中关村学院 · 推文观察库'}</small>
+          <span>{item.name}</span><small>{item.count > 1 ? `系列 · ${item.count} 篇 · ${item.sourceTitle}` : '北京中关村学院 · 推文观察库'}{item.imageGroup ? ` · ${item.imageGroup.columns === 2 ? '双列' : '三列'}组图` : ''}</small>
         </button>;
       })}
     </div>
@@ -146,7 +153,7 @@ export default function WechatLayoutPanel({ confirmed, current, storageKey, onBa
     {error ? <p className="news-input-error" role="alert">{error}</p> : null}
     <div className="wechat-layout-actions"><Button size="small" theme="borderless" icon={<IconChevronLeft />} onClick={onBack}>返回内容稿</Button>
       {pending && error ? <Button disabled={submitting} onClick={() => submit(pending)}>重试同一任务</Button> : null}
-      {choice === 'template' ? <Button type="primary" disabled={!current || Boolean(pending) || !templateConfig} onClick={() => onApply(confirmed, templateLayout(confirmed.source, templateConfig), observed.library,
+      {choice === 'template' ? <Button type="primary" disabled={!current || Boolean(pending) || !templateConfig} onClick={() => onApply(confirmed, { ...templateLayout(confirmed.source, templateConfig), imageLayout }, observed.library,
         (selectedTemplate.brandCandidates || []).filter(asset => selectedAssets.includes(asset.id)), templateConfig.imageCard)}>应用模板，生成排版稿</Button>
         : <Button type="primary" icon={<IconSparkleAI />} disabled={!current || !brief.trim() || Boolean(pending) || submitting} onClick={run}>AI 自动排版</Button>}
     </div>

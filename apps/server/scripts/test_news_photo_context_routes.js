@@ -63,6 +63,7 @@ test('preview, generate and batch send authorized authoritative context even for
     assert.equal(result.statusCode, 200); containsContext(result.body.assembledPrompt);
     assert.equal((await submit(news, '/generate', { ...material, fullPrompt })).statusCode, 202);
     containsContext(jobs.at(-1)[5]);
+    assert.deepEqual(JSON.parse(jobs.at(-1)[6]).selectedPhotos.map(p => p.id), [1]);
   }
   assert.equal((await submit(news, '/generate/batch', material)).statusCode, 202);
   containsContext(jobs.at(-1)[5]);

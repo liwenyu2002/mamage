@@ -325,6 +325,7 @@ router.post('/generate', requirePermission('ai.generate'), async (req, res) => {
 
     prompt += photoContextPrompt(photoContext);
     if (prompt.length > MAX_FULLPROMPT_CHARS) return res.status(413).json({ code: 4135, message: '素材总量过长，请精简后提交' });
+    options.selectedPhotos = selectedPhotos.map(photo => ({ id: photo.id, photographerId: photo.photographerId || null }));
     const [insertResult] = await pool.query(
       'INSERT INTO ai_jobs (user_id, project_id, unit_id, status, model, prompt_text, options, client_request_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())',
       [req.user && req.user.id ? req.user.id : null, projectId, workspace.enabled ? workspace.unitId : null,

@@ -39,7 +39,8 @@ import { getProjectById, updateProject, deleteProject, createTimelineSection, up
 import { canEditMetadata } from './utils/metadataEditPermissions';
 import { getToken } from './services/authService';
 import { fetchRandomByProject, searchPhotos, getPhotoById, getPhotoPersonObservations, updatePhoto, assignPhotosTimelineSection, getFacePersonInfo, getFaceAvatar, getFacePersonPhotos, labelFacePerson, renameFacePerson, uploadPhotoFiles, warmUploadApiProbe, deletePhotos, getPhotoFaces, getUploadFileLimitError, FRONTEND_MAX_VIDEO_UPLOAD_TEXT, runGroupRescueJob, isBrowserUndisplayableImage, isNeverBrowserPreviewable, undisplayableFormatLabel, getPersonFaces, previewPersonSplit, splitPerson } from './services/photoService';
-import { resolveAssetUrl, BASE_URL } from './services/request';
+import { resolveAssetUrl, BASE_URL, request } from './services/request';
+import { hydrateSimilarityPhotos } from './services/similarityPhotos';
 import { findProjectPreviewIndex } from './utils/projectPreviewPhotos';
 import { buildPhotoFocusUrl, readPhotoFocusIntent, consumePhotoFocusIntent, focusPhotoCard } from './utils/photoFocus';
 import { getDirectMediaUrl, downloadOriginalMedia } from './services/directStorage';
@@ -879,6 +880,12 @@ function ProjectDetail({
   const [simSelectedMap, setSimSelectedMap] = React.useState({}); // id -> true
   const [simSelectedCount, setSimSelectedCount] = React.useState(0);
   const [simDeleting, setSimDeleting] = React.useState(false);
+  const simRequestRef = React.useRef(null);
+  React.useEffect(() => {
+    setSimGroups(null); setSimPhotos({}); setSimError(null); setSimLoading(false);
+    setSimSelectedMap({}); setSimSelectedCount(0); setSimModalVisible(false);
+    return () => { simRequestRef.current?.controller.abort(); simRequestRef.current = null; };
+  }, [projectId, readOnly, currentUser?.id, shareUnitId]);
   // 合影救场（查看器入口）状态机：null | { phase: 'loading'|'pick'|'running'|'done'|'noop'|'failed'|'nogroup', ... }
   const [viewerRescue, setViewerRescue] = React.useState(null);
   const [isMobile, setIsMobile] = React.useState(() => (typeof window !== 'undefined' ? window.innerWidth <= 768 : false));
@@ -4673,55 +4680,40 @@ function ProjectDetail({
     }
   }, [viewerIndex, viewerEditTags, viewerEditTagInput, viewerEditDescription, viewerEditSaving, photoMetas, canEditItem]);
 
-  // 打开 / 关闭 鐩镐技鍒嗙粍寮圭獥骞跺姞杞芥暟鎹?
-  // 相似分组加载（弹窗与查看器合影救场共用）：返回 {groups, photos}，缓存命中直接回吐 state
+  // Revalidate membership on reopen; the server reuses grouping by data revision.
   const loadSimGroups = React.useCallback(async () => {
     if (!projectId) return { groups: [], photos: {} };
-    if (simGroups !== null) return { groups: simGroups, photos: simPhotos };
-    setSimLoading(true);
+    if (simRequestRef.current) return simRequestRef.current.promise;
+    const controller = new AbortController();
+    const active = { controller, promise: null };
+    simRequestRef.current = active;
+    const timeout = setTimeout(() => { active.timedOut = true; controller.abort(); }, 90000);
+    setSimLoading(simGroups === null);
     setSimError(null);
+    active.promise = (async () => {
     try {
-      const token = getToken && typeof getToken === 'function' ? getToken() : null;
-      const headers = token ? { Authorization: 'Bearer ' + token } : {};
       const url = `/api/similarity/groups/simple?projectId=${projectId}${readOnly ? '&demo=1' : ''}`;
-      const r = await fetch(url, { headers });
-      const data = await r.json().catch(() => ({}));
-      const groups = data && Array.isArray(data.groups) ? data.groups : [];
-      setSimGroups(groups);
-      const ids = Array.from(new Set((groups || []).flat()));
-      let map = {};
-      if (ids.length) {
-        if (readOnly) {
-          const wanted = new Set(ids.map((x) => String(x)));
-          (photoMetas || []).forEach((m) => {
-            if (!m) return;
-            const pid = m.id || m.photoId || m.photo_id;
-            const sid = pid !== undefined && pid !== null ? String(pid) : '';
-            if (!sid || !wanted.has(sid)) return;
-            map[sid] = {
-              id: sid,
-              title: m.title || m.name || `#${sid}`,
-              thumbUrl: m.thumbSrc || m.thumbUrl || m.thumbnail || m.thumb || m.url || '',
-              url: m.originalSrc || m.url || m.thumbSrc || '',
-              projectId,
-            };
-          });
-        } else {
-          const metas = await Promise.all(ids.map(id => fetch(`/api/photos/${id}`, { headers }).then(rr => rr.ok ? rr.json() : null).catch(() => null)));
-          ids.forEach((id, i) => { if (metas[i]) map[id] = metas[i]; });
-        }
-      }
-      setSimPhotos(map);
+      const data = await request(url, { signal: controller.signal });
+      if (!Array.isArray(data?.groups) || data.groups.some(group => !Array.isArray(group))) throw Error('分组数据不完整，请重试');
+      const groups = data.groups;
+      const map = await hydrateSimilarityPhotos(groups, photoMetas,
+        id => request(`/api/photos/${id}`, { signal: controller.signal }), { readOnly, signal: controller.signal });
+      if (controller.signal.aborted) return { groups: [], photos: {} };
+      setSimGroups(groups); setSimPhotos(map);
       return { groups, photos: map };
     } catch (e) {
-      console.error('load similarity groups error', e);
-      setSimError('加载失败，请重试');
-      setSimGroups([]);
+      if (!controller.signal.aborted || (active.timedOut && simRequestRef.current === active)) {
+        setSimError(e.message || '加载失败，请重试');
+        setSimGroups(null); setSimPhotos({});
+      }
       return { groups: [], photos: {} };
     } finally {
-      setSimLoading(false);
+      clearTimeout(timeout);
+      if (simRequestRef.current === active) { simRequestRef.current = null; setSimLoading(false); }
     }
-  }, [projectId, simGroups, simPhotos, readOnly, photoMetas]);
+    })();
+    return active.promise;
+  }, [projectId, simGroups, readOnly, photoMetas]);
 
   const openSimilarityModal = React.useCallback(() => {
     if (!projectId) return;
@@ -6118,11 +6110,12 @@ function ProjectDetail({
             ) : null}
             {simLoading ? (
               <div className="similarity-state">
-                <Spin tip="正在分析相似照片" />
+                <Spin tip="正在加载相似照片" />
               </div>
             ) : simError ? (
               <div className="similarity-state">
                 <Text type="danger">{simError}</Text>
+                <Button onClick={loadSimGroups}>重试</Button>
               </div>
             ) : (simGroups && simGroups.length) ? (
               <div className="similarity-list">

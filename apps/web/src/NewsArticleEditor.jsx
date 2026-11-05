@@ -6,7 +6,7 @@ import { baseKeymap, splitBlockAs } from 'prosemirror-commands';
 import { keymap } from 'prosemirror-keymap';
 import 'prosemirror-view/style/prosemirror.css';
 import { TextArea } from './ui';
-import { editorDocument, editorMarkdown, editorSelection, setEditorBlockStyle, newsEditorSchema as schema } from './utils/newsEditorModel';
+import { editorDocument, editorMarkdown, editorSelection, setEditorBlockStyle, editorPhotoGroups, changeEditorImageGroup, newsEditorSchema as schema } from './utils/newsEditorModel';
 import NewsPhotoPicker from './NewsPhotoPicker';
 import NewsBlockControls from './NewsBlockControls';
 
@@ -62,12 +62,41 @@ export default function NewsArticleEditor({ markdown, onChange, title, onChangeT
       attributes: { class: 'news-edit-document', 'aria-label': '内容稿正文', spellcheck: 'false' },
       decorations: state => {
         const decorations = []; let paragraph = 0, index = 0, titleFound = false;
+        const groups = editorPhotoGroups(state.doc), cells = new Map();
+        groups.forEach((group, groupIndex) => {
+          const columns = Math.min(group.columns, group.items.length);
+          group.items.forEach((item, i) => cells.set(item.pos, { columns, start: i === 0, id: group.id }));
+          if (!group.id) return;
+          decorations.push(Decoration.widget(group.items[0].pos, () => {
+            const header = document.createElement('div'); header.className = 'news-edit-gallery-header'; header.contentEditable = 'false';
+            header.setAttribute('role', 'group'); header.setAttribute('aria-label', `组图 ${groupIndex + 1}`);
+            const label = document.createElement('span'); label.textContent = `组图 ${groupIndex + 1} · ${group.items.length} 张`; header.append(label);
+            const modes = document.createElement('div'); modes.className = 'news-edit-gallery-columns'; header.append(modes);
+            const button = (parent, text, action, value) => {
+              const element = document.createElement('button'); element.type = 'button'; element.textContent = text;
+              if (action === 'columns') element.setAttribute('aria-pressed', String(group.columns === value));
+              element.addEventListener('pointerdown', event => event.preventDefault());
+              element.addEventListener('click', () => {
+                const current = view.current; if (!current || current.state.doc !== state.doc) return;
+                const transaction = changeEditorImageGroup(current.state, group.items[0].pos, action, value);
+                if (transaction) current.dispatch(transaction);
+              });
+              parent.append(element);
+            };
+            [1, 2, 3].forEach(value => button(modes, ['单列', '双列', '三列'][value - 1], 'columns', value));
+            const next = groups[groupIndex + 1], last = group.items.at(-1);
+            if (next && next.items[0].pos === last.pos + last.node.nodeSize) button(header, '合并下一组', 'mergeNext');
+            return header;
+          }, { side: -1, stopEvent: () => true, ignoreSelection: true }));
+        });
         state.doc.forEach((node, pos) => {
           const label = node.type.name === 'heading' ? node.attrs.depth === 1 && !titleFound ? '稿件标题' : ['', '一级标题', '二级标题', '三级标题'][node.attrs.depth] || '小标题' : node.type.name === 'photo' ? '图片说明' : `正文段落 ${++paragraph}`;
           if (node.type.name === 'heading' && node.attrs.depth === 1) titleFound = true;
           decorations.push(Decoration.node(pos, pos + node.nodeSize, { 'data-news-index': String(index++), ...(node.type.name !== 'photo' ? {
             role: 'textbox', 'aria-label': label, 'aria-multiline': 'true',
-          } : { 'data-caption-empty': node.textContent.trim() ? 'false' : 'true', 'data-caption-editing': captionEditing.current === pos ? 'true' : 'false' }) }));
+          } : { 'data-caption-empty': node.textContent.trim() ? 'false' : 'true', 'data-caption-editing': captionEditing.current === pos ? 'true' : 'false',
+            'data-gallery-id': cells.get(pos)?.id || '', 'data-gallery-columns': String(cells.get(pos)?.columns || 1),
+            style: `grid-column: span ${6 / (cells.get(pos)?.columns || 1)};` }) }));
         });
         const snapshot = highlighted.current, range = snapshot?.editorRange;
         if (range && Number.isInteger(range.from) && Number.isInteger(range.to) && range.from < range.to
@@ -178,6 +207,10 @@ export default function NewsArticleEditor({ markdown, onChange, title, onChangeT
     const node = editor.state.doc.nodeAt(target.pos); if (!node?.isBlock) return;
     if (action === 'insertBefore' || action === 'insertAfter') { insert(target.pos + (action === 'insertAfter' ? node.nodeSize : 0)); return; }
     if (action === 'photo') { setPicking({ pos: target.pos + node.nodeSize, doc: editor.state.doc }); return; }
+    if (['splitBefore', 'splitAfter', 'mergeNext'].includes(action)) {
+      const transaction = changeEditorImageGroup(editor.state, target.pos, action);
+      if (transaction) editor.dispatch(transaction); return;
+    }
     if (action === 'addCaption' && node.type.name === 'photo') {
       captionEditing.current = target.pos;
       editor.dispatch(editor.state.tr.setSelection(TextSelection.create(editor.state.doc, target.pos + 1)).scrollIntoView()); editor.focus(); return;
@@ -219,7 +252,9 @@ export default function NewsArticleEditor({ markdown, onChange, title, onChangeT
       if (picking.doc !== editor.state.doc) { setInsertError('正文已变化，请重新选择插入位置'); setPicking(null); return; }
       const existing = new Set(); editor.state.doc.forEach(node => { if (node.type.name === 'photo') existing.add(node.attrs.href); });
       const added = photos.filter(photo => !existing.has(photo.url || photo.thumbUrl)).slice(0, Math.max(0, 30 - existing.size));
-      const nodes = added.filter(photo => /^(https?:\/\/|\/[^/])/.test(photo.url || photo.thumbUrl || '')).map(photo => schema.nodes.photo.create({ href: photo.url || photo.thumbUrl }));
+      const galleryId = added.length > 1 ? `group-${Date.now()}-${Math.random().toString(36).slice(2, 10)}` : null;
+      const nodes = added.filter(photo => /^(https?:\/\/|\/[^/])/.test(photo.url || photo.thumbUrl || '')).map(photo => schema.nodes.photo.create({ href: photo.url || photo.thumbUrl,
+        galleryId, galleryColumns: added.length >= 6 ? 3 : added.length > 1 ? 2 : 1 }));
       if (nodes.length) { insert(picking.pos, nodes); onPhotosAdded?.(added); } setPicking(null);
     }} /> : null}
   </div>;

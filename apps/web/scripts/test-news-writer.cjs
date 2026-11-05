@@ -24,16 +24,249 @@ const { newsDraftKey, importLegacyNewsDraft, formatNewsDate, archiveNewsContent,
 const { pollNewsBatch } = load('src/services/newsBatchPolling.js');
 const { normalizeNewsPhoto, mergeNewsPhotos, newsAlbumDefaults } = load('src/utils/newsPhotoSelection.js');
 const { wechatDraftKey, wechatAiDraftKey, wechatImportKey, hasWechatDraft } = load('src/utils/wechatDraftState.js');
-const { articleBlocks, changeArticleBlock, articleBodyMarkdown } = load('src/utils/newsArticle.js');
-const { freezeContent, materializeLayout, templateLayout, contentSignature, workflowKey, addObservedBrandAssets } = load('src/utils/wechatWorkflow.js');
+const { articleBlocks, changeArticleBlock, articleBodyMarkdown, withoutImageGroupMarkers } = load('src/utils/newsArticle.js');
+const { freezeContent, materializeLayout, templateLayout, contentSignature, workflowKey, addObservedBrandAssets, normalizeLayoutLibrary } = load('src/utils/wechatWorkflow.js');
 const { revisionSource, revisionPhotoReferences, applyRevision, revisionTarget, contextualRevisionTarget, revisionContinuation, REVISION_ACTIONS } = load('src/utils/newsRevision.js');
 const { sourceRanges, floatingPosition } = load('src/utils/newsEditorSelection.js');
-const { editorDocument, editorMarkdown, editorSelection } = load('src/utils/newsEditorModel.js');
+const { editorDocument, editorMarkdown, editorSelection, editorPhotoGroups, changeEditorImageGroup } = load('src/utils/newsEditorModel.js');
+const { imageGroupMarker, parseImageGroupMarker } = load('src/utils/newsImageGroups.js');
+const { EditorState, TextSelection } = require('prosemirror-state');
 const { THEME_PRESETS } = load('src/wechat/themes.js');
 const { docToHtmlRaw } = load('src/wechat/docModel.js');
+const { imageRuns, setImageRunColumns } = load('src/wechat/imageGroups.js');
+const { GALLERY_STYLES, galleryLayoutTree } = load('src/wechat/galleryStyles.js');
+const { replaceBlockStyle, styleDropBlock } = load('src/wechat/styleReplacement.js');
+const { hydrateSimilarityPhotos } = load('src/services/similarityPhotos.js');
 const { missingRequiredFields } = load('src/utils/wechatRequiredFields.js');
 const { referenceFindings } = load('src/utils/wechatReferences.js');
 const { referenceText, usedReferenceSnapshot } = require('../../server/lib/news_reference_provenance');
+
+test('observed templates preserve all photos and captions through replacement, export and reload', () => {
+  const { templateFromSource } = require('../../server/lib/wechat_observed_gallery_templates');
+  const style = templateFromSource('<section style="display:flex;gap:7px"><img style="width:40%" src="https://mmbiz.qpic.cn/a"><img style="width:60%" src="https://mmbiz.qpic.cn/b"></section>',
+    { id: 1, current_revision_id: 2, title: '原文', source_url: 'https://mp.weixin.qq.com/s/a' }, 'columns');
+  for (let count = 2; count <= 30; count++) {
+    const doc = Array.from({ length: count }, (_, i) => ({ uid: `p${i}`, kind: 'styled', type: 'imageCard',
+      galleryId: 'g', src: `/photos/${i}.jpg`, caption: `图题${i}` }));
+    const changed = replaceBlockStyle(doc, 'p0', style);
+    assert.equal(changed.error, '');
+    const restored = JSON.parse(JSON.stringify(changed.doc));
+    assert.equal(imageRuns(restored).length, 1);
+    assert.equal(imageRuns(restored)[0].template.htmlTemplate, style.htmlTemplate);
+    const exported = docToHtmlRaw(restored);
+    assert.equal(exported.imageCount, count);
+    for (const photo of doc) { assert(exported.html.includes(photo.src)); assert(exported.html.includes(photo.caption)); }
+    assert.doesNotMatch(exported.html, /qpic|\{\{photo_/);
+    assert.match(exported.html, /gap:7px/);
+    assert(setImageRunColumns(restored, 'p0', 2).every(block => !block.galleryTemplate));
+  }
+});
+
+test('complex gallery styles preserve all slots, order and adjacent group boundaries for 2 to 30 photos', () => {
+  for (const style of GALLERY_STYLES) for (let count = 2; count <= 30; count++) {
+    const tree = galleryLayoutTree(style.id, count), leaves = [];
+    const visit = node => node.children ? node.children.forEach(visit) : Number.isInteger(node.index) && leaves.push(node.index);
+    visit(tree); assert.deepEqual(leaves, Array.from({ length: count }, (_, i) => i));
+    const photos = Array.from({ length: count }, (_, i) => ({ kind: 'styled', type: 'imageCard', uid: `image-${i}`,
+      src: `/image-${i}.jpg`, caption: `图题 ${i}`, galleryId: 'group-a', galleryColumns: 2 }));
+    const other = { ...photos[0], uid: 'other', galleryId: 'group-b', src: '/other.jpg' };
+    const result = replaceBlockStyle([...photos, other], 'image-0', style);
+    assert.equal(result.error, ''); assert(result.changed);
+    assert.equal(result.doc.at(-1), other);
+    assert.deepEqual(result.doc.slice(0, count).map(({ galleryStyle, ...item }) => item), photos);
+    assert.equal(imageRuns(result.doc).length, 2);
+    const exported = docToHtmlRaw(result.doc);
+    assert.equal(exported.imageCount, count + 1);
+    assert.equal((exported.html.match(/data-gallery-style=/g) || []).length, 1);
+    let offset = -1;
+    for (const photo of photos) { const next = exported.html.indexOf(`src="${photo.src}"`); assert(next > offset); offset = next; }
+    assert.equal(replaceBlockStyle(result.doc, 'image-1', style).changed, false);
+    const simple = setImageRunColumns(result.doc, 'image-0', 3);
+    assert(simple.slice(0, count).every(item => item.galleryStyle === null && item.galleryColumns === 3));
+    assert.equal(simple.at(-1), other);
+  }
+  assert(replaceBlockStyle([{ uid: 'single', kind: 'styled', type: 'imageCard', src: '/1.jpg' }], 'single', GALLERY_STYLES[0]).error);
+});
+
+test('style replacement changes only blockId, preserves all content and is undoable in one step', () => {
+  const { createHistory } = load('src/wechat/docModel.js');
+  const original = [{ uid: 'text', kind: 'para', html: '<strong>原文</strong><br>第二行', spacing: { marginTop: 8 } },
+    { uid: 'image', kind: 'styled', type: 'imageCard', blockId: 'old', src: '/photo.jpg', caption: '原图题',
+      galleryColumns: 2, galleryInsetPercent: 3, photoId: 3, imgStyle: { radius: 8 } }];
+  const before = JSON.stringify(original);
+  const imageStyle = { id: 'new-image', type: 'imageCard', htmlTemplate: '<img src="{{src}}"><p>{{caption}}</p>' };
+  const result = replaceBlockStyle(original, 'image', imageStyle);
+  assert(result.changed); assert.equal(result.error, '');
+  assert.deepEqual(result.doc[1], { ...original[1], blockId: 'new-image' });
+  assert.equal(result.doc[0], original[0]); assert.equal(JSON.stringify(original), before);
+  const history = createHistory(original); history.push(result.doc);
+  assert.deepEqual(history.undo(), original);
+  const body = replaceBlockStyle(original, 'text', { id: 'body2', type: 'body', htmlTemplate: '<blockquote>{{content}}</blockquote>' });
+  assert.deepEqual(body.doc[0], { ...original[0], blockId: 'body2' });
+  assert.equal(replaceBlockStyle(result.doc, 'image', imageStyle).changed, false);
+});
+
+test('style replacement rejects wrong types, disappearing blocks/styles and missing content slots', () => {
+  const text = { uid: 't', kind: 'styled', type: 'h2', content: '原题', headingLevel: 1 };
+  const style = { id: 'h2-new', type: 'h2', htmlTemplate: '<h2>{{content}}</h2>' };
+  const doc = [text, { uid: 'raw', kind: 'raw', html: '<p>原文</p>' },
+    { uid: 'photo', kind: 'styled', type: 'imageCard', src: '/a.jpg', caption: '保留图题' }];
+  assert.equal(replaceBlockStyle(doc, 't', style).doc[0].headingLevel, 1);
+  for (const [uid, candidate] of [['missing', style], ['t', null], ['raw', style], ['photo', style],
+    ['t', { ...style, htmlTemplate: '<h2>固定文字</h2>' }],
+    ['photo', { id: 'img', type: 'imageCard', htmlTemplate: '<img src="{{src}}">' }]]) {
+    const result = replaceBlockStyle(doc, uid, candidate);
+    assert(result.error); assert.equal(result.changed, false); assert.equal(result.doc, doc);
+  }
+});
+
+test('style drag targets block interiors, leaving edges and gaps available for insertion', () => {
+  const element = (uid, left, top, width, height) => ({ getAttribute: () => uid,
+    getBoundingClientRect: () => ({ left, top, width, height, right: left + width, bottom: top + height }) });
+  const elements = [element('left', 0, 10, 100, 100), element('right', 108, 10, 100, 100)];
+  assert.equal(styleDropBlock({ x: 150, y: 55 }, elements).uid, 'right');
+  assert.equal(styleDropBlock({ x: 104, y: 55 }, elements), null);
+  assert.equal(styleDropBlock({ x: 50, y: 12 }, elements), null);
+  assert.equal(styleDropBlock({ x: 50, y: 125 }, elements), null);
+  assert.equal(styleDropBlock({ x: 50, y: 20 }, [element('short', 0, 10, 100, 20)]).uid, 'short');
+});
+
+test('similarity view reuses album photos including deletion ownership and AI scores', async () => {
+  let calls = 0;
+  const photos = await hydrateSimilarityPhotos([[1, 2], [2, 3]], [1, 2, 3].map(id => ({ id,
+    uploaderId: 12, aiScore: 80, thumbSrc: `/thumb/${id}`, originalSrc: `/photo/${id}` })), async () => { calls++; });
+  assert.equal(calls, 0); assert.equal(Object.keys(photos).length, 3);
+  assert.equal(photos[1].uploaderId, 12); assert.equal(photos[1].aiScore, 80);
+  assert.equal(photos[1].thumbUrl, '/thumb/1'); assert.equal(photos[1].url, '/photo/1');
+});
+test('similarity metadata requests are bounded, read-only never fetches missing photos, failures remain retryable', async () => {
+  let active = 0, peak = 0, calls = 0;
+  const fetchPhoto = async id => {
+    calls++; active++; peak = Math.max(peak, active);
+    await new Promise(resolve => setTimeout(resolve, 1)); active--;
+    return { id };
+  };
+  const groups = [Array.from({ length: 20 }, (_, i) => i + 1)];
+  assert.equal(Object.keys(await hydrateSimilarityPhotos(groups, [], fetchPhoto)).length, 20);
+  assert.equal(peak, 4); assert.equal(calls, 20);
+  assert.deepEqual(await hydrateSimilarityPhotos(groups, [], fetchPhoto, { readOnly: true }), {});
+  assert.equal(calls, 20);
+  await assert.rejects(hydrateSimilarityPhotos([[1]], [], async () => { throw Object.assign(Error('denied'), { status: 403 }); }), /denied/);
+  assert.deepEqual(await hydrateSimilarityPhotos([[1]], [], async () => { throw Object.assign(Error('gone'), { status: 404 }); }), {});
+  const controller = new AbortController(); controller.abort();
+  await assert.rejects(hydrateSimilarityPhotos(groups, [], fetchPhoto, { signal: controller.signal }), { name: 'AbortError' });
+});
+
+test('30 selected images keep order, captions and URLs through confirmation, grouped layout, export and backups', () => {
+  const photos = Array.from({ length: 30 }, (_, i) => ({ id: i + 1, url: `/media/photo-${i + 1}.jpg` }));
+  const markdown = '# 多图活动\n\n活动现场。\n\n' + photos.map(p => `![图题 ${p.id}](${p.url})`).join('\n\n') + '\n\n终审：待填写';
+  const confirmed = freezeContent({ title: '多图活动', markdown, photos });
+  const original = JSON.stringify(confirmed);
+  for (const imageLayout of ['auto', 'single', 'pair', 'triple']) {
+    const result = materializeLayout(confirmed, { ...templateLayout(confirmed.source, THEME_PRESETS.minimal), imageLayout });
+    const restored = JSON.parse(JSON.stringify(result));
+    const images = restored.doc.filter(b => b.type === 'imageCard');
+    assert.deepEqual(images.map(b => b.src), photos.map(p => p.url));
+    assert.deepEqual(images.map(b => b.caption), photos.map(p => `图题 ${p.id}`));
+    const { html, imageCount } = docToHtmlRaw(restored.doc);
+    assert.equal(imageCount, 30); assert.equal((html.match(/<img\b/g) || []).length, 30);
+    for (const photo of photos) assert(html.includes(photo.url));
+    assert.equal(imageRuns(restored.doc).filter(run => run.columns > 1).length, imageLayout === 'single' ? 0 : 1);
+    const two = setImageRunColumns(restored.doc, images[4].uid, 2);
+    assert.equal(imageRuns(two).find(run => run.columns > 1).columns, 2);
+    const removed = two.filter(block => block.uid !== images[4].uid);
+    assert.equal(docToHtmlRaw(removed).imageCount, 29, 'intentional deletion must not restore photos');
+  }
+  assert.equal(JSON.stringify(confirmed), original, 'presentation cannot rewrite confirmed content');
+});
+
+test('content grouping precedes observed styles, retaining their insets and source but not overriding content columns', () => {
+  const confirmed = freezeContent({ title: '现场', markdown: '现场记录。\n\n' + Array.from({ length: 12 }, (_, i) => `![图题 ${i}](/img/${i}.jpg)`).join('\n\n') });
+  const imageGroup = { columns: 2, insetPercent: 3, articleId: 12, revisionId: 12, sourceTitle: '论坛' };
+  const { buildObservedLibrary } = require('../../server/lib/wechat_observed_styles');
+  const extracted = buildObservedLibrary([{ id: 12, current_revision_id: 12, title: '论坛', published_at: 1,
+    style_blocks: [{ type: 'h2', htmlTemplate: '<strong>{{content}}</strong>' }, { type: 'imageCard', htmlTemplate: '<img src="{{src}}">' }] }], []);
+  const library = normalizeLayoutLibrary(extracted.blocks.map(block => ({ ...block, imageGroup })));
+  const config = { ...THEME_PRESETS.minimal, imageCard: extracted.templates[0].styleIds.imageCard, imageGroup };
+  const result = materializeLayout(confirmed, templateLayout(confirmed.source, config), library);
+  const restored = JSON.parse(JSON.stringify(result));
+  assert.deepEqual(restored.sourceDocument.imageGroupReference, imageGroup);
+  const run = imageRuns(restored.doc).find(item => item.columns > 1);
+  assert.equal(run.columns, 3); assert.equal(run.insetPercent, 3);
+  const html = docToHtmlRaw(restored.doc, { blocksById: restored.sourceDocument.styleBlocks }).html;
+  assert.match(html, /width:33.333333333333336%;padding:0 1%/);
+  for (let i = 0; i < 12; i++) assert(html.includes(`图题 ${i}`));
+  const forced = materializeLayout(confirmed, { ...templateLayout(confirmed.source, config), imageLayout: 'triple' }, library);
+  assert.equal(imageRuns(forced.doc).find(item => item.columns > 1).columns, 3);
+  assert.equal(forced.sourceDocument.imageGroupReference, undefined);
+  const aiPlan = templateLayout(confirmed.source, { ...config, imageGroup: null });
+  assert.equal(imageRuns(materializeLayout(confirmed, aiPlan, library).doc).find(item => item.columns > 1).columns, 3,
+    'AI-selected styles cannot regroup the content draft');
+});
+
+const galleryArticle = () => '# 多图内容稿\n\n现场记录\n\n' + Array.from({ length: 6 }, (_, i) => `![图题 ${i + 1}](/photo/${i + 1}.jpg)`).join('\n\n') + '\n\n摄影：甲';
+test('content drafts render groups before styling and two adjacent groups survive reload, AI revision, backup and export', () => {
+  let state = EditorState.create({ doc: editorDocument(galleryArticle()) });
+  assert.deepEqual(editorPhotoGroups(state.doc).map(group => [group.items.length, group.columns]), [[6, 3]]);
+  state = state.apply(changeEditorImageGroup(state, editorPhotoGroups(state.doc)[0].items[2].pos, 'splitAfter'));
+  const markdown = editorMarkdown(state.doc).markdown;
+  assert.equal(withoutImageGroupMarkers(markdown), galleryArticle(), 'metadata does not enter copied text or word counts');
+  assert.deepEqual(editorPhotoGroups(editorDocument(markdown)).map(group => group.items.length), [3, 3]);
+  assert.equal(articleBlocks(markdown).filter(block => block.type !== 'space').length, 9, 'metadata is not a content block');
+  const article = { title: '多图内容稿', markdown };
+  const source = revisionSource(article);
+  const revised = applyRevision(article, { title: article.title, blocks: source.blocks.map(block => ({ ...block, text: block.type === 'image' ? `${block.text}更新` : block.text })) });
+  assert.deepEqual(editorPhotoGroups(editorDocument(revised.markdown)).map(group => group.items.length), [3, 3]);
+  const confirmed = freezeContent(revised);
+  for (const imageLayout of ['auto', 'pair', 'triple', 'single']) {
+    const layout = JSON.parse(JSON.stringify(materializeLayout(confirmed, { ...templateLayout(confirmed.source, THEME_PRESETS.minimal), imageLayout })));
+    const images = layout.doc.filter(block => block.type === 'imageCard');
+    assert.equal(new Set(images.map(block => block.galleryId)).size, 2);
+    assert.deepEqual(images.map(block => block.src), Array.from({ length: 6 }, (_, i) => `/photo/${i + 1}.jpg`));
+    if (imageLayout !== 'single') assert.deepEqual(imageRuns(layout.doc).filter(run => run.columns > 1).map(run => run.items.length), [3, 3]);
+    const html = docToHtmlRaw(layout.doc).html;
+    assert.equal((html.match(/<img\b/g) || []).length, 6);
+    assert(!html.includes('mamage-image-group'));
+    const updated = setImageRunColumns(layout.doc, images[0].uid, 2);
+    assert.equal(updated.find(block => block.uid === images[3].uid).galleryColumns, images[3].galleryColumns, 'changing one group cannot affect its adjacent neighbor');
+  }
+});
+
+test('splitting, merging and changing columns are reversible single edits and never cross text', () => {
+  let state = EditorState.create({ doc: editorDocument(galleryArticle()) });
+  const original = editorMarkdown(state.doc).markdown;
+  let content = { markdownText: original };
+  const edit = (pos, action, value) => {
+    state = state.apply(changeEditorImageGroup(state, pos, action, value));
+    content = recordNewsEdit(content, { ...content, markdownText: editorMarkdown(state.doc).markdown });
+  };
+  edit(editorPhotoGroups(state.doc)[0].items[2].pos, 'splitBefore');
+  assert.deepEqual(editorPhotoGroups(state.doc).map(group => group.items.length), [2, 4]);
+  edit(editorPhotoGroups(state.doc)[0].items[0].pos, 'columns', 1);
+  assert.deepEqual(editorPhotoGroups(editorDocument(content.markdownText)).map(group => group.columns), [1, 3]);
+  edit(editorPhotoGroups(state.doc)[0].items[0].pos, 'mergeNext');
+  assert.deepEqual(editorPhotoGroups(state.doc).map(group => [group.items.length, group.columns]), [[6, 1]]);
+  for (let i = 0; i < 3; i++) content = stepNewsEdit(content, 'undo');
+  assert.equal(content.markdownText, original);
+  state = EditorState.create({ doc: editorDocument('![a](/a.jpg)\n\n文字\n\n![b](/b.jpg)') });
+  assert.equal(changeEditorImageGroup(state, 0, 'mergeNext'), null);
+  assert.equal(changeEditorImageGroup(state, 0, 'splitBefore'), null);
+  assert.equal(changeEditorImageGroup(state, 0, 'splitAfter'), null);
+});
+
+test('group markers do not disrupt text or caption selection offsets and are validated', () => {
+  const doc = editorDocument(galleryArticle()), { markdown, entries } = editorMarkdown(doc);
+  const image = entries.find(entry => entry.node.type.name === 'photo');
+  const selection = editorSelection(doc, TextSelection.create(doc, image.pos + 1, image.pos + 3));
+  const block = revisionSource({ markdown }).blocks.find(item => item.uid === selection.uid);
+  assert.equal(block.type, 'image'); assert.equal(block.text.slice(selection.start, selection.end), '图题');
+  const last = entries.at(-1), text = editorSelection(doc, TextSelection.create(doc, last.pos + 1, last.pos + 3));
+  assert.equal(revisionSource({ markdown }).blocks.find(item => item.uid === text.uid).text.slice(text.start, text.end), '摄影');
+  const marker = imageGroupMarker({ galleryId: 'group-a', galleryColumns: 2 });
+  assert.deepEqual(parseImageGroupMarker(marker), { galleryId: 'group-a', galleryColumns: 2 });
+  assert.equal(parseImageGroupMarker('<!-- mamage-image-group {"galleryId":"<script>","galleryColumns":2} -->'), null);
+  assert.equal(imageGroupMarker({ galleryId: 'a', galleryColumns: 9 }), '');
+});
 
 test('single selection may expand within its sentence without crossing paragraphs or punctuation', () => {
   const source = { blocks: [{ uid: 'b-0', type: 'paragraph', text: '学校举办交流活动。第二句不应改变。' }] };

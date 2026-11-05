@@ -50,7 +50,10 @@ function redirectWithError(res, message) {
 // 前端用它决定是否渲染第三方登录按钮
 router.get('/providers', (req, res) => {
   const iam = require('../lib/iam_config').iamConfig();
-  res.json({ password: true, dingtalk: getConfig().enabled, iam: iam.loginReady, iamQr: iam.loginReady && iam.qrEnabled });
+  const oidc = require('../lib/oidc_config').oidcConfig();
+  res.json({ password: true, dingtalk: getConfig().enabled, iam: iam.loginReady, iamQr: iam.loginReady && iam.qrEnabled,
+    oidc: oidc.loginReady, oidcLabel: oidc.loginReady ? oidc.providerLabel : null,
+    oidcAutoStart: oidc.loginReady && oidc.autoStart });
 });
 
 router.get('/dingtalk/login', (req, res) => {

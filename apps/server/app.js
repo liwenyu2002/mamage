@@ -1,4 +1,4 @@
-﻿// backend/app.js锛堝畬鏁寸ず渚嬶級
+// backend/app.js锛堝畬鏁寸ず渚嬶級
 // Load local .env. Fill variables that PM2 may have injected as empty strings.
 try {
   const dotenvResult = require('dotenv').config();
@@ -179,6 +179,7 @@ app.use((req, res, next) => {
   next();
 });
 app.use('/api/auth/iam', require('./routes/auth_iam'));
+app.use('/api/auth/oidc', require('./routes/auth_oidc'));
 app.use('/api', require('./lib/iam_account_guard').bearerGuard(keys.JWT_SECRET));
 
 // ============ API 璺敱 ============

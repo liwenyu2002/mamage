@@ -19,7 +19,12 @@ export default function WechatWorkspace({ currentUser, workspaceId, initialMode 
   const draftKey = wechatAiDraftKey(currentUser?.id, workspaceId);
   const importKey = wechatImportKey(currentUser?.id, workspaceId);
   const stateKey = workflowKey(currentUser?.id, workspaceId);
-  const [initial] = React.useState(() => read(stateKey) || {});
+  const [initial] = React.useState(() => {
+    const workflow = read(stateKey) || {};
+    const savedDraft = read(draftKey);
+    // The composer saves before its parent snapshot, which may lag an immediate reload.
+    return hasWechatDraft(savedDraft) ? { ...workflow, styled: savedDraft } : workflow;
+  });
   const [mode, setMode] = React.useState(() => ['ai', 'library'].includes(initial.mode) ? initial.mode : initialMode);
   const [article, setArticle] = React.useState(() => {
     const draft = read(newsDraftKey(currentUser?.id, workspaceId));

@@ -1,6 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { safeObservedBlock, buildObservedLibrary, loadObservedStyleLibrary } = require('../lib/wechat_observed_styles');
+const { observedGalleries } = require('../lib/wechat_observed_gallery');
 
 const heading = { type: 'h2', name: '标题', htmlTemplate: '<section><strong>{{content}}</strong></section>' };
 const image = { type: 'imageCard', name: '图片', htmlTemplate: '<section><img src="{{src}}"><p>{{caption}}</p></section>' };
@@ -71,4 +72,44 @@ test('repeated trusted edge images across different days are candidates, not one
     'account-wide repeated images are offered for review to every template');
   two.published_at = one.published_at;
   assert.deepEqual(buildObservedLibrary([one, two], []).templates[0].brandCandidates, [], 'same-day repeats are insufficient');
+});
+
+const photoCell = (width, count = 1, innerWidth = '94%') => `<section style="width:${width}">${Array.from({ length: count }, () =>
+  `<section style="width:${innerWidth}"><img src="https://mmbiz.qpic.cn/photo/640" style="width:100%"></section>`).join('')}</section>`;
+
+test('learns equal photo columns and their insets with article/revision provenance, without copying content', () => {
+  const article = row(12, '12', [heading, image]);
+  article.blocks = [`<section style="display:flex;flex-flow:row">${photoCell('50%', 2)}${photoCell('50%', 2)}</section>`];
+  const [gallery] = observedGalleries(article);
+  assert.equal(gallery.columns, 2); assert.equal(gallery.insetPercent, 3);
+  assert.deepEqual(gallery.evidence.imageCounts, [2, 2]);
+  assert.equal(gallery.articleId, 12); assert.equal(gallery.revisionId, 22);
+  const library = buildObservedLibrary([article], []);
+  assert.deepEqual(library.templates[0].imageGroup, gallery);
+  assert.deepEqual(library.blocks.find(block => block.type === 'imageCard').imageGroup, gallery);
+  assert.doesNotMatch(JSON.stringify(gallery), /mmbiz|<section/);
+  article.blocks = [`<div style="display:flex">${photoCell('33.33%', 1, '100%').repeat(3)}</div>`];
+  assert.equal(observedGalleries(article)[0].columns, 3);
+  assert.equal(observedGalleries(article)[0].insetPercent, 0);
+});
+
+test('does not classify article wrappers, stacked photos, icons or SVG composites as galleries', () => {
+  const pair = `${photoCell('50%')}${photoCell('50%')}`;
+  for (const html of [
+    `<section>${pair}</section>`, `<section style="display:flex;flex-flow:column">${pair}</section>`,
+    `<section style="display:flex">${photoCell('100%', 3)}</section>`,
+    `<section style="display:flex">${photoCell('auto')}${photoCell('auto')}</section>`,
+    `<section style="display:flex">${pair}<svg></svg></section>`,
+    `<section style="display:flex">${pair.replace('<img', '<svg></svg><img')}</section>`,
+    `<section style="display:flex">${pair.replace('<img', '<p>正文事实</p><img')}</section>`,
+    `<section style="display:flex">${photoCell('50%', 1, '34px')}${photoCell('50%')}</section>`,
+    `<section style="display:flex;margin-top:-40px">${pair}</section>`,
+  ]) assert.deepEqual(observedGalleries({ blocks: [html] }), [], html);
+});
+
+test('photo-only observed styles gain optional captions and remain fluid', () => {
+  const html = safeObservedBlock({ type: 'imageCard', htmlTemplate: '<section><img src="{{src}}" style="width:640px;height:480px"></section>' });
+  assert.match(html, /\{\{#caption\}\}/); assert.match(html, /\{\{caption\}\}/);
+  assert.doesNotMatch(html, /640px|480px/);
+  assert.match(html, /height: auto/);
 });

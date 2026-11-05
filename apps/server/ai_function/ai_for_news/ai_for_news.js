@@ -4,6 +4,7 @@
 // - Otherwise fall back to the local mock implementation.
 
 const { OpenAI } = require('openai');
+const { completeSelectedPhotos } = require('../../lib/news_photo_coverage');
 
 function mockGenerate(prompt) {
   const title = (prompt.split('\n')[0] || '新闻标题').slice(0, 80);
@@ -167,7 +168,7 @@ async function generateFromPrompt({ prompt, options }) {
     const baseURL = process.env.AI_TEXT_BASE_URL || process.env.DASHSCOPE_BASE_URL || undefined;
     const client = new OpenAI({ apiKey, ...(baseURL ? { baseURL } : {}), maxRetries: 0 });
 
-    const systemPrompt = buildSystemPrompt(options);
+    const systemPrompt = buildSystemPrompt(options) + (options?.selectedPhotos?.length ? '\n所有已选图片都必须插入正文，每个 PHOTO:id 恰好一次，不得另选图片。相同环节的图片可以连续排列成组，穿插在对应段落后，署名之前；不得为了插图编造事实。图题不确定时留空。' : '');
 
     // 生成长度优先级：options.maxTokens（routes 侧按目标字数/照片数算出的建议值）
     // > 渠道模板 default_max_tokens（无渠道模板时按现状固定 1600）；显式请求值统一 clamp 防滥用。
@@ -294,6 +295,13 @@ async function generateFromPrompt({ prompt, options }) {
 
     if (!String(markdown || '').trim()) {
       throw new Error('模型未返回有效内容，请重试');
+    }
+
+    if (Array.isArray(options?.selectedPhotos)) {
+      const completed = completeSelectedPhotos(markdown, options.selectedPhotos);
+      markdown = completed.markdown;
+      placeholders.splice(0, placeholders.length, ...completed.placeholders);
+      extra = { ...extra, photoCoverage: completed.coverage };
     }
 
     // 优先采用模型认真生成的标题/副标题，缺失时才从正文首行硬算

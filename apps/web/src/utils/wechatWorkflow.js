@@ -1,6 +1,8 @@
 import { markdownToDoc, sanitizeParaHtml } from '../wechat/docModel';
 import { articleBodyMarkdown } from './newsArticle';
 import { BUILTIN_BLOCKS_BY_ID, THEME_PRESETS } from '../wechat/themes';
+import { arrangeImageGroups, normalizeImageGroup } from '../wechat/imageGroups';
+import { withDraftImageGroups, imageGroupMetadata } from './newsImageGroups';
 
 export function workflowKey(userId, workspaceId) {
   return userId ? `mamage.wechat.workflow.v1:${userId}:${workspaceId || 'legacy'}` : null;
@@ -8,13 +10,13 @@ export function workflowKey(userId, workspaceId) {
 export function contentSignature(article) { return JSON.stringify([article?.title || '', article?.markdown || '']); }
 export function freezeContent(article) {
   if (!article?.markdown?.trim()) throw Error('请先完成内容稿');
-  const doc = markdownToDoc(articleBodyMarkdown(article.markdown, article.title)).map(block => {
+  const doc = withDraftImageGroups(markdownToDoc(articleBodyMarkdown(article.markdown, article.title)).map(block => {
     if (block.kind === 'para') return { uid: block.uid, kind: 'para', type: 'body',
       html: sanitizeParaHtml(block.html).replace(/<\/?(?:span|u)\b[^>]*>/gi, '') };
     return { uid: block.uid, kind: 'styled', type: block.type, content: block.content || '',
       ...(block.headingLevel ? { headingLevel: block.headingLevel } : {}),
-      ...(block.type === 'imageCard' ? { src: block.src, caption: block.caption || '' } : {}) };
-  });
+      ...(block.type === 'imageCard' ? { src: block.src, caption: block.caption || '', ...imageGroupMetadata(block) } : {}) };
+  }), block => block.type === 'imageCard');
   if (!doc.length || doc.length > 120) throw Error('请将内容稿控制在 1 至 120 个内容块以内');
   return { article: JSON.parse(JSON.stringify(article)), source: { title: article.title || '', doc },
     signature: contentSignature(article), confirmedAt: Date.now() };
@@ -22,13 +24,14 @@ export function freezeContent(article) {
 export function normalizeLayoutLibrary(rows = []) {
   return Object.fromEntries(rows.map(row => {
     const id = String(row.id).startsWith('db-') ? String(row.id) : `db-${row.id}`;
-    return [id, { id, type: row.type, name: row.name, htmlTemplate: row.htmlTemplate || row.html_template || '', accentEditable: Boolean(row.accentEditable ?? row.accent_editable) }];
+    return [id, { id, type: row.type, name: row.name, htmlTemplate: row.htmlTemplate || row.html_template || '', accentEditable: Boolean(row.accentEditable ?? row.accent_editable),
+      imageGroup: normalizeImageGroup(row.imageGroup) }];
   }));
 }
 export function templateLayout(source, config) {
   return { blocks: source.doc.map(block => ({ uid: block.uid,
     styleId: block.kind === 'para' ? config.bodyStyleId || 'builtin-body-plain' : block.headingLevel === 1 ? config.h1 || 'builtin-h2-minimal-large' : config[block.type] })),
-    accent: config.accent, body: config.body, page: { paddingX: config.page?.paddingX ?? 20 } };
+    accent: config.accent, body: config.body, page: { paddingX: config.page?.paddingX ?? 20 }, imageGroup: normalizeImageGroup(config.imageGroup) };
 }
 export function materializeLayout(confirmed, plan, customBlocks = {}) {
   const library = { ...BUILTIN_BLOCKS_BY_ID, ...customBlocks };
@@ -43,9 +46,12 @@ export function materializeLayout(confirmed, plan, customBlocks = {}) {
   });
   const styleBlocks = Object.fromEntries([...new Set(doc.map(block => block.blockId))]
     .filter(id => id.startsWith('db-')).map(id => [id, library[id]]));
-  return { title: source.title, doc, themeKey: 'minimal',
+  const imageGroup = normalizeImageGroup(plan.imageGroup) || doc.filter(block => block.type === 'imageCard')
+    .map(block => normalizeImageGroup(library[block.blockId]?.imageGroup)).find(Boolean) || null;
+  return { title: source.title, doc: arrangeImageGroups(doc, plan.imageLayout || 'auto', imageGroup), themeKey: 'minimal',
     blockConfig: { ...THEME_PRESETS.minimal, signoff: null, accent: plan.accent, body: plan.body, page: plan.page },
-    sourceDocument: { ...confirmed.article, styleBlocks, confirmedAt: confirmed.confirmedAt } };
+    sourceDocument: { ...confirmed.article, styleBlocks, confirmedAt: confirmed.confirmedAt,
+      ...(imageGroup && (!plan.imageLayout || plan.imageLayout === 'auto') ? { imageGroupReference: imageGroup } : {}) } };
 }
 
 export function addObservedBrandAssets(layout, assets, library = {}, imageStyleId = layout.blockConfig.imageCard) {

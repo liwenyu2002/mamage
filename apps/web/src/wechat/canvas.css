@@ -40,6 +40,19 @@
   z-index: 0;
   cursor: pointer;
 }
+.cve-image-group {
+  display: grid;
+  align-items: start;
+  gap: 0 8px;
+  margin: 12px 0;
+  min-width: 0;
+}
+.cve-image-group > .cve-block { min-width: 0; padding-inline: var(--gallery-cell-inset, 0); overflow-wrap: anywhere; }
+.cve-image-group .cve-block--selected { z-index: 5; }
+.cve-image-group--styled { display: block; }
+.cve-gallery-tools { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; font-size: 12px; color: #737b84; }
+.cve-gallery-tools button { border: 1px solid #dfe2e5; border-radius: 6px; background: #fff; color: #30353b; padding: 5px 8px; cursor: pointer; font-size: 12px; }
+.cve-image-group--styled .cve-block { min-width: 0; overflow-wrap: anywhere; }
 
 .cve-block:hover:not(.cve-block--selected) {
   outline: 1px dashed rgba(0, 0, 0, 0.28);
@@ -176,6 +189,28 @@ body.cve-box-selecting * {
 
 /* ---- 拖拽插入指示线：黑色 3px 圆角条，横跨内容宽度，两端小圆点装饰 ---- */
 
+.cve-style-drop-target {
+  position: absolute;
+  z-index: 80;
+  box-sizing: border-box;
+  pointer-events: none;
+  border: 2px solid #346bba;
+  border-radius: 4px;
+  background: rgba(52, 107, 186, .08);
+}
+.cve-style-drop-target span {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: #346bba;
+  color: #fff;
+  font-size: 12px;
+  line-height: 18px;
+}
+.cve-style-drop-target.is-incompatible { border-color: #ac4545; background: rgba(172, 69, 69, .06); }
+.cve-style-drop-target.is-incompatible span { background: #ac4545; }
 .cve-drop-indicator {
   position: absolute;
   left: var(--cve-pad-x);
@@ -711,3 +746,9 @@ body.cve-box-selecting * {
   color: var(--cve-accent, #1a1a1a);
   text-decoration: underline;
 }
+.cve-canvas .cve-image-group--observed { display: block; }
+.cve-observed-original { overflow: hidden; min-width: 0; }
+.cve-observed-images { border-top: 1px solid #e6e8ea; margin-top: 12px; }
+.cve-observed-images > summary { cursor: pointer; padding: 10px 0; font-size: 12px; color: #6c747b; }
+.cve-observed-images > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.cve-observed-images .cve-block { min-width: 0; }

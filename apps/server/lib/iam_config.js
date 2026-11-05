@@ -1,6 +1,7 @@
 const crypto = require('node:crypto');
 
-const requested = (env = process.env) => ['IAM_ENABLED', 'IAM_PUSH_ENABLED', 'IAM_ACCOUNT_GUARD'].some(key => env[key] === '1');
+// 任一身份源启用即开启账号停用/会话版本保护；Keycloak SSO 单独部署时也不能绕过。
+const requested = (env = process.env) => ['IAM_ENABLED', 'IAM_PUSH_ENABLED', 'IAM_ACCOUNT_GUARD', 'OIDC_ENABLED'].some(key => env[key] === '1');
 const validProfilePath = value => value.length <= 256 && /^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*$/.test(value)
   && !value.split('.').some(key => ['__proto__', 'prototype', 'constructor'].includes(key));
 function secureUrl(value) {

@@ -12,6 +12,7 @@ import { copyText } from './utils/clipboard';
 import './newsWriter.css';
 import { IconClose, IconPlus, IconSparkleAI, IconDownload, IconTrash, IconChevronLeft, IconChevronRight, IconEditStroked } from './ui/icons';
 import { marked } from 'marked';
+import { renderDraftArticle, withoutImageGroupMarkers } from './utils/newsArticle';
 import DOMPurify from 'dompurify';
 import { toPng } from 'html-to-image';
 import NewsPhotoPicker from './NewsPhotoPicker';
@@ -524,7 +525,7 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
         // disable raw HTML to avoid server-provided malicious html; we will sanitize later
         gfm: true,
       });
-      return marked.parse(String(md || ''));
+      return renderDraftArticle(md);
     } catch (e) {
       console.error('[AiNewsWriter] renderMarkdownToHtml error', e);
       return '';
@@ -536,7 +537,7 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
   const countVisibleChars = (md) => {
     try {
       if (!md) return 0;
-      let s = String(md);
+      let s = withoutImageGroupMarkers(md);
       // Replace markdown image syntax ![alt](url) with the alt text only
       s = s.replace(/!\[([^\]]*?)\]\([^\)]*?\)/g, (m, alt) => (alt || ''));
       // Replace HTML <img ... alt="..." ...> with its alt text when available
@@ -1053,7 +1054,7 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
   }, [selectedPhotos]);
 
   // markdown 纯文本化：去图片行/标题符号/加粗星号/列表短横，供小红书、微博的「复制正文」使用
-  const markdownToPlainText = (md) => String(md || '')
+  const markdownToPlainText = (md) => withoutImageGroupMarkers(md)
     .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
     .replace(/^#{1,6}\s*/gm, '')
     .replace(/\*\*([^*]+)\*\*/g, '$1')

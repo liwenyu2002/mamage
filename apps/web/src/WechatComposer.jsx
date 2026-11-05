@@ -19,13 +19,17 @@ import ImageEditorModal from './wechat/ImageEditorModal';
 import ArticlePreviewModal from './wechat/ArticlePreviewModal';
 import RawImagesModal from './wechat/RawImagesModal';
 import { listFavorites, addFavorite, removeFavorite } from './services/favoritesService';
-import { makeUid, markdownToDoc, docToHtml, docToPlainText, createHistory, sanitizeRawHtml, sanitizeParaHtml, replaceRawPhotoSrc, listRawPhotos, listRawPhotoGroups, unproxyWeChatImages, flattenWeChatBgToImg, dequoteWeChatCssUrls } from './wechat/docModel';
+import { makeUid, markdownToDoc, docToHtml, docToPlainText, createHistory, sanitizeRawHtml, sanitizeParaHtml, replaceRawPhotoSrc, listRawPhotos, listRawPhotoGroups, unproxyWeChatImages, flattenWeChatBgToImg, flattenObservedGalleryToImg, dequoteWeChatCssUrls } from './wechat/docModel';
 import { ARTICLE_TEMPLATES, extractPlaceholders } from './wechat/articleTemplates';
 import TemplatePanel from './wechat/TemplatePanel';
 import PhotoPickerModal from './wechat/PhotoPickerModal';
 import AIImageFillModal from './wechat/AIImageFillModal';
 import { autoTagThemeColors, detectThemePrimary } from './wechat/themeColor';
 import { beginDrag } from './wechat/pointerDrag';
+import { replaceBlockStyle, replacementError } from './wechat/styleReplacement';
+import { GALLERY_STYLES_BY_ID, galleryStyleHtml } from './wechat/galleryStyles';
+import { isObservedGallery, observedGalleryHtml } from './wechat/observedGallery';
+import { imageRunForUid } from './wechat/imageGroups';
 import { wechatDraftKey, hasWechatDraft } from './utils/wechatDraftState';
 import { articleBodyMarkdown } from './utils/newsArticle';
 import { IconSparkleAI, IconEditStroked } from './ui/icons';
@@ -56,6 +60,7 @@ const BLOCK_TYPES = [
   { key: 'quote', name: '引用', sample: '这是一段引用示例，感谢每一位参与者。' },
   { key: 'divider', name: '分隔线', sample: '' },
   { key: 'imageCard', name: '图片卡', sample: '图注示例' },
+  { key: 'imageGroup', name: '组图', sample: '' },
   { key: 'signoff', name: '落款', sample: '— 完 —' },
 ];
 const ACCENT_CHOICES = ['#111111', '#1f4e8c', '#e8590c', '#c0392b', '#2f9e44', '#7048e8', '#0c8599', '#d6336c'];
@@ -73,6 +78,9 @@ function normalizeDbBlock(row) {
     accentEditable: !!(row.accent_editable || row.accentEditable),
     source: row.source === 'observed' ? 'observed' : 'extracted',
     sourceUrl: row.source_url || row.sourceUrl || null,
+    ...(row.type === 'imageGroup' ? { slots: row.slots, galleryKind: row.galleryKind, occurrenceSlots: row.occurrenceSlots,
+      sourceImages: row.sourceImages, sourceTitle: row.sourceTitle, sourceAccount: row.sourceAccount,
+      articleId: row.articleId, revisionId: row.revisionId } : {}),
   };
 }
 
@@ -215,6 +223,7 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
   const [historyTick, setHistoryTick] = React.useState(0); // 撤销/重做按钮禁用态的重渲信号
   void historyTick;
   const [replaceTarget, setReplaceTarget] = React.useState(null); // 换样式模式：目标块 uid
+  const [pendingStyle, setPendingStyle] = React.useState(null);
   // 中转站选图目标：null=插新图块；uid 字符串=给 imageCard 块换图；{uid, imgIndex}=替换 raw 块内第 N 张图
   const [pickerTarget, setPickerTarget] = React.useState(null);
 
@@ -502,7 +511,7 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
     return Object.keys(st).length ? st : null;
   }, [effectiveConfig.page]);
   const blocksById = React.useMemo(() => {
-    const map = { ...BUILTIN_BLOCKS_BY_ID, ...(sourceDocument?.styleBlocks || {}) };
+    const map = { ...BUILTIN_BLOCKS_BY_ID, ...GALLERY_STYLES_BY_ID, ...(sourceDocument?.styleBlocks || {}) };
     // 收藏快照先铺底（原 db 块被删后收藏/草稿仍可渲染），在库的真实块随后覆盖（数据更新鲜）
     styleFavs.forEach((f) => {
       if (f && f.refKey && f.payload && f.payload.htmlTemplate && !map[f.refKey]) {
@@ -652,6 +661,38 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
 
   // ── 样式库交互 ────────────────────────────────────────────────
 
+  const requestStyleReplacement = React.useCallback((uid, id) => {
+    const block = docRef.current.find(item => item.uid === uid);
+    const style = blocksById[id];
+    const error = style?.type === 'imageGroup' ? replaceBlockStyle(docRef.current, uid, style).error : replacementError(block, style);
+    if (error) { Toast.warning(error); return; }
+    if (block.blockId === id || (style?.type === 'imageGroup' && block.galleryStyle === id)) { Toast.info('已使用此样式'); return; }
+    setSelectedUid(uid);
+    setPendingStyle({ uid, id });
+  }, [blocksById]);
+
+  const confirmStyleReplacement = () => {
+    if (!pendingStyle) return;
+    const result = replaceBlockStyle(docRef.current, pendingStyle.uid, blocksById[pendingStyle.id]);
+    if (result.error) { Toast.warning(result.error); setPendingStyle(null); return; }
+    if (result.changed) applyDocChange(result.doc);
+    setSelectedUid(pendingStyle.uid);
+    setPendingStyle(null);
+    setReplaceTarget(null);
+    if (isMobile) setLibraryOpen(false);
+    Toast.success('已替换样式');
+  };
+
+  const replacementPreview = React.useMemo(() => {
+    if (!pendingStyle) return '';
+    const result = replaceBlockStyle(doc, pendingStyle.uid, blocksById[pendingStyle.id]);
+    if (result.error) return '';
+    const block = result.doc.find(item => item.uid === pendingStyle.uid);
+    const previewDoc = blocksById[pendingStyle.id]?.type === 'imageGroup'
+      ? imageRunForUid(result.doc, pendingStyle.uid).items.map(item => item.block) : [block];
+    return docToHtml(previewDoc, { blocksById, globalAccent: effectiveConfig.accent, body: effectiveConfig.body }).html;
+  }, [pendingStyle, doc, blocksById, effectiveConfig]);
+
   // 每种类型插入新块时的默认内容
   const DEFAULT_CONTENT = React.useMemo(() => ({
     h2: '在这里输入标题', h3: '在这里输入小标题', body: '在这里输入正文段落', quote: '在这里输入引用内容', signoff: '— 完 —',
@@ -672,11 +713,13 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
   // 点样式块：换样式模式=替换目标块的样式保内容；否则优先插入到选中 raw 容器的光标处（嵌套），
   // 无有效容器光标时回退为向画布插入新的顶层块。
   const applyBlockPick = React.useCallback((type, id) => {
+    if (type === 'imageGroup') {
+      const target = replaceTarget || selectedUid;
+      if (!target) { Toast.info('请先选中要应用样式的组图'); return; }
+      requestStyleReplacement(target, id); return;
+    }
     if (replaceTarget) {
-      const next = doc.map((b) => (b.uid === replaceTarget && b.type === type ? { ...b, blockId: id } : b));
-      applyDocChange(next);
-      setReplaceTarget(null);
-      Toast.success('已替换样式');
+      requestStyleReplacement(replaceTarget, id);
       return;
     }
     setBlockConfig({ ...effectiveConfig, [type]: id });
@@ -696,7 +739,7 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
       kind: 'styled', type, blockId: id,
       content: DEFAULT_CONTENT[type] || '', accent: null,
     });
-  }, [replaceTarget, doc, applyDocChange, effectiveConfig, insertDocBlock, DEFAULT_CONTENT, renderStyleBlockHtmlForNest]);
+  }, [replaceTarget, selectedUid, requestStyleReplacement, effectiveConfig, insertDocBlock, DEFAULT_CONTENT, renderStyleBlockHtmlForNest]);
 
   const applyAccent = React.useCallback((hex) => {
     setBlockConfig({ ...effectiveConfig, accent: hex });
@@ -705,6 +748,12 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
   // 单块微缩预览：提取块模板来自后端（已服务端清洗），此处再过一遍 DOMPurify 兜底
   const renderBlockPreview = React.useCallback((block) => {
     try {
+      if (block.type === 'imageGroup') {
+        const source = imageRunForUid(doc, replaceTarget || selectedUid)?.items.map(item => item.block.src).filter(Boolean) || [];
+        const images = Array.from({ length: block.slots }, (_, i) => source[i] || PREVIEW_IMG);
+        if (isObservedGallery(block)) return sanitizeRawHtml(observedGalleryHtml(images.map((src, i) => ({ src: source[i] || block.sourceImages?.[i] || src })), block));
+        return DOMPurify.sanitize(galleryStyleHtml(images.map(src => `<img src="${String(src).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')}" style="display:block;width:100%;height:auto;aspect-ratio:16/9;object-fit:cover;" />`), block.id));
+      }
       const typeDef = BLOCK_TYPES.find((t) => t.key === block.type);
       const raw = applyBlock(block, {
         content: (typeDef && typeDef.sample) || '示例文本',
@@ -716,7 +765,7 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
     } catch (e) {
       return '<span style="color:#999;font-size:12px">预览失败</span>';
     }
-  }, [effectiveConfig.accent]);
+  }, [effectiveConfig.accent, doc, replaceTarget, selectedUid]);
 
   // ── 全文复现：把别人的推文完整解析成 raw 块导入画布（文字/图片/排版全保留）──────
 
@@ -953,8 +1002,12 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
   }, [applyBlockPick]);
 
   // 外部拖入画布：样式块 {kind:'style-block', data:{type,blockId}} / 照片 {kind:'photo-item', data:photo}
-  const handleExternalDrop = React.useCallback((payload, insertIndex) => {
+  const handleExternalDrop = React.useCallback((payload, insertIndex, targetUid) => {
     if (!payload || !payload.kind || !payload.data) return;
+    if (payload.kind === 'style-block' && targetUid) {
+      requestStyleReplacement(targetUid, payload.data.blockId);
+      return;
+    }
     const next = [...doc];
     const idx = Math.max(0, Math.min(Number(insertIndex) || 0, next.length));
 
@@ -973,6 +1026,7 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
     }
 
     const data = payload.data;
+    if (data.type === 'imageGroup') { Toast.info('请把组图样式拖到一组图片上'); return; }
     if (!data.type || !data.blockId) return;
     const base = {
       kind: 'styled', type: data.type, blockId: data.blockId, accent: null, uid: makeUid(),
@@ -985,7 +1039,7 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
     next.splice(idx, 0, block);
     applyDocChange(next);
     setSelectedUid(block.uid);
-  }, [doc, applyDocChange, DEFAULT_CONTENT, effectiveConfig]);
+  }, [doc, applyDocChange, DEFAULT_CONTENT, effectiveConfig, requestStyleReplacement]);
 
   const handleCopyRich = React.useCallback(async () => {
     if (!docHasContent) { Toast.warning('画布还是空的，先从样式库插入内容'); return; }
@@ -995,9 +1049,10 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
       // 画布与复制共用 docToHtml 同源渲染（所见即所得）；标题填在公众号后台标题栏，不进正文
       const { html } = docToHtml(doc, { blocksById, globalAccent: effectiveConfig.accent, body: effectiveConfig.body, page: effectiveConfig.page });
       // 复制到公众号:①把 /api/wx-img 代理链还原为原始 mmbiz(代理链仅本站预览用,微信里无效);
-      // ②把无文字图片容器的 CSS 背景图展平成 <img>——微信粘贴会强剥背景图/svg,只留 <img> 并自动转存,
-      // 展平后设计文的图才能进公众号(代价:丢叠层版式/交互)。手机预览不做这两步(仍走代理背景图保真)。
-      const wechatHtml = flattenWeChatBgToImg(unproxyWeChatImages(html));
+      // ②把原版复刻轮播的 SVG 背景图还原成 <img>(微信粘贴会剥 SVG/背景图,否则整组照片丢失);
+      // ③把无文字图片容器的 CSS 背景图展平成 <img>——微信粘贴只留 <img> 并自动转存,
+      // 展平后设计文的图才能进公众号(代价:丢叠层版式/交互)。手机预览不做这些(仍走代理背景图保真)。
+      const wechatHtml = flattenWeChatBgToImg(flattenObservedGalleryToImg(unproxyWeChatImages(html)));
       await copyWechatRichText({ html: wechatHtml, plainText: [title, digest, docToPlainText(doc)].filter(Boolean).join('\n\n') });
       Toast.success('已复制正文，去公众号后台粘贴（标题单独填）；背景图已转为图片以便公众号显示/转存');
     } catch (e) {
@@ -1570,10 +1625,11 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
               </div>
             ) : null}
             <div className="wxc-lib-list">
-              {[...Object.values(blocksById)].filter((b) => b.type === libType)
+              {[...Object.values(blocksById)].filter((b) => b.type === libType && !b.legacy)
                 .sort((a, b) => Number(b.source === 'observed') - Number(a.source === 'observed')).map((b) => (
                 <div
                   key={b.id}
+                  data-style-id={b.id}
                   role="button"
                   tabIndex={0}
                   // 拖拽走 pointerDrag 自研引擎；未过移动阈值的按压不影响 onClick 点击插入。
@@ -1583,10 +1639,10 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
                   // onDragStart preventDefault 另掐灭块内 img/文字的浏览器原生拖拽（会掐断自研拖拽）。
                   onPointerDown={(e) => { e.preventDefault(); beginDrag(e, { kind: 'style-block', data: { type: b.type, blockId: b.id }, ghostLabel: b.name }); }}
                   onDragStart={(e) => e.preventDefault()}
-                  className={`wxc-lib-block${effectiveConfig[libType] === b.id ? ' is-active' : ''}`}
+                  className={`wxc-lib-block${b.type === 'imageGroup' ? ' wxc-lib-block--gallery' : ''}${(b.type === 'imageGroup' ? imageRunForUid(doc, replaceTarget || selectedUid)?.styleId : effectiveConfig[libType]) === b.id ? ' is-active' : ''}`}
                   onClick={() => applyBlockPick(libType, b.id)}
                   onKeyDown={(e) => { if (e.key === 'Enter') applyBlockPick(libType, b.id); }}
-                  title={`${b.name}（点击插入 / 拖到画布定位插入）`}
+                  title={`${b.name}（${b.type === 'imageGroup' ? '应用到组图' : replaceTarget ? '替换样式' : '点击插入 / 拖到内容块替换'}）`}
                 >
                   <div className="wxc-lib-block-stage">
                     <div
@@ -1597,7 +1653,7 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
                   </div>
                   <div className="wxc-lib-block-meta">
                     <span className="wxc-lib-block-name">{b.name}</span>
-                    <button
+                    {b.type !== 'imageGroup' ? <button
                       type="button"
                       className={`wxc-lib-block-star${favoriteBlockKeys.has(b.id) ? ' is-on' : ''}`}
                       title={favoriteBlockKeys.has(b.id) ? '取消收藏' : '收藏'}
@@ -1606,7 +1662,7 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
                       onPointerDown={(e) => e.stopPropagation()}
                     >
                       {favoriteBlockKeys.has(b.id) ? '★' : '☆'}
-                    </button>
+                    </button> : null}
                     {b.source === 'observed' ? <span className="wxc-lib-badge">观察库</span> : null}
                     {b.source === 'extracted' ? (
                       <>
@@ -1623,6 +1679,10 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
                       </>
                     ) : null}
                   </div>
+                  {b.type === 'imageGroup' && b.sourceUrl ? <a className="wxc-gallery-source" href={b.sourceUrl} target="_blank" rel="noreferrer"
+                    onClick={event => event.stopPropagation()} onPointerDown={event => event.stopPropagation()}>
+                    {b.sourceAccount} · {b.slots} 图 · 查看原文
+                  </a> : null}
                 </div>
               ))}
               {libType === 'signoff' ? (
@@ -1682,7 +1742,7 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
                 layoutMode={layoutMode}
                 editAids={editAids}
                 pageStyle={pageStyle}
-                onRequestStylePicker={(type, uid) => { setSideTab('style'); setLibType(type); setReplaceTarget(uid); setLibraryOpen(true); }}
+                onRequestStylePicker={(type, uid) => { setSideTab('style'); setLibType(type || 'body'); setReplaceTarget(uid); setLibraryOpen(true); }}
                 onRequestImagePick={(uid, imgIndex) => {
                   setPickerTarget(imgIndex !== undefined ? { uid, imgIndex } : uid);
                   setPickerOpen(true);
@@ -1800,6 +1860,20 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
         onEdit={(index) => handleRequestImageEdit(rawImagesUid, index)}
         onClose={() => setRawImagesUid(null)}
       />
+
+      <Modal
+        visible={!!pendingStyle}
+        title="应用此样式？"
+        width={isMobile ? 'calc(100vw - 24px)' : 440}
+        className="wxc-style-confirm"
+        okText="应用样式"
+        onOk={confirmStyleReplacement}
+        onCancel={() => setPendingStyle(null)}
+        okButtonProps={{ disabled: !replacementPreview }}
+      >
+        <div className="wxc-style-confirm-name">{pendingStyle && blocksById[pendingStyle.id]?.name}</div>
+        <div className="wxc-style-confirm-preview" dangerouslySetInnerHTML={{ __html: replacementPreview }} />
+      </Modal>
 
       {/* 手机预览：扫码或复制链接，手机上直接打开看排版效果 */}
       <Modal

@@ -6,6 +6,10 @@ const keys = require('../config/keys');
 const JWT_SECRET = keys.JWT_SECRET;
 const { requirePermission, hasPermissionForUserId } = require('../lib/permissions');
 const { resolveWorkspace, requireProjectAccess, sendWorkspaceError } = require('../lib/workspace_access');
+const { createSimilarityGroupReader } = require('../lib/similarity_group_cache');
+const readSimpleGroups = createSimilarityGroupReader(pool, raw => {
+    try { return l2Normalize(tryParseEmbedding(raw) || []); } catch { return []; }
+});
 
 function l2Normalize(arr) {
     let s = 0;
@@ -306,81 +310,14 @@ router.get('/groups/simple', async (req, res) => {
         const minSize = 2;
         const mode = 'clique';
 
-        let sql = `
-            SELECT p.id AS photo_id, e.embedding
-            FROM ai_image_embeddings e
-            JOIN photos p ON e.photo_id = p.id
-            WHERE p.project_id = ? AND e.model_name = ?
-        `;
-        const params = [projectId, modelName];
-        if (orgId === null) {
-            sql += ' AND p.organization_id IS NULL';
-        } else {
-            sql += ' AND p.organization_id = ?';
-            params.push(orgId);
-        }
-        if (workspace.enabled) {
-          sql += project.unit_id ? ' AND p.unit_id = ?' : ' AND p.unit_id IS NULL';
-          if (project.unit_id) params.push(project.unit_id);
-        } else if (!isAuthed && process.env.ORGANIZATION_UNITS_ACTIVE === '1') {
-          sql += ' AND p.unit_id IS NULL';
-        }
-        const [rows] = await pool.query(sql, params);
-        if (!rows || rows.length === 0) return res.json({ modelName, groups: [] });
-
-        const ids = [];
-        const vecs = [];
-        for (const r of rows) {
-            ids.push(r.photo_id);
-            try {
-                const v = tryParseEmbedding(r.embedding) || [];
-                vecs.push(l2Normalize(v));
-            } catch (e) {
-                vecs.push([]);
-            }
-        }
-
-        const n = ids.length;
-        const sim = Array.from({ length: n }, () => new Array(n).fill(0));
-        for (let i = 0; i < n; i++) {
-            for (let j = i + 1; j < n; j++) {
-                const s = dot(vecs[i], vecs[j]);
-                sim[i][j] = s; sim[j][i] = s;
-            }
-        }
-
-        const groups = [];
-        if (mode === 'connected') {
-            const adj = Array.from({ length: n }, () => []);
-            for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) if (sim[i][j] >= threshold) { adj[i].push(j); adj[j].push(i); }
-            const seen = new Array(n).fill(false);
-            for (let i = 0; i < n; i++) {
-                if (seen[i]) continue;
-                const stack = [i]; seen[i] = true; const comp = [];
-                while (stack.length) {
-                    const u = stack.pop(); comp.push(ids[u]);
-                    for (const v of adj[u]) if (!seen[v]) { seen[v] = true; stack.push(v); }
-                }
-                if (comp.length >= minSize) groups.push(comp);
-            }
-        } else {
-            const assigned = new Array(n).fill(false);
-            for (let i = 0; i < n; i++) {
-                if (assigned[i]) continue;
-                let clique = [i]; assigned[i] = true;
-                const candidates = [];
-                for (let j = 0; j < n; j++) if (j !== i && !assigned[j] && sim[i][j] >= threshold) candidates.push(j);
-                for (const c of candidates) {
-                    let ok = true;
-                    for (const m of clique) if (sim[c][m] < threshold) { ok = false; break; }
-                    if (ok) { clique.push(c); assigned[c] = true; }
-                }
-                if (clique.length >= minSize) groups.push(clique.map(idx => ids[idx]));
-            }
-        }
-
+        const groups = await readSimpleGroups({ projectId, orgId, modelName,
+          unitId: project?.unit_id || null,
+          scoped: workspace.enabled || (!isAuthed && process.env.ORGANIZATION_UNITS_ACTIVE === '1') });
+        res.set('Cache-Control', 'private, no-store');
         res.json({ modelName, threshold, minSize, mode, groups });
     } catch (e) {
+        if (sendWorkspaceError(res, e)) return;
+        if (e.status === 503) return res.status(503).json({ error: 'SIMILARITY_BUSY' });
         console.error('/api/similarity/groups/simple error', e && e.stack ? e.stack : e);
         res.status(500).json({ error: 'internal server error' });
     }

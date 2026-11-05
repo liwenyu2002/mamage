@@ -2,6 +2,7 @@ import React from 'react';
 import { createPortal } from 'react-dom';
 import { IconPlus, IconChevronRight, IconTrash, IconSparkleAI, IconMoreStroked, IconSimilarStack, IconInfoEdit } from './ui/icons';
 import { floatingPosition } from './utils/newsEditorSelection';
+import { editorPhotoGroups } from './utils/newsEditorModel';
 
 const formats = [{ value: 'paragraph', symbol: 'T', label: '正文' }, { value: 'h1', symbol: 'H1', label: '一级标题' },
   { value: 'h2', symbol: 'H2', label: '二级标题' }, { value: 'h3', symbol: 'H3', label: '三级标题' }];
@@ -16,10 +17,17 @@ export default function NewsBlockControls({ editorRef, revision, onAction, child
     if (!editor || !canvas) return;
     const rect = canvas.getBoundingClientRect(), scale = rect.width / canvas.offsetWidth || 1;
     const blocks = [];
+    const groups = editorPhotoGroups(editor.state.doc);
     editor.state.doc.forEach((node, pos, index) => {
       const dom = editor.nodeDOM(pos); if (!(dom instanceof Element)) return;
       const bounds = dom.getBoundingClientRect();
+      const group = groups.find(item => item.items.some(photo => photo.pos === pos));
+      const imageIndex = group?.items.findIndex(item => item.pos === pos);
+      const header = imageIndex === 0 && dom.previousElementSibling?.classList.contains('news-edit-gallery-header') ? dom.previousElementSibling : null;
       blocks.push({ pos, index, top: (bounds.top - rect.top) / scale, bottom: (bounds.bottom - rect.top) / scale,
+        left: (bounds.left - rect.left) / scale, width: bounds.width / scale,
+        galleryId: group?.id, groupStart: imageIndex === 0, groupTop: header ? (header.getBoundingClientRect().top - rect.top) / scale : null,
+        canSplitBefore: imageIndex > 0, canSplitAfter: imageIndex >= 0 && imageIndex < group.items.length - 1,
         hasCaption: node.type.name === 'photo' && Boolean(node.textContent.trim()),
         style: node.type.name === 'heading' ? `h${node.attrs.depth}` : node.type.name === 'photo' ? 'photo' : 'paragraph' });
     });
@@ -69,16 +77,20 @@ export default function NewsBlockControls({ editorRef, revision, onAction, child
       document.removeEventListener('scroll', scroll, true); window.removeEventListener('resize', place); };
   }, [menu]);
   const act = (action, value) => { onAction(action, menu, value); setMenu(null); };
-  const gaps = layout.blocks.map((block, index) => ({ index, pos: block.pos,
-    top: index ? (layout.blocks[index - 1].bottom + block.top) / 2 : block.top - 12,
-    height: index ? Math.max(4, Math.min(24, block.top - layout.blocks[index - 1].bottom)) : 20 }));
-  if (layout.blocks.length) gaps.push({ index: layout.blocks.length, pos: layout.end, top: layout.blocks.at(-1).bottom + 12, height: 20 });
+  const gaps = layout.blocks.flatMap((block, index) => {
+    if (block.style === 'photo' && !block.groupStart) return [];
+    const top = block.groupTop ?? block.top;
+    const previousBottom = index ? Math.max(...layout.blocks.slice(0, index).map(item => item.bottom)) : top - 24;
+    return [{ index, pos: block.pos, top: (previousBottom + top) / 2, height: Math.max(4, Math.min(24, top - previousBottom)) }];
+  });
+  if (layout.blocks.length) gaps.push({ index: layout.blocks.length, pos: layout.end, top: Math.max(...layout.blocks.map(block => block.bottom)) + 12, height: 20 });
   return <div ref={frame} className="news-edit-canvas" onPointerMove={event => {
     const block = event.target.closest('[data-news-index]');
     if (block && frame.current.contains(block)) setHovered(Number(block.dataset.newsIndex));
   }} onPointerLeave={() => setHovered(-1)}>
     {children}
-    {layout.blocks.map(block => <div key={block.index} className="news-block-gutter" style={{ top: block.top, height: Math.max(28, block.bottom - block.top) }}>
+    {layout.blocks.map(block => <div key={block.index} className={`news-block-gutter${block.style === 'photo' ? ' is-photo' : ''}`}
+      style={block.style === 'photo' ? { top: block.top + 4, left: block.left + 4, height: 28 } : { top: block.top, height: Math.max(28, block.bottom - block.top) }}>
       <button type="button" className="news-block-handle" data-news-block-handle={block.index}
         data-visible={hovered === block.index || menu?.index === block.index ? 'true' : undefined}
         aria-label={`编辑第 ${block.index + 1} 个内容块`} title={block.style === 'photo' ? '图片与图题操作' : '段落样式与操作'} aria-haspopup="dialog" aria-expanded={menu?.index === block.index}
@@ -103,6 +115,8 @@ export default function NewsBlockControls({ editorRef, revision, onAction, child
       <div className="news-block-menu-actions">
         {menu.style === 'photo' ? <button type="button" onClick={() => act(menu.hasCaption ? 'removeCaption' : 'addCaption')}>
           <IconInfoEdit /><span>{menu.hasCaption ? '移除图题' : '添加图题'}</span></button> : null}
+        {menu.style === 'photo' && menu.canSplitBefore ? <button type="button" onClick={() => act('splitBefore')}><IconSimilarStack /><span>从此图开始新组</span></button> : null}
+        {menu.style === 'photo' && menu.canSplitAfter ? <button type="button" onClick={() => act('splitAfter')}><IconSimilarStack /><span>在此图后拆分</span></button> : null}
         <button type="button" onClick={() => act('ai')}><IconSparkleAI /><span>AI 辅助</span></button>
         <button type="button" onClick={() => act('insertBefore')}><IconPlus /><span>在上方插入段落</span></button>
         <button type="button" onClick={() => act('insertAfter')}><IconPlus /><span>在下方插入段落</span></button>
