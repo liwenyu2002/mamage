@@ -5,7 +5,7 @@ const content = require('../lib/wechat_monitor_content');
 const sources = require('../lib/wechat_monitor_discovery');
 const learning = require('../lib/wechat_monitor_learning');
 const { retryPlan, safeErrorMessage } = require('../lib/wechat_monitor_worker');
-const { makeStore } = require('../lib/wechat_monitor_store');
+const { makeStore, summarizeDiscoveryJob } = require('../lib/wechat_monitor_store');
 const account = { biz: null, expected_names: '["测试官微"]', since_date: '2024-01-01' };
 const paragraph = '同学们带着观察记录来到报告厅。讲述从一个问题开始，再用具体行动回应。';
 function html({ date = 1711929600, author = '测试官微', idx = 1, text = paragraph } = {}) {
@@ -326,3 +326,18 @@ test('history windows are truthful calendar ranges and transient failures back o
   assert.equal(safeErrorMessage(Error('sk-sensitive123 https://source.test/?token=secret Bearer credential')), '[redacted-key] [source-url] Bearer [redacted]');
 });
 module.exports = { html, analysis, account };
+
+test('latest discovery summary explains the source check without leaking full rows', () => {
+  const summary = summarizeDiscoveryJob({ id: 7, status: 'succeeded',
+    payload: JSON.stringify({ url: 'https://www.bza.edu.cn/api/article?type=school&page=1' }),
+    result: JSON.stringify({ discovered: 1, linkedPages: 1, queuedArticles: 0, queuedPages: 0, coverage: 'official_index_partial' }),
+    error_code: null, finished_at: 1793956665663 });
+  assert.deepEqual(summary, { jobId: 7, status: 'succeeded', sourceUrl: 'https://www.bza.edu.cn/api/article?type=school&page=1',
+    errorCode: null, finishedAt: 1793956665663, discovered: 1, linkedPages: 1, queuedArticles: 0, queuedPages: 0,
+    coverage: 'official_index_partial' });
+  assert.equal(summarizeDiscoveryJob(null), null);
+  const malformed = summarizeDiscoveryJob({ id: 8, status: 'blocked', payload: 'not-json', result: null,
+    error_code: 'SOURCE_VERIFICATION_REQUIRED', finished_at: 1 });
+  assert.equal(malformed.sourceUrl, null); assert.equal(malformed.discovered, null);
+  assert.equal(malformed.errorCode, 'SOURCE_VERIFICATION_REQUIRED'); assert.equal(malformed.status, 'blocked');
+});

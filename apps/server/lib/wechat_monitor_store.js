@@ -6,6 +6,18 @@ function scopeFor(workspace) {
   if (!workspace.orgId || workspace.enabled && !workspace.unitId) throw invalid('MONITOR_SPACE_REQUIRED', '请先选择小组空间', 403);
   return `${workspace.orgId}:${workspace.unitId || 0}`;
 }
+// 把最近一次目录检查任务的 payload/result 归纳成来源诊断，供界面解释“为什么没有新文章”。
+function summarizeDiscoveryJob(job) {
+  if (!job) return null;
+  const payload = parsed(job.payload) || {}, result = parsed(job.result) || {};
+  const count = value => value === null || value === undefined || value === '' ? null : (Number.isFinite(Number(value)) ? Number(value) : null);
+  return { jobId: Number(job.id), status: job.status || null, sourceUrl: typeof payload.url === 'string' ? payload.url : null,
+    errorCode: job.error_code || null, finishedAt: job.finished_at || null,
+    discovered: count(result.discovered), linkedPages: count(result.linkedPages),
+    queuedArticles: count(result.queuedArticles), queuedPages: count(result.queuedPages),
+    coverage: typeof result.coverage === 'string' ? result.coverage : null };
+}
+
 function analysisStateFor(row, jobStatus) {
   if (row.analyzed_revision_id) return Number(row.analyzed_revision_id) === Number(row.current_revision_id) ? 'ready' : 'stale';
   return ['failed', 'blocked', 'retry', 'running'].includes(jobStatus) ? jobStatus : 'pending';
@@ -234,6 +246,14 @@ function makeStore(db, clock = Date.now) {
       FROM wechat_monitor_jobs WHERE scope_key=? AND kind='fetch' GROUP BY account_id`, [scope]);
     const candidatesByAccount = new Map(discovered.map(row => [Number(row.account_id), Number(row.count)]));
     const restrictionsByAccount = new Map(discovered.map(row => [Number(row.account_id), Number(row.restricted_count)]));
+    const [discoveryRows] = await db.query(`SELECT j.account_id,j.id,j.status,j.payload,j.result,j.error_code,j.finished_at
+      FROM wechat_monitor_jobs j JOIN (SELECT account_id,MAX(id) AS id FROM wechat_monitor_jobs
+        WHERE scope_key=? AND kind='discover' GROUP BY account_id) latest ON latest.id=j.id`, [scope]);
+    const discoveryByAccount = new Map(discoveryRows.map(row => [Number(row.account_id), summarizeDiscoveryJob(row)]));
+    const [jobCounts] = await db.query(`SELECT account_id,SUM(status IN ('pending','retry','running')) AS pending_count,
+      SUM(status IN ('blocked','failed')) AS blocked_count FROM wechat_monitor_jobs WHERE scope_key=? GROUP BY account_id`, [scope]);
+    const pendingByAccount = new Map(jobCounts.map(row => [Number(row.account_id), Number(row.pending_count) || 0]));
+    const blockedByAccount = new Map(jobCounts.map(row => [Number(row.account_id), Number(row.blocked_count) || 0]));
     const [dates] = await db.query('SELECT account_id,published_at FROM wechat_monitor_articles WHERE scope_key = ?', [scope]);
     const months = new Map();
     for (const item of dates) {
@@ -245,6 +265,8 @@ function makeStore(db, clock = Date.now) {
       lastCheckedAt: row.last_checked_at, nextCheckAt: row.next_check_at, error: row.last_error,
       articleCount: Number(row.article_count), candidateLinks: candidatesByAccount.get(Number(row.id)) || 0,
       restrictedFetches: restrictionsByAccount.get(Number(row.id)) || 0,
+      pendingJobs: pendingByAccount.get(Number(row.id)) || 0, blockedJobs: blockedByAccount.get(Number(row.id)) || 0,
+      lastDiscovery: discoveryByAccount.get(Number(row.id)) || null,
       analyzedCount: Number(row.analyzed_count) || 0, earliestAt: row.earliest_at, latestAt: row.latest_at,
       historyCoverage: 'official_index_partial', sogou: { state: 'policy_disallowed', url: searchUrl(row.display_name),
         reason: '搜狗 robots 与用户协议限制后台机器人采集；保留人工发现入口' },
@@ -254,4 +276,4 @@ function makeStore(db, clock = Date.now) {
   };
   return { db, enqueue, enqueueDiscovery, account, bootstrap, enqueueFetch, schedule, saveArticle, article, candidates, groupMembers, saveAnalysis, refreshGroups, overview, modelBudget };
 }
-module.exports = { scopeFor, makeStore, analysisStateFor };
+module.exports = { scopeFor, makeStore, analysisStateFor, summarizeDiscoveryJob };

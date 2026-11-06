@@ -16,6 +16,8 @@ const months = [{ from: '2024-01-01', count: 0, state: 'unverified' }, { from: '
 const account = { id: 1, name: '测试公众号 A', enabled: true, state: 'watching', articleCount: 2, analyzedCount: 2, since: '2024-01-01',
   candidateLinks: 3, restrictedFetches: 1,
   intervalSeconds: 1800, earliestAt: articles[0].publishedAt, latestAt: articles[1].publishedAt, lastCheckedAt: Date.now(), error: '', monthlyCoverage: months,
+  nextCheckAt: Date.now() + 1800000, pendingJobs: 2, lastDiscovery: { jobId: 7, status: 'succeeded', sourceUrl: 'https://www.bza.edu.cn/api/article?type=school&page=1',
+    errorCode: null, finishedAt: Date.now(), discovered: 1, linkedPages: 1, queuedArticles: 0, queuedPages: 0, coverage: 'official_index_partial' },
   sogou: { url: 'https://weixin.sogou.com/weixin?type=2&query=test', state: 'policy_disallowed' } };
 const failedFixture = { ...articles[0], id: 4, title: '分析失败的测试文章', summary: '', analysis: null, analysisState: 'failed',
   analysisError: { code: 'ANALYSIS_INVALID', message: '测试：分析证据不合格，已停止重试' } };
@@ -42,7 +44,8 @@ async function main() {
         assert.equal(request.headers()['x-mamage-unit-id'], '900043');
         if (request.method() !== 'GET') {
           if (pathname === '/accounts/1' && typeof request.postDataJSON().enabled === 'boolean') enabled = request.postDataJSON().enabled;
-          writes.push({ path: pathname, body: request.postDataJSON() }); return route.fulfill({ json: { queued: true } });
+          writes.push({ path: pathname, body: request.postDataJSON() });
+          return route.fulfill({ json: pathname.endsWith('/import') ? { queued: 1, duplicates: 2 } : { queued: true } });
         }
         if (pathname === '/overview' && failOverview) return route.fulfill({ status: 503, json: { message: '本地测试连接暂时断开' } });
         if (pathname === '/overview') return route.fulfill({ json: { accounts: [{ ...account, enabled, articleCount: additionalArticle ? 3 : 2 }, { ...account, id: 2, name: '测试公众号 B' }], canManage: allowed,
@@ -70,6 +73,14 @@ async function main() {
       });
       await page.goto(`http://127.0.0.1:${server.address().port}/`);
       await page.getByText('1 项正文任务受限或失败，目录检查正常不代表正文已收录。', { exact: true }).first().waitFor();
+      await page.getByText(/下次检查/).first().waitFor();
+      await page.getByText(/最近目录检查/).first().waitFor();
+      await page.getByText(/候选 1 个 · 跟随 1 个页面 · 新增正文任务 0 个/).first().waitFor();
+      await page.getByRole('button', { name: '查看受限任务', exact: true }).first().click();
+      await page.getByText('来源要求验证，已暂停此项采集', { exact: false }).waitFor();
+      assert.equal(await page.getByRole('combobox', { name: '筛选任务状态', exact: true }).inputValue(), 'blocked');
+      await page.getByRole('button', { name: '文章', exact: true }).click();
+      await page.getByRole('button', { name: /观察计划｜测试内容 1/ }).waitFor();
       await page.getByRole('button', { name: /观察计划｜测试内容 1/ }).click();
       await page.getByRole('heading', { name: '标题策略', exact: true }).waitFor();
       await page.screenshot({ path: path.join(output, `monitor-analysis-${width}.png`), fullPage: true });
@@ -121,6 +132,7 @@ async function main() {
       await page.getByRole('textbox', { name: '微信原文链接', exact: true }).fill('https://mp.weixin.qq.com/s/test');
       await page.getByRole('button', { name: '加入采集队列', exact: true }).click();
       assert.deepEqual(writes.at(-1), { path: '/accounts/2/import', body: { urls: ['https://mp.weixin.qq.com/s/test'] } });
+      await page.getByText('已入队 1 条，跳过重复 2 条', { exact: true }).waitFor();
       await page.getByRole('checkbox', { name: '启用测试公众号 A监控', exact: true }).uncheck();
       assert.ok(writes.some(item => item.path === '/accounts/1' && item.body.enabled === false));
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));

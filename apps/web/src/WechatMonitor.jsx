@@ -10,6 +10,8 @@ const statusLabels = { pending: '等待处理', running: '处理中', retry: '�
   watching: '目录检查中', needs_source: '待接入来源', stale: '待重新分析', ready: '已分析', candidate: '系列候选', supported: '多篇支持' };
 const kinds = { discover: '发现文章', fetch: '逆向采集', analyze: '文风分析', summarize: '关联总结', regroup: '更新分类' };
 const time = value => value ? new Date(Number(value)).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }) : '尚无记录';
+// 目录检查的来源只显示主机名+路径，避免把完整 URL 铺到界面上。
+const sourceLabel = value => { try { const url = new URL(value); return (url.hostname.replace(/^www\./, '') + url.pathname).replace(/\/$/, '').slice(0, 80); } catch { return '来源'; } };
 function errorMessage(error) { try { return JSON.parse(error.body).message || error.message; } catch { return error.message || '读取失败'; } }
 function Evidence({ values = [] }) { return <div className="wxm-evidence">{values.map((value, index) => <blockquote key={index}>{value}</blockquote>)}</div>; }
 function Learning({ analysis, dimensions = {} }) {
@@ -118,7 +120,7 @@ export default function WechatMonitor({ workspaceId }) {
   }, [api, eventsFor, tab, refresh, dataRevision]);
   const mutate = async (path, data, message, method = 'POST') => {
     if (busy) return false; setBusy(true); setError(''); setNotice('');
-    try { await api(path, { method, data }); setNotice(message); setRefresh(value => value + 1); return true; }
+    try { const result = await api(path, { method, data }); setNotice(message); setRefresh(value => value + 1); return result; }
     catch (failure) { setError(errorMessage(failure)); return false; }
     finally { setBusy(false); }
   };
@@ -144,12 +146,15 @@ export default function WechatMonitor({ workspaceId }) {
               setOverview(previous => ({ ...previous, accounts: previous.accounts.map(row => row.id === item.id ? { ...row, enabled: item.enabled } : row) }));
             }
           }} /></label> : null}</div>
-      <div className="wxm-source-stats"><b>{item.articleCount}</b> 篇 · 已分析 {item.analyzedCount} · 候选链接 {item.candidateLinks || 0} · 起点 {item.since}</div>
+      <div className="wxm-source-stats"><b>{item.articleCount}</b> 篇 · 已分析 {item.analyzedCount} · 候选链接 {item.candidateLinks || 0} · 待处理 {item.pendingJobs || 0} · 起点 {item.since}</div>
       <p className="wxm-muted">{item.identityVerified ? '公众号标识已交叉核验' : '公众号名称匹配，标识待核验'}</p>
       <p className="wxm-muted">已收录范围：{item.earliestAt ? time(item.earliestAt).split(' ')[0] + ' 至 ' + time(item.latestAt).split(' ')[0] : '尚未核验到正文'} · 历史完整性未知</p>
+      <p className="wxm-muted">下次检查 {item.nextCheckAt ? time(item.nextCheckAt) : '尚未排期'}{item.lastDiscovery ? ` · 最近目录检查 ${time(item.lastDiscovery.finishedAt)}` : ' · 暂无目录检查记录'}</p>
+      {item.lastDiscovery ? <p className="wxm-muted">最近发现{item.lastDiscovery.sourceUrl ? '（' + sourceLabel(item.lastDiscovery.sourceUrl) + '）' : ''}：候选 {item.lastDiscovery.discovered ?? '—'} 个 · 跟随 {item.lastDiscovery.linkedPages ?? '—'} 个页面 · 新增正文任务 {item.lastDiscovery.queuedArticles ?? '—'} 个{item.lastDiscovery.status === 'succeeded' ? '' : ` · ${statusLabels[item.lastDiscovery.status] || item.lastDiscovery.status}${item.lastDiscovery.errorCode ? '（' + item.lastDiscovery.errorCode + '）' : ''}`}</p> : null}
       {item.restrictedFetches ? <p className="wxm-source-error">{item.restrictedFetches} 项正文任务受限或失败，目录检查正常不代表正文已收录。</p> : null}
       <div className="wxm-source-links"><span>每 {Math.round(item.intervalSeconds / 60)} 分钟 · 检查于 {time(item.lastCheckedAt)}</span><a href={item.sogou.url} target="_blank" rel="noopener noreferrer">搜狗人工检索</a>
-        {overview.canManage ? <button type="button" disabled={busy || !item.enabled} onClick={() => mutate(`/accounts/${item.id}/check`, {}, '已安排官网目录检查')}>检查更新</button> : null}</div>
+        {overview.canManage ? <button type="button" disabled={busy || !item.enabled} onClick={() => mutate(`/accounts/${item.id}/check`, {}, '已安排官网目录检查')}>检查更新</button> : null}
+        {item.restrictedFetches ? <button type="button" onClick={() => { setTab('jobs'); setAccountId(String(item.id)); setJobStatus('blocked'); setPage(1); setJobCursors([null]); setEventsFor(null); setDetailId(null); }}>查看受限任务</button> : null}</div>
       {item.error ? <p className="wxm-source-error">{item.error}</p> : null}
       <details className="wxm-coverage"><summary>历史覆盖台账</summary><div>{item.monthlyCoverage.map(month => <span key={month.from} data-state={month.state}>
         {month.from.slice(0, 7)}<small>{month.count ? `已收录 ${month.count} 篇` : '尚未核验'}</small></span>)}</div></details>
@@ -160,7 +165,11 @@ export default function WechatMonitor({ workspaceId }) {
       <textarea aria-label="微信原文链接" value={links} onChange={event => setLinks(event.target.value)} rows={4} placeholder="https://mp.weixin.qq.com/s/…" />
       <Button size="small" icon={<IconDownload />} disabled={busy || !links.trim()} onClick={async () => {
         const urls = links.split(/\s+/).filter(Boolean);
-        if (await mutate(`/accounts/${importAccount}/import`, { urls }, '链接已进入后台核验与逆向采集队列')) { setImporting(false); setLinks(''); }
+        const result = await mutate(`/accounts/${importAccount}/import`, { urls }, '链接已进入后台核验与逆向采集队列');
+        if (result) {
+          setNotice(`已入队 ${result.queued ?? 0} 条${result.duplicates ? `，跳过重复 ${result.duplicates} 条` : ''}`);
+          setImporting(false); setLinks('');
+        }
       }}>加入采集队列</Button></section> : null}
     {overview?.accounts.length ? <>
       <div className="wxm-toolbar"><nav className="wxm-tabs" aria-label="推文学习视图">{[['articles', '文章'], ['groups', '系列与场景'], ['jobs', '后台任务']].map(([key, label]) =>
