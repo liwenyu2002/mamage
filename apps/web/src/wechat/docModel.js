@@ -844,7 +844,19 @@ export function createHistory(initialDoc) {
     return index < stack.length - 1;
   }
 
-  return { push, undo, redo, canUndo, canRedo };
+  // 只序列化最近 limit 条（含当前指针），用于刷新/切列表后恢复撤销栈；体积受限，避免撑爆 localStorage。
+  function snapshot(limit = 10) {
+    const start = Math.max(0, index - Math.max(1, limit) + 1);
+    return { stack: stack.slice(start, index + 1).map(cloneDoc), index: index - start };
+  }
+  function restore(state) {
+    if (!state || !Array.isArray(state.stack) || !state.stack.length) return false;
+    stack = state.stack.map(cloneDoc);
+    index = Math.min(Math.max(0, Number(state.index) || 0), stack.length - 1);
+    return true;
+  }
+
+  return { push, undo, redo, canUndo, canRedo, snapshot, restore };
 }
 
 // ---------------------------------------------------------------------------

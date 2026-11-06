@@ -3,7 +3,7 @@ import { Button, Modal, Toast } from './ui';
 import { IconListView, IconDownload, IconSimilarStack } from './ui/icons';
 import { wechatAiDraftKey, wechatImportKey, hasWechatDraft } from './utils/wechatDraftState';
 import { newsDraftKey } from './utils/newsWriterState';
-import { workflowKey, contentSignature, freezeContent, materializeLayout, addObservedBrandAssets, mergeContentIntoLayout } from './utils/wechatWorkflow';
+import { workflowKey, contentSignature, freezeContent, materializeLayout, addObservedBrandAssets, mergeContentIntoLayout, layoutToMarkdown } from './utils/wechatWorkflow';
 import { saveComposition } from './services/wechatCompositionService';
 import WechatLayoutPanel from './WechatLayoutPanel';
 import WechatDraftBackups from './WechatDraftBackups';
@@ -48,11 +48,18 @@ export default function WechatWorkspace({ currentUser, workspaceId, initialMode 
   const [legacyAvailable, setLegacyAvailable] = React.useState(() => hasWechatDraft(read('wechat-composer-draft')));
   const latest = React.useRef({ article, stage }); latest.current = { article, stage };
   const [savedAt, setSavedAt] = React.useState(null);
+  const [layoutDirty, setLayoutDirty] = React.useState(false);
+  const layoutSnapshotRef = React.useRef(null);
   const markSaved = React.useCallback(() => setSavedAt(Date.now()), []);
   const onArticleChange = React.useCallback(next => { setArticle(next); markSaved(); }, [markSaved]);
   const onBusyChange = React.useCallback(busy => { busyRef.current = busy; }, []);
   const onSnapshotChange = React.useCallback(next => {
-    setStyled(next); markSaved();
+    // 只有快照内容真的变化才算“排版稿被编辑过”，避免挂载/恢复备份时误触发文字回写。
+    const previous = layoutSnapshotRef.current;
+    layoutSnapshotRef.current = next;
+    if (previous && JSON.stringify(previous) !== JSON.stringify(next)) setLayoutDirty(true);
+    setStyled(next);
+    markSaved();
     // 快照必须同步回 composer.article：否则去「推文列表」再回来会用旧快照重挂载，覆盖刚做的排版。
     setComposer(previous => previous ? { ...previous, article: next } : previous);
   }, [markSaved]);
@@ -63,6 +70,25 @@ export default function WechatWorkspace({ currentUser, workspaceId, initialMode 
     catch { setStorageError('本机存储空间不足，请将稿件备份后再继续'); }
   }, [stateKey, mode, stage, confirmed, styled]);
 
+  // 排版稿文字回写内容稿是显式动作（不让“恢复排版稿/切步骤”顺手改内容稿）：用户点按钮才同步。
+  const syncLayoutToContent = React.useCallback(() => {
+    if (!styled?.doc?.length) { Toast.info('还没有排版稿可回写'); return; }
+    const markdown = layoutToMarkdown(styled.doc);
+    if (markdown === null) { Toast.info('排版稿含整文复制的复杂块，暂不支持把文字自动回写到内容稿'); return; }
+    if (!markdown.trim()) { Toast.info('排版稿没有可回写的文字'); return; }
+    // 标题归内容稿管理（恢复排版稿不应改内容稿标题）；只回写正文/图片。
+    const nextArticle = { ...(article || {}), title: article?.title || styled.title || '', markdown };
+    try {
+      const snapshot = freezeContent(nextArticle);
+      setArticle(nextArticle); setConfirmed(snapshot);
+      setRestoredArticle({ restoreId: `layout-${Date.now()}`, article: nextArticle });
+      setLayoutDirty(false);
+      layoutSnapshotRef.current = null;
+      setStage('content');
+      Toast.success('排版稿的文字已回写到内容稿');
+    } catch (error) { Toast.warning(error.message || '排版稿文字暂时无法回写到内容稿'); }
+  }, [styled, article]);
+  const openContentStage = React.useCallback(() => setStage('content'), []);
   const retainLayout = () => {
     const old = read(draftKey);
     if (draftKey && hasWechatDraft(old)) localStorage.setItem(`${draftKey}:previous`, JSON.stringify(old));
@@ -171,10 +197,11 @@ export default function WechatWorkspace({ currentUser, workspaceId, initialMode 
       <nav aria-label="公众号制作进度">
         {[['content', '内容草稿'], ['styles', '选择样式'], ['styled', '排版稿']].map(([key, label], index) => <button key={key} type="button"
           aria-current={stage === key ? 'step' : undefined} disabled={key === 'styles' ? !contentCurrent : key === 'styled' ? !styled : false}
-          onClick={() => { if (key === 'styled' && !composer) setComposer({ article: styled, version: Date.now() }); setStage(key); }}>
+          onClick={() => { if (key === 'content') { openContentStage(); return; } if (key === 'styled' && !composer) setComposer({ article: styled, version: Date.now() }); setStage(key); }}>
           <span>{index + 1}</span>{label}</button>)}
       </nav>
       <div className="wechat-workflow-actions">
+        {stage === 'styled' && layoutDirty ? <Button size="small" onClick={syncLayoutToContent}>文字回写内容稿</Button> : null}
         <span className="wechat-autosave" role="status" title="内容稿与排版稿会自动保存在本机浏览器，刷新后可恢复">
           {savedAt ? `已自动保存 ${new Date(savedAt).toLocaleTimeString('zh-CN', { hour12: false })}` : '草稿自动保存在本机'}
         </span>
@@ -185,12 +212,13 @@ export default function WechatWorkspace({ currentUser, workspaceId, initialMode 
     </div>
     {storageError ? <p className="news-input-error" role="alert">{storageError}</p> : null}
     {stage !== 'content' && confirmed && !contentCurrent ? <p className="wechat-workflow-notice" role="status">内容稿已修改，现有排版稿仍保留。重新确认内容后可生成新版排版。</p> : null}
+    {stage === 'content' && layoutDirty ? <p className="wechat-workflow-notice" role="status">排版稿有未回写的文字改动。 <Button size="small" onClick={syncLayoutToContent}>同步回内容稿</Button></p> : null}
     <div hidden={stage !== 'content'}><React.Suspense fallback={<p role="status">正在加载内容稿…</p>}>
       <Writer currentUser={currentUser} workspaceId={workspaceId} initialChannelKey="wechat_article" onOpenComposer={confirmContent}
         onArticleChange={onArticleChange} onBusyChange={onBusyChange} restoredArticle={restoredArticle} />
     </React.Suspense></div>
     {confirmed ? <div hidden={stage !== 'styles'}><WechatLayoutPanel confirmed={confirmed} current={contentCurrent}
-      storageKey={stateKey} onBack={() => setStage('content')} onApply={applyLayout} onSaveContent={() => saveBackup('content')} /></div> : null}
+      storageKey={stateKey} onBack={openContentStage} onApply={applyLayout} onSaveContent={() => saveBackup('content')} /></div> : null}
     {composer ? <div hidden={stage !== 'styled'}><React.Suspense fallback={<p role="status">正在加载排版稿…</p>}>
       <Composer key={composer.version} currentUser={currentUser} workspaceId={workspaceId} initialArticle={composer.article}
         active={stage === 'styled'} onSnapshotChange={onSnapshotChange} draftStorageKey={draftKey} guided />

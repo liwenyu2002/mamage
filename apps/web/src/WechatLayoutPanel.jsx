@@ -9,6 +9,10 @@ import { IMAGE_LAYOUTS } from './wechat/imageGroups';
 
 export default function WechatLayoutPanel({ confirmed, current, storageKey, onBack, onApply, onSaveContent }) {
   const jobKey = storageKey ? `${storageKey}:layout-job` : null;
+  const finishedKey = jobKey ? `${jobKey}:finished` : null;
+  const readFinished = () => {
+    try { return finishedKey ? JSON.parse(localStorage.getItem(finishedKey) || 'null') : null; } catch { return null; }
+  };
   const [choice, setChoice] = React.useState(() => {
     try { return JSON.parse(localStorage.getItem(jobKey) || 'null') ? 'ai' : 'template'; } catch { return 'template'; }
   });
@@ -24,6 +28,7 @@ export default function WechatLayoutPanel({ confirmed, current, storageKey, onBa
     try { return JSON.parse(localStorage.getItem(jobKey) || 'null'); } catch { return null; }
   });
   const [error, setError] = React.useState('');
+  const [finished, setFinished] = React.useState(readFinished);
   const [submitting, setSubmitting] = React.useState(false);
   const busyRef = React.useRef(false);
   const [epoch, setEpoch] = React.useState(0);
@@ -39,6 +44,22 @@ export default function WechatLayoutPanel({ confirmed, current, storageKey, onBa
     }).catch(() => { if (!controller.signal.aborted) setObserved({ templates: [], library: {}, loading: false, error: '推文观察库样式暂时无法读取' }); });
     return () => controller.abort();
   }, []);
+  const clearFinished = () => {
+    try { if (finishedKey) localStorage.removeItem(finishedKey); } catch (e) { /* ignore */ }
+    setFinished(null);
+  };
+  const applyFinished = () => {
+    if (!finished) return;
+    if (!confirmed || finished.confirmedSignature !== confirmed.signature) {
+      setError('内容稿已变化或排版与当前内容不匹配，请重新排版');
+      clearFinished();
+      return;
+    }
+    try {
+      const applied = onApply(confirmed, finished.plan, finished.library, [], finished.plan.imageCard);
+      if (applied) { clearFinished(); setError(''); } else setError('排版未应用，原稿已保留，请重新排版');
+    } catch (failure) { setError(failure.message || '应用失败，原稿已保留'); }
+  };
   const remember = value => {
     if (jobKey) {
       try { if (value) localStorage.setItem(jobKey, JSON.stringify(value)); else localStorage.removeItem(jobKey); }
@@ -62,9 +83,20 @@ export default function WechatLayoutPanel({ confirmed, current, storageKey, onBa
         if (response.status === 'succeeded' && response.result?.plan) {
           const library = await request('/api/wechat-style/blocks', { signal: controller.signal });
           if (controller.signal.aborted) return;
-          const applied = applyRef.current(pending.confirmed, { ...response.result.plan, imageLayout: pending.imageLayout || 'auto' }, normalizeLayoutLibrary(library.blocks || []));
+          const plan = { ...response.result.plan, imageLayout: pending.imageLayout || 'auto' };
+          const normalized = normalizeLayoutLibrary(library.blocks || []);
+          const applied = applyRef.current(pending.confirmed, plan, normalized);
           remember(null);
-          if (!applied) setError('内容稿已修改，或已离开样式选择。原稿未覆盖，请重新确认内容后排版。');
+          if (applied) clearFinished();
+          else {
+            // 用户已离开样式步骤：把完成结果留存，回到这里可一键应用，而不是直接丢弃。
+            try {
+              if (finishedKey) localStorage.setItem(finishedKey, JSON.stringify({ plan, library: normalized,
+                confirmedSignature: pending.confirmed?.signature || '', at: Date.now() }));
+            } catch (e) { /* 配额/隐私模式：只能重新排版 */ }
+            setFinished(readFinished());
+            setError('AI 排版已完成，但你已离开样式选择；点「应用已完成的排版」即可应用，原稿未改变');
+          }
           return;
         }
         if (['failed', 'cancelled'].includes(response.status)) {
@@ -101,6 +133,7 @@ export default function WechatLayoutPanel({ confirmed, current, storageKey, onBa
   };
   const run = () => {
     if (!current || !brief.trim() || pending) return;
+    clearFinished();
     submit({ confirmed, imageLayout, brief: brief.trim(), startedAt: Date.now(), clientRequestId: typeof crypto.randomUUID === 'function' ? crypto.randomUUID()
       : `layout-${Date.now()}-${Math.random().toString(36).slice(2)}` });
   };
@@ -157,6 +190,9 @@ export default function WechatLayoutPanel({ confirmed, current, storageKey, onBa
       <TextArea id="wechat-style-brief" aria-label="排版风格描述" value={brief} onChange={setBrief} rows={3} maxLength={1000}
         placeholder="黑白简洁的校园纪实风，导语稍突出，正文留白多一点。" />
     </div>}
+    {finished && !pending ? <div className="news-generation-status" role="status"><IconSparkleAI /> AI 排版已完成，等待应用到当前内容稿
+      <Button size="small" onClick={applyFinished}>应用已完成的排版</Button>
+      <Button size="small" theme="borderless" onClick={clearFinished}>忽略</Button></div> : null}
     {pending ? <div className="news-generation-status" role="status"><IconSparkleAI /> 正在从样式库匹配排版，内容稿保持不变
       <Button size="small" theme="borderless" onClick={() => { remember(null); setError('已取消本次 AI 排版，原稿保持不变'); }}>取消这次 AI 排版</Button></div> : null}
     {error ? <p className="news-input-error" role="alert">{error}</p> : null}

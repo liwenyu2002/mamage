@@ -283,6 +283,9 @@ body.cve-box-selecting * {
     left: -20px;
     width: 18px;
   }
+  /* 触控目标至少 32px，避免 ↑↓/字号等按钮误触 */
+  .cve-toolbar-btn { min-height: 32px; min-width: 32px; padding: 8px 10px; }
+  .cve-toolbar-btn--sz { min-width: 34px; }
 }
 
 /* ---- 浮动块工具条：黑底白字小圆角胶囊组，首块翻到块下方 ---- */

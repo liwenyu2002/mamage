@@ -25,14 +25,14 @@ const { pollNewsBatch } = load('src/services/newsBatchPolling.js');
 const { normalizeNewsPhoto, mergeNewsPhotos, newsAlbumDefaults } = load('src/utils/newsPhotoSelection.js');
 const { wechatDraftKey, wechatAiDraftKey, wechatImportKey, hasWechatDraft } = load('src/utils/wechatDraftState.js');
 const { articleBlocks, changeArticleBlock, articleBodyMarkdown, withoutImageGroupMarkers } = load('src/utils/newsArticle.js');
-const { freezeContent, materializeLayout, templateLayout, contentSignature, workflowKey, addObservedBrandAssets, normalizeLayoutLibrary, mergeContentIntoLayout } = load('src/utils/wechatWorkflow.js');
+const { freezeContent, materializeLayout, templateLayout, contentSignature, workflowKey, addObservedBrandAssets, normalizeLayoutLibrary, mergeContentIntoLayout, layoutToMarkdown } = load('src/utils/wechatWorkflow.js');
 const { revisionSource, revisionPhotoReferences, applyRevision, revisionTarget, contextualRevisionTarget, revisionContinuation, REVISION_ACTIONS } = load('src/utils/newsRevision.js');
 const { sourceRanges, floatingPosition } = load('src/utils/newsEditorSelection.js');
 const { editorDocument, editorMarkdown, editorSelection, editorPhotoGroups, changeEditorImageGroup } = load('src/utils/newsEditorModel.js');
 const { imageGroupMarker, parseImageGroupMarker } = load('src/utils/newsImageGroups.js');
 const { EditorState, TextSelection } = require('prosemirror-state');
 const { THEME_PRESETS } = load('src/wechat/themes.js');
-const { docToHtmlRaw } = load('src/wechat/docModel.js');
+const { docToHtmlRaw, createHistory } = load('src/wechat/docModel.js');
 const { imageRuns, setImageRunColumns } = load('src/wechat/imageGroups.js');
 const { GALLERY_STYLES, galleryLayoutTree } = load('src/wechat/galleryStyles.js');
 const { replaceBlockStyle, styleDropBlock } = load('src/wechat/styleReplacement.js');
@@ -664,4 +664,30 @@ test('mergeContentIntoLayout syncs edited content into the existing styled layou
   // 新换的一张图也应继承组图样式，而不是 fallback 成纯文本块
   const swapped = mergeContentIntoLayout(freezeContent({ title: '换图', markdown: markdown.replace('/img/0.jpg', '/img/new.jpg') }), layout);
   assert.ok(swapped.doc.filter(block => block.type === 'imageCard').every(block => block.blockId === imageStyle));
+});
+
+test('layoutToMarkdown writes layout text/images back and refuses raw blocks', () => {
+  const markdown = '导语。\n\n## 现场\n\n第一段。\n\n![图题](/img/a.jpg)';
+  const confirmed = freezeContent({ title: '题', markdown });
+  const layout = materializeLayout(confirmed, { ...templateLayout(confirmed.source, THEME_PRESETS.minimal), imageLayout: 'single' }, {});
+  const text = layoutToMarkdown(layout.doc);
+  assert.match(text, /导语/);
+  assert.match(text, /## 现场/);
+  assert.match(text, /第一段/);
+  assert.match(text, /!\[图题\]\(\/img\/a\.jpg\)/);
+  assert.equal(layoutToMarkdown([{ uid: 'r1', kind: 'raw', html: '<p>整文导入</p>' }]), null);
+  assert.equal(layoutToMarkdown([]), '');
+});
+
+test('createHistory snapshot/restore keeps the undo stack across reloads', () => {
+  const history = createHistory([{ uid: 'a' }]);
+  history.push([{ uid: 'b' }]);
+  history.push([{ uid: 'c' }]);
+  const saved = JSON.parse(JSON.stringify(history.snapshot(10)));
+  const restored = createHistory([{ uid: 'stale' }]);
+  assert.equal(restored.restore(saved), true);
+  assert.equal(restored.canUndo(), true);
+  assert.deepEqual(restored.undo(), [{ uid: 'b' }]);
+  assert.deepEqual(restored.undo(), [{ uid: 'a' }]);
+  assert.equal(restored.canUndo(), false);
 });

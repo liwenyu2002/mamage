@@ -58,6 +58,22 @@ const inViewport = async (page, locator) => {
       await page.waitForTimeout(300);
       assert.equal(await page.getByRole('dialog', { name: '内容稿有改动，如何应用到排版稿？' }).count(), 0);
       assert.equal(await page.locator('.wechat-layout-selection').isVisible(), true);
+      // 排版稿改字后回到内容稿：文字应自动回写，且确认时不再要求重排
+      await page.locator('.wechat-workflow-bar nav button').filter({ hasText: '排版稿' }).click();
+      await page.locator('.cve-canvas [contenteditable="true"]').first().click();
+      await page.keyboard.type(' 回写测试');
+      await page.locator('#wxc-title-input').click();
+      await page.waitForTimeout(250);
+      await page.locator('.wechat-workflow-bar nav button').filter({ hasText: '内容草稿' }).click();
+      await page.waitForTimeout(300);
+      await page.getByText('排版稿有未回写的文字改动。').first().waitFor();
+      await page.getByRole('button', { name: '同步回内容稿', exact: true }).click();
+      await page.waitForTimeout(400);
+      assert.match(await page.locator('body').innerText(), /回写测试/);
+      await page.getByRole('button', { name: '确认内容，选择样式', exact: true }).click();
+      await page.waitForTimeout(300);
+      assert.equal(await page.getByRole('dialog', { name: '内容稿有改动，如何应用到排版稿？' }).count(), 0);
+      assert.equal(await page.locator('.wechat-layout-selection').isVisible(), true);
       // 回到排版稿，准备手机端抽屉断言
       await page.locator('.wechat-workflow-bar nav button').filter({ hasText: '排版稿' }).click();
       // 手机端样式抽屉：打开后必须能通过关闭键/Esc 退出
@@ -71,6 +87,20 @@ const inViewport = async (page, locator) => {
         await page.keyboard.press('Escape');
         await page.locator('.wxc-side-lib.is-open').waitFor({ state: 'detached' });
       }
+      // 撤销栈持久化：刷新后仍能撤销排版稿改动
+      await page.locator('.wechat-workflow-bar nav button').filter({ hasText: '排版稿' }).click();
+      await page.locator('.cve-canvas [contenteditable="true"]').first().click();
+      await page.keyboard.type(' 撤销测试');
+      await page.locator('#wxc-title-input').click();
+      await page.waitForTimeout(900);
+      await page.reload();
+      await page.locator('.cve-canvas').waitFor();
+      await page.waitForTimeout(700);
+      const undo = page.getByRole('button', { name: '撤销', exact: true });
+      assert.equal(await undo.isDisabled(), false, `${width}: 刷新后撤销应可用`);
+      await undo.click();
+      await page.waitForTimeout(300);
+      assert.equal((await page.locator('.cve-canvas').innerText()).includes('撤销测试'), false, `${width}: 撤销应回退刷新前的编辑`);
       assert.deepEqual(errors, []);
       await page.close();
     }

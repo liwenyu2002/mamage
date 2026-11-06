@@ -59,6 +59,40 @@ export function materializeLayout(confirmed, plan, customBlocks = {}) {
       ...(imageGroup && (!plan.imageLayout || plan.imageLayout === 'auto') ? { imageGroupReference: imageGroup } : {}) } };
 }
 
+function layoutHtmlToText(html) {
+  return String(html || '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(?:p|div|section|li|h[1-6]|blockquote)>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&amp;/g, '&')
+    .replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+// 排版稿 → 内容稿文字的轻量回写：只处理可可靠解析的段落/标题/图片/分隔线；
+// 含整文导入（raw）块时返回 null，由界面提示"暂不支持自动回写"，避免破坏复杂原文。
+export function layoutToMarkdown(doc) {
+  if (!Array.isArray(doc) || !doc.length) return '';
+  if (doc.some(block => block?.kind === 'raw')) return null;
+  const parts = doc.map(block => {
+    if (!block) return '';
+    if (block.type === 'divider') return '---';
+    if (block.type === 'imageCard') {
+      const src = String(block.src || '').trim();
+      if (!src) return '';
+      const caption = String(block.caption || '').replace(/[[\]]/g, ' ').replace(/\s+/g, ' ').trim();
+      return `![${caption}](${src})`;
+    }
+    const text = block.kind === 'para' ? layoutHtmlToText(block.html) : layoutHtmlToText(block.content);
+    if (!text) return '';
+    if (block.type === 'h2' || block.headingLevel === 2) return `## ${text.replace(/\n+/g, ' ')}`;
+    if (block.type === 'h3' || block.headingLevel === 3) return `### ${text.replace(/\n+/g, ' ')}`;
+    if (block.type === 'quote') return text.split('\n').map(line => `> ${line}`).join('\n');
+    return text;
+  }).filter(Boolean);
+  return parts.join('\n\n').trim();
+}
+
 // 内容稿已排过版：把新内容合并进现有排版稿（文字/图片按内容匹配，保留原样式与分组），
 // 而不是重新走模板、丢掉用户在排版稿里做的样式/换图/图注调整。
 export function mergeContentIntoLayout(snapshot, layout) {

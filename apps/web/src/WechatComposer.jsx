@@ -220,10 +220,29 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
   const [doc, setDoc] = React.useState(initial.doc);
   const [selectedUid, setSelectedUid] = React.useState(null);
   const canvasApiRef = React.useRef(null); // CanvasEditor 命令式句柄（insertIntoRawCaret 容器内嵌套插入）
+  const HISTORY_KEY = DRAFT_KEY ? `${DRAFT_KEY}:history` : null;
   const historyRef = React.useRef(null);
-  if (!historyRef.current) historyRef.current = createHistory(initial.doc);
+  if (!historyRef.current) {
+    historyRef.current = createHistory(initial.doc);
+    // 刷新/切列表后恢复画布撤销栈（只认最后一张快照与当前 doc 完全一致的旧历史，避免错位撤销）。
+    try {
+      const saved = HISTORY_KEY ? JSON.parse(localStorage.getItem(HISTORY_KEY) || 'null') : null;
+      if (saved && Array.isArray(saved.stack) && saved.stack.length > 1
+        && JSON.stringify(saved.stack[saved.stack.length - 1]) === JSON.stringify(initial.doc)) historyRef.current.restore(saved);
+    } catch (e) { /* 历史损坏/隐私模式：从空历史开始 */ }
+  }
   const [historyTick, setHistoryTick] = React.useState(0); // 撤销/重做按钮禁用态的重渲信号
   void historyTick;
+  React.useEffect(() => {
+    if (!HISTORY_KEY) return undefined;
+    const timer = setTimeout(() => {
+      try {
+        const payload = JSON.stringify(historyRef.current.snapshot(10));
+        if (payload.length < 2 * 1024 * 1024) localStorage.setItem(HISTORY_KEY, payload);
+      } catch (e) { /* 配额/隐私模式：撤销栈不持久化，不影响编辑 */ }
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [doc, historyTick, HISTORY_KEY]);
   const [replaceTarget, setReplaceTarget] = React.useState(null); // 换样式模式：目标块 uid
   const [pendingStyle, setPendingStyle] = React.useState(null);
   // 中转站选图目标：null=插新图块；uid 字符串=给 imageCard 块换图；{uid, imgIndex}=替换 raw 块内第 N 张图
@@ -1106,7 +1125,7 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
       setPreviewInfo({ url, qrSvg: makeQrSvg(url, { cellSize: 6, margin: 12 }) });
     } catch (e) {
       console.error('[WechatComposer] mobile preview failed', e);
-      Toast.error(e && e.message ? `生成预览失败：${String(e.message).slice(0, 80)}` : '生成预览失败');
+      Toast.error('手机预览生成失败，请稍后重试；若持续失败请联系管理员');
     } finally {
       setPreviewGen(false);
     }
