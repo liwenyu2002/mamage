@@ -14,7 +14,7 @@ import {
 import NumInput from './NumInput.jsx';
 import { beginDrag, registerDropZone } from './pointerDrag.js';
 import { applyThemeMasksToEl, derivePalette } from './themeColor.js';
-import { imageRuns, setImageRunColumns } from './imageGroups';
+import { imageRuns, imageRunForUid, setImageRunColumns, splitGallery, mergeGallery } from './imageGroups';
 import { GALLERY_STYLES_BY_ID, galleryLayoutTree, galleryNodeStyle } from './galleryStyles';
 import { observedGalleryHtml } from './observedGallery';
 import { replacementError, styleDropBlock } from './styleReplacement';
@@ -560,6 +560,7 @@ function BlockToolbar({
   block, index, total, styleBlock, flip, anchorTop, getHostEl, activeRawImgIndex, activeRawImgKind,
   onMoveUp, onMoveDown, onDuplicate, onDelete, onChangeStyle, onChangeAccent, onInsertParaAfter,
   onSplitRaw, onImgStyle, onRawImgStyle, onImgReplace, onImgEdit, onManageImages, onSpacing, onImageColumns,
+  onSplitGallery,
 }) {
   const [swatchOpen, setSwatchOpen] = React.useState(false);
   const [textSwatchOpen, setTextSwatchOpen] = React.useState(false);
@@ -740,6 +741,8 @@ function BlockToolbar({
             {[1, 2, 3].map(columns => <button key={columns} type="button" className={`cve-toolbar-btn${(block.galleryColumns || 1) === columns ? ' is-on' : ''}`}
               aria-pressed={(block.galleryColumns || 1) === columns} onClick={() => onImageColumns(columns)}>{columns === 1 ? '单列' : columns === 2 ? '双列' : '三列'}</button>)}
           </div>
+          {block.galleryId ? <button type="button" className="cve-toolbar-btn" onClick={onSplitGallery}
+            title="把这一组拆成相互独立的单图">拆分组图</button> : null}
         </div>
       )}
       {isImageCard && (
@@ -1584,6 +1587,10 @@ function CanvasEditor({
               }
               onChange(setImageRunColumns(list, block.uid, columns));
             }}
+            onSplitGallery={() => {
+              const next = splitGallery(list, block.uid);
+              if (next !== list) { onChange(next); onNotify?.('success', '已拆分为独立图片'); }
+            }}
             onRawImgStyle={(styleObj) => setRawImgStyle(block.uid, activeRawImg ? activeRawImg.imgIndex : 0, styleObj)}
             onImgReplace={(imgIndex) => onRequestImagePick(block.uid, imgIndex == null ? undefined : imgIndex)}
             onImgEdit={(imgIndex) => onRequestImageEdit(block.uid, imgIndex == null ? undefined : imgIndex)}
@@ -1623,6 +1630,13 @@ function CanvasEditor({
       <div className="cve-multibar" onPointerDown={(e) => e.stopPropagation()}>
         <span className="cve-multibar-count">已选 {multiSel.size} 个元素</span>
         <button type="button" className="cve-multibar-btn" onClick={favoriteSelection}>★ 收藏</button>
+        {list.filter(block => multiSel.has(block.uid)).length >= 2
+          && list.filter(block => multiSel.has(block.uid)).every(block => block.kind === 'styled' && block.type === 'imageCard')
+          ? <button type="button" className="cve-multibar-btn" onClick={() => {
+            const next = mergeGallery(list, [...multiSel]);
+            if (next === list) { onNotify?.('info', '只能合并相邻的图片'); return; }
+            onChange(next); clearMultiSel(); onNotify?.('success', '已合并为一组组图');
+          }}>合并为组图</button> : null}
         <button type="button" className="cve-multibar-btn" onClick={deleteSelection}>删除</button>
         <button type="button" className="cve-multibar-btn cve-multibar-btn--ghost" onClick={clearMultiSel}>取消</button>
       </div>

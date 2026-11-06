@@ -78,6 +78,9 @@
 .news-document-controls { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .news-document-controls .mamage-segmented { width: 116px; }
 .news-document-controls > button { font-size: 12px; min-height: 32px; padding: 7px 12px; }
+.news-pending-result { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 12px 24px 0; padding: 10px 14px;
+  background: #fff8e9; border: 1px solid #f0dfbe; border-radius: 8px; font-size: 13px; color: #75561a; }
+.news-pending-result > span { flex: 1 1 220px; }
 .news-review-bar { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 10px 24px; border-top: 1px solid rgba(0,0,0,.05); font-size: 12px; }
 .news-review-bar > button { flex-shrink: 0; font-size: 11px; min-height: 28px; padding: 4px 10px; box-shadow: none; }
 .news-review-notes { min-width: 140px; flex: 1; }

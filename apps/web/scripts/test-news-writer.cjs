@@ -33,7 +33,7 @@ const { imageGroupMarker, parseImageGroupMarker } = load('src/utils/newsImageGro
 const { EditorState, TextSelection } = require('prosemirror-state');
 const { THEME_PRESETS } = load('src/wechat/themes.js');
 const { docToHtmlRaw, createHistory } = load('src/wechat/docModel.js');
-const { imageRuns, setImageRunColumns } = load('src/wechat/imageGroups.js');
+const { imageRuns, setImageRunColumns, splitGallery, mergeGallery } = load('src/wechat/imageGroups.js');
 const { GALLERY_STYLES, galleryLayoutTree } = load('src/wechat/galleryStyles.js');
 const { replaceBlockStyle, styleDropBlock } = load('src/wechat/styleReplacement.js');
 const { hydrateSimilarityPhotos } = load('src/services/similarityPhotos.js');
@@ -690,4 +690,28 @@ test('createHistory snapshot/restore keeps the undo stack across reloads', () =>
   assert.deepEqual(restored.undo(), [{ uid: 'b' }]);
   assert.deepEqual(restored.undo(), [{ uid: 'a' }]);
   assert.equal(restored.canUndo(), false);
+});
+
+test('splitGallery/mergeGallery handle layout image groups', () => {
+  const doc = [
+    { uid: 'p', kind: 'para', type: 'body', html: 'x' },
+    { uid: 'i1', kind: 'styled', type: 'imageCard', src: '/1.jpg', galleryId: 'g1', galleryColumns: 2, galleryStyle: 'builtin-gallery-carousel' },
+    { uid: 'i2', kind: 'styled', type: 'imageCard', src: '/2.jpg', galleryId: 'g1', galleryColumns: 2, galleryStyle: 'builtin-gallery-carousel' },
+    { uid: 'i3', kind: 'styled', type: 'imageCard', src: '/3.jpg', galleryId: 'g1', galleryColumns: 2, galleryStyle: 'builtin-gallery-carousel' },
+    { uid: 'i4', kind: 'styled', type: 'imageCard', src: '/4.jpg' },
+  ];
+  const split = splitGallery(doc, 'i2');
+  for (const block of split.slice(1, 4)) {
+    assert.equal(block.galleryId, undefined);
+    assert.equal(block.galleryColumns, undefined);
+    assert.equal(block.galleryStyle, null);
+  }
+  assert.equal(split[4].uid, 'i4');
+  assert.equal(splitGallery(doc, 'i4'), doc, 'single image needs no split');
+  const merged = mergeGallery(doc, ['i3', 'i4']);
+  assert.equal(merged[3].galleryId, 'g1');
+  assert.equal(merged[4].galleryId, 'g1');
+  assert.equal(merged[4].galleryColumns, 2);
+  assert.equal(mergeGallery(doc, ['i1', 'i4']), doc, 'non-adjacent images cannot merge');
+  assert.equal(mergeGallery(doc, ['i1', 'p']), doc, 'non-image blocks cannot merge');
 });

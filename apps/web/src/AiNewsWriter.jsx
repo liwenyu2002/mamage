@@ -183,6 +183,10 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
   }, []);
 
   const activeContent = channelContent[activeChannelKey] || EMPTY_CHANNEL_CONTENT;
+  const channelContentRef = React.useRef(channelContent);
+  channelContentRef.current = channelContent;
+  const generationBaseRef = React.useRef({});
+  const [pendingResults, setPendingResults] = React.useState({});
   const hasManuscript = Boolean(activeContent.markdownText || activeContent.history?.length || activeContent.redoHistory?.length);
   const inlineDocImages = ((activeContent.markdownText || '').match(/!\[[^\]]*\]\([^)]*\)/g) || []).length;
   const setActiveMarkdownText = React.useCallback((v, options) => {
@@ -258,7 +262,7 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
     setSelectedPhotos(article.photos || []);
     if (article.formValues) setFormValues(previous => ({ ...previous, ...restoreNewsForm(article.formValues) }));
     setInterviewText(article.interviewText || ''); setParticipantChips(article.participantChips || []);
-    setBatchId(null); setBatchStatus(''); setChannelJobs({}); setDocumentView('editor');
+    setBatchId(null); setBatchStatus(''); setChannelJobs({}); setPendingResults({}); setDocumentView('editor');
   }, [restoredArticle, isGenerating, updateChannelContent]);
   const [isMobile, setIsMobile] = React.useState(() => (typeof window !== 'undefined' ? window.innerWidth <= 768 : false));
   const previewContentRef = React.useRef(null);
@@ -300,6 +304,7 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
     setSelectedChannels([preferredChannelKey || 'press_release']);
     setBatchId(null);
     setBatchStatus('');
+    setPendingResults({});
     setTrackingError('');
     setGenerationStartedAt(null);
     setHasLegacyDraft(false);
@@ -821,6 +826,16 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
         if (processed.title && !/^#\s+/m.test(cleaned)) cleaned = `# ${processed.title}\n\n${cleaned}`;
       }
       if (!isCurrent()) return false;
+      const base = generationBaseRef.current?.[channelKey];
+      const current = (channelContentRef.current?.[channelKey]) || {};
+      if (base && (String(current.markdownText || '') !== base.markdown || String(current.title || '') !== base.title)) {
+        // 生成期间用户改过草稿：不静默覆盖，结果先留存，由用户选择采用或保留修改。
+        setPendingResults(previous => ({ ...previous, [channelKey]: {
+          result: processed, cleaned, jobId, title: processed.title || formValues.eventName || '',
+        } }));
+        if (mountedRef.current) Toast.info('生成完成，但你在生成期间修改过草稿；结果已保留，可在稿件上方选择采用');
+        return false;
+      }
       updateChannelContent(channelKey, base => ({
         title: processed.title || formValues.eventName || '',
         subtitle: processed.subtitle || '',
@@ -844,6 +859,24 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPhotos, formValues.eventName, updateChannelContent]);
+
+  const adoptPendingResult = React.useCallback(channelKey => {
+    const pending = pendingResults[channelKey];
+    if (!pending) return;
+    updateChannelContent(channelKey, () => ({ ...emptyChannelContent(),
+      title: pending.title, subtitle: pending.result.subtitle || '', markdownText: pending.cleaned || '',
+      generatedHtml: '', extra: pending.result.extra || {}, photos: pending.result.photos || [],
+      factCheck: pending.result.factCheck || null, references: Array.isArray(pending.result.references) ? pending.result.references : null,
+      referenceStatus: pending.result.referenceStatus || null, sourceJobId: pending.jobId }));
+    setPendingResults(previous => { const next = { ...previous }; delete next[channelKey]; return next; });
+    setActiveChannelKey(previous => previous || channelKey);
+    setSourceOpen(false);
+    Toast.success('已采用生成结果');
+  }, [pendingResults, updateChannelContent]);
+  const discardPendingResult = React.useCallback(channelKey => {
+    setPendingResults(previous => { const next = { ...previous }; delete next[channelKey]; return next; });
+    Toast.info('已保留你的修改，生成结果已丢弃');
+  }, []);
 
   // 汇总一次 batch 轮询响应：更新每渠道 job 状态，并对新完成的渠道跑一遍占位符处理。
   const applyBatchResponse = React.useCallback(async (resp, isCurrent) => {
@@ -946,6 +979,13 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
         }));
       }
 
+      const baseSnapshot = {};
+      selectedChannels.forEach(channelKey => {
+        const content = channelContentRef.current?.[channelKey] || {};
+        baseSnapshot[channelKey] = { markdown: String(content.markdownText || ''), title: String(content.title || '') };
+      });
+      generationBaseRef.current = baseSnapshot;
+      setPendingResults({});
       const resp = await startBatch(payload);
       if (!resp || !resp.batchId) throw new Error('批次创建失败：响应缺少 batchId');
       const initialJobs = {};
@@ -1785,6 +1825,11 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
               if (!isGenerating) stepActiveEdit(key === 'y' || event.shiftKey ? 'redo' : 'undo');
             }}>
               <section className="news-result-surface" aria-label="稿件">
+                {pendingResults[activeChannelKey] ? <div className="news-pending-result" role="status">
+                  <span>AI 生成结果待采用：你在生成期间修改过草稿，结果未自动覆盖。</span>
+                  <Button size="small" type="primary" onClick={() => adoptPendingResult(activeChannelKey)}>采用生成结果</Button>
+                  <Button size="small" theme="borderless" onClick={() => discardPendingResult(activeChannelKey)}>保留我的修改</Button>
+                </div> : null}
                 <div className="news-result-heading">
                   <div className="news-result-title"><h3>稿件</h3>
                     <span>{hasManuscript ? `${countVisibleChars(activeContent.markdownText)} 字 · ${activeChannelKey === 'wechat_article' ? '内容草稿' : 'AI 初稿'}` : '等待生成'}</span>

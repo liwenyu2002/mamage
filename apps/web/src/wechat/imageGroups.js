@@ -37,6 +37,29 @@ export function imageRunForUid(doc, uid) {
   return imageRuns(doc).find(run => run.items.some(item => item.block.uid === uid) && isImage(run.items[0].block));
 }
 
+// 组图拆分：把 uid 所在的整组拆成相互独立的单图（清掉分组/列数/原版样式）。
+export function splitGallery(doc, uid) {
+  const run = imageRunForUid(doc, uid);
+  if (!run || run.items.length < 2) return doc;
+  const ids = new Set(run.items.map(item => item.block.uid));
+  return doc.map(block => ids.has(block.uid) ? { ...block, galleryId: undefined, galleryColumns: undefined,
+    galleryStyle: null, galleryTemplate: undefined } : block);
+}
+
+// 组图合并：只接受相邻的 2 张以上图片（否则返回原 doc，由调用方提示）。
+export function mergeGallery(doc, uids) {
+  const indexes = [...new Set(uids)].map(uid => (doc || []).findIndex(block => block.uid === uid))
+    .filter(index => index >= 0).sort((a, b) => a - b);
+  if (indexes.length < 2) return doc;
+  const adjacent = indexes.every((value, i) => i === 0 || value === indexes[i - 1] + 1);
+  const images = indexes.every(index => isImage(doc[index]));
+  if (!adjacent || !images) return doc;
+  const galleryId = doc[indexes[0]].galleryId || `group-${doc[indexes[0]].uid}`;
+  return doc.map((block, index) => indexes.includes(index)
+    ? { ...block, galleryId, galleryColumns: columnsFor(block) > 1 ? columnsFor(block) : 2 }
+    : block);
+}
+
 export function setImageRunStyle(doc, uid, styleId, style = null) {
   const run = imageRunForUid(doc, uid);
   const template = snapshotGallery(style);
