@@ -33,7 +33,7 @@ async function main() {
         assert.equal(groupIds.length, 10);
         await page.getByRole('button', { name: '组图样式', exact: true }).first().click();
         const cards = page.locator('.wxc-lib-block--gallery');
-        assert.equal(await cards.count(), 2);
+        assert.ok((await cards.count()) >= 2, 'observed gallery styles are listed (corpus may add more than the two baseline styles)');
         const ids = await cards.evaluateAll(elements => elements.map(element => element.dataset.styleId));
         await page.screenshot({ path: path.join(shots, `${width}-library.png`) });
         const confirm = page.getByRole('dialog', { name: '应用此样式？' });
@@ -45,12 +45,13 @@ async function main() {
           await confirm.getByRole('button', { name: '取消', exact: true }).click();
         }
         const carouselId = ids.find(id => id.includes('observed-gallery'));
+        const appliedSlots = await page.evaluate(id => window.__newsObservedLibrary.blocks.find(block => block.id === id)?.slots, String(carouselId).replace(/^db-/, ''));
         const secondId = ids.find(id => id !== carouselId);
         await page.locator(`[data-style-id="${carouselId}"]`).click();
         await confirm.getByRole('button', { name: '应用样式', exact: true }).click();
         const expected = await readDoc(page);
         assert.deepEqual(expected.map(({ galleryStyle, galleryTemplate, ...block }) => block), original, 'all photo IDs, URLs, captions and adjacent groups are retained');
-        assert(expected.filter(block => groupIds.includes(block.uid)).every(block => block.galleryStyle === carouselId && block.galleryTemplate?.slots === 8));
+        assert(expected.filter(block => groupIds.includes(block.uid)).every(block => block.galleryStyle === carouselId && block.galleryTemplate?.slots === appliedSlots));
         assert(expected.filter(block => !groupIds.includes(block.uid)).every(block => !block.galleryStyle));
         const gallery = page.locator(`.cve-image-group[data-gallery-style="${carouselId}"]`);
         assert.equal(await gallery.locator('.cve-observed-images [data-cve-uid]').count(), 10);

@@ -24,6 +24,13 @@
 - 内容稿可导出 Word；样式稿优先复制为经验证的公众号兼容格式。手机端支持查看、评论、文字和图片调整，完整精细排版以电脑端为主。
 - 语音输入先使用设备现有输入能力，不为此另部署语音模型。AI 生成可逐步预览时逐步显示，旧稿保留到用户采用。
 
+## 原版组图样式（observed gallery）
+
+- 组图样式库里的「原版轮播 / 原版 N 图」不是自创排版，而是从已采集公众号原文 DOM 直接复刻：提取照片容器与 SVG 轮播结构（`img`/`image`/`path`/`defs`/`use` 等），把照片位置替换成槽位，渲染时填入当前组图的照片。文字、脚本、外部链接和任意定位一律拒绝，提取结果带来源文章与账号。
+- 支持整组换样式前用真实内容预览、确认后应用、可撤销；逐张换图、刷新与手机端保留分组和列数。
+- 本地验收：先构建 QA 产物（`node apps/web/scripts/test-news-gallery-browser.cjs`，可带 `MAMAGE_NEWS_OBSERVED_ARTICLES` 语料），再 `npm --prefix apps/web run preview:news` 打开 `?channel=wechat` 与 `?view=gallery-styles`；组图回归用 `MAMAGE_NEWS_OBSERVED_ARTICLES=… npm --prefix apps/web run test:gallery`。
+- 已知边界：微信粘贴会剥掉 SVG 与 CSS 背景图，所以「复制到公众号」会把轮播背景照片展平成块级 `<img>`（站内预览仍保留原动画/构图）。
+
 ## 当前实现边界
 
 - 原有推文文件列表和“新建推文”入口保留。新建时可选择 AI 工作流或直接进入自定义编辑台；已有服务端稿件继续由原编辑台管理。

@@ -30,7 +30,7 @@ async function main() {
         await page.goto(`http://127.0.0.1:${server.address().port}/?view=gallery-styles`);
         const sections = page.locator('[data-source-style]');
         await sections.first().waitFor();
-        assert.equal(await sections.count(), 2);
+        assert.ok((await sections.count()) >= 2, 'at least one carousel and one columns source style');
         const loaded = await page.evaluate(async () => {
           const sources = [...document.querySelectorAll('.source-original *')].flatMap(element => {
             if (element.tagName === 'IMG') return [element.src];
@@ -68,7 +68,7 @@ async function main() {
           assert(ratio < 0.02, `copied source differs visually: ${ratio}`);
           differences.push(ratio);
         }
-        const movingGroup = sections.first().locator('.source-replica animateTransform');
+        const movingGroup = page.locator('.source-replica animateTransform').first();
         const transform = () => movingGroup.evaluate(el => getComputedStyle(el.parentElement).transform);
         const firstTransform = await transform();
         await freeze(page, 3);
@@ -83,7 +83,7 @@ async function main() {
         await freeze(page, 3);
         assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
         await page.screenshot({ path: path.join(shots, `${width}-source-comparison.png`), fullPage: true });
-        console.log(JSON.stringify({ width, sources: 2, loadedImages: loaded.length, pixelDifferenceRatios: differences, originalMotion: true, replaceOnlyReplica: true }));
+        console.log(JSON.stringify({ width, sources: await sections.count(), loadedImages: loaded.length, pixelDifferenceRatios: differences, originalMotion: true, replaceOnlyReplica: true }));
       } finally { await page.close(); }
     }
   } finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }

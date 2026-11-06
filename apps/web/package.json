@@ -32,6 +32,8 @@
     "test:embedded-webview": "node scripts/test-embedded-webview-browser.cjs",
     "test:person-split-browser": "node scripts/check-person-split.cjs",
     "test:oidc-login": "node --test scripts/test-oidc-login.cjs",
+    "test:gallery": "node scripts/run-gallery-tests.cjs",
+    "preview:news": "node scripts/preview-news-usability.cjs",
     "pretest:audit": "npm run test:iam && npm run test:oidc-login && npm run test:glass-compatibility",
     "test:news-browser": "node scripts/test-news-usability-browser.cjs",
     "test:news-selection": "node scripts/test-news-editor-selection.cjs",

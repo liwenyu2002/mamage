@@ -3,9 +3,18 @@ const crypto = require('node:crypto');
 const { parsed } = require('./wechat_monitor_content');
 
 const tag = node => String(node.tagName || '').toLowerCase();
-const TAGS = new Set(['section', 'div', 'span', 'p', 'img', 'svg', 'g', 'rect', 'foreignobject', 'animatetransform']);
-const ATTRS = new Set(['style', 'src', 'viewbox', 'xmlns', 'x', 'y', 'width', 'height', 'opacity', 'fill',
-  'attributename', 'type', 'keytimes', 'values', 'repeatcount', 'begin', 'dur', 'calcmode', 'restart']);
+// Copy the source DOM of photo-only galleries. 除 img 外还允许微信轮播常用的 SVG 结构
+// （image/path/defs/use/渐变等）；文字、脚本、链接与任意定位仍被拒绝。
+const TAGS = new Set(['section', 'div', 'span', 'p', 'img', 'svg', 'g', 'rect', 'foreignobject', 'animatetransform',
+  'image', 'path', 'defs', 'use', 'lineargradient', 'radialgradient', 'stop', 'pattern', 'clippath',
+  'line', 'circle', 'ellipse', 'polygon', 'polyline']);
+const ATTRS = new Set(['style', 'src', 'viewbox', 'xmlns', 'xmlns:xlink', 'x', 'y', 'width', 'height', 'opacity', 'fill',
+  'attributename', 'type', 'keytimes', 'values', 'repeatcount', 'begin', 'dur', 'calcmode', 'restart',
+  'href', 'xlink:href', 'id', 'transform', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin',
+  'stroke-dasharray', 'stroke-opacity', 'fill-opacity', 'fill-rule', 'preserveaspectratio', 'overflow',
+  'clip-path', 'mask', 'd', 'points', 'cx', 'cy', 'r', 'rx', 'ry', 'x1', 'y1', 'x2', 'y2',
+  'offset', 'stop-color', 'stop-opacity', 'gradientunits', 'gradienttransform', 'patternunits',
+  'patterncontentunits', 'clippathunits']);
 const unsafe = /expression\s*\(|javascript\s*:|vbscript\s*:|@import|\\|\/\*|position\s*:\s*(fixed|sticky)/i;
 const bgUrl = /url\(\s*(['"]?)(.*?)\1\s*\)/gi;
 
@@ -45,6 +54,18 @@ function templateFromSource(html, row, kind) {
     if (tag(node) === 'img') {
       el.attr('src', slotFor(el.attr('src')));
       el.attr('data-gallery-slot', occurrenceSlots.at(-1));
+    } else if (tag(node) === 'image') {
+      // SVG <image> 用 href/xlink:href 指向微信图床；替换成槽位 token，渲染时再填用户照片。
+      const href = el.attr('href') || el.attr('xlink:href');
+      if (!href) return null;
+      const token = slotFor(href);
+      if (el.attr('href')) el.attr('href', token);
+      if (el.attr('xlink:href')) el.attr('xlink:href', token);
+      el.attr('data-gallery-slot', occurrenceSlots.at(-1));
+    } else if (tag(node) === 'use') {
+      // <use> 只允许引用模板内部的 defs，不允许外部文档或图片。
+      const href = el.attr('href') || el.attr('xlink:href');
+      if (!href || !href.startsWith('#')) return null;
     }
     const style = el.attr('style');
     if (style) el.attr('style', style.replace(bgUrl, (_, quote, url) => {
@@ -57,7 +78,8 @@ function templateFromSource(html, row, kind) {
   const htmlTemplate = $.root().html();
   const fingerprint = crypto.createHash('sha256').update(htmlTemplate).digest('hex').slice(0, 16);
   return { id: `observed-gallery-${fingerprint}`, type: 'imageGroup', source: 'observed',
-    name: `${kind === 'carousel' ? '共创营 · 原版轮播' : `论坛 · 原版${sourceImages.length}图`}`,
+    // 名称带上来源账号：同一 realm/库里可能有多套原版轮播，不能都叫「共创营」。
+    name: `${kind === 'carousel' ? '原版轮播' : `原版${sourceImages.length}图`} · ${row.account || '原文'}`,
     slots: sourceImages.length, galleryKind: kind, htmlTemplate, occurrenceSlots, sourceImages,
     sourceHtml: html, sourceTitle: row.title, sourceUrl: row.source_url, sourceAccount: row.account || '北京中关村学院',
     articleId: Number(row.id), revisionId: Number(row.current_revision_id) };

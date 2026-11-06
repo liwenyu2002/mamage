@@ -35,3 +35,16 @@ test('rejects article facts, unsafe content and tracking assets instead of copyi
     assert.equal(templateFromSource(bad, row, 'columns'), null);
   }
 });
+
+test('copies SVG galleries that use image/path/defs slots and rejects external <use>', () => {
+  const frame = (i, n) => `<g transform="translate(${n * 100},0)"><path d="M0 0h100v100H0z" fill="#fff"></path><image href="https://mmbiz.qpic.cn/photo/${i}" width="100" height="100" preserveAspectRatio="xMidYMid slice"></image></g>`;
+  const source = `<section style="overflow:hidden"><svg viewBox="0 0 300 100"><defs><clipPath id="c"><rect width="100" height="100"></rect></clipPath></defs><g><animateTransform attributeName="transform" type="translate" begin="0s" values="0 0;-100 0;-200 0" dur="3s" repeatCount="indefinite"></animateTransform>${[0, 1, 2].map(frame).join('')}</g></svg></section>`;
+  const [style] = observedGalleryTemplates({ ...row, blocks: [source] });
+  assert.equal(style.slots, 3);
+  assert.match(style.htmlTemplate, /\{\{photo_0\}\}/);
+  assert.match(style.htmlTemplate, /preserveAspectRatio="xMidYMid slice"/);
+  assert.match(style.htmlTemplate, /<path /);
+  assert.doesNotMatch(style.htmlTemplate, /qpic/);
+  const externalUse = source.replace('<g>', '<g><use href="https://evil.test/x.svg"></use>');
+  assert.equal(templateFromSource(externalUse, row, 'carousel'), null);
+});
