@@ -19,6 +19,7 @@ if (!corpus || !fs.existsSync(corpus)) {
 console.log(`[test:gallery] corpus: ${corpus}`);
 const steps = [
   'test-news-gallery-browser.cjs',
+  'test-editor-flow-regressions.cjs',
   'test-gallery-styles-browser.cjs',
   'test-observed-gallery-browser.cjs',
   'test-style-replacement-browser.cjs',

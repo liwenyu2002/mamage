@@ -7,7 +7,12 @@ import { withDraftImageGroups, imageGroupMetadata } from './newsImageGroups';
 export function workflowKey(userId, workspaceId) {
   return userId ? `mamage.wechat.workflow.v1:${userId}:${workspaceId || 'legacy'}` : null;
 }
-export function contentSignature(article) { return JSON.stringify([article?.title || '', article?.markdown || '']); }
+export function contentSignature(article) {
+  // 归一化换行/尾随空白，避免编辑器 blur 或草稿回写产生的等义差异把内容稿判成“已修改”。
+  const title = String(article?.title || '').trim();
+  const markdown = String(article?.markdown || '').replace(/\r\n/g, '\n').replace(/\u00a0/g, ' ').replace(/[ \t]+$/gm, '').replace(/\s+$/, '');
+  return JSON.stringify([title, markdown]);
+}
 export function freezeContent(article) {
   if (!article?.markdown?.trim()) throw Error('请先完成内容稿');
   const doc = withDraftImageGroups(markdownToDoc(articleBodyMarkdown(article.markdown, article.title)).map(block => {

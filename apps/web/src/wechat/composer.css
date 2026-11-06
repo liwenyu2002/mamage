@@ -233,6 +233,11 @@
 .wxc-export-card {
   margin-top: 4px;
 }
+.wxc-guided .wxc-export-card { margin: 0 auto 12px; max-width: 1000px; }
+.wxc-guided .wxc-export-row { flex-wrap: wrap; }
+@media (max-width: 520px) {
+  .wxc-guided .wxc-export-primary { flex: 1 0 100%; }
+}
 
 .wxc-export-row {
   display: flex;
@@ -693,6 +698,25 @@
   display: none;
 }
 
+/* 窄屏样式抽屉的关闭键与遮罩：抽屉 z-index:3000 会盖住触发按钮，必须自带出口 */
+.wxc-side-close {
+  display: none;
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 50%;
+  background: #fff;
+  color: #333;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+.wxc-side-backdrop { display: none; position: fixed; inset: 0; z-index: 2999; background: rgba(0, 0, 0, 0.18); }
+
 @media (max-width: 968px) {
   .wxc-side-lib {
     display: none;
@@ -711,6 +735,8 @@
   .wxc-side-lib.is-open {
     display: flex;
   }
+  .wxc-side-close { display: grid; place-items: center; }
+  .wxc-side-backdrop { display: block; }
 
   .wxc-lib-toggle-mobile {
     display: inline-flex;

@@ -48,6 +48,11 @@ export default function WechatLayoutPanel({ confirmed, current, storageKey, onBa
   };
   React.useEffect(() => {
     if (!pending?.clientRequestId || submitting) return undefined;
+    if (pending.startedAt && Date.now() - pending.startedAt > 15 * 60 * 1000) {
+      setError('AI 排版超过 15 分钟未完成，已停止等待；可取消后重新排版，原稿未改变');
+      remember(null);
+      return undefined;
+    }
     const controller = new AbortController();
     let timer, misses = 0;
     const poll = async () => {
@@ -96,7 +101,7 @@ export default function WechatLayoutPanel({ confirmed, current, storageKey, onBa
   };
   const run = () => {
     if (!current || !brief.trim() || pending) return;
-    submit({ confirmed, imageLayout, brief: brief.trim(), clientRequestId: typeof crypto.randomUUID === 'function' ? crypto.randomUUID()
+    submit({ confirmed, imageLayout, brief: brief.trim(), startedAt: Date.now(), clientRequestId: typeof crypto.randomUUID === 'function' ? crypto.randomUUID()
       : `layout-${Date.now()}-${Math.random().toString(36).slice(2)}` });
   };
   const selectedTemplate = observed.templates.find(item => item.id === template);
@@ -111,6 +116,9 @@ export default function WechatLayoutPanel({ confirmed, current, storageKey, onBa
     {!current ? <div className="news-input-error" role="alert">内容稿已修改，请重新确认后再排版。<Button size="small" onClick={onBack}>返回确认</Button></div> : null}
     <SegmentedControl label="排版方式" value={choice} options={[{ value: 'template', label: '已有模板' }, { value: 'ai', label: 'AI 排版' }]}
       onChange={setChoice} />
+    <p className="wechat-layout-hint">{choice === 'template'
+      ? '直接套用推文观察库里保存的标题与组图样式；选中后点底部按钮生成排版稿。'
+      : '按内容稿与下方风格描述让模型生成排版；失败不会覆盖现有排版稿。'}</p>
     {confirmed?.source.doc.filter(block => block.type === 'imageCard').length > 1 ? <div className="wechat-image-layout">
       <span>组图 <small>{confirmed.source.doc.filter(block => block.type === 'imageCard').length} 张配图</small></span>
       <SegmentedControl label="组图布局" value={imageLayout} options={IMAGE_LAYOUTS} onChange={setImageLayout} disabled={Boolean(pending)} />
@@ -123,9 +131,9 @@ export default function WechatLayoutPanel({ confirmed, current, storageKey, onBa
         const heading = observed.library[item.styleIds.h2];
         const sample = heading ? DOMPurify.sanitize(applyBlock(heading, { content: '活动纪实', accent: item.base?.accent || THEME_PRESETS.minimal.accent })) : '';
         return <button type="button" key={item.id} aria-pressed={template === item.id} onClick={() => { setTemplate(item.id); setSelectedAssets([]); }}>
+          <span className="wechat-template-name">{item.name}</span>
           <div className="wechat-template-sample" dangerouslySetInnerHTML={{ __html: sample }} />
-          <div className="wechat-template-lines" aria-hidden="true"><i /><i /><i /></div>
-          <span>{item.name}</span><small>{item.count > 1 ? `系列 · ${item.count} 篇 · ${item.sourceTitle}` : '北京中关村学院 · 推文观察库'}{item.imageGroup ? ` · ${item.imageGroup.columns === 2 ? '双列' : '三列'}组图` : ''}</small>
+          <small>{item.count > 1 ? `系列 · ${item.count} 篇 · ${item.sourceTitle}` : '北京中关村学院 · 推文观察库'}{item.imageGroup ? ` · ${item.imageGroup.columns === 2 ? '双列' : '三列'}组图` : ''}</small>
         </button>;
       })}
     </div>
@@ -149,7 +157,8 @@ export default function WechatLayoutPanel({ confirmed, current, storageKey, onBa
       <TextArea id="wechat-style-brief" aria-label="排版风格描述" value={brief} onChange={setBrief} rows={3} maxLength={1000}
         placeholder="黑白简洁的校园纪实风，导语稍突出，正文留白多一点。" />
     </div>}
-    {pending ? <div className="news-generation-status" role="status"><IconSparkleAI /> 正在从样式库匹配排版，内容稿保持不变</div> : null}
+    {pending ? <div className="news-generation-status" role="status"><IconSparkleAI /> 正在从样式库匹配排版，内容稿保持不变
+      <Button size="small" theme="borderless" onClick={() => { remember(null); setError('已取消本次 AI 排版，原稿保持不变'); }}>取消这次 AI 排版</Button></div> : null}
     {error ? <p className="news-input-error" role="alert">{error}</p> : null}
     <div className="wechat-layout-actions"><Button size="small" theme="borderless" icon={<IconChevronLeft />} onClick={onBack}>返回内容稿</Button>
       {pending && error ? <Button disabled={submitting} onClick={() => submit(pending)}>重试同一任务</Button> : null}

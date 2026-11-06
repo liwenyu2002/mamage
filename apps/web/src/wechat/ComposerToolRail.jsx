@@ -84,32 +84,32 @@ export default function ComposerToolRail({
         className={`ctr-icon${layoutMode ? ' is-on' : ''}`}
         onClick={() => { onToggleLayout(!layoutMode); setOpenTool(null); }}
         title="布局模式：显示每个元素的边框和类型，看清整体结构"
-        aria-pressed={layoutMode}
-      ><IconLayout /></button>
+        aria-label="布局模式" aria-pressed={layoutMode}
+      ><IconLayout /><span className="ctr-icon-label">布局</span></button>
 
       <button
         type="button"
         className={`ctr-icon${openTool === 'props' ? ' is-open' : ''}`}
         onClick={() => toggleTool('props')}
         title="全局属性：正文字号/行距/字间距/颜色/主题色/页面背景"
-        aria-expanded={openTool === 'props'}
-      ><IconProps /></button>
+        aria-label="全局属性" aria-expanded={openTool === 'props'}
+      ><IconProps /><span className="ctr-icon-label">属性</span></button>
 
       <button
         type="button"
         className={`ctr-icon${openTool === 'stats' ? ' is-open' : ''}`}
         onClick={() => toggleTool('stats')}
         title="全文统计：字数 / 段落 / 图片 / 阅读时长"
-        aria-expanded={openTool === 'stats'}
-      ><IconStats /></button>
+        aria-label="全文统计" aria-expanded={openTool === 'stats'}
+      ><IconStats /><span className="ctr-icon-label">统计</span></button>
 
       <button
         type="button"
         className={`ctr-icon${openTool === 'aids' ? ' is-open' : ''}`}
         onClick={() => toggleTool('aids')}
         title="编辑辅助：元素边框 / 序号 / 斑马底色"
-        aria-expanded={openTool === 'aids'}
-      ><IconEye /></button>
+        aria-label="编辑辅助" aria-expanded={openTool === 'aids'}
+      ><IconEye /><span className="ctr-icon-label">辅助</span></button>
 
       {openTool === 'props' && (
         <div className="ctr-panel">

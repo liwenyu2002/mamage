@@ -302,10 +302,12 @@ body.cve-box-selecting * {
   z-index: 20;
   white-space: nowrap;
   cursor: default;
+  pointer-events: none; /* 工具条空白区域不拦下方块的点击；只有按钮自身可点 */
   width: max-content;
   max-width: min(calc(100% - 8px), calc(100vw - 24px));
   box-sizing: border-box;
 }
+.cve-toolbar > * { pointer-events: auto; }
 
 .cve-toolbar-row {
   display: flex;

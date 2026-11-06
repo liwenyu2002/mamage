@@ -120,15 +120,6 @@ function escapeHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
-// 判定当前焦点是否处于"文本录入态"（contenteditable 或原生表单控件），命中则键盘删块必须让路，
-// 否则用户在标题输入框等处按 Backspace 会被画布误当成删块操作。
-function isTypingTarget(el) {
-  if (!el) return false;
-  if (el.isContentEditable) return true;
-  const tag = el.tagName;
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
-}
-
 // 复制块=深拷贝换新 uid：JSON 往返而非浅 spread，防止将来 DocBlock 出现嵌套字段时被两个块共享引用。
 function cloneBlockWithNewUid(block) {
   const cloned = JSON.parse(JSON.stringify(block));
@@ -1242,22 +1233,6 @@ function CanvasEditor({
     if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }, [selectedUid]);
 
-  // 键盘：Backspace/Delete 仅在"有块被选中且当前不处于任何文本录入态"时删块；
-  // 其它按键（含 ⌘Z/⌘⇧Z）一律不 preventDefault/不 stopPropagation，原样冒泡给父级处理撤销/重做。
-  // 挂在 document 而非某个 DOM 节点上，是因为选中块后焦点可能停留在 document.body（wrapper 本身不可 focus），
-  // 挂在画布内部节点会因为"事件只向上冒泡、不向下派发"而永远收不到。
-  React.useEffect(() => {
-    function handleKeyDown(e) {
-      if (isTypingTarget(document.activeElement)) return;
-      if (!selectedUid) return;
-      if (e.key === 'Backspace' || e.key === 'Delete') {
-        e.preventDefault();
-        deleteBlock(selectedUid);
-      }
-    }
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [selectedUid, deleteBlock]);
 
   const handleCanvasClick = (e) => {
     if (e.target === canvasRef.current) { onSelect(null); clearMultiSel(); setElSel(null); }

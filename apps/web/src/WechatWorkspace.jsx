@@ -47,9 +47,15 @@ export default function WechatWorkspace({ currentUser, workspaceId, initialMode 
   const [storageError, setStorageError] = React.useState('');
   const [legacyAvailable, setLegacyAvailable] = React.useState(() => hasWechatDraft(read('wechat-composer-draft')));
   const latest = React.useRef({ article, stage }); latest.current = { article, stage };
-  const onArticleChange = React.useCallback(next => setArticle(next), []);
+  const [savedAt, setSavedAt] = React.useState(null);
+  const markSaved = React.useCallback(() => setSavedAt(Date.now()), []);
+  const onArticleChange = React.useCallback(next => { setArticle(next); markSaved(); }, [markSaved]);
   const onBusyChange = React.useCallback(busy => { busyRef.current = busy; }, []);
-  const onSnapshotChange = React.useCallback(next => setStyled(next), []);
+  const onSnapshotChange = React.useCallback(next => {
+    setStyled(next); markSaved();
+    // 快照必须同步回 composer.article：否则去「推文列表」再回来会用旧快照重挂载，覆盖刚做的排版。
+    setComposer(previous => previous ? { ...previous, article: next } : previous);
+  }, [markSaved]);
   const contentCurrent = Boolean(confirmed && article && confirmed.signature === contentSignature(article));
   React.useEffect(() => {
     if (!stateKey) return;
@@ -144,6 +150,9 @@ export default function WechatWorkspace({ currentUser, workspaceId, initialMode 
           <span>{index + 1}</span>{label}</button>)}
       </nav>
       <div className="wechat-workflow-actions">
+        <span className="wechat-autosave" role="status" title="内容稿与排版稿会自动保存在本机浏览器，刷新后可恢复">
+          {savedAt ? `已自动保存 ${new Date(savedAt).toLocaleTimeString('zh-CN', { hour12: false })}` : '草稿自动保存在本机'}
+        </span>
         {stage !== 'styles' ? <Button size="small" icon={<IconDownload />} disabled={saving || (stage === 'content' ? !article?.markdown : !styled?.doc?.length)}
           onClick={() => saveBackup(stage === 'content' ? 'content' : 'layout')}>{stage === 'content' ? '备份内容稿' : '备份排版稿'}</Button> : null}
         <Button size="small" theme="borderless" icon={<IconListView />} onClick={() => setBackupsOpen(true)}>稿件备份</Button>

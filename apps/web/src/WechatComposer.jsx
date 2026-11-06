@@ -156,7 +156,9 @@ function buildInitialState(draftKey, imported) {
   }
   const title = hasImport ? imported.title || '' : draft.title || '';
   const digest = input.digest || '';
-  const meta = !hasImport && draft.meta && typeof draft.meta === 'object' ? draft.meta : {};
+  // 排版稿快照通常不带封面/作者/公众号名；不能因此把草稿里已填的 meta 清空。
+  const meta = (hasImport && imported.meta && typeof imported.meta === 'object' ? imported.meta : null)
+    || (draft.meta && typeof draft.meta === 'object' ? draft.meta : {});
   const finalDoc = doc || [];
   // 草稿归属的存档文件 id（v4 起随草稿一起写回）；null=尚未保存为服务端文件的新推文
   const draftOpenId = (draft.openId != null && draft.openId !== '') ? draft.openId : null;
@@ -579,7 +581,7 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
 
 
   React.useEffect(() => {
-    if (initial.imported) Toast.success('已导入公众号草稿');
+    if (initial.imported && !guided) Toast.success('已导入公众号草稿');
     // 只在挂载时触发一次；initial 本身不随渲染变化
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -589,6 +591,13 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
+  // 窄屏样式抽屉是最上层 fixed 面板：支持 Esc 关闭，避免只能靠“应用样式”才能退出。
+  React.useEffect(() => {
+    if (!libraryOpen) return undefined;
+    const onKeyDown = event => { if (event.key === 'Escape') setLibraryOpen(false); };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [libraryOpen]);
 
   // 实时镜像中转站：从相册新存入的照片立即能在插图选择器里点选
   React.useEffect(() => subscribeTransfer((items) => setStationItemsRaw(items)), []);
@@ -1047,14 +1056,35 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
     if (missing.length) { Toast.warning(`请先处理待补项：${missing.join('、')}`); return; }
     try {
       // 画布与复制共用 docToHtml 同源渲染（所见即所得）；标题填在公众号后台标题栏，不进正文
-      const { html } = docToHtml(doc, { blocksById, globalAccent: effectiveConfig.accent, body: effectiveConfig.body, page: effectiveConfig.page });
+      const { html, imageCount } = docToHtml(doc, { blocksById, globalAccent: effectiveConfig.accent, body: effectiveConfig.body, page: effectiveConfig.page });
       // 复制到公众号:①把 /api/wx-img 代理链还原为原始 mmbiz(代理链仅本站预览用,微信里无效);
       // ②把原版复刻轮播的 SVG 背景图还原成 <img>(微信粘贴会剥 SVG/背景图,否则整组照片丢失);
       // ③把无文字图片容器的 CSS 背景图展平成 <img>——微信粘贴只留 <img> 并自动转存,
       // 展平后设计文的图才能进公众号(代价:丢叠层版式/交互)。手机预览不做这些(仍走代理背景图保真)。
       const wechatHtml = flattenWeChatBgToImg(flattenObservedGalleryToImg(unproxyWeChatImages(html)));
-      await copyWechatRichText({ html: wechatHtml, plainText: [title, digest, docToPlainText(doc)].filter(Boolean).join('\n\n') });
-      Toast.success('已复制正文，去公众号后台粘贴（标题单独填）；背景图已转为图片以便公众号显示/转存');
+      const exportedImages = (wechatHtml.match(/<img\b/gi) || []).length;
+      const blockingProblems = [], advisoryProblems = [];
+      if (imageCount > 0 && exportedImages < imageCount) blockingProblems.push(`${imageCount - exportedImages} 张图片未进入复制内容`);
+      if (/\{\{[^}]+\}\}/.test(wechatHtml)) blockingProblems.push('仍有未替换的模板占位符');
+      if (/<img[^>]*\bsrc=(""|'')/i.test(wechatHtml)) advisoryProblems.push('有图片缺少地址');
+      if (/src="data:/i.test(wechatHtml)) advisoryProblems.push('有内嵌 data: 图片，公众号粘贴可能失败');
+      if (/src="\/[^/]/.test(wechatHtml)) advisoryProblems.push('有站内相对路径图片，公众号里可能失效');
+      if (/src="https?:\/\/(?!mmbiz\.qpic\.cn|mmbiz\.qlogo\.cn|mp\.weixin\.qq\.com)/i.test(wechatHtml)) advisoryProblems.push('有非微信图床的外链图片，公众号可能不转存');
+      const copyPrepared = async () => {
+        await copyWechatRichText({ html: wechatHtml, plainText: [title, digest, docToPlainText(doc)].filter(Boolean).join('\n\n') });
+        Toast.success('已复制正文，去公众号后台粘贴（标题单独填）；背景图已转为图片以便公众号显示/转存');
+      };
+      if (blockingProblems.length) {
+        Modal.confirm({
+          title: '导出前检查发现问题', okText: '仍然复制', cancelText: '先修改',
+          content: `${blockingProblems.join('；')}。建议先处理后复制，否则公众号里会缺图或出现占位符。`,
+          onOk: async () => { try { await copyPrepared(); } catch (e) { Toast.error(e && e.message ? e.message : '复制失败'); } },
+        });
+        return;
+      }
+      // 图片地址类问题先提示但不阻断复制（本地上传图/外链图可能仍能由公众号转存）。
+      if (advisoryProblems.length) Toast.warning(`导出检查：${advisoryProblems.join('；')}。若公众号里缺图，请先在画布中替换图片。`);
+      await copyPrepared();
     } catch (e) {
       console.error('[WechatComposer] copy rich text failed', e);
       Toast.error(e && e.message ? e.message : '复制失败');
@@ -1127,12 +1157,15 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
   const handleCopySvgSource = React.useCallback(async () => {
     if (!docHasContent) { Toast.warning('画布还是空的，先从样式库插入内容'); return; }
     try {
+      const missing = missingRequiredFields(docToPlainText(doc));
+      if (missing.length) { Toast.warning(`请先处理待补项：${missing.join('、')}`); return; }
       if (!window.navigator || !window.navigator.clipboard || !window.navigator.clipboard.writeText) {
         throw new Error('当前浏览器不支持剪贴板写入');
       }
       const { html } = docToHtml(doc, { blocksById, globalAccent: effectiveConfig.accent, body: effectiveConfig.body, page: effectiveConfig.page });
       // 保留 SVG；还原 mmbiz 原链；去掉 url() 引号(公众号白名单:带引号的背景图会被整段过滤)
       const src = dequoteWeChatCssUrls(unproxyWeChatImages(html));
+      if (/\{\{[^}]+\}\}/.test(src)) { Toast.warning('仍有未替换的模板占位符，先在画布中补全再复制'); return; }
       await window.navigator.clipboard.writeText(src);
       Toast.success('已复制 SVG 源码。请用「135小助手/壹伴」的“编辑源代码”入口或 F12“Edit as HTML”粘贴注入（不要直接粘正文）');
     } catch (e) {
@@ -1399,6 +1432,37 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
     });
   }, [openId]);
 
+  const exportCard = (
+  <Card bordered className="wxc-export-card">
+    {/* 导出区按交互优先级收敛：主操作「复制到公众号」+ 常用「手机预览」+「更多」溢出菜单，
+        从 5 个平铺按钮降到 3 个，建立主次层级，窄屏也不再挤成一片 */}
+    <div className="wxc-export-row">
+      <Button type="primary" className="wxc-export-primary" onClick={handleCopyRich}>复制到公众号</Button>
+      <Button onClick={() => setArticlePreviewOpen(true)}>👁 推文预览</Button>
+      <Button onClick={handleMobilePreview} loading={previewGen} disabled={previewGen}>📱 手机预览</Button>
+      <div className="wxc-export-more" ref={exportMenuRef}>
+        <Button
+          type="tertiary"
+          onClick={() => setExportMenuOpen((v) => !v)}
+          aria-haspopup="menu"
+          aria-expanded={exportMenuOpen}
+          className={`wxc-export-more-btn${exportMenuOpen ? ' is-open' : ''}`}
+        >
+          更多 ⌄
+        </Button>
+        {exportMenuOpen ? (
+          <div className="wxc-export-menu" role="menu">
+            <button type="button" className="wxc-export-menu-item" role="menuitem" onClick={() => { setExportMenuOpen(false); handleDownloadPack(); }}>下载图片包</button>
+            <button type="button" className="wxc-export-menu-item" role="menuitem" onClick={() => { setExportMenuOpen(false); handleCopyMarkdown(); }}>复制 Markdown</button>
+            <button type="button" className="wxc-export-menu-item" role="menuitem" title="保留 SVG 交互的源码；用 135小助手/壹伴 的“编辑源代码”或 F12 注入，免认证" onClick={() => { setExportMenuOpen(false); handleCopySvgSource(); }}>复制·SVG源码版（保交互）</button>
+            <button type="button" className="wxc-export-menu-item is-disabled" role="menuitem" disabled title="需企业公众号资质配置，即将开放">发送到草稿箱（即将开放）</button>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  </Card>
+  );
+
   return (
     <Layout className={guided ? 'wxc-guided' : undefined} style={{ padding: isMobile ? 10 : 16, overflowX: 'hidden' }}>
       <Modal title="新建推文" visible={creationOpen} onCancel={() => setCreationOpen(false)} footer={null} width={420}>
@@ -1501,7 +1565,9 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
       <Content>
         <div className="wxc-workspace">
           {/* 左侧面板：桌面常驻，窄屏由"样式库"按钮抽屉化；顶层三 Tab＝样式/相册/收藏 */}
+          {libraryOpen ? <div className="wxc-side-backdrop" aria-hidden="true" onClick={() => setLibraryOpen(false)} /> : null}
           <aside className={`wxc-side-lib${libraryOpen ? ' is-open' : ''}`}>
+            <button type="button" className="wxc-side-close" aria-label="关闭样式面板" onClick={() => setLibraryOpen(false)}>×</button>
             <div className="wxc-side-toptabs" role="tablist" aria-label="面板切换">
               {[['style', '样式'], ['album', '相册'], ['tpl', '模板'], ['fav', '收藏']].map(([key, name]) => (
                 <button
@@ -1700,6 +1766,7 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
           </aside>
 
           <div className="wxc-workarea">
+            {guided ? exportCard : null}
             <div className="wxc-canvas-region">
               <div className="wxc-canvas-toolbar">
                 <div className="wxc-canvas-toolbar-left">
@@ -1755,34 +1822,7 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
               />
             </div>
 
-            <Card bordered className="wxc-export-card">
-              {/* 导出区按交互优先级收敛：主操作「复制到公众号」+ 常用「手机预览」+「更多」溢出菜单，
-                  从 5 个平铺按钮降到 3 个，建立主次层级，窄屏也不再挤成一片 */}
-              <div className="wxc-export-row">
-                <Button type="primary" className="wxc-export-primary" onClick={handleCopyRich}>复制到公众号</Button>
-                <Button onClick={() => setArticlePreviewOpen(true)}>👁 推文预览</Button>
-                <Button onClick={handleMobilePreview} loading={previewGen} disabled={previewGen}>📱 手机预览</Button>
-                <div className="wxc-export-more" ref={exportMenuRef}>
-                  <Button
-                    type="tertiary"
-                    onClick={() => setExportMenuOpen((v) => !v)}
-                    aria-haspopup="menu"
-                    aria-expanded={exportMenuOpen}
-                    className={`wxc-export-more-btn${exportMenuOpen ? ' is-open' : ''}`}
-                  >
-                    更多 ⌄
-                  </Button>
-                  {exportMenuOpen ? (
-                    <div className="wxc-export-menu" role="menu">
-                      <button type="button" className="wxc-export-menu-item" role="menuitem" onClick={() => { setExportMenuOpen(false); handleDownloadPack(); }}>下载图片包</button>
-                      <button type="button" className="wxc-export-menu-item" role="menuitem" onClick={() => { setExportMenuOpen(false); handleCopyMarkdown(); }}>复制 Markdown</button>
-                      <button type="button" className="wxc-export-menu-item" role="menuitem" title="保留 SVG 交互的源码；用 135小助手/壹伴 的“编辑源代码”或 F12 注入，免认证" onClick={() => { setExportMenuOpen(false); handleCopySvgSource(); }}>复制·SVG源码版（保交互）</button>
-                      <button type="button" className="wxc-export-menu-item is-disabled" role="menuitem" disabled title="需企业公众号资质配置，即将开放">发送到草稿箱（即将开放）</button>
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-            </Card>
+            {!guided ? exportCard : null}
           </div>
           {/* 秀米式工具栏放右侧：布局模式/全局属性/全文统计/编辑辅助，弹层向左展开不挡其他 UI */}
           <ComposerToolRail

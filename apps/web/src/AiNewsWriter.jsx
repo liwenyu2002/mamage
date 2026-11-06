@@ -184,6 +184,7 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
 
   const activeContent = channelContent[activeChannelKey] || EMPTY_CHANNEL_CONTENT;
   const hasManuscript = Boolean(activeContent.markdownText || activeContent.history?.length || activeContent.redoHistory?.length);
+  const inlineDocImages = ((activeContent.markdownText || '').match(/!\[[^\]]*\]\([^)]*\)/g) || []).length;
   const setActiveMarkdownText = React.useCallback((v, options) => {
     if (activeChannelKey) updateChannelContent(activeChannelKey, base => ({ ...base,
       markdownText: v, generatedHtml: '', factCheck: null,
@@ -1525,7 +1526,7 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
           <div className="news-workspace" data-source-open={!hasManuscript || sourceOpen}>
             <div className="news-source-pane">
               {hasManuscript ? <div className="news-source-summary">
-                <div><strong>写作材料</strong><span>{selectedPhotos.length} 张配图{formValues.eventName ? ` · ${formValues.eventName}` : ''}</span></div>
+                <div><strong>写作材料</strong><span>{selectedPhotos.length} 张配图{inlineDocImages && !selectedPhotos.length ? ` · 稿件内 ${inlineDocImages} 张图` : ''}{formValues.eventName ? ` · ${formValues.eventName}` : ''}</span></div>
                 <Button theme="borderless" size="small" icon={<IconEditStroked />} aria-expanded={sourceOpen}
                   onClick={() => setSourceOpen(value => !value)}>{sourceOpen ? '收起材料' : '补充材料 / 重新生成'}</Button>
               </div> : null}
