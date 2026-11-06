@@ -48,9 +48,14 @@ export default function WechatWorkspace({ currentUser, workspaceId, initialMode 
   const [legacyAvailable, setLegacyAvailable] = React.useState(() => hasWechatDraft(read('wechat-composer-draft')));
   const latest = React.useRef({ article, stage }); latest.current = { article, stage };
   const [savedAt, setSavedAt] = React.useState(null);
+  const [draftSaveOk, setDraftSaveOk] = React.useState(true);
   const [layoutDirty, setLayoutDirty] = React.useState(false);
   const layoutSnapshotRef = React.useRef(null);
   const markSaved = React.useCallback(() => setSavedAt(Date.now()), []);
+  const onDraftSaved = React.useCallback(ok => {
+    setDraftSaveOk(ok);
+    if (ok) setSavedAt(Date.now());
+  }, []);
   const onArticleChange = React.useCallback(next => { setArticle(next); markSaved(); }, [markSaved]);
   const onBusyChange = React.useCallback(busy => { busyRef.current = busy; }, []);
   const onSnapshotChange = React.useCallback(next => {
@@ -202,8 +207,10 @@ export default function WechatWorkspace({ currentUser, workspaceId, initialMode 
       </nav>
       <div className="wechat-workflow-actions">
         {stage === 'styled' && layoutDirty ? <Button size="small" onClick={syncLayoutToContent}>文字回写内容稿</Button> : null}
-        <span className="wechat-autosave" role="status" title="内容稿与排版稿会自动保存在本机浏览器，刷新后可恢复">
-          {savedAt ? `已自动保存 ${new Date(savedAt).toLocaleTimeString('zh-CN', { hour12: false })}` : '草稿自动保存在本机'}
+        <span className={`wechat-autosave${draftSaveOk && !storageError ? '' : ' is-error'}`} role="status"
+          title="内容稿与排版稿会自动保存在本机浏览器，刷新后可恢复">
+          {!draftSaveOk || storageError ? '本机保存失败，请先备份稿件' : savedAt
+            ? `已自动保存 ${new Date(savedAt).toLocaleTimeString('zh-CN', { hour12: false })}` : '草稿自动保存在本机'}
         </span>
         {stage !== 'styles' ? <Button size="small" icon={<IconDownload />} disabled={saving || (stage === 'content' ? !article?.markdown : !styled?.doc?.length)}
           onClick={() => saveBackup(stage === 'content' ? 'content' : 'layout')}>{stage === 'content' ? '备份内容稿' : '备份排版稿'}</Button> : null}
@@ -221,7 +228,7 @@ export default function WechatWorkspace({ currentUser, workspaceId, initialMode 
       storageKey={stateKey} onBack={openContentStage} onApply={applyLayout} onSaveContent={() => saveBackup('content')} /></div> : null}
     {composer ? <div hidden={stage !== 'styled'}><React.Suspense fallback={<p role="status">正在加载排版稿…</p>}>
       <Composer key={composer.version} currentUser={currentUser} workspaceId={workspaceId} initialArticle={composer.article}
-        active={stage === 'styled'} onSnapshotChange={onSnapshotChange} draftStorageKey={draftKey} guided />
+        active={stage === 'styled'} onSnapshotChange={onSnapshotChange} draftStorageKey={draftKey} guided onDraftSaved={onDraftSaved} />
     </React.Suspense></div> : null}
     <div className="wechat-local-recovery">
       {legacyAvailable ? <Button size="small" theme="borderless" onClick={() => restoreLocal('wechat-composer-draft', true)}>导入旧排版草稿</Button> : null}

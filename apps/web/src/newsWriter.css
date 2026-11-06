@@ -350,6 +350,7 @@
 .wechat-workflow-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; max-width: 1400px; margin: 18px auto 0; padding: 0 24px; }
 .wechat-workflow-bar nav, .wechat-workflow-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .wechat-autosave { color: #8a8f96; font-size: 12px; white-space: nowrap; }
+.wechat-autosave.is-error { color: #b4571f; font-weight: 600; }
 .wechat-workflow-bar nav button { display: inline-flex; align-items: center; gap: 8px; border: 0; background: transparent; padding: 10px 12px; color: #727272; font: inherit; font-size: 13px; cursor: pointer; white-space: nowrap; }
 .wechat-workflow-bar nav button > span { display: grid; place-items: center; width: 23px; height: 23px; border-radius: 50%; border: 1px solid #d6d6d6; font-size: 12px; }
 .wechat-workflow-bar nav button[aria-current] { color: #1b1b1b; font-weight: 650; }

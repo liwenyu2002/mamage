@@ -38,6 +38,34 @@ const inViewport = async (page, locator) => {
       const copy = page.getByRole('button', { name: '复制到公众号', exact: true });
       assert.equal(await inViewport(page, copy), true, `${width}: 排版稿导出入口应在首屏可见`);
       assert.match(await page.locator('.wechat-autosave').innerText(), /自动保存/);
+      // 组图拆分：选中一组图片 → 拆分组图 → 文档里该组 galleryId 被清空，撤销可恢复
+      const readCanvasDoc = () => page.evaluate(() => {
+        for (const key of Object.keys(localStorage)) {
+          if (!key.includes('wechat') || key.includes(':history') || key.includes(':layout-job') || key.includes(':previous')) continue;
+          try {
+            const value = JSON.parse(localStorage.getItem(key));
+            if (Array.isArray(value?.doc) && value.doc.some(block => block?.galleryId)) return value.doc;
+          } catch (e) { /* ignore */ }
+        }
+        return null;
+      });
+      const grouped = (await readCanvasDoc())?.find(block => block.galleryId);
+      if (grouped) {
+        await page.locator(`[data-cve-uid="${grouped.uid}"]`).click({ position: { x: 4, y: 4 } });
+        await page.waitForTimeout(250);
+        if (await page.locator('.mamage-modal-mask').count()) {
+          await page.keyboard.press('Escape');
+          await page.waitForTimeout(250);
+        }
+        await page.getByRole('button', { name: '拆分组图', exact: true }).click();
+        await page.waitForTimeout(400);
+        const afterSplit = await readCanvasDoc();
+        assert.equal(afterSplit?.find(block => block.uid === grouped.uid)?.galleryId, undefined, `${width}: 拆分后应清除分组`);
+        await page.getByRole('button', { name: '撤销', exact: true }).click();
+        await page.waitForTimeout(400);
+        const afterUndo = await readCanvasDoc();
+        assert.equal(afterUndo?.find(block => block.uid === grouped.uid)?.galleryId, grouped.galleryId, `${width}: 撤销应恢复分组`);
+      }
       // 内容稿修改后确认：默认把改动同步进现有排版稿（保留样式），而不是要求重排
       await page.locator('.wechat-workflow-bar nav button').filter({ hasText: '内容草稿' }).click();
       const paragraph = page.locator('.news-edit-document [role="textbox"]').filter({ hasText: '这是一份用于检查配图排版' }).first();

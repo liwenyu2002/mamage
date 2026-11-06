@@ -24,6 +24,7 @@ const steps = [
   'test-observed-gallery-browser.cjs',
   'test-style-replacement-browser.cjs',
   'test-news-generation-photos.cjs',
+  'test-news-pending-result-browser.cjs',
 ];
 for (const step of steps) {
   console.log(`\n[test:gallery] ${step}`);

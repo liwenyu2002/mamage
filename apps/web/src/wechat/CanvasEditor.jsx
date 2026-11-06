@@ -795,6 +795,7 @@ function BlockWrapper({
   onCommitContent, onCommitCaption, onParaTransient, onParaCommit, onPasteParagraphs,
   onRawTransient, onRawCommit, onSelectRawImg,
   onSplitRaw, onImgStyle, onRawImgStyle, onImgReplace, onImgEdit, onManageImages, onSpacing, toolbarAnchor, onImageColumns,
+  onSplitGallery,
 }) {
   // 浮动锚点存在时垂直跟随光标（flip 由锚点视口位置定）；否则回退默认：首块钉块下方防裁,其余块上方
   const anchored = toolbarAnchor != null;
@@ -889,6 +890,7 @@ function BlockWrapper({
           onSplitRaw={onSplitRaw}
           onImgStyle={onImgStyle}
           onImageColumns={onImageColumns}
+          onSplitGallery={onSplitGallery}
           onRawImgStyle={onRawImgStyle}
           onImgReplace={onImgReplace}
           onImgEdit={onImgEdit}

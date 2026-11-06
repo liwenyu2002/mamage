@@ -39,6 +39,7 @@
     "test:news-selection": "node scripts/test-news-editor-selection.cjs",
     "test:news-blocks": "node scripts/test-news-block-controls.cjs",
     "test:editor-flow": "node scripts/test-editor-flow-regressions.cjs",
+    "test:news-pending-result": "node scripts/test-news-pending-result-browser.cjs",
     "test:news-preview": "node --test scripts/test-news-preview-server.cjs",
     "test:news-backend": "node scripts/test-news-backend-browser.cjs",
     "test:wechat-monitor": "node scripts/test-wechat-monitor-browser.cjs",

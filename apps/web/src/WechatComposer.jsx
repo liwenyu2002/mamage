@@ -194,7 +194,7 @@ function buildInitialState(draftKey, imported) {
 }
 
 function WechatComposer({ currentUser, workspaceId, initialArticle = null, active = true, onSnapshotChange, guided = false,
-  draftStorageKey = null, onStartAiWorkflow }) {
+  draftStorageKey = null, onStartAiWorkflow, onDraftSaved }) {
   const DRAFT_KEY = draftStorageKey || wechatDraftKey(currentUser?.id, workspaceId);
   const [creationOpen, setCreationOpen] = React.useState(false);
   const [legacyAvailable, setLegacyAvailable] = React.useState(() => {
@@ -636,10 +636,12 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
     if (!DRAFT_KEY) return;
     try {
       localStorage.setItem(DRAFT_KEY, JSON.stringify({ v: 4, openId, title, digest, meta: previewMeta, doc, themeKey, blockConfig, sourceDocument }));
+      onDraftSaved?.(true);
     } catch (e) {
-      // ignore
+      // 配额/隐私模式：提示保存失败，但不打断编辑
+      onDraftSaved?.(false);
     }
-  }, [DRAFT_KEY, openId, title, digest, previewMeta, doc, themeKey, blockConfig, sourceDocument]);
+  }, [DRAFT_KEY, openId, title, digest, previewMeta, doc, themeKey, blockConfig, sourceDocument, onDraftSaved]);
   React.useEffect(() => {
     onSnapshotChange?.({ title, digest, doc, blockConfig: effectiveConfig, themeKey, sourceDocument });
   }, [onSnapshotChange, title, digest, doc, effectiveConfig, themeKey, sourceDocument]);
