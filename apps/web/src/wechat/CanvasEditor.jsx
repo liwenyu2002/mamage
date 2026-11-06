@@ -1578,7 +1578,12 @@ function CanvasEditor({
             onSelectRawImg={(imgIndex, kind) => setActiveRawImg(imgIndex == null ? null : { uid: block.uid, imgIndex, kind: kind === 'img' ? 'img' : (kind === 'image' ? 'image' : 'bg') })}
             onSplitRaw={() => splitRaw(block.uid)}
             onImgStyle={(imgStyle) => setImgStyle(block.uid, imgStyle)}
-            onImageColumns={columns => onChange(setImageRunColumns(list, block.uid, columns))}
+            onImageColumns={columns => {
+              if (block.galleryStyle && block.galleryTemplate && (block.galleryColumns || 1) !== columns) {
+                onNotify?.('info', '已切换为普通组图列数，原版组图样式已移除；可用撤销恢复');
+              }
+              onChange(setImageRunColumns(list, block.uid, columns));
+            }}
             onRawImgStyle={(styleObj) => setRawImgStyle(block.uid, activeRawImg ? activeRawImg.imgIndex : 0, styleObj)}
             onImgReplace={(imgIndex) => onRequestImagePick(block.uid, imgIndex == null ? undefined : imgIndex)}
             onImgEdit={(imgIndex) => onRequestImageEdit(block.uid, imgIndex == null ? undefined : imgIndex)}

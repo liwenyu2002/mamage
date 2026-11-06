@@ -224,10 +224,23 @@ app.get('/', (req, res) => {
 // ============ 鍚姩鏈嶅姟 ============
 const PORT = Number(process.env.PORT || 8000);
 
+// 发布切换瞬间 MySQL Service 可能短暂拒绝连接；启动期重试几次，避免无谓的容器重启。
+async function readyWithRetry(attempts = 6) {
+  for (let attempt = 1; ; attempt += 1) {
+    try { await coordinator.ready(); return; }
+    catch (error) {
+      const transient = ['ECONNREFUSED', 'ETIMEDOUT', 'ECONNRESET', 'EPIPE', 'PROTOCOL_CONNECTION_LOST'].includes(error.code);
+      if (!transient || attempt >= attempts) throw error;
+      console.warn(`[runtime] database not ready (${error.code}), retry ${attempt}/${attempts}`);
+      await new Promise(resolve => setTimeout(resolve, Math.min(attempt * 1000, 5000)));
+    }
+  }
+}
+
 async function startup() {
   // 事件循环卡顿观测：长同步任务会同时拖慢健康检查，先留证据再谈要不要拆线程。
   eventLoopMonitor({ logger: console }).start();
-  if (distributed()) await coordinator.ready();
+  if (distributed()) await readyWithRetry();
   const server = app.listen(PORT, () => {
     runtime.markStarted(server);
     console.log(`API server listening on http://localhost:${PORT}`);

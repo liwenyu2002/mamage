@@ -38,6 +38,28 @@ const inViewport = async (page, locator) => {
       const copy = page.getByRole('button', { name: '复制到公众号', exact: true });
       assert.equal(await inViewport(page, copy), true, `${width}: 排版稿导出入口应在首屏可见`);
       assert.match(await page.locator('.wechat-autosave').innerText(), /自动保存/);
+      // 内容稿修改后确认：默认把改动同步进现有排版稿（保留样式），而不是要求重排
+      await page.locator('.wechat-workflow-bar nav button').filter({ hasText: '内容草稿' }).click();
+      const paragraph = page.locator('.news-edit-document [role="textbox"]').filter({ hasText: '这是一份用于检查配图排版' }).first();
+      await paragraph.click();
+      await page.keyboard.type(' 同步测试');
+      await page.waitForTimeout(250);
+      await page.getByRole('button', { name: '确认内容，选择样式', exact: true }).click();
+      const syncDialog = page.getByRole('dialog', { name: '内容稿有改动，如何应用到排版稿？' });
+      await syncDialog.waitFor();
+      await page.getByRole('button', { name: '同步到现有排版稿', exact: true }).click();
+      await page.locator('.cve-canvas').waitFor();
+      await page.waitForTimeout(400);
+      assert.match(await page.locator('.cve-canvas').innerText(), /同步测试/);
+      assert.equal(await page.locator('.wechat-workflow-bar nav button').filter({ hasText: '选择样式' }).isDisabled(), false);
+      // 内容没改时确认不应再弹同步框，直接进入选择样式
+      await page.locator('.wechat-workflow-bar nav button').filter({ hasText: '内容草稿' }).click();
+      await page.getByRole('button', { name: '确认内容，选择样式', exact: true }).click();
+      await page.waitForTimeout(300);
+      assert.equal(await page.getByRole('dialog', { name: '内容稿有改动，如何应用到排版稿？' }).count(), 0);
+      assert.equal(await page.locator('.wechat-layout-selection').isVisible(), true);
+      // 回到排版稿，准备手机端抽屉断言
+      await page.locator('.wechat-workflow-bar nav button').filter({ hasText: '排版稿' }).click();
       // 手机端样式抽屉：打开后必须能通过关闭键/Esc 退出
       if (width < 600) {
         await page.locator('.wxc-lib-toggle-mobile').click();

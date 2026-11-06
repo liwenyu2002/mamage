@@ -59,6 +59,57 @@ export function materializeLayout(confirmed, plan, customBlocks = {}) {
       ...(imageGroup && (!plan.imageLayout || plan.imageLayout === 'auto') ? { imageGroupReference: imageGroup } : {}) } };
 }
 
+// 内容稿已排过版：把新内容合并进现有排版稿（文字/图片按内容匹配，保留原样式与分组），
+// 而不是重新走模板、丢掉用户在排版稿里做的样式/换图/图注调整。
+export function mergeContentIntoLayout(snapshot, layout) {
+  if (!layout?.doc?.length) throw Error('没有可同步的排版稿');
+  const previous = layout.doc;
+  const used = new Set();
+  const textOf = block => String(block.content ?? block.html ?? '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  const styleKeys = ['blockId', 'accent', 'widthPct', 'radius', 'aspect', 'galleryStyle', 'galleryTemplate'];
+  const findIndex = (block, index) => {
+    if (block.type === 'imageCard') {
+      const bySrc = previous.findIndex((candidate, i) => !used.has(i) && candidate.type === 'imageCard' && candidate.src === block.src);
+      if (bySrc >= 0) return bySrc;
+    }
+    const text = textOf(block);
+    if (text) {
+      const byText = previous.findIndex((candidate, i) => !used.has(i) && candidate.type === block.type && textOf(candidate) === text);
+      if (byText >= 0) return byText;
+    }
+    if (previous[index] && previous[index].type === block.type && !used.has(index)) return index;
+    let best = -1, bestDistance = Infinity;
+    previous.forEach((candidate, i) => {
+      if (used.has(i) || candidate.type !== block.type) return;
+      const distance = Math.abs(i - index);
+      if (distance < bestDistance) { best = i; bestDistance = distance; }
+    });
+    return best;
+  };
+  const nearestStyle = (type, index) => {
+    let best = null, bestDistance = Infinity;
+    previous.forEach((candidate, i) => {
+      if (candidate.type !== type) return;
+      const distance = Math.abs(i - index);
+      if (distance < bestDistance) { best = candidate; bestDistance = distance; }
+    });
+    return best;
+  };
+  const doc = snapshot.source.doc.map((block, index) => {
+    const previousIndex = findIndex(block, index);
+    const source = previousIndex >= 0 ? previous[previousIndex] : nearestStyle(block.type, index);
+    if (previousIndex >= 0 && source === previous[previousIndex]) used.add(previousIndex);
+    const next = { ...block };
+    if (source) for (const key of styleKeys) if (source[key] != null) next[key] = source[key];
+    if (block.type === 'imageCard' && !next.caption && source?.caption) next.caption = source.caption;
+    return next;
+  });
+  const imageGroup = layout.sourceDocument?.imageGroupReference || null;
+  return { ...layout, title: snapshot.source.title, doc: arrangeImageGroups(doc, 'auto', imageGroup),
+    sourceDocument: { ...(layout.sourceDocument || {}), ...snapshot.article,
+      styleBlocks: layout.sourceDocument?.styleBlocks || {}, confirmedAt: snapshot.confirmedAt } };
+}
+
 export function addObservedBrandAssets(layout, assets, library = {}, imageStyleId = layout.blockConfig.imageCard) {
   if (!Array.isArray(assets) || !assets.length) return layout;
   if (layout.doc.length + assets.length > 120) throw Error('加入固定图后内容块超过 120 个，请减少所选图片');

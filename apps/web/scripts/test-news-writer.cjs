@@ -25,7 +25,7 @@ const { pollNewsBatch } = load('src/services/newsBatchPolling.js');
 const { normalizeNewsPhoto, mergeNewsPhotos, newsAlbumDefaults } = load('src/utils/newsPhotoSelection.js');
 const { wechatDraftKey, wechatAiDraftKey, wechatImportKey, hasWechatDraft } = load('src/utils/wechatDraftState.js');
 const { articleBlocks, changeArticleBlock, articleBodyMarkdown, withoutImageGroupMarkers } = load('src/utils/newsArticle.js');
-const { freezeContent, materializeLayout, templateLayout, contentSignature, workflowKey, addObservedBrandAssets, normalizeLayoutLibrary } = load('src/utils/wechatWorkflow.js');
+const { freezeContent, materializeLayout, templateLayout, contentSignature, workflowKey, addObservedBrandAssets, normalizeLayoutLibrary, mergeContentIntoLayout } = load('src/utils/wechatWorkflow.js');
 const { revisionSource, revisionPhotoReferences, applyRevision, revisionTarget, contextualRevisionTarget, revisionContinuation, REVISION_ACTIONS } = load('src/utils/newsRevision.js');
 const { sourceRanges, floatingPosition } = load('src/utils/newsEditorSelection.js');
 const { editorDocument, editorMarkdown, editorSelection, editorPhotoGroups, changeEditorImageGroup } = load('src/utils/newsEditorModel.js');
@@ -641,4 +641,27 @@ test('unauthorized and deleted tasks stop instead of polling forever', async () 
   });
   assert.equal(calls, 1);
   assert.equal(fatal, true);
+});
+
+test('mergeContentIntoLayout syncs edited content into the existing styled layout', () => {
+  const images = Array.from({ length: 4 }, (_, i) => `![图题 ${i}](/img/${i}.jpg)`).join('\n\n');
+  const markdown = `导语文字。\n\n## 现场\n\n第一段。\n\n${images}\n\n结尾。`;
+  const confirmed = freezeContent({ title: '原题', markdown });
+  const layout = materializeLayout(confirmed, { ...templateLayout(confirmed.source, THEME_PRESETS.minimal), imageLayout: 'pair' }, {});
+  const bodyStyle = layout.doc.find(block => block.type === 'body')?.blockId;
+  const imageStyle = layout.doc.find(block => block.type === 'imageCard')?.blockId;
+  const revised = markdown.replace('导语文字。', '导语文字（改）。').replace('结尾。', '结尾（改）。') + '\n\n新增一段。';
+  const next = freezeContent({ title: '新题', markdown: revised });
+  const merged = mergeContentIntoLayout(next, layout);
+  assert.equal(merged.title, '新题');
+  assert.equal(merged.doc.length, next.source.doc.length);
+  assert.equal(merged.doc.find(block => block.type === 'body')?.blockId, bodyStyle);
+  assert.equal(merged.doc.filter(block => block.type === 'imageCard').length, 4);
+  for (const block of merged.doc.filter(item => item.type === 'imageCard')) assert.equal(block.blockId, imageStyle);
+  const mergedText = merged.doc.map(block => String(block.content ?? block.html ?? '')).join(' ');
+  assert.match(mergedText, /导语文字（改）/);
+  assert.match(mergedText, /新增一段/);
+  // 新换的一张图也应继承组图样式，而不是 fallback 成纯文本块
+  const swapped = mergeContentIntoLayout(freezeContent({ title: '换图', markdown: markdown.replace('/img/0.jpg', '/img/new.jpg') }), layout);
+  assert.ok(swapped.doc.filter(block => block.type === 'imageCard').every(block => block.blockId === imageStyle));
 });

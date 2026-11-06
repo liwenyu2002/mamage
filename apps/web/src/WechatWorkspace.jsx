@@ -3,7 +3,7 @@ import { Button, Modal, Toast } from './ui';
 import { IconListView, IconDownload, IconSimilarStack } from './ui/icons';
 import { wechatAiDraftKey, wechatImportKey, hasWechatDraft } from './utils/wechatDraftState';
 import { newsDraftKey } from './utils/newsWriterState';
-import { workflowKey, contentSignature, freezeContent, materializeLayout, addObservedBrandAssets } from './utils/wechatWorkflow';
+import { workflowKey, contentSignature, freezeContent, materializeLayout, addObservedBrandAssets, mergeContentIntoLayout } from './utils/wechatWorkflow';
 import { saveComposition } from './services/wechatCompositionService';
 import WechatLayoutPanel from './WechatLayoutPanel';
 import WechatDraftBackups from './WechatDraftBackups';
@@ -70,9 +70,34 @@ export default function WechatWorkspace({ currentUser, workspaceId, initialMode 
   const openStyled = next => {
     retainLayout(); setStyled(next); setComposer({ article: next, version: `${Date.now()}-${Math.random()}` }); setStage('styled');
   };
+  const syncContentToLayout = snapshot => {
+    try {
+      const merged = mergeContentIntoLayout(snapshot, styled);
+      retainLayout();
+      setArticle(snapshot.article); setConfirmed(snapshot); setStyled(merged);
+      setComposer({ article: merged, version: `sync-${Date.now()}` });
+      setStage('styled');
+      Toast.success('内容已同步到排版稿，原有样式与分组已保留');
+    } catch (error) { Toast.error(error.message || '同步失败，原稿已保留'); }
+  };
   const confirmContent = next => {
-    try { const snapshot = freezeContent(next); setArticle(next); setConfirmed(snapshot); setStage('styles'); }
-    catch (error) { Toast.error(error.message); }
+    try {
+      const snapshot = freezeContent(next);
+      setArticle(next);
+      const contentChanged = Boolean(confirmed && confirmed.signature !== snapshot.signature);
+      if (styled?.doc?.length && contentChanged) {
+        // 已有排版稿且内容有改动：默认把新内容合并进现有排版稿，避免重排丢掉样式/换图/图注。
+        Modal.confirm({
+          title: '内容稿有改动，如何应用到排版稿？',
+          content: '「同步到现有排版稿」会按文字/图片匹配更新内容并保留原样式与分组；若想重新选样式，点「取消」后进入「选择样式」（当前排版稿会先留存本机备份）。',
+          okText: '同步到现有排版稿', cancelText: '重新选样式',
+          onOk: () => syncContentToLayout(snapshot),
+          onCancel: () => { retainLayout(); setConfirmed(snapshot); setStage('styles'); },
+        });
+        return;
+      }
+      setConfirmed(snapshot); setStage('styles');
+    } catch (error) { Toast.error(error.message); }
   };
   const applyLayout = (source, plan, library, assets = [], imageStyleId) => {
     if (latest.current.stage !== 'styles' || contentSignature(latest.current.article) !== source.signature) return false;

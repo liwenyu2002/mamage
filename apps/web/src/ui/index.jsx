@@ -701,7 +701,7 @@ function MotionModal({ visible, onCancel, className = '', ...rest }) {
   }} className={cx('mamage-motion-modal', leaving && 'is-leaving', className)} />;
 }
 
-Modal.confirm = function confirm({ title = '确认操作', content, okText = '确定', cancelText = '取消', onOk } = {}) {
+Modal.confirm = function confirm({ title = '确认操作', content, okText = '确定', cancelText = '取消', onOk, onCancel } = {}) {
   if (typeof document === 'undefined') return;
   const host = document.createElement('div');
   document.body.appendChild(host);
@@ -716,7 +716,9 @@ Modal.confirm = function confirm({ title = '确认操作', content, okText = '�
       <Modal
         visible
         title={title}
-        onCancel={cleanup}
+        onCancel={async () => {
+          try { await onCancel?.(); } finally { cleanup(); }
+        }}
         onOk={async () => {
           await onOk?.();
           cleanup();

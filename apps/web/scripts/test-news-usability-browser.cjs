@@ -263,6 +263,7 @@ async function main() {
         await page.getByRole('textbox', { name: '稿件标题', exact: true }).fill('内容稿第二版');
         assert.equal(await nav.getByRole('button', { name: /选择样式/ }).isDisabled(), true);
         await page.getByRole('button', { name: '确认内容，选择样式', exact: true }).click();
+        await page.getByRole('dialog', { name: '内容稿有改动，如何应用到排版稿？' }).getByRole('button', { name: '重新选样式', exact: true }).click();
         await page.getByRole('button', { name: 'AI 排版', exact: true }).click();
         await page.getByRole('textbox', { name: '排版风格描述', exact: true }).fill('清爽校园风，绿色点缀，保持正文内容不变。');
         await page.evaluate(() => { window.__wechatQaFailTask = true; });
