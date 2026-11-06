@@ -341,3 +341,29 @@ test('latest discovery summary explains the source check without leaking full ro
   assert.equal(malformed.sourceUrl, null); assert.equal(malformed.discovered, null);
   assert.equal(malformed.errorCode, 'SOURCE_VERIFICATION_REQUIRED'); assert.equal(malformed.status, 'blocked');
 });
+
+test('overview exposes latest discovery summary and per-account job counts', async () => {
+  const fake = { query: async sql => {
+    if (/FROM wechat_monitor_accounts x/.test(sql)) return [[{ id: 10, display_name: '北京中关村学院', account_key: 'bjzgca',
+      since_date: '2024-01-01', enabled: 1, interval_seconds: 1800, state: 'watching', biz: 'biz', last_checked_at: 1000,
+      next_check_at: 2000, last_error: null, article_count: 10, earliest_at: 100, latest_at: 200, analyzed_count: 8 }]];
+    if (/GROUP BY kind,status/.test(sql)) return [[{ kind: 'fetch', status: 'blocked', count: 3 }]];
+    if (/kind='fetch' GROUP BY account_id/.test(sql)) return [[{ account_id: 10, count: 5, restricted_count: 3 }]];
+    if (/SELECT account_id,published_at/.test(sql)) return [[{ account_id: 10, published_at: 1711929600000 }]];
+    if (/FROM wechat_monitor_jobs j JOIN/.test(sql)) return [[{ account_id: 10, id: 7, status: 'succeeded',
+      payload: JSON.stringify({ url: 'https://www.bza.edu.cn/api/article?type=school&page=1' }),
+      result: JSON.stringify({ discovered: 1, linkedPages: 1, queuedArticles: 0, queuedPages: 0, coverage: 'official_index_partial' }),
+      error_code: null, finished_at: 5000 }]];
+    if (/SUM\(status IN \('pending'/.test(sql)) return [[{ account_id: 10, pending_count: 2, blocked_count: 3 }]];
+    if (/AS tokens/.test(sql)) return [[{ tokens: 1234 }]];
+    throw Error('unexpected overview query: ' + sql.replace(/\s+/g, ' ').slice(0, 120));
+  } };
+  const result = await makeStore(fake, () => 1712000000000).overview('2:1');
+  const account = result.accounts[0];
+  assert.equal(account.pendingJobs, 2); assert.equal(account.blockedJobs, 3); assert.equal(account.restrictedFetches, 3);
+  assert.equal(account.lastDiscovery.jobId, 7);
+  assert.equal(account.lastDiscovery.sourceUrl, 'https://www.bza.edu.cn/api/article?type=school&page=1');
+  assert.equal(account.lastDiscovery.discovered, 1);
+  assert.equal(account.lastDiscovery.finishedAt, 5000);
+  assert.equal(result.budget.usedTokens, 1234);
+});
