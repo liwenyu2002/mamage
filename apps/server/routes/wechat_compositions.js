@@ -473,3 +473,5 @@ router.delete('/:id', requirePermission('ai.generate'), async (req, res) => {
 });
 
 module.exports = router;
+// 单测用：验证存档清洗不会丢掉 observed 组图的模板/分组字段。
+module.exports.sanitizeDoc = sanitizeDoc;
