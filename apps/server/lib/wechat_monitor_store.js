@@ -1,4 +1,6 @@
 const { PRESETS, SCENES, PROTOCOL_VERSION, parsed, hash, invalid } = require('./wechat_monitor_content');
+const { resolveCheckTimes, nextCheckAt } = require('./wechat_monitor_schedule');
+const officialApi = require('./wechat_official_api');
 const { historicalWindows, searchUrl, sourceUrl, pageKind, discoveryKey } = require('./wechat_monitor_discovery');
 const { groupFingerprint, seriesEligible } = require('./wechat_monitor_learning');
 
@@ -79,10 +81,25 @@ function makeStore(db, clock = Date.now) {
       LEFT JOIN organization_units u ON u.id=a.unit_id AND u.organization_id=a.org_id
       WHERE a.enabled = 1 AND a.next_check_at <= ? AND (a.unit_id IS NULL OR (u.id IS NOT NULL AND u.archived_at IS NULL))
       AND a.state NOT IN ('verification_required','policy_blocked') ORDER BY a.next_check_at LIMIT 10`, [clock()]);
+    if (!rows.length) return;
+    // 默认每天 09:00 / 21:00（Asia/Shanghai）巡检；WECHAT_MONITOR_CHECK_TIMES=off 时退回
+    // 旧的 interval_seconds 间隔。多账号按 30 秒错峰，避免同一秒打同一官网。
+    const slots = resolveCheckTimes(process.env.WECHAT_MONITOR_CHECK_TIMES);
+    let officialKeys = new Set();
+    try { officialKeys = new Set(officialApi.officialAccounts(process.env).map(item => item.key)); }
+    catch (error) { console.warn('[wechat-monitor] official api config invalid:', error.code || error.message); }
+    let index = 0;
     for (const row of rows) {
       const preset = PRESETS.find(item => item.key === row.account_key);
       for (const url of preset.indexes) await enqueueDiscovery(row, url, { phase: 'live', page: 1 }, `live:${discoveryKey(url)}:${Math.floor(clock() / (row.interval_seconds * 1000))}`);
-      await db.query('UPDATE wechat_monitor_accounts SET next_check_at = ? WHERE id = ?', [clock() + row.interval_seconds * 1000, row.id]);
+      if (officialKeys.has(row.account_key)) {
+        // 每个自然小时最多入队一次：09:00/21:00 各一次；同小时重入会被 dedupe_key 挡住。
+        await enqueue(row, 'discover', { provider: 'wechat_official', phase: 'live', page: 1, sourceType: 'official_api' },
+          `api:${row.account_key}:${Math.floor(clock() / 3600000)}`);
+      }
+      const stagger = (index++ % 8) * 30000;
+      const nextAt = slots.times ? nextCheckAt(clock() + stagger, slots.times) : clock() + row.interval_seconds * 1000;
+      await db.query('UPDATE wechat_monitor_accounts SET next_check_at = ? WHERE id = ?', [nextAt, row.id]);
     }
   };
   const saveArticle = async (row, article) => {
@@ -278,12 +295,19 @@ function makeStore(db, clock = Date.now) {
       const key = `${item.account_id}:${new Date(Number(item.published_at) + 8 * 3600000).toISOString().slice(0, 7)}`;
       months.set(key, (months.get(key) || 0) + 1);
     }
-    return { accounts: accounts.map(row => ({ id: Number(row.id), name: row.display_name, key: row.account_key, since: row.since_date,
+    const checkTimes = resolveCheckTimes(process.env.WECHAT_MONITOR_CHECK_TIMES);
+    let officialKeys = new Set();
+    try { officialKeys = new Set(officialApi.officialAccounts(process.env).map(item => item.key)); }
+    catch { /* 配置非法时不暴露细节，按未接入处理 */ }
+    return { schedule: { label: checkTimes.label, source: checkTimes.source, timezone: 'Asia/Shanghai',
+      times: checkTimes.times ? checkTimes.times.map(minute => `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`) : null },
+      accounts: accounts.map(row => ({ id: Number(row.id), name: row.display_name, key: row.account_key, since: row.since_date,
       enabled: Boolean(row.enabled), intervalSeconds: row.interval_seconds, state: row.state, biz: row.biz, identityVerified: Boolean(row.biz),
       lastCheckedAt: row.last_checked_at, nextCheckAt: row.next_check_at, error: row.last_error,
       articleCount: Number(row.article_count), candidateLinks: candidatesByAccount.get(Number(row.id)) || 0,
       restrictedFetches: restrictionsByAccount.get(Number(row.id)) || 0,
       pendingJobs: pendingByAccount.get(Number(row.id)) || 0, blockedJobs: blockedByAccount.get(Number(row.id)) || 0,
+      officialApiConfigured: officialKeys.has(row.account_key),
       lastDiscovery: discoveryByAccount.get(Number(row.id)) || null,
       discoveryStats: windowByAccount.get(Number(row.id)) || { runs: 0, discovered: 0, queued: 0 },
       analyzedCount: Number(row.analyzed_count) || 0, earliestAt: row.earliest_at, latestAt: row.latest_at,

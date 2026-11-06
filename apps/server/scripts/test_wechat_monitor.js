@@ -371,4 +371,7 @@ test('overview exposes latest discovery summary and per-account job counts', asy
   assert.equal(account.lastDiscovery.discovered, 1);
   assert.equal(account.lastDiscovery.finishedAt, 5000);
   assert.equal(result.budget.usedTokens, 1234);
+  assert.equal(result.schedule.label, '每天 09:00 / 21:00');
+  assert.equal(result.schedule.timezone, 'Asia/Shanghai');
+  assert.equal(account.officialApiConfigured, false);
 });

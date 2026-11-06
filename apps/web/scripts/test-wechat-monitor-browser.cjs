@@ -16,7 +16,7 @@ const months = [{ from: '2024-01-01', count: 0, state: 'unverified' }, { from: '
 const account = { id: 1, name: '测试公众号 A', enabled: true, state: 'watching', articleCount: 2, analyzedCount: 2, since: '2024-01-01',
   candidateLinks: 3, restrictedFetches: 1,
   intervalSeconds: 1800, earliestAt: articles[0].publishedAt, latestAt: articles[1].publishedAt, lastCheckedAt: Date.now(), error: '', monthlyCoverage: months,
-  nextCheckAt: Date.now() + 1800000, pendingJobs: 2, discoveryStats: { runs: 96, discovered: 120, queued: 7 },
+  nextCheckAt: Date.now() + 1800000, pendingJobs: 2, discoveryStats: { runs: 96, discovered: 120, queued: 7 }, officialApiConfigured: true,
   lastDiscovery: { jobId: 7, status: 'succeeded', sourceUrl: 'https://www.bza.edu.cn/api/article?type=school&page=1',
     errorCode: null, finishedAt: Date.now(), discovered: 1, linkedPages: 1, queuedArticles: 0, queuedPages: 0, coverage: 'official_index_partial' },
   sogou: { url: 'https://weixin.sogou.com/weixin?type=2&query=test', state: 'policy_disallowed' } };
@@ -51,7 +51,8 @@ async function main() {
         if (pathname === '/overview' && failOverview) return route.fulfill({ status: 503, json: { message: '本地测试连接暂时断开' } });
         if (pathname === '/overview') return route.fulfill({ json: { accounts: [{ ...account, enabled, articleCount: additionalArticle ? 3 : 2 }, { ...account, id: 2, name: '测试公众号 B' }], canManage: allowed,
           engineEnabled: true, budget: { paused: false, unlimited: true, usedTokens: 9000000, limitTokens: null, resetAt: null },
-          scenes: { events: '活动报道' }, dimensions, jobs: [{ status: 'blocked', count: newerJobs ? 76 : 75 }] } });
+          scenes: { events: '活动报道' }, dimensions, jobs: [{ status: 'blocked', count: newerJobs ? 76 : 75 }],
+          schedule: { label: '每天 09:00 / 21:00', times: ['09:00', '21:00'], timezone: 'Asia/Shanghai', source: 'default' } } });
         if (pathname === '/articles') { articleReads++; return route.fulfill({ json: { items: [...articles,
           ...(additionalArticle ? [{ ...articles[0], id: 3, title: '后台新增的测试文章' }] : []), ...(failedArticle ? [failedFixture] : [])], hasMore: false } }); }
         if (pathname.startsWith('/articles/')) return route.fulfill({ json: [...articles, failedFixture].find(article => String(article.id) === pathname.split('/').at(-1)) });
@@ -75,6 +76,8 @@ async function main() {
       await page.goto(`http://127.0.0.1:${server.address().port}/`);
       await page.getByText('1 项正文任务受限或失败，目录检查正常不代表正文已收录。', { exact: true }).first().waitFor();
       await page.getByText(/下次检查/).first().waitFor();
+      await page.getByText(/每天 09:00 \/ 21:00 · 检查于/).first().waitFor();
+      await page.getByText('官方 API 自动发现', { exact: true }).first().waitFor();
       await page.getByText(/最近目录检查/).first().waitFor();
       await page.getByText(/候选 1 个 · 跟随 1 个页面 · 新增正文任务 0 个/).first().waitFor();
       await page.getByText('最近 7 天目录检查：运行 96 次 · 候选 120 个 · 新增正文任务 7 个').first().waitFor();

@@ -138,6 +138,7 @@ export default function WechatMonitor({ workspaceId }) {
       onClick={() => mutate('/bootstrap', {}, '已添加哈工大、北京中关村学院；历史起点为 2024-01-01')}>添加两个目标公众号</Button> : null}</div> : null}
     <div className="wxm-sources">{overview?.accounts.map(item => <section className="wxm-source" key={item.id}>
       <div className="wxm-source-line"><strong>{item.name}</strong><span className="wxm-tag">{item.enabled ? statusLabels[item.state] || '待检查' : '已暂停'}</span>
+        <span className="wxm-tag">{item.officialApiConfigured ? '官方 API 自动发现' : '官网目录发现'}</span>
         {overview.canManage ? <label className="wxm-toggle"><input aria-label={`启用${item.name}监控`} type="checkbox" checked={item.enabled} disabled={busy}
           onChange={async event => {
             const enabled = event.target.checked;
@@ -153,7 +154,7 @@ export default function WechatMonitor({ workspaceId }) {
       <p className="wxm-muted">最近 7 天目录检查：运行 {item.discoveryStats?.runs || 0} 次 · 候选 {item.discoveryStats?.discovered || 0} 个 · 新增正文任务 {item.discoveryStats?.queued || 0} 个</p>
       {item.lastDiscovery ? <p className="wxm-muted">最近发现{item.lastDiscovery.sourceUrl ? '（' + sourceLabel(item.lastDiscovery.sourceUrl) + '）' : ''}：候选 {item.lastDiscovery.discovered ?? '—'} 个 · 跟随 {item.lastDiscovery.linkedPages ?? '—'} 个页面 · 新增正文任务 {item.lastDiscovery.queuedArticles ?? '—'} 个{item.lastDiscovery.status === 'succeeded' ? '' : ` · ${statusLabels[item.lastDiscovery.status] || item.lastDiscovery.status}${item.lastDiscovery.errorCode ? '（' + item.lastDiscovery.errorCode + '）' : ''}`}</p> : null}
       {item.restrictedFetches ? <p className="wxm-source-error">{item.restrictedFetches} 项正文任务受限或失败，目录检查正常不代表正文已收录。</p> : null}
-      <div className="wxm-source-links"><span>每 {Math.round(item.intervalSeconds / 60)} 分钟 · 检查于 {time(item.lastCheckedAt)}</span><a href={item.sogou.url} target="_blank" rel="noopener noreferrer">搜狗人工检索</a>
+      <div className="wxm-source-links"><span>{overview.schedule?.label || `每 ${Math.round(item.intervalSeconds / 60)} 分钟`} · 检查于 {time(item.lastCheckedAt)}</span><a href={item.sogou.url} target="_blank" rel="noopener noreferrer">搜狗人工检索</a>
         {overview.canManage ? <button type="button" disabled={busy || !item.enabled} onClick={() => mutate(`/accounts/${item.id}/check`, {}, '已安排官网目录检查')}>检查更新</button> : null}
         {item.restrictedFetches ? <button type="button" onClick={() => { setTab('jobs'); setAccountId(String(item.id)); setJobStatus('blocked'); setPage(1); setJobCursors([null]); setEventsFor(null); setDetailId(null); }}>查看受限任务</button> : null}</div>
       {item.error ? <p className="wxm-source-error">{item.error}</p> : null}
