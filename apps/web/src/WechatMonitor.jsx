@@ -138,7 +138,6 @@ export default function WechatMonitor({ workspaceId }) {
       onClick={() => mutate('/bootstrap', {}, '已添加哈工大、北京中关村学院；历史起点为 2024-01-01')}>添加两个目标公众号</Button> : null}</div> : null}
     <div className="wxm-sources">{overview?.accounts.map(item => <section className="wxm-source" key={item.id}>
       <div className="wxm-source-line"><strong>{item.name}</strong><span className="wxm-tag">{item.enabled ? statusLabels[item.state] || '待检查' : '已暂停'}</span>
-        <span className="wxm-tag">{item.officialApiConfigured ? '官方 API 自动发现' : '官网目录发现'}</span>
         {overview.canManage ? <label className="wxm-toggle"><input aria-label={`启用${item.name}监控`} type="checkbox" checked={item.enabled} disabled={busy}
           onChange={async event => {
             const enabled = event.target.checked;

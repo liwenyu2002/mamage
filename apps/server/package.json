@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node app.js",
     "dev:news-sandbox": "node scripts/news_sandbox.js",
-    "test:wechat-monitor": "node --test scripts/test_wechat_monitor.js scripts/test_wechat_monitor_schedule.js scripts/test_wechat_official_api.js scripts/test_wechat_article_source.js",
+    "test:wechat-monitor": "node --test scripts/test_wechat_monitor.js scripts/test_wechat_monitor_schedule.js scripts/test_wechat_article_source.js",
     "db:export": "node scripts/export_db_artifacts.js",
     "db:migrate": "node scripts/run_migrations.js",
     "db:seed": "node scripts/run_seed_minimal.js",

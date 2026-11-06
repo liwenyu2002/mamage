@@ -7,8 +7,7 @@ const learning = require('./wechat_monitor_learning');
 const BLOCKED = new Set(['SOURCE_VERIFICATION_REQUIRED', 'SOURCE_ROBOTS_DISALLOWED', 'SOURCE_POLICY_DISALLOWED',
   'SOURCE_LINK_REQUIRES_BROWSER', 'ACCOUNT_MISMATCH', 'PUBLICATION_DATE_UNKNOWN', 'PUBLICATION_DATE_INVALID', 'ARTICLE_TEXT_INSUFFICIENT',
   'SOURCE_FORMAT_CHANGED', 'SOURCE_REDIRECT_REJECTED', 'ACCOUNT_SOURCE_MISMATCH', 'ARTICLE_ANALYSIS_TOO_LONG', 'GROUP_ANALYSIS_TOO_LONG',
-  'PRIVATE_ADDRESS', 'INVALID_SOURCE_URL', 'SOURCE_TOO_LARGE', 'SOURCE_ACCESS_DENIED', 'ARTICLE_METADATA_INCOMPLETE',
-  'WECHAT_API_IP_NOT_ALLOWED', 'WECHAT_API_UNAUTHORIZED', 'WECHAT_API_NOT_CONFIGURED', 'WECHAT_API_CONFIG_INVALID']);
+  'PRIVATE_ADDRESS', 'INVALID_SOURCE_URL', 'SOURCE_TOO_LARGE', 'SOURCE_ACCESS_DENIED', 'ARTICLE_METADATA_INCOMPLETE']);
 const TERMINAL = new Set(['ARTICLE_UNAVAILABLE', 'BEFORE_HISTORY_START', 'INVALID_ARTICLE_URL', 'INVALID_DISCOVERY_URL', 'ARTICLE_TOO_LARGE', 'SOURCE_NOT_FOUND', 'ANALYSIS_INVALID', 'ANALYSIS_UNGROUNDED', 'ANALYSIS_INCONSISTENT']);
 function retryPlan(error, attempts, now) {
   if (error.code === 'BEFORE_HISTORY_START') return { status: 'skipped', at: now };
@@ -31,20 +30,6 @@ function createWorker(dependencies) {
   const pumping = new Set();
   let stopped = false, ticker = null;
   const runJob = async (db, store, row, job, payload) => {
-    if (job.kind === 'discover' && payload.provider === 'wechat_official') {
-      // 合规的账号级发现：公众号官方 API「获取已发布的消息列表」。无凭据的账号不会走到这里。
-      const api = require('./wechat_official_api');
-      const client = dependencies.officialClient || api.createOfficialClient();
-      const configured = (dependencies.officialAccountConfig || api.officialAccounts)();
-      const account = configured.find(item => item.key === row.account_key);
-      if (!account) throw invalid('WECHAT_API_NOT_CONFIGURED', '该公众号未配置官方 API 凭据，继续使用官网目录发现', 503);
-      const recent = await client.recentArticles(account, { pages: 2, pageSize: 20 });
-      let queuedArticles = 0;
-      for (const item of recent.items) if (await store.enqueueFetch(row, item.url, { sourceKind: 'wechat_official_api', title: item.title })) queuedArticles += 1;
-      await db.query('UPDATE wechat_monitor_accounts SET last_checked_at = ?,state = ?,last_error = NULL WHERE id = ?', [clock(), 'watching', row.id]);
-      return { provider: 'wechat_official', discovered: recent.items.length, queuedArticles, scanned: recent.scanned,
-        total: recent.total, coverage: 'official_api_recent' };
-    }
     if (job.kind === 'discover') {
       const page = await fetchPage(payload.url);
       const found = discovery.parseOfficialIndex(page.html, page.finalUrl, row.account_key, { since: row.since_date });
@@ -68,7 +53,17 @@ function createWorker(dependencies) {
       const article = parseArticle(page.html, page.finalUrl, row, clock());
       article.metadata.provenance = { sourceKind: payload.discovered?.sourceKind || 'manual_wechat_url', transport: 'shared_reverse_import',
         discoveryUrl: payload.discovered?.discoveryUrl || null };
-      return store.saveArticle(row, article);
+      const saved = await store.saveArticle(row, article);
+      // 从原文的往期/相关阅读里继续发现同号文章（仅 __biz 精确匹配的公开链接），扩大自动覆盖；
+      // 不抓账号时间线、不绕过验证。WECHAT_MONITOR_FOLLOW_RELATED=0 可关闭。
+      let relatedQueued = 0;
+      if (String(process.env.WECHAT_MONITOR_FOLLOW_RELATED || '1') !== '0' && row.biz) {
+        for (const url of require('./wechat_monitor_content').relatedArticleUrls(page.html, row.biz)) {
+          if (url === payload.url) continue;
+          if (await store.enqueueFetch(row, url, { sourceKind: 'related_article', discoveryUrl: payload.url })) relatedQueued += 1;
+        }
+      }
+      return { ...(saved && typeof saved === 'object' ? saved : {}), relatedQueued };
     }
     if (job.kind === 'regroup') return store.refreshGroups(row, payload.articleId);
     if (job.kind === 'analyze') {

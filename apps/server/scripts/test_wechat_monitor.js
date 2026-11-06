@@ -373,5 +373,23 @@ test('overview exposes latest discovery summary and per-account job counts', asy
   assert.equal(result.budget.usedTokens, 1234);
   assert.equal(result.schedule.label, '每天 09:00 / 21:00');
   assert.equal(result.schedule.timezone, 'Asia/Shanghai');
-  assert.equal(account.officialApiConfigured, false);
+});
+
+test('related links only follow same-biz public article URLs', () => {
+  const BIZ = 'Mzk3NTQ2NTY2Ng==';
+  const html = `<div id="js_content">
+    <a href="https://mp.weixin.qq.com/s?__biz=${BIZ}&mid=1&idx=1&sn=aaa">同号</a>
+    <a href="https://mp.weixin.qq.com/s?__biz=${BIZ}&mid=1&idx=1&sn=aaa&scene=21">同号重复</a>
+    <a href="https://mp.weixin.qq.com/s?__biz=OTHERBIZ&mid=2&idx=1&sn=bbb">他号</a>
+    <a href="/s/short">短链</a>
+    <a href="https://evil.test/s?__biz=${BIZ}">外站</a>
+    <a href="https://mp.weixin.qq.com/s?__biz=${BIZ}&mid=3&idx=2&sn=ccc#wechat_redirect">同号带锚点</a>
+  </div>`;
+  const urls = content.relatedArticleUrls(html, BIZ);
+  assert.equal(urls.length, 2);
+  const normalized = urls.map(value => { const url = new URL(value); return `${url.searchParams.get('__biz')}/${url.searchParams.get('sn')}`; });
+  assert.deepEqual(normalized.sort(), [`${BIZ}/aaa`, `${BIZ}/ccc`]);
+  assert.equal(content.relatedArticleUrls(html, BIZ, { limit: 1 }).length, 1);
+  assert.deepEqual(content.relatedArticleUrls(html, 'bad biz'), []);
+  assert.deepEqual(content.relatedArticleUrls('<div>没有链接</div>', BIZ), []);
 });

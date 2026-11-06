@@ -65,6 +65,31 @@ function visualFeatures($) {
   return { palette: top(colors), fontSizes: top(fonts), centeredBlocks: centered, decoratedBlocks: decorated,
     imageCount: $('#js_content img').length, evidenceMode: 'html_css_only', limitation: '基于正文与 HTML/CSS，未判断图片画面或海报内文字' };
 }
+// 从已抓取的原文里提取“同号”文章链接（往期回顾/相关阅读/合集入口）：
+// 只跟随页面中公开的绝对 mp.weixin.qq.com/s 链接且 __biz 与目标账号精确一致；
+// 不请求账号时间线、不携带登录态、不绕过验证，单篇最多 20 条。
+function relatedArticleUrls(html, biz, { limit = 20 } = {}) {
+  if (typeof html !== 'string' || Buffer.byteLength(html) > 8 * 1024 * 1024) return [];
+  const target = String(biz || '');
+  if (!/^[A-Za-z0-9+/=]{8,64}$/.test(target)) return [];
+  const max = Math.max(1, Math.min(Number(limit) || 20, 50));
+  const $ = cheerio.load(html), found = new Map();
+  $('a[href]').each((_, element) => {
+    if (found.size >= max) return false;
+    const href = $(element).attr('href');
+    if (!href || !/^https?:\/\//i.test(href)) return undefined;
+    let url;
+    try { url = new URL(href); } catch { return undefined; }
+    if (url.hostname !== 'mp.weixin.qq.com' || url.username || url.password || url.port) return undefined;
+    if (url.searchParams.get('__biz') !== target) return undefined;
+    let canonical;
+    try { canonical = canonicalUrl(url.href); } catch { return undefined; }
+    if (!found.has(canonical)) found.set(canonical, true);
+    return undefined;
+  });
+  return [...found.keys()];
+}
+
 function parseArticle(html, sourceUrl, account, now = Date.now()) {
   if (typeof html !== 'string' || Buffer.byteLength(html) > 8 * 1024 * 1024) throw invalid('ARTICLE_TOO_LARGE', '文章超过采集大小上限');
   const url = canonicalUrl(sourceUrl), $ = cheerio.load(html);
@@ -116,4 +141,4 @@ function similarity(left, right) {
   for (const value of Object.values(right)) b += value * value;
   return a && b ? dot / Math.sqrt(a * b) : 0;
 }
-module.exports = { PROTOCOL_VERSION, PRESETS, SCENES, hash, parsed, invalid, canonicalUrl, dateTimestamp, parseArticle, visualFeatures, lexicalFeatures, similarity };
+module.exports = { PROTOCOL_VERSION, PRESETS, SCENES, hash, parsed, invalid, canonicalUrl, dateTimestamp, parseArticle, relatedArticleUrls, visualFeatures, lexicalFeatures, similarity };
