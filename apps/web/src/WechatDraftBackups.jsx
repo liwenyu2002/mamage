@@ -2,6 +2,7 @@ import React from 'react';
 import { Modal, Button, SegmentedControl } from './ui';
 import { IconTrash } from './ui/icons';
 import { listCompositions, getComposition, deleteComposition } from './services/wechatCompositionService';
+import { backupKindFromName } from './utils/wechatDraftState';
 
 export default function WechatDraftBackups({ onClose, onRestore }) {
   const [kind, setKind] = React.useState('content');
@@ -28,7 +29,7 @@ export default function WechatDraftBackups({ onClose, onRestore }) {
       <SegmentedControl label="备份类型" value={kind} onChange={setKind} options={[{ value: 'content', label: '内容稿' }, { value: 'layout', label: '排版稿' }]} />
       {loading ? <p role="status">正在读取备份…</p> : null}
       {error ? <p role="alert">{error} <Button size="small" onClick={() => setEpoch(value => value + 1)}>重试</Button></p> : null}
-      {items.filter(item => (item.draftKind || 'layout') === kind).map(item => <div className="wechat-backup-row" key={item.id}>
+      {items.filter(item => backupKindFromName(item.name) === kind).map(item => <div className="wechat-backup-row" key={item.id}>
         <div><strong>{item.title || item.name}</strong><small>{new Date(item.updatedAt).toLocaleString('zh-CN')} · {item.blockCount} 个内容块</small></div>
         <Button size="small" disabled={busy !== null} onClick={() => restore(item)}>恢复{kind === 'content' ? '内容稿' : '排版稿'}</Button>
         <Button size="small" theme="borderless" icon={<IconTrash />} title="删除此备份" aria-label={`删除备份 ${item.id}`} disabled={busy !== null}
@@ -37,7 +38,7 @@ export default function WechatDraftBackups({ onClose, onRestore }) {
             catch (failure) { setError('删除失败，请重试'); } finally { setBusy(null); }
           } })} />
       </div>)}
-      {!loading && !error && !items.some(item => (item.draftKind || 'layout') === kind) ? <p>暂无{kind === 'content' ? '内容稿' : '排版稿'}备份</p> : null}
+      {!loading && !error && !items.some(item => backupKindFromName(item.name) === kind) ? <p>暂无{kind === 'content' ? '内容稿' : '排版稿'}备份</p> : null}
     </div>
   </Modal>;
 }

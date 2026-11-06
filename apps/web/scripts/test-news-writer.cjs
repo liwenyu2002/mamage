@@ -40,6 +40,7 @@ const { hydrateSimilarityPhotos } = load('src/services/similarityPhotos.js');
 const { missingRequiredFields } = load('src/utils/wechatRequiredFields.js');
 const { referenceFindings } = load('src/utils/wechatReferences.js');
 const { referenceText, usedReferenceSnapshot } = require('../../server/lib/news_reference_provenance');
+const { isBackupName, backupKindFromName } = load('src/utils/wechatDraftState.js');
 
 test('observed templates preserve all photos and captions through replacement, export and reload', () => {
   const { templateFromSource } = require('../../server/lib/wechat_observed_gallery_templates');
@@ -714,4 +715,13 @@ test('splitGallery/mergeGallery handle layout image groups', () => {
   assert.equal(merged[4].galleryColumns, 2);
   assert.equal(mergeGallery(doc, ['i1', 'i4']), doc, 'non-adjacent images cannot merge');
   assert.equal(mergeGallery(doc, ['i1', 'p']), doc, 'non-image blocks cannot merge');
+});
+
+test('backup names are separated from tweet files', () => {
+  assert.equal(isBackupName('校园活动 · 内容稿 · 2026/11/6 21:50:00'), true);
+  assert.equal(isBackupName('校园活动 · 排版稿 · 2026/11/6 21:50:00'), true);
+  assert.equal(isBackupName('校园活动推文'), false);
+  assert.equal(backupKindFromName('校园活动 · 内容稿 · 2026/11/6'), 'content');
+  assert.equal(backupKindFromName('校园活动 · 排版稿 · 2026/11/6'), 'layout');
+  assert.equal(backupKindFromName('校园活动推文'), null);
 });

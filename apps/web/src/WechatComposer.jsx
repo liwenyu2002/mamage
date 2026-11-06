@@ -30,7 +30,7 @@ import { replaceBlockStyle, replacementError } from './wechat/styleReplacement';
 import { GALLERY_STYLES_BY_ID, galleryStyleHtml } from './wechat/galleryStyles';
 import { isObservedGallery, observedGalleryHtml } from './wechat/observedGallery';
 import { imageRunForUid } from './wechat/imageGroups';
-import { wechatDraftKey, hasWechatDraft } from './utils/wechatDraftState';
+import { wechatDraftKey, hasWechatDraft, isBackupName } from './utils/wechatDraftState';
 import { articleBodyMarkdown } from './utils/newsArticle';
 import { IconSparkleAI, IconEditStroked } from './ui/icons';
 import './wechat/composer.css';
@@ -1200,7 +1200,8 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
     setArchiveListError(false);
     try {
       const resp = await listCompositions();
-      setArchiveList(Array.isArray(resp && resp.items) ? resp.items.filter(item => item.draftKind !== 'content') : []);
+      // 文件列表只放普通推文文件：内容稿备份与“· 排版稿 ·”命名的排版备份都归稿件备份弹窗。
+      setArchiveList(Array.isArray(resp && resp.items) ? resp.items.filter(item => item.draftKind !== 'content' && !isBackupName(item.name)) : []);
     } catch (e) {
       console.error('[WechatComposer] load compositions failed', e);
       setArchiveListError(true);
