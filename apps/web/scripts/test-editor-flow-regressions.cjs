@@ -38,6 +38,17 @@ const inViewport = async (page, locator) => {
       const copy = page.getByRole('button', { name: '复制到公众号', exact: true });
       assert.equal(await inViewport(page, copy), true, `${width}: 排版稿导出入口应在首屏可见`);
       assert.match(await page.locator('.wechat-autosave').innerText(), /自动保存/);
+      // 桌面左右对照：内容稿只读预览与画布并排；手机端不显示该入口
+      const splitToggle = page.getByRole('button', { name: '左右对照', exact: true });
+      if (width >= 1200) {
+        await splitToggle.click();
+        await page.locator('.wechat-split-reference').waitFor();
+        assert.match(await page.locator('.wechat-split-reference').innerText(), /校园交流活动/);
+        await page.getByRole('button', { name: '关闭左右对照', exact: true }).click();
+        await page.locator('.wechat-split-reference').waitFor({ state: 'detached' });
+      } else {
+        assert.equal(await splitToggle.isVisible(), false, `${width}: 手机端不显示左右对照入口`);
+      }
       // 组图拆分：选中一组图片 → 拆分组图 → 文档里该组 galleryId 被清空，撤销可恢复
       const readCanvasDoc = () => page.evaluate(() => {
         for (const key of Object.keys(localStorage)) {

@@ -694,6 +694,8 @@
   min-width: 0;
 }
 
+.wxc-lib-empty { margin: 8px 12px 16px; padding: 22px 14px; border: 1px dashed rgba(0,0,0,0.12); border-radius: 10px;
+  color: #8a8f96; font-size: 12px; line-height: 1.7; text-align: center; }
 .wxc-lib-toggle-mobile {
   display: none;
 }
@@ -1573,3 +1575,24 @@ body.wxc-dragging {
 .aif-actions { display: flex; justify-content: flex-end; margin-top: 6px; }
 .wxc-gallery-source { display: block; padding: 0 12px 10px; font-size: 11px; color: #65717d; text-decoration: none; }
 .wxc-gallery-source:hover { text-decoration: underline; }
+
+/* 桌面左右对照：内容稿只读预览 + 排版画布并排 */
+.wechat-split-toggle { display: inline-flex; }
+.wechat-split-stage.is-split { display: grid; grid-template-columns: minmax(300px, 34%) minmax(0, 1fr); gap: 16px;
+  max-width: 1640px; margin: 0 auto; align-items: start; }
+.wechat-split-reference { position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow: auto; background: #fff;
+  border: 1px solid rgba(0,0,0,0.08); border-radius: 10px; padding: 16px 18px; color: #333; font-size: 13px; line-height: 1.8; }
+.wechat-split-reference header h3 { margin: 0 0 4px; font-size: 15px; }
+.wechat-split-reference header span { color: #8a8f96; font-size: 12px; overflow-wrap: anywhere; }
+.wechat-split-reference-body { margin-top: 12px; }
+.wechat-split-reference-body h4 { margin: 16px 0 8px; font-size: 15px; }
+.wechat-split-reference-body h5 { margin: 14px 0 6px; font-size: 14px; }
+.wechat-split-reference-body p { margin: 8px 0; overflow-wrap: anywhere; }
+.wechat-split-reference-body figure { margin: 12px 0; }
+.wechat-split-reference-body figure img { width: 100%; border-radius: 6px; display: block; }
+.wechat-split-reference-body figcaption { margin-top: 4px; color: #8a8f96; font-size: 12px; text-align: center; }
+@media (max-width: 1180px) {
+  .wechat-split-toggle { display: none; }
+  .wechat-split-stage.is-split { display: block; }
+  .wechat-split-reference { display: none; }
+}

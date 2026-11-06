@@ -13,6 +13,32 @@ const Composer = React.lazy(() => import('./WechatComposer'));
 const Writer = React.lazy(() => import('./AiNewsWriter'));
 const Monitor = React.lazy(() => import('./WechatMonitor'));
 function read(key) { try { return key ? JSON.parse(localStorage.getItem(key) || 'null') : null; } catch { return null; } }
+function plainText(html) {
+  const element = typeof document !== 'undefined' ? document.createElement('div') : null;
+  if (element) { element.innerHTML = String(html || ''); return (element.textContent || '').trim(); }
+  return String(html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+// 桌面左右对照：只读内容稿预览，方便手动对照排版（直接编辑仍回内容稿视图）。
+function ContentReference({ confirmed }) {
+  const doc = confirmed?.source?.doc || [];
+  return <section className="wechat-split-reference" aria-label="内容稿对照">
+    <header><h3>内容稿</h3><span>{confirmed?.source?.title || '未命名图文'} · {doc.length} 个内容块</span></header>
+    <div className="wechat-split-reference-body">
+      {doc.map((block, index) => {
+        if (!block) return null;
+        if (block.type === 'imageCard') return <figure key={index}>
+          <img src={block.src} alt={block.caption || ''} loading="lazy" />
+          {block.caption ? <figcaption>{block.caption}</figcaption> : null}
+        </figure>;
+        const text = plainText(block.html ?? block.content);
+        if (!text) return null;
+        if (block.type === 'h2' || block.headingLevel === 2) return <h4 key={index}>{text}</h4>;
+        if (block.type === 'h3' || block.headingLevel === 3) return <h5 key={index}>{text}</h5>;
+        return <p key={index}>{text}</p>;
+      })}
+    </div>
+  </section>;
+}
 
 export default function WechatWorkspace({ currentUser, workspaceId, initialMode = 'library' }) {
   const [workspaceView, setWorkspaceView] = React.useState(() => new URLSearchParams(location.search).get('view') === 'monitor' ? 'monitor' : 'writing');
@@ -42,6 +68,7 @@ export default function WechatWorkspace({ currentUser, workspaceId, initialMode 
     ? { article: initial.styled || read(draftKey), version: 0 } : null);
   const [restoredArticle, setRestoredArticle] = React.useState(null);
   const [backupsOpen, setBackupsOpen] = React.useState(false);
+  const [splitView, setSplitView] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const savingRef = React.useRef(false), busyRef = React.useRef(false);
   const [storageError, setStorageError] = React.useState('');
@@ -206,6 +233,8 @@ export default function WechatWorkspace({ currentUser, workspaceId, initialMode 
           <span>{index + 1}</span>{label}</button>)}
       </nav>
       <div className="wechat-workflow-actions">
+        {stage === 'styled' ? <Button size="small" theme="borderless" className="wechat-split-toggle"
+          onClick={() => setSplitView(value => !value)}>{splitView ? '关闭左右对照' : '左右对照'}</Button> : null}
         {stage === 'styled' && layoutDirty ? <Button size="small" onClick={syncLayoutToContent}>文字回写内容稿</Button> : null}
         <span className={`wechat-autosave${draftSaveOk && !storageError ? '' : ' is-error'}`} role="status"
           title="内容稿与排版稿会自动保存在本机浏览器，刷新后可恢复">
@@ -226,10 +255,13 @@ export default function WechatWorkspace({ currentUser, workspaceId, initialMode 
     </React.Suspense></div>
     {confirmed ? <div hidden={stage !== 'styles'}><WechatLayoutPanel confirmed={confirmed} current={contentCurrent}
       storageKey={stateKey} onBack={openContentStage} onApply={applyLayout} onSaveContent={() => saveBackup('content')} /></div> : null}
-    {composer ? <div hidden={stage !== 'styled'}><React.Suspense fallback={<p role="status">正在加载排版稿…</p>}>
-      <Composer key={composer.version} currentUser={currentUser} workspaceId={workspaceId} initialArticle={composer.article}
-        active={stage === 'styled'} onSnapshotChange={onSnapshotChange} draftStorageKey={draftKey} guided onDraftSaved={onDraftSaved} />
-    </React.Suspense></div> : null}
+    {composer ? <div className={`wechat-split-stage${splitView ? ' is-split' : ''}`} hidden={stage !== 'styled'}>
+      {splitView ? <ContentReference confirmed={confirmed} /> : null}
+      <div className="wechat-split-composer"><React.Suspense fallback={<p role="status">正在加载排版稿…</p>}>
+        <Composer key={composer.version} currentUser={currentUser} workspaceId={workspaceId} initialArticle={composer.article}
+          active={stage === 'styled'} onSnapshotChange={onSnapshotChange} draftStorageKey={draftKey} guided onDraftSaved={onDraftSaved} />
+      </React.Suspense></div>
+    </div> : null}
     <div className="wechat-local-recovery">
       {legacyAvailable ? <Button size="small" theme="borderless" onClick={() => restoreLocal('wechat-composer-draft', true)}>导入旧排版草稿</Button> : null}
       {hasWechatDraft(read(`${draftKey}:previous`)) ? <Button size="small" theme="borderless" onClick={() => restoreLocal(`${draftKey}:previous`)}>恢复上一份排版草稿</Button> : null}

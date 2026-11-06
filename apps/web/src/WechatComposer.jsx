@@ -1711,6 +1711,9 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
                 <button type="button" onClick={() => setReplaceTarget(null)}>取消</button>
               </div>
             ) : null}
+            {[...Object.values(blocksById)].filter((b) => b.type === libType && !b.legacy).length === 0 ? <div className="wxc-lib-empty" role="status">
+              当前分类暂无可用样式。可切换上方分类，或用「AI 排版」生成；组图样式为空时可先从推文观察库采集。
+            </div> : null}
             <div className="wxc-lib-list">
               {[...Object.values(blocksById)].filter((b) => b.type === libType && !b.legacy)
                 .sort((a, b) => Number(b.source === 'observed') - Number(a.source === 'observed')).map((b) => (
