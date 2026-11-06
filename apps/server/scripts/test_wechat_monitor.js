@@ -350,10 +350,13 @@ test('overview exposes latest discovery summary and per-account job counts', asy
     if (/GROUP BY kind,status/.test(sql)) return [[{ kind: 'fetch', status: 'blocked', count: 3 }]];
     if (/kind='fetch' GROUP BY account_id/.test(sql)) return [[{ account_id: 10, count: 5, restricted_count: 3 }]];
     if (/SELECT account_id,published_at/.test(sql)) return [[{ account_id: 10, published_at: 1711929600000 }]];
-    if (/FROM wechat_monitor_jobs j JOIN/.test(sql)) return [[{ account_id: 10, id: 7, status: 'succeeded',
-      payload: JSON.stringify({ url: 'https://www.bza.edu.cn/api/article?type=school&page=1' }),
-      result: JSON.stringify({ discovered: 1, linkedPages: 1, queuedArticles: 0, queuedPages: 0, coverage: 'official_index_partial' }),
-      error_code: null, finished_at: 5000 }]];
+    if (/kind='discover' ORDER BY id DESC LIMIT 200/.test(sql)) return [[
+      { account_id: 10, id: 8, status: 'succeeded', payload: JSON.stringify({ url: 'https://www.bza.edu.cn/sitemap.txt' }),
+        result: JSON.stringify({ discovered: 0, linkedPages: 223, queuedArticles: 0 }), error_code: null, finished_at: 9000 },
+      { account_id: 10, id: 7, status: 'succeeded', payload: JSON.stringify({ url: 'https://www.bza.edu.cn/api/article?type=school&page=1' }),
+        result: JSON.stringify({ discovered: 1, linkedPages: 1, queuedArticles: 0, queuedPages: 0, coverage: 'official_index_partial' }),
+        error_code: null, finished_at: 5000 }]];
+    if (/SUM\(CAST\(JSON_EXTRACT\(result,'\$\.discovered'/.test(sql)) return [[{ account_id: 10, runs: 96, discovered: 120, queued: 7 }]];
     if (/SUM\(status IN \('pending'/.test(sql)) return [[{ account_id: 10, pending_count: 2, blocked_count: 3 }]];
     if (/AS tokens/.test(sql)) return [[{ tokens: 1234 }]];
     throw Error('unexpected overview query: ' + sql.replace(/\s+/g, ' ').slice(0, 120));
@@ -361,7 +364,9 @@ test('overview exposes latest discovery summary and per-account job counts', asy
   const result = await makeStore(fake, () => 1712000000000).overview('2:1');
   const account = result.accounts[0];
   assert.equal(account.pendingJobs, 2); assert.equal(account.blockedJobs, 3); assert.equal(account.restrictedFetches, 3);
+  // 应优先取“有产出”的 api/article（id 7），而不是更新的 sitemap（id 8, 0 候选）。
   assert.equal(account.lastDiscovery.jobId, 7);
+  assert.deepEqual(account.discoveryStats, { runs: 96, discovered: 120, queued: 7 });
   assert.equal(account.lastDiscovery.sourceUrl, 'https://www.bza.edu.cn/api/article?type=school&page=1');
   assert.equal(account.lastDiscovery.discovered, 1);
   assert.equal(account.lastDiscovery.finishedAt, 5000);

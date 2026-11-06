@@ -246,10 +246,28 @@ function makeStore(db, clock = Date.now) {
       FROM wechat_monitor_jobs WHERE scope_key=? AND kind='fetch' GROUP BY account_id`, [scope]);
     const candidatesByAccount = new Map(discovered.map(row => [Number(row.account_id), Number(row.count)]));
     const restrictionsByAccount = new Map(discovered.map(row => [Number(row.account_id), Number(row.restricted_count)]));
-    const [discoveryRows] = await db.query(`SELECT j.account_id,j.id,j.status,j.payload,j.result,j.error_code,j.finished_at
-      FROM wechat_monitor_jobs j JOIN (SELECT account_id,MAX(id) AS id FROM wechat_monitor_jobs
-        WHERE scope_key=? AND kind='discover' GROUP BY account_id) latest ON latest.id=j.id`, [scope]);
-    const discoveryByAccount = new Map(discoveryRows.map(row => [Number(row.account_id), summarizeDiscoveryJob(row)]));
+    const [discoveryRows] = await db.query(`SELECT account_id,id,status,payload,result,error_code,finished_at
+      FROM wechat_monitor_jobs WHERE scope_key=? AND kind='discover' ORDER BY id DESC LIMIT 200`, [scope]);
+    const recentByAccount = new Map();
+    for (const row of discoveryRows) {
+      const key = Number(row.account_id);
+      if (!recentByAccount.has(key)) recentByAccount.set(key, []);
+      recentByAccount.get(key).push(row);
+    }
+    // 优先展示最近一次“确有产出”的目录检查：sitemap 这类 0 候选的页面不该盖住真正
+    // 发现过文章的来源；都无产出时才回退到最近一次，避免界面误判发现能力。
+    const discoveryByAccount = new Map([...recentByAccount].map(([key, rows]) => {
+      const meaningful = rows.find(row => { const summary = summarizeDiscoveryJob(row);
+        return (summary.discovered || 0) > 0 || (summary.queuedArticles || 0) > 0; });
+      return [key, summarizeDiscoveryJob(meaningful || rows[0])];
+    }));
+    const [discoveryWindow] = await db.query(`SELECT account_id,COUNT(*) AS runs,
+      COALESCE(SUM(CAST(JSON_EXTRACT(result,'$.discovered') AS UNSIGNED)),0) AS discovered,
+      COALESCE(SUM(CAST(JSON_EXTRACT(result,'$.queuedArticles') AS UNSIGNED)),0) AS queued
+      FROM wechat_monitor_jobs WHERE scope_key=? AND kind='discover' AND finished_at >= ? GROUP BY account_id`,
+    [scope, clock() - 7 * 86400000]);
+    const windowByAccount = new Map(discoveryWindow.map(row => [Number(row.account_id),
+      { runs: Number(row.runs) || 0, discovered: Number(row.discovered) || 0, queued: Number(row.queued) || 0 }]));
     const [jobCounts] = await db.query(`SELECT account_id,SUM(status IN ('pending','retry','running')) AS pending_count,
       SUM(status IN ('blocked','failed')) AS blocked_count FROM wechat_monitor_jobs WHERE scope_key=? GROUP BY account_id`, [scope]);
     const pendingByAccount = new Map(jobCounts.map(row => [Number(row.account_id), Number(row.pending_count) || 0]));
@@ -267,6 +285,7 @@ function makeStore(db, clock = Date.now) {
       restrictedFetches: restrictionsByAccount.get(Number(row.id)) || 0,
       pendingJobs: pendingByAccount.get(Number(row.id)) || 0, blockedJobs: blockedByAccount.get(Number(row.id)) || 0,
       lastDiscovery: discoveryByAccount.get(Number(row.id)) || null,
+      discoveryStats: windowByAccount.get(Number(row.id)) || { runs: 0, discovered: 0, queued: 0 },
       analyzedCount: Number(row.analyzed_count) || 0, earliestAt: row.earliest_at, latestAt: row.latest_at,
       historyCoverage: 'official_index_partial', sogou: { state: 'policy_disallowed', url: searchUrl(row.display_name),
         reason: '搜狗 robots 与用户协议限制后台机器人采集；保留人工发现入口' },

@@ -150,6 +150,7 @@ export default function WechatMonitor({ workspaceId }) {
       <p className="wxm-muted">{item.identityVerified ? '公众号标识已交叉核验' : '公众号名称匹配，标识待核验'}</p>
       <p className="wxm-muted">已收录范围：{item.earliestAt ? time(item.earliestAt).split(' ')[0] + ' 至 ' + time(item.latestAt).split(' ')[0] : '尚未核验到正文'} · 历史完整性未知</p>
       <p className="wxm-muted">下次检查 {item.nextCheckAt ? time(item.nextCheckAt) : '尚未排期'}{item.lastDiscovery ? ` · 最近目录检查 ${time(item.lastDiscovery.finishedAt)}` : ' · 暂无目录检查记录'}</p>
+      <p className="wxm-muted">最近 7 天目录检查：运行 {item.discoveryStats?.runs || 0} 次 · 候选 {item.discoveryStats?.discovered || 0} 个 · 新增正文任务 {item.discoveryStats?.queued || 0} 个</p>
       {item.lastDiscovery ? <p className="wxm-muted">最近发现{item.lastDiscovery.sourceUrl ? '（' + sourceLabel(item.lastDiscovery.sourceUrl) + '）' : ''}：候选 {item.lastDiscovery.discovered ?? '—'} 个 · 跟随 {item.lastDiscovery.linkedPages ?? '—'} 个页面 · 新增正文任务 {item.lastDiscovery.queuedArticles ?? '—'} 个{item.lastDiscovery.status === 'succeeded' ? '' : ` · ${statusLabels[item.lastDiscovery.status] || item.lastDiscovery.status}${item.lastDiscovery.errorCode ? '（' + item.lastDiscovery.errorCode + '）' : ''}`}</p> : null}
       {item.restrictedFetches ? <p className="wxm-source-error">{item.restrictedFetches} 项正文任务受限或失败，目录检查正常不代表正文已收录。</p> : null}
       <div className="wxm-source-links"><span>每 {Math.round(item.intervalSeconds / 60)} 分钟 · 检查于 {time(item.lastCheckedAt)}</span><a href={item.sogou.url} target="_blank" rel="noopener noreferrer">搜狗人工检索</a>

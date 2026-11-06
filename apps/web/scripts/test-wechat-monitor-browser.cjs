@@ -16,7 +16,8 @@ const months = [{ from: '2024-01-01', count: 0, state: 'unverified' }, { from: '
 const account = { id: 1, name: '测试公众号 A', enabled: true, state: 'watching', articleCount: 2, analyzedCount: 2, since: '2024-01-01',
   candidateLinks: 3, restrictedFetches: 1,
   intervalSeconds: 1800, earliestAt: articles[0].publishedAt, latestAt: articles[1].publishedAt, lastCheckedAt: Date.now(), error: '', monthlyCoverage: months,
-  nextCheckAt: Date.now() + 1800000, pendingJobs: 2, lastDiscovery: { jobId: 7, status: 'succeeded', sourceUrl: 'https://www.bza.edu.cn/api/article?type=school&page=1',
+  nextCheckAt: Date.now() + 1800000, pendingJobs: 2, discoveryStats: { runs: 96, discovered: 120, queued: 7 },
+  lastDiscovery: { jobId: 7, status: 'succeeded', sourceUrl: 'https://www.bza.edu.cn/api/article?type=school&page=1',
     errorCode: null, finishedAt: Date.now(), discovered: 1, linkedPages: 1, queuedArticles: 0, queuedPages: 0, coverage: 'official_index_partial' },
   sogou: { url: 'https://weixin.sogou.com/weixin?type=2&query=test', state: 'policy_disallowed' } };
 const failedFixture = { ...articles[0], id: 4, title: '分析失败的测试文章', summary: '', analysis: null, analysisState: 'failed',
@@ -76,6 +77,7 @@ async function main() {
       await page.getByText(/下次检查/).first().waitFor();
       await page.getByText(/最近目录检查/).first().waitFor();
       await page.getByText(/候选 1 个 · 跟随 1 个页面 · 新增正文任务 0 个/).first().waitFor();
+      await page.getByText('最近 7 天目录检查：运行 96 次 · 候选 120 个 · 新增正文任务 7 个').first().waitFor();
       await page.getByRole('button', { name: '查看受限任务', exact: true }).first().click();
       await page.getByText('来源要求验证，已暂停此项采集', { exact: false }).waitFor();
       assert.equal(await page.getByRole('combobox', { name: '筛选任务状态', exact: true }).inputValue(), 'blocked');
