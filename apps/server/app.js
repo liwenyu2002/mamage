@@ -25,6 +25,7 @@ try {
 // (Removed temporary exit/signal debug handlers)
 // Validate AI keys/models on startup and print concise status
 const { validateAll } = require('./lib/validateAi');
+const { eventLoopMonitor } = require('./lib/event_loop_monitor');
 
 async function runStartupValidations() {
   try {
@@ -224,6 +225,8 @@ app.get('/', (req, res) => {
 const PORT = Number(process.env.PORT || 8000);
 
 async function startup() {
+  // 事件循环卡顿观测：长同步任务会同时拖慢健康检查，先留证据再谈要不要拆线程。
+  eventLoopMonitor({ logger: console }).start();
   if (distributed()) await coordinator.ready();
   const server = app.listen(PORT, () => {
     runtime.markStarted(server);

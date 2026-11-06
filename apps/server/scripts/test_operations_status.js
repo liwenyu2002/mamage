@@ -34,6 +34,18 @@ test('overdue backups alert without treating empty-result queries as search fail
   assert.deepEqual(alertsFor(status).map(alert => alert.code), ['DISK_UNAVAILABLE']);
 });
 
+test('event loop stalls surface as a warning alert and expire after 15 minutes', () => {
+  const now = Date.parse('2026-11-06T00:00:00Z');
+  const base = { system: { disk: { availableBytes: 100 * 1024 ** 3 }, eventLoop: { lastStall: { at: new Date(now - 60000).toISOString(), maxDelayMs: 4200 } } },
+    analysis: { failed: 0 }, tasks: [], backup: { verified: true, createdAt: new Date(now - 3600000).toISOString() } };
+  assert.deepEqual(alertsFor(base, now).map(alert => alert.code), ['EVENT_LOOP_STALL']);
+  assert.match(alertsFor(base, now)[0].title, /4200ms/);
+  base.system.eventLoop.lastStall.at = new Date(now - 16 * 60000).toISOString();
+  assert.deepEqual(alertsFor(base, now).map(alert => alert.code), []);
+  base.system.eventLoop.lastStall = { at: new Date(now - 60000).toISOString(), maxDelayMs: 1200 };
+  assert.deepEqual(alertsFor(base, now).map(alert => alert.code), [], '小卡顿不告警');
+});
+
 test('missing upload subdirectories fall back to the actual data volume without creating files', async () => {
   const calls = [];
   const result = await diskStatus('/data/uploads', async name => {

@@ -2,6 +2,7 @@ const os = require('node:os');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const { schoolIntegrationReadiness } = require('./school_integrations');
+const { lastStall } = require('./event_loop_monitor');
 
 function alertsFor(status, now = Date.now()) {
   const alerts = [];
@@ -13,6 +14,12 @@ function alertsFor(status, now = Date.now()) {
   }
   const age = status.backup?.verified ? now - Date.parse(status.backup.createdAt) : Infinity;
   if (!Number.isFinite(age) || age > 36 * 3600000) alerts.push({ code: 'BACKUP_OVERDUE', severity: 'critical', title: '完整备份超过预定时间' });
+  // 最近 15 分钟内事件循环卡顿超过 2s：说明有同步重活占住了主线程，健康检查可能被拖超时。
+  const stall = status.system.eventLoop?.lastStall;
+  if (stall && Number(stall.maxDelayMs) >= 2000 && now - Date.parse(stall.at) < 15 * 60000) {
+    alerts.push({ code: 'EVENT_LOOP_STALL', severity: 'warning',
+      title: `事件循环曾阻塞 ${Math.round(Number(stall.maxDelayMs))}ms（${stall.at}）` });
+  }
   return alerts;
 }
 
@@ -31,7 +38,9 @@ async function systemStatus(dataPath = process.env.UPLOAD_ABS_DIR || '/data') {
   let processLimitBytes = null;
   try { const value = fs.readFileSync('/sys/fs/cgroup/memory.max', 'utf8').trim(); if (/^\d+$/.test(value)) processLimitBytes = Number(value); } catch {}
   return { rssBytes: process.memoryUsage().rss, hostMemoryBytes: os.totalmem(), processLimitBytes,
-    uptimeSeconds: Math.floor(process.uptime()), cpus: os.availableParallelism(), disk };
+    uptimeSeconds: Math.floor(process.uptime()), cpus: os.availableParallelism(), disk,
+    // 事件循环最近一次卡顿（由 app 启动时创建的 monitor 单例提供；未启动时为 null）
+    eventLoop: { lastStall: lastStall() } };
 }
 
 function createOperationsStatus({ pool, now = Date.now, system = systemStatus, environment = process.env } = {}) {

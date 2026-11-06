@@ -47,6 +47,12 @@ test('rendered deployments keep singleton strategy, separate probes, retained vo
   const container = api.containers[0];
   assert.equal(container.livenessProbe.httpGet.path, '/api/health/live');
   assert.equal(container.readinessProbe.httpGet.path, '/api/health/ready');
+  // 2026-11-03 事故：事件循环短时占满导致 liveness 3s 超时连续 3 次，kubelet SIGKILL(137)。
+  // 单实例 API 跑重活时必须有足够容错，不能把短暂卡顿当死亡。
+  assert.ok(container.livenessProbe.timeoutSeconds >= 8, 'liveness timeout must tolerate event-loop stalls');
+  assert.ok(container.livenessProbe.failureThreshold >= 4, 'liveness must allow repeated slow probes');
+  assert.ok(container.readinessProbe.timeoutSeconds >= 6, 'readiness timeout must tolerate event-loop stalls');
+  assert.ok(container.readinessProbe.failureThreshold >= 3, 'readiness must not flap on one slow probe');
   const env = Object.fromEntries(container.env.map(row => [row.name, row.value]));
   assert.equal(env.ORGANIZATION_UNITS_ACTIVE, '1');
   assert.equal(env.MEDIA_URL_SIGNING, '1');

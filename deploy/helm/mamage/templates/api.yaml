@@ -100,13 +100,16 @@ spec:
           readinessProbe:
             httpGet: { path: /api/health/ready, port: http }
             periodSeconds: 10
-            timeoutSeconds: 4
-            failureThreshold: 2
+            timeoutSeconds: 8
+            failureThreshold: 3
+          # 单实例 API 会同时处理图片/AI 重活；事件循环短时占满时 3s 超时会被误判死亡并 SIGKILL
+          # （2026-11-03 事故：健康检查连续超时导致容器 exit 137 重启，登录短暂不可用）。
+          # 放宽到约 100s 容错：只有真正无响应才重启，短暂卡顿由 readiness 摘流 + 应用侧诊断日志兜底。
           livenessProbe:
             httpGet: { path: /api/health/live, port: http }
             periodSeconds: 20
-            timeoutSeconds: 3
-            failureThreshold: 3
+            timeoutSeconds: 10
+            failureThreshold: 5
           resources: {{ toYaml .Values.api.resources | nindent 12 }}
           volumeMounts:
             - { name: data, mountPath: /data }

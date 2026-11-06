@@ -75,6 +75,13 @@ API 自动扩容另设 `api.autoscaling=true`、`minReplicas`、`maxReplicas` �
 
 API 的默认资源请求为 0.5 CPU/1Gi，限制为 4 CPU/4Gi，仅为起点，包含 Python 子进程和视频处理开销；不包含独立 AI 模型服务的预算。重型任务需要在目标硬件压测后调整。
 
+## 健康检查与重启容错
+
+- `startupProbe`（`/api/health/live`，5s × 60）只负责启动期；启动完成后由 `readinessProbe` 决定是否接流量，`livenessProbe` 只负责发现真正无响应的进程。
+- 2026-11-03 事故：单实例 API 在跑图片/AI 重活时事件循环短时占满，liveness 3s 超时连续 3 次被判定死亡，kubelet SIGKILL（`exitCode: 137`），造成登录短暂不可用。之后容错放宽为：liveness 超时 10s、失败阈值 5（约 100s），readiness 超时 8s、失败阈值 3（约 30s）。**不要改回 3s/2 次一类的激进值**；短暂卡顿应先摘流，而不是杀进程。
+- 诊断：应用每 10s 采样事件循环延迟，超过 `EVENT_LOOP_STALL_MS`（默认 1000ms）会打印 `[event-loop] stalled {maxDelayMs,...}`；`GET /api/operations/status` 的 `system.eventLoop.lastStall` 保留最近一次卡顿，15 分钟内 ≥2s 会触发 `EVENT_LOOP_STALL` 告警。
+- 如果卡顿反复出现，下一步是把对应的同步重活（大文件编码、批量图片处理、同步 JSON 解析等）移出主线程或改成分批执行，而不是继续放宽探针。
+
 ## 构建镜像
 
 先审核并提交需要发布的代码，再用该完整提交号标记镜像，不用 `latest`。构建上下文必须是仓库根目录：
