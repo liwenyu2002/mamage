@@ -74,6 +74,9 @@ test('内嵌入口保留 returnTo；仅显式开启且不在钉钉内时显示',
   assert.equal(canEmbedOidcLogin({ oidc: true }), false);
   assert.equal(oidcLoginUrl({ pathname: '/', search: '?folder=a&projectId=102' }, { embedded: true }),
     '/api/auth/oidc/login?returnTo=%2F%3Ffolder%3Da%26projectId%3D102&embedded=1');
+  assert.equal(oidcLoginUrl({ pathname: '/login', search: '?signed_out=1' }, { embedded: true, reauthenticate: true }),
+    '/api/auth/oidc/login?returnTo=%2Flogin%3Fsigned_out%3D1&embedded=1&reauthenticate=1');
+  assert.match(oidcLoginUrl({ pathname: '/login', search: '' }, { reauthenticate: true }), /[?&]reauthenticate=1/);
   const location = { pathname: '/', search: '', hash: '', replace: () => assert.fail('内嵌模式不自动离开本站') };
   assert.equal(autoStartOidcLogin({ providers, location }), false);
 });

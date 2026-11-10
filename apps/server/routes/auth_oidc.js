@@ -46,6 +46,7 @@ function createOidcAuthRouter({ db, config = oidcConfig, store = createSharedSto
       scope: cfg.scopesValue, state, nonce,
       code_challenge: crypto.createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256' })) url.searchParams.set(key, value);
     if (cfg.idpHint) url.searchParams.set('kc_idp_hint', cfg.idpHint);
+    if (req.query.reauthenticate === '1') url.searchParams.set('prompt', 'login');
     return { url: url.href, stateKey: sha256(state), browserHash: sha256(browser) };
   }
   router.get('/login', async (req, res) => {

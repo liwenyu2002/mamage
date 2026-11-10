@@ -5,9 +5,9 @@ import { clearExplicitLogout } from './logoutHold';
 export function hasOidcHandoff(location) {
   return /(?:^#|&)oidc_(?:code|error)=/.test(location.hash || '');
 }
-export function oidcLoginUrl(location, { embedded = false } = {}) {
+export function oidcLoginUrl(location, { embedded = false, reauthenticate = false } = {}) {
   return '/api/auth/oidc/login?returnTo=' + encodeURIComponent(location.pathname + location.search)
-    + (embedded ? '&embedded=1' : '');
+    + (embedded ? '&embedded=1' : '') + (reauthenticate ? '&reauthenticate=1' : '');
 }
 export function canEmbedOidcLogin(providers, userAgent = '') {
   return providers?.oidc === true && providers?.oidcEmbed === true && !/DingTalk/i.test(userAgent);

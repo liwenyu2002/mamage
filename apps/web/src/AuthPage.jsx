@@ -81,7 +81,7 @@ export default function AuthPage({ onAuthenticated }) {
   const hasCampusLogin = authProviders.iam || authProviders.dingtalk || authProviders.oidc;
   const currentLoginMode = loginMode || (hasCampusLogin ? 'campus' : 'password');
   const embeddedOidc = active === 'login' && currentLoginMode === 'campus'
-    && !explicitLogout && loginFrameFits && canEmbedOidcLogin(authProviders, navigator.userAgent) && !redirecting;
+    && loginFrameFits && canEmbedOidcLogin(authProviders, navigator.userAgent) && !redirecting;
   React.useEffect(() => {
     if (providersLoading || providersFailed || active !== 'login' || loginMode || initialLoginFailure.current || explicitLogout) return;
     // 扫码完成后浏览器回到本站却没拿到 code：说明 IAM 只建了会话、没走回调。
@@ -111,7 +111,7 @@ export default function AuthPage({ onAuthenticated }) {
   // 学院 Keycloak（OIDC）优先；芯盾/钉钉入口在同时配置时保留为次选，互不覆盖。
   const beginOidcLogin = () => {
     if (!authProviders.oidc || redirecting) return;
-    setRedirecting(true); window.location.assign(oidcLoginUrl(window.location));
+    setRedirecting(true); window.location.assign(oidcLoginUrl(window.location, { reauthenticate: explicitLogout }));
   };
   const [loading, setLoading] = React.useState(false);
   // controlled fields
@@ -411,7 +411,7 @@ export default function AuthPage({ onAuthenticated }) {
           currentLoginMode === 'campus' && hasCampusLogin ? (
           <div className="auth-campus-panel" id="campus-login-panel" role="tabpanel" aria-labelledby="campus-login-tab">
             {!embeddedOidc && <h2>{authProviders.oidc ? (authProviders.oidcLabel || '统一身份认证') : authProviders.iam ? '校园统一身份认证' : '使用钉钉扫码或点击头像授权登录'}</h2>}
-            {embeddedOidc && <OidcLoginFrame label={authProviders.oidcLabel} onOpenPage={beginOidcLogin}
+            {embeddedOidc && <OidcLoginFrame label={authProviders.oidcLabel} onOpenPage={beginOidcLogin} reauthenticate={explicitLogout}
               initialFailure={initialLoginFailure.current} />}
             {authProviders.iam && !authProviders.oidc && authProviders.iamQr && !explicitLogout && !redirecting && !/DingTalk/i.test(navigator.userAgent) ? <CampusLoginQr /> : null}
             {authProviders.oidc && !embeddedOidc ? (

@@ -11,6 +11,7 @@ const dist = path.resolve(__dirname, '../dist');
 async function main() {
   const app = express();
   app.use('/api/auth/oidc', createOidcAuthRouter({ config: () => ({ loginReady: true }) }));
+  app.get('/test-reauth', (_req, res) => res.send('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><button onclick="location.href=\'/api/auth/oidc/complete#oidc_code=' + 'h'.repeat(43) + '\'">模拟扫码确认</button></html>'));
   app.use(express.static(dist));
   app.get(/.*/, (_req, res) => res.sendFile(path.join(dist, 'index.html')));
   const server = http.createServer(app);
@@ -21,7 +22,8 @@ async function main() {
     for (const [width, userAgent] of [[1440, undefined], [390, 'Mozilla/5.0 (Linux; Android 13) DingTalk/7.0']]) {
     const context = await browser.newContext({ viewport: { width, height: 900 }, ...(userAgent ? { userAgent } : {}) });
     const page = await context.newPage();
-    let starts = 0, sessions = 0;
+    const starts = [];
+    let sessions = 0;
     await page.addInitScript(() => {
       if (!sessionStorage.getItem('logout-test-seeded')) {
         localStorage.setItem('mamage_jwt_token', 'local-test-token');
@@ -43,11 +45,12 @@ async function main() {
       if (url.pathname === '/api/auth/providers') return route.fulfill({ json: {
         password: true, iam: true, oidc: true, oidcEmbed: true, oidcAutoStart: true, oidcLabel: '研究院统一身份认证' } });
       if (url.pathname === '/api/auth/oidc/login') {
-        starts++;
-        return route.fulfill({ status: 302, headers: { location: '/api/auth/oidc/complete#oidc_code=' + 'h'.repeat(43) } });
+        starts.push(url);
+        return route.fulfill({ status: 302, headers: { location: url.searchParams.get('reauthenticate') === '1'
+          ? '/test-reauth' : '/api/auth/oidc/complete#oidc_code=' + 'h'.repeat(43) } });
       }
       if (url.pathname === '/api/auth/iam/login') {
-        starts++;
+        starts.push(url);
         return route.fulfill({ contentType: 'text/plain', body: 'Unexpected silent campus login' });
       }
       if (url.pathname === '/api/auth/oidc/complete' || url.pathname === '/api/auth/oidc/complete.js') return route.continue();
@@ -60,23 +63,34 @@ async function main() {
     await page.goto(base + '/');
     await page.getByRole('button', { name: '测试用户，账户菜单' }).click();
     await page.getByRole('button', { name: '退出账号', exact: true }).click();
+    if (width >= 480) await page.frameLocator('iframe.auth-oidc-frame').getByRole('button', { name: '模拟扫码确认' }).waitFor();
+    else await page.getByRole('button', { name: '前往研究院统一身份认证', exact: true }).waitFor();
     await page.waitForTimeout(1000);
     assert.equal(await page.evaluate(() => localStorage.getItem('mamage_jwt_token')), null, '退出后不能被 SSO 静默登录');
-    assert.equal(starts, 0, '退出后不能自动启动统一登录');
+    assert.equal(starts.length, width >= 480 ? 1 : 0, '桌面显示认证页面，手机等待用户操作');
+    assert.equal(sessions, 0, '未确认扫码时不能重新创建会话');
     await page.reload();
-    await page.getByRole('button', { name: '前往研究院统一身份认证', exact: true }).waitFor();
-    assert.equal(starts, 0, '刷新后仍不能静默登录');
+    if (width >= 480) await page.frameLocator('iframe.auth-oidc-frame').getByRole('button', { name: '模拟扫码确认' }).waitFor();
+    else await page.getByRole('button', { name: '前往研究院统一身份认证', exact: true }).waitFor();
+    assert.equal(sessions, 0, '刷新后仍不能静默登录');
     await page.getByRole('tab', { name: '账号密码', exact: true }).click();
     await page.getByLabel('邮箱或学号', { exact: true }).waitFor();
     await page.getByRole('tab', { name: '研究院统一身份认证', exact: true }).click();
-    await page.getByRole('button', { name: '前往研究院统一身份认证', exact: true }).click();
+    if (width >= 480) {
+      await page.frameLocator('iframe.auth-oidc-frame').getByRole('button', { name: '模拟扫码确认' }).click();
+    } else {
+      await page.getByRole('button', { name: '前往研究院统一身份认证', exact: true }).click();
+      await page.getByRole('button', { name: '模拟扫码确认' }).click();
+    }
     await page.waitForFunction(() => localStorage.getItem('mamage_jwt_token') === 'local-test-token');
     assert.equal(await page.evaluate(() => localStorage.getItem('mamage_explicit_logout')), null);
-    assert.equal(starts, 1, '用户明确点击后允许重新登录');
+    assert.ok(starts.length >= 1);
+    assert.ok(starts.every(url => url.pathname === '/api/auth/oidc/login' && url.searchParams.get('reauthenticate') === '1'),
+      '显式退出后所有统一登录都必须要求重新认证');
     assert.equal(sessions, 1);
     await context.close();
     }
-    console.log('Explicit logout prevents silent SSO, survives reload, and preserves manual login');
+    console.log('Explicit logout restores embedded login, requires reauthentication, and preserves mobile and password login');
   } finally {
     await browser.close();
     server.closeAllConnections();

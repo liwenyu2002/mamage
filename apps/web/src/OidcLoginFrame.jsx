@@ -1,12 +1,12 @@
 import React from 'react';
 import { oidcFrameResult, oidcLoginUrl } from './services/oidcLogin';
 
-export default function OidcLoginFrame({ label, onOpenPage, initialFailure = false }) {
+export default function OidcLoginFrame({ label, onOpenPage, initialFailure = false, reauthenticate = false }) {
   const frame = React.useRef(null);
   const completed = React.useRef(false);
   const [attempt, setAttempt] = React.useState(0);
   const [status, setStatus] = React.useState(initialFailure ? 'failed' : 'loading');
-  const url = React.useMemo(() => oidcLoginUrl(window.location, { embedded: true }), []);
+  const url = React.useMemo(() => oidcLoginUrl(window.location, { embedded: true, reauthenticate }), [reauthenticate]);
 
   React.useEffect(() => {
     completed.current = false;
@@ -53,6 +53,7 @@ export default function OidcLoginFrame({ label, onOpenPage, initialFailure = fal
           </div>
         )}
       </div>
+      {reauthenticate && <p className="auth-oidc-slow">如显示已登录的钉钉账号，可点击登录框左上角返回，切换扫码登录。</p>}
       {status === 'slow' && <p className="auth-oidc-slow" role="status">加载较慢，可使用完整登录页</p>}
       <div className="auth-oidc-frame-actions">
         <button type="button" className="auth-text-button" onClick={retry} disabled={status === 'completing'}>刷新登录</button>

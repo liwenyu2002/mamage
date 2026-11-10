@@ -188,6 +188,24 @@ test('同一 Keycloak 主体再次登录复用账号，不重复建号', async (
   } finally { await ctx.server.close(); await ctx.idpServer.close(); ctx.f.close(); }
 });
 
+test('退出后请求重新认证，不能由浏览器覆盖服务端身份提供方或传入任意 prompt', async () => {
+  const ctx = await harness();
+  try {
+    ctx.config.idpHint = 'dingtalk';
+    for (const [query, expected] of [
+      ['', null], ['?reauthenticate=1&prompt=none&kc_idp_hint=evil', 'login'],
+      ['?reauthenticate=0&prompt=none', null],
+    ]) {
+      const start = await fetch(ctx.server.base + '/api/auth/oidc/login' + query, { redirect: 'manual' });
+      assert.equal(start.status, 302);
+      const auth = new URL(start.headers.get('location'));
+      assert.equal(auth.searchParams.get('prompt'), expected);
+      assert.equal(auth.searchParams.get('kc_idp_hint'), 'dingtalk');
+      assert.equal(auth.searchParams.get('code_challenge_method'), 'S256');
+    }
+  } finally { await ctx.server.close(); await ctx.idpServer.close(); ctx.f.close(); }
+});
+
 test('内嵌授权先移交顶层，缺 Cookie 的 iframe 不换 token，顶层仍验证绑定与 PKCE', async () => {
   const ctx = await harness();
   try {
