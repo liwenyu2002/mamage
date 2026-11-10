@@ -6,6 +6,7 @@ WORKDIR /build
 COPY apps/web/package.json apps/web/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY apps/web/ ./
+COPY apps/server/lib/photo_tone/ /server/lib/photo_tone/
 # The same-origin image is portable between environments and contains no backend secrets.
 ENV MAMAGE_API_BASE="" MAMAGE_COS_BASE="" MAMAGE_UPLOAD_API_BASE="" MAMAGE_UPLOAD_LAN_BASES=""
 RUN npm run build

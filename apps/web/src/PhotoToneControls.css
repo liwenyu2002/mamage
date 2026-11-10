@@ -1,0 +1,70 @@
+.viewer-overlay--workspace .viewer-tone-panel.tone-editor { padding: 0; overflow: hidden; }
+.tone-editor { font-size: 13px; letter-spacing: 0; }
+.tone-editor-head { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; padding: 16px 18px; border-bottom: 1px solid currentColor; border-color: #80808026; }
+.tone-editor-title { display: flex; align-items: baseline; gap: 10px; }
+.tone-head-chart { display: none; }
+.tone-editor-head h2 { margin: 0; font-size: 15px; font-weight: 600; }
+.tone-editor-head span, .tone-clipping, .tone-control label span { color: var(--viewer-muted); font-size: 11px; }
+.tone-editor button { color: inherit; cursor: pointer; font: inherit; }
+.tone-editor .tone-icon { display: grid; place-items: center; flex: 0 0 30px; width: 30px; height: 30px; padding: 6px; background: transparent; border: 1px solid #80808030; border-radius: 6px; }
+.tone-icon svg { width: 16px; height: 16px; }
+.tone-editor button:disabled { opacity: .4; cursor: default; }
+.tone-editor button:focus-visible, .tone-editor input:focus-visible { outline: 2px solid #668ca8; outline-offset: 2px; }
+.tone-editor-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 12px 18px 18px; }
+.tone-chart { padding: 4px 0 10px; }
+.tone-chart .tone-histogram-svg { height: 72px; color: var(--viewer-ink); }
+.tone-chart .tone-histogram-svg polygon { fill: currentColor; opacity: .18; }
+.tone-chart .tone-histogram-svg polyline { stroke: currentColor; opacity: .7; }
+.tone-clipping { display: flex; justify-content: space-between; font-variant-numeric: tabular-nums; }
+.tone-editor-tools { display: flex; align-items: center; gap: 6px; padding: 4px 0 6px; }
+.tone-compare { display: flex; padding: 2px; border-radius: 6px; border: 1px solid #80808030; margin-right: auto; }
+.tone-compare button { min-width: 52px; min-height: 28px; padding: 4px 8px; border: none; border-radius: 4px; background: transparent; font-size: 12px; white-space: nowrap; }
+.tone-compare button[aria-pressed='true'] { background: #80808022; font-weight: 600; }
+.tone-comparison-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+.tone-metering { font-size: 11px; color: var(--viewer-muted); }
+.tone-editor .tone-hold-original { display: block; flex: 0 0 auto; min-height: 30px; margin: 0; padding: 4px 8px; border: 1px solid #80808030; border-radius: 6px; background: transparent; font-size: 12px; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.tone-editor .tone-hold-original[aria-pressed='true'] { background: #80808022; }
+.tone-comparison-overlay { position: absolute; inset: 0; pointer-events: none; }
+.tone-comparison-label { position: absolute; top: 10px; padding: 3px 7px; border-radius: 4px; background: #17191dde; color: #fff; font-size: 11px; line-height: 18px; user-select: none; }
+.tone-comparison-label--before { left: 10px; }
+.tone-comparison-label--after { right: 10px; }
+.tone-comparison-divider { position: absolute; top: 0; bottom: 0; width: 0; border-left: 1px solid #fff; box-shadow: 1px 0 2px #0008; }
+.tone-comparison-handle { position: absolute; top: 50%; left: 0; transform: translate(-50%, -50%); display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 4px; border: 1px solid #fff9; border-radius: 50%; background: #262a30e6; box-shadow: 0 2px 8px #0004; color: #fff; pointer-events: auto; cursor: ew-resize; touch-action: none; user-select: none; }
+.tone-comparison-handle svg { flex: 0 0 16px; width: 16px; height: 16px; }
+.tone-comparison-handle:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+.tone-group { margin: 0; padding: 12px 0 16px; border: none; border-top: 1px solid #80808026; min-width: 0; }
+.tone-group legend { padding: 0 7px 0 0; font-size: 12px; font-weight: 600; }
+.tone-control { display: grid; grid-template-columns: minmax(0, 1fr) 62px; row-gap: 2px; margin-bottom: 9px; align-items: center; }
+.tone-control:last-child { margin-bottom: 0; }
+.tone-control label { font-size: 12px; }
+.tone-control .tone-number { width: 62px; height: 26px; padding: 1px 3px; text-align: right; font: inherit; font-variant-numeric: tabular-nums; background: transparent; color: inherit; border: 1px solid transparent; border-radius: 4px; box-shadow: none; }
+.tone-number:hover, .tone-number:focus { border-color: #80808050; }
+.tone-control input[type='range'] { grid-column: 1 / -1; width: 100%; min-width: 0; height: 22px; margin: 0; padding: 0; background: transparent; accent-color: var(--viewer-ink); cursor: ew-resize; box-shadow: none; }
+.tone-editor-footer { flex: 0 0 auto; display: flex; gap: 8px; padding: 12px 18px; border-top: 1px solid #80808026; }
+.tone-editor-footer button { min-height: 34px; padding: 6px 10px; background: transparent; border: 1px solid #80808030; border-radius: 6px; font-size: 12px; white-space: nowrap; }
+.tone-editor-footer .tone-save { margin-left: auto; background: var(--viewer-ink); color: var(--viewer-bg, #fff); min-width: 64px; }
+.viewer-overlay--workspace[data-glass-theme='dark'] .tone-save { color: #222426; }
+.tone-editor-error { color: #cf6c62; font-size: 12px; line-height: 1.5; }
+@media (pointer: coarse) {
+  .tone-control input[type='range'] { height: 30px; }
+  .tone-editor .tone-icon { width: 36px; height: 36px; flex-basis: 36px; }
+}
+@media (max-width: 900px) {
+  .tone-editor-head { gap: 12px; padding: 6px 12px; }
+  .tone-editor-title { gap: 6px; flex: 0 0 auto; }
+  .tone-editor-head h2 { font-size: 14px; }
+  .tone-head-chart { display: block; width: 80px; max-width: 28%; margin-left: auto; }
+  .tone-head-chart .tone-histogram-svg { display: block; width: 100%; height: 24px; color: var(--viewer-muted); }
+  .tone-head-chart .tone-histogram-svg polygon { fill: currentColor; opacity: .18; }
+  .tone-head-chart .tone-histogram-svg polyline { stroke: currentColor; opacity: .7; }
+  .tone-chart { display: none; }
+  .tone-editor-body { padding: 4px 12px 12px; }
+  .tone-editor-tools { padding: 0 0 6px; }
+  .tone-comparison-actions { margin-bottom: 7px; }
+  .tone-editor .tone-hold-original { min-height: 28px; }
+  .tone-group { padding: 4px 0 10px; }
+  .tone-editor-footer { padding: 6px 12px; }
+}
+@media (max-width: 900px) and (min-height: 501px) {
+  .viewer-overlay--workspace .viewer-wrap.has-details.has-tone-editor { grid-template-rows: auto minmax(0, 1fr) max(264px, 34%) auto auto; }
+}
