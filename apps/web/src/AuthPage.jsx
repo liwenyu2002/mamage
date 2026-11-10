@@ -7,6 +7,7 @@ import './AuthPage.css';
 import * as authService from './services/authService';
 import CampusLoginQr from './CampusLoginQr';
 import OidcLoginFrame from './OidcLoginFrame';
+import { hasExplicitLogout } from './services/logoutHold';
 
 const PASSWORD_RE = /^(?![0-9]+$)(?![a-zA-Z]+$)[0-9A-Za-z]{8,16}$/;
 const EMAIL_RE = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
@@ -32,6 +33,7 @@ export default function AuthPage({ onAuthenticated }) {
   const [providerRetry, setProviderRetry] = React.useState(0);
   const [loginMode, setLoginMode] = React.useState(null);
   const [redirecting, setRedirecting] = React.useState(false);
+  const [explicitLogout] = React.useState(() => hasExplicitLogout());
   const [loginAlert, setLoginAlert] = React.useState('');
   const [loginFrameFits, setLoginFrameFits] = React.useState(() => window.matchMedia('(min-width: 480px)').matches);
   const initialLoginFailure = React.useRef(/(?:iam|oidc|dingtalk)_error=/.test(window.location.hash));
@@ -79,9 +81,9 @@ export default function AuthPage({ onAuthenticated }) {
   const hasCampusLogin = authProviders.iam || authProviders.dingtalk || authProviders.oidc;
   const currentLoginMode = loginMode || (hasCampusLogin ? 'campus' : 'password');
   const embeddedOidc = active === 'login' && currentLoginMode === 'campus'
-    && loginFrameFits && canEmbedOidcLogin(authProviders, navigator.userAgent) && !redirecting;
+    && !explicitLogout && loginFrameFits && canEmbedOidcLogin(authProviders, navigator.userAgent) && !redirecting;
   React.useEffect(() => {
-    if (providersLoading || providersFailed || active !== 'login' || loginMode || initialLoginFailure.current) return;
+    if (providersLoading || providersFailed || active !== 'login' || loginMode || initialLoginFailure.current || explicitLogout) return;
     // 扫码完成后浏览器回到本站却没拿到 code：说明 IAM 只建了会话、没走回调。
     // 此时立刻走标准授权跳转即可免密完成登录，避免用户卡在二维码页。
     try {
@@ -411,7 +413,7 @@ export default function AuthPage({ onAuthenticated }) {
             {!embeddedOidc && <h2>{authProviders.oidc ? (authProviders.oidcLabel || '统一身份认证') : authProviders.iam ? '校园统一身份认证' : '使用钉钉扫码或点击头像授权登录'}</h2>}
             {embeddedOidc && <OidcLoginFrame label={authProviders.oidcLabel} onOpenPage={beginOidcLogin}
               initialFailure={initialLoginFailure.current} />}
-            {authProviders.iam && !authProviders.oidc && authProviders.iamQr && !redirecting && !/DingTalk/i.test(navigator.userAgent) ? <CampusLoginQr /> : null}
+            {authProviders.iam && !authProviders.oidc && authProviders.iamQr && !explicitLogout && !redirecting && !/DingTalk/i.test(navigator.userAgent) ? <CampusLoginQr /> : null}
             {authProviders.oidc && !embeddedOidc ? (
               <Button className="auth-primary" loading={redirecting} onClick={beginOidcLogin}>
                 前往{authProviders.oidcLabel || '统一身份认证'}<IconChevronRight />

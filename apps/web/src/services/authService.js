@@ -1,5 +1,6 @@
 // src/services/authService.js
 import { setPermissions, clearPermissions } from '../permissions/permissionStore';
+import { markExplicitLogout, clearExplicitLogout } from './logoutHold';
 
 const API_PREFIX = '/api/users';
 const TOKEN_KEY = 'mamage_jwt_token';
@@ -65,7 +66,7 @@ export async function login(email, password) {
     body: JSON.stringify(payload),
   });
   if (!r.ok) throw new Error((r.data && (r.data.message || r.data.error)) || '登录失败');
-  if (r.data && r.data.token) setToken(r.data.token);
+  if (r.data && r.data.token) { setToken(r.data.token); clearExplicitLogout(); }
   // The active workspace changes effective permissions, so use the fresh /me view.
   return await me();
 }
@@ -88,6 +89,7 @@ export async function register({ name, password, email, student_no, emailCode, o
   // If backend returns a token, save it and return current user info.
   if (r.data && r.data.token) {
     setToken(r.data.token);
+    clearExplicitLogout();
     return await me();
   }
   // Registration succeeded but no token returned (backend may require separate login).
@@ -109,7 +111,7 @@ export async function updateMe(payload) {
 }
 
 export async function logout() {
-  // just clear token client-side; backend has no logout endpoint by default
+  markExplicitLogout();
   setToken(null);
   clearPermissions();
 }

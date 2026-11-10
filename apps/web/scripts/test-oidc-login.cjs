@@ -2,7 +2,10 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path'), babel = require('@babel/core');
 const code = babel.transformFileSync(path.join(__dirname, '../src/services/oidcLogin.js'), { presets: [require.resolve('@babel/preset-env')] }).code;
-const mod = { exports: {} }; new Function('module', 'exports', code)(mod, mod.exports);
+const holdCode = babel.transformFileSync(path.join(__dirname, '../src/services/logoutHold.js'), { presets: [require.resolve('@babel/preset-env')] }).code;
+const hold = { exports: {} }; new Function('module', 'exports', holdCode)(hold, hold.exports);
+const mod = { exports: {} }; new Function('module', 'exports', 'require', code)(mod, mod.exports,
+  name => { if (name === './logoutHold') return hold.exports; throw Error('Unexpected dependency'); });
 const { hasOidcHandoff, oidcLoginUrl, finishOidcLogin, autoStartOidcLogin, canEmbedOidcLogin, oidcFrameResult } = mod.exports;
 function fixture(hash = '#oidc_code=' + 'b'.repeat(43)) {
   const tokens = new Map([['mamage_jwt_token', 'old-user-token']]), changes = [], calls = [];
@@ -14,12 +17,22 @@ function fixture(hash = '#oidc_code=' + 'b'.repeat(43)) {
       assert.equal(tokens.has('mamage_jwt_token'), false); return { ok: true, json: async () => ({ token: 'new-local-token', returnTo: '/?projectId=102&upload=1' }) }; } };
 }
 test('OIDC handoff 复用与 IAM 相同的安全语义：先清旧身份与 hash，再同源换 token', async () => {
-  const f = fixture(); assert.equal(hasOidcHandoff(f.location), true); await finishOidcLogin(f);
+  const f = fixture(); f.tokens.set('mamage_explicit_logout', '1'); assert.equal(hasOidcHandoff(f.location), true); await finishOidcLogin(f);
   assert.equal(f.tokens.get('mamage_jwt_token'), 'new-local-token');
+  assert.equal(f.tokens.has('mamage_explicit_logout'), false, '登录成功才清除显式退出标记');
   assert.deepEqual(f.changes, ['/login', '/?projectId=102&upload=1']);
   assert.equal(f.calls[0].url, '/api/auth/oidc/session');
   assert.equal(f.calls[0].options.credentials, 'same-origin');
   assert.equal(JSON.parse(f.calls[0].options.body).code, 'b'.repeat(43));
+});
+test('显式退出在自动登录前保持，失败不清除；存储不可用时 URL 仍可阻止自动登录', async () => {
+  const f = fixture(); f.tokens.set('mamage_explicit_logout', '1');
+  f.request = async () => { throw Error('network'); };
+  await finishOidcLogin(f);
+  assert.equal(f.tokens.get('mamage_explicit_logout'), '1');
+  const blocked = { getItem() { throw Error('storage blocked'); } };
+  assert.equal(hold.exports.hasExplicitLogout({ search: '?signed_out=1' }, blocked), true);
+  assert.equal(hold.exports.hasExplicitLogout({ search: '' }, blocked), false);
 });
 test('非法/过期 handoff 与恶意回跳不会留下旧账号', async () => {
   for (const returnTo of ['https://evil.example', '//evil.example', '/api/users/me', 'javascript:alert(1)']) {

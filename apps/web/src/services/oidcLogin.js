@@ -1,3 +1,5 @@
+import { clearExplicitLogout } from './logoutHold';
+
 // OIDC（Keycloak）登录的前端交接：与 iamLogin 同构，但回调 fragment 与 session 接口独立，
 // 避免和芯盾校园登录的临时码互相覆盖。
 export function hasOidcHandoff(location) {
@@ -59,6 +61,7 @@ export async function finishOidcLogin({ location = window.location, history = wi
     const target = new URL(result.returnTo || '/', location.origin);
     if (target.origin !== location.origin || target.pathname.startsWith('/api/')) throw Error('Invalid destination');
     storage.setItem('mamage_jwt_token', result.token);
+    clearExplicitLogout(storage);
     if (target.pathname + target.search !== location.pathname + location.search) location.replace(target.pathname + target.search);
     return { token: result.token };
   } catch {

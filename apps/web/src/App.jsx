@@ -9,6 +9,7 @@ import ProjectLibraryToolbar from './ProjectLibraryToolbar';
 import * as authService from './services/authService';
 import { hasIamHandoff, finishIamLogin } from './services/iamLogin';
 import { hasOidcHandoff, finishOidcLogin } from './services/oidcLogin';
+import { clearExplicitLogout } from './services/logoutHold';
 import { buildAlbumUploadUrl, readAlbumUploadIntent, rememberAlbumUploadIntent, storedAlbumUploadIntent, clearAlbumUploadIntent } from './utils/albumUploadLink';
 import PrivacyPage from './PrivacyPage';
 import { fetchProjectList, fetchProjectImportStatuses, createProject } from './services/projectService';
@@ -146,6 +147,7 @@ try {
   const tokenInHash = String(window.location.hash || '').match(/dingtalk_token=([^&]+)/);
   if (tokenInHash) {
     localStorage.setItem('mamage_jwt_token', decodeURIComponent(tokenInHash[1]));
+    clearExplicitLogout();
     const pendingUpload = storedAlbumUploadIntent(window.sessionStorage);
     window.history.replaceState({}, '', pendingUpload && window.location.pathname === '/login'
       ? buildAlbumUploadUrl(pendingUpload.projectId, pendingUpload.unitId, window.location.origin)
@@ -1092,7 +1094,7 @@ function App() {
     try {
       await authService.logout();
       setCurrentUser(null);
-      navigate('/login', { replace: true });
+      navigate('/login?signed_out=1', { replace: true });
     } catch (e) {
       console.error(e);
     }

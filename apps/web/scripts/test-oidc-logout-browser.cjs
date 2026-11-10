@@ -1,0 +1,86 @@
+const assert = require('node:assert/strict');
+const path = require('node:path');
+const http = require('node:http');
+const { createRequire } = require('node:module');
+const serverRequire = createRequire(path.resolve(__dirname, '../../server/package.json'));
+const { chromium } = serverRequire('playwright');
+const express = serverRequire('express');
+const { createOidcAuthRouter } = require('../../server/routes/auth_oidc');
+const dist = path.resolve(__dirname, '../dist');
+
+async function main() {
+  const app = express();
+  app.use('/api/auth/oidc', createOidcAuthRouter({ config: () => ({ loginReady: true }) }));
+  app.use(express.static(dist));
+  app.get(/.*/, (_req, res) => res.sendFile(path.join(dist, 'index.html')));
+  const server = http.createServer(app);
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const browser = await chromium.launch({ executablePath: process.env.MAMAGE_CHROMIUM_PATH || undefined });
+  try {
+    for (const [width, userAgent] of [[1440, undefined], [390, 'Mozilla/5.0 (Linux; Android 13) DingTalk/7.0']]) {
+    const context = await browser.newContext({ viewport: { width, height: 900 }, ...(userAgent ? { userAgent } : {}) });
+    const page = await context.newPage();
+    let starts = 0, sessions = 0;
+    await page.addInitScript(() => {
+      if (!sessionStorage.getItem('logout-test-seeded')) {
+        localStorage.setItem('mamage_jwt_token', 'local-test-token');
+        sessionStorage.setItem('logout-test-seeded', '1');
+      }
+    });
+    await context.route('**/api/**', async route => {
+      const req = route.request(), url = new URL(req.url());
+      if (url.pathname === '/api/users/me') return req.headers().authorization
+        ? route.fulfill({ json: { id: 1, name: '测试用户', role: 'admin', organization_id: 1,
+          permissions: ['projects.view', 'photos.view'], workspaceEnabled: true, activeUnitId: 1 } })
+        : route.fulfill({ status: 401, json: { error: 'NOT_LOGGED_IN' } });
+      if (url.pathname === '/api/workspaces') return route.fulfill({ json: { enabled: true, activeUnitId: 1,
+        units: [{ id: 1, name: '测试小组', role: 'editor' }] } });
+      if (url.pathname === '/api/album-desktop') return route.fulfill({ json: { albums: [], groups: [], sharedAlbums: [], sharedFolders: [],
+        preferences: { pins: [], colors: {} }, scope: { userId: 1, organizationId: 1, unitId: 1 }, workspaceRevision: 1, userRevision: 1 } });
+      if (url.pathname === '/api/projects/list') return route.fulfill({ json: { list: [], total: 0, hasMore: false } });
+      if (url.pathname === '/api/projects/import-status') return route.fulfill({ json: { statuses: {} } });
+      if (url.pathname === '/api/auth/providers') return route.fulfill({ json: {
+        password: true, iam: true, oidc: true, oidcEmbed: true, oidcAutoStart: true, oidcLabel: '研究院统一身份认证' } });
+      if (url.pathname === '/api/auth/oidc/login') {
+        starts++;
+        return route.fulfill({ status: 302, headers: { location: '/api/auth/oidc/complete#oidc_code=' + 'h'.repeat(43) } });
+      }
+      if (url.pathname === '/api/auth/iam/login') {
+        starts++;
+        return route.fulfill({ contentType: 'text/plain', body: 'Unexpected silent campus login' });
+      }
+      if (url.pathname === '/api/auth/oidc/complete' || url.pathname === '/api/auth/oidc/complete.js') return route.continue();
+      if (url.pathname === '/api/auth/oidc/session') {
+        sessions++;
+        return route.fulfill({ json: { token: 'local-test-token', returnTo: '/' } });
+      }
+      return route.fulfill({ json: [] });
+    });
+    await page.goto(base + '/');
+    await page.getByRole('button', { name: '测试用户，账户菜单' }).click();
+    await page.getByRole('button', { name: '退出账号', exact: true }).click();
+    await page.waitForTimeout(1000);
+    assert.equal(await page.evaluate(() => localStorage.getItem('mamage_jwt_token')), null, '退出后不能被 SSO 静默登录');
+    assert.equal(starts, 0, '退出后不能自动启动统一登录');
+    await page.reload();
+    await page.getByRole('button', { name: '前往研究院统一身份认证', exact: true }).waitFor();
+    assert.equal(starts, 0, '刷新后仍不能静默登录');
+    await page.getByRole('tab', { name: '账号密码', exact: true }).click();
+    await page.getByLabel('邮箱或学号', { exact: true }).waitFor();
+    await page.getByRole('tab', { name: '研究院统一身份认证', exact: true }).click();
+    await page.getByRole('button', { name: '前往研究院统一身份认证', exact: true }).click();
+    await page.waitForFunction(() => localStorage.getItem('mamage_jwt_token') === 'local-test-token');
+    assert.equal(await page.evaluate(() => localStorage.getItem('mamage_explicit_logout')), null);
+    assert.equal(starts, 1, '用户明确点击后允许重新登录');
+    assert.equal(sessions, 1);
+    await context.close();
+    }
+    console.log('Explicit logout prevents silent SSO, survives reload, and preserves manual login');
+  } finally {
+    await browser.close();
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+  }
+}
+main().catch(error => { console.error(error); process.exitCode = 1; });

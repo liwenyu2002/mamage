@@ -2,7 +2,10 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path'), babel = require('@babel/core');
 const code = babel.transformFileSync(path.join(__dirname, '../src/services/iamLogin.js'), { presets: [require.resolve('@babel/preset-env')] }).code;
-const mod = { exports: {} }; new Function('module', 'exports', code)(mod, mod.exports);
+const holdCode = babel.transformFileSync(path.join(__dirname, '../src/services/logoutHold.js'), { presets: [require.resolve('@babel/preset-env')] }).code;
+const hold = { exports: {} }; new Function('module', 'exports', holdCode)(hold, hold.exports);
+const mod = { exports: {} }; new Function('module', 'exports', 'require', code)(mod, mod.exports,
+  name => { if (name === './logoutHold') return hold.exports; throw Error('Unexpected dependency'); });
 const { hasIamHandoff, finishIamLogin, campusLoginUrl, autoStartCampusLogin } = mod.exports;
 function fixture(hash = '#iam_code=' + 'a'.repeat(43)) {
   const tokens = new Map([['mamage_jwt_token', 'old-user-token']]), changes = [], calls = [];
@@ -14,8 +17,9 @@ function fixture(hash = '#iam_code=' + 'a'.repeat(43)) {
       assert.equal(tokens.has('mamage_jwt_token'), false); return { ok: true, json: async () => ({ token: 'new-local-token', returnTo: '/?projectId=102&upload=1' }) }; } };
 }
 test('IAM handoff clears old identity and URL before same-origin exchange, and restores album upload links', async () => {
-  const f = fixture(); assert.equal(hasIamHandoff(f.location), true); await finishIamLogin(f);
+  const f = fixture(); f.tokens.set('mamage_explicit_logout', '1'); assert.equal(hasIamHandoff(f.location), true); await finishIamLogin(f);
   assert.equal(f.tokens.get('mamage_jwt_token'), 'new-local-token');
+  assert.equal(f.tokens.has('mamage_explicit_logout'), false);
   assert.deepEqual(f.changes, ['/login', '/?projectId=102&upload=1']);
   assert.equal(f.calls[0].url, '/api/auth/iam/session'); assert.equal(f.calls[0].options.credentials, 'same-origin');
   assert.equal(JSON.parse(f.calls[0].options.body).code, 'a'.repeat(43));
