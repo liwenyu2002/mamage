@@ -6,6 +6,8 @@ import { IconChevronLeft, IconChevronRight, IconPlus, IconMoreStroked, IconStar,
   IconSimilarStack, IconListView, IconSliders, IconGridView, IconSearch, IconClose, IconShare } from '../ui/icons';
 import SharedAlbums from '../SharedAlbums';
 import { SharedFolders } from '../SharedFolderView';
+import { goBack } from '../utils/navigation';
+import { useNavigationState } from '../useNavigation';
 import './folderColumns.css';
 import './folderViewport.css';
 
@@ -26,7 +28,7 @@ export default function FolderColumns({ groups, albums, sharedAlbums, sharedFold
   const menuRef = React.useRef(null);
   const returnFocusRef = React.useRef(null);
   const pendingFocus = React.useRef(null);
-  const [albumChoice, setAlbumChoice] = React.useState(null);
+  const [albumChoice, setAlbumChoice] = useNavigationState('columnAlbum', null);
   const [menu, setMenu] = React.useState(null);
   const parent = path[path.length - 1] || null;
   const parentId = parent?.id || null;
@@ -66,9 +68,15 @@ export default function FolderColumns({ groups, albums, sharedAlbums, sharedFold
     }
   };
   const back = () => {
-    if (query) onSearch('');
-    else if (chosenAlbum) setAlbumChoice(null);
-    else openFolder(virtualGroup ? null : path[path.length - 2]?.id);
+    if (chosenAlbum && !query) { setAlbumChoice(null); return; }
+    const url = new URL(window.location.href);
+    if (query) url.searchParams.delete('q');
+    else {
+      const parentId = virtualGroup ? null : path[path.length - 2]?.id;
+      url.searchParams.delete('view');
+      if (parentId) url.searchParams.set('folder', parentId); else url.searchParams.delete('folder');
+    }
+    goBack(url);
   };
 
   React.useEffect(() => {
@@ -164,7 +172,7 @@ export default function FolderColumns({ groups, albums, sharedAlbums, sharedFold
   return <section className="acp-column-browser" id="collections" data-desktop-section="collections" aria-label="文件夹分栏浏览">
     <span className="acp-section-spotlight" aria-hidden="true" />
     <div className="acp-column-toolbar">
-      <button className="acp-icon" type="button" aria-label="返回上一级目录" title="返回上一级" disabled={!path.length && !chosenAlbum && !virtualGroup} onClick={back}><IconChevronLeft /></button>
+      <button className="acp-icon" type="button" aria-label="返回上一页" title="返回上一页" disabled={!path.length && !chosenAlbum && !virtualGroup} onClick={back}><IconChevronLeft /></button>
       <div className="acp-column-title"><IconListView /><h1>小组空间</h1><span>{workspaceName}</span></div>
       <form className="acp-column-search" role="search" onSubmit={event => { event.preventDefault(); setAlbumChoice(null); onSearch(draftQuery); }}>
         <input aria-label={parent ? '文件夹内智能检索' : '小组空间智能检索'} placeholder={parent ? `在「${parent.name}」内搜索` : '搜索照片、人物、场景'} value={draftQuery} onChange={event => { onDraftQuery(event.target.value); if (!event.target.value) onSearch(''); }} />

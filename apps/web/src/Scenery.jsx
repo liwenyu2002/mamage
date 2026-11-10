@@ -1,6 +1,7 @@
 // Scenery page: render ProjectDetail for projectId=1 but hide metadata header
 import React from 'react';
 import ProjectDetail from './ProjectDetail';
+import { goBack } from './utils/navigation';
 import './Scenery.css';
 import { getToken } from './services/authService';
 import { Button, ButtonGroup } from './ui';
@@ -62,7 +63,7 @@ export default function Scenery({ currentUser = null }) {
           projectId={project.id}
           initialProject={project}
           currentUser={currentUser}
-          onBack={() => { /* no-op for scenery */ }}
+          onBack={() => goBack('/')}
           galleryMode={galleryMode}
           onGalleryModeChange={setGalleryMode}
         />

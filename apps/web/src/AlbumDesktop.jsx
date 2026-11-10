@@ -13,6 +13,8 @@ import { canAny } from './permissions/permissionStore';
 import AlbumActionBar from './AlbumActionBar';
 import { CollectionCard, AlbumShortcut, AlbumDirectory } from './folders/GlassFolders';
 import FolderColumns from './folders/FolderColumns';
+import useNavigation, { useNavigationState } from './useNavigation';
+import { navigate, goBack, withoutParams } from './utils/navigation';
 import ScopedPhotoSearch from './ScopedPhotoSearch';
 import SharedAlbums from './SharedAlbums';
 import AlbumSharingStatus from './AlbumSharingStatus';
@@ -171,6 +173,8 @@ function AlbumCard({ album, groups, onOpen, onOrganize, onShare, pinned, onPin, 
 }
 
 function DesktopContent({ initial, userId, workspaceName, organizationName, onOpen, onShare, sharingOpen, onOpenSharedFolder, onReload, sort, dateFilter, toolbar, projectPreviews, importStatuses, folderStyle, footer, onSearchScopeChange, searchRequest }) {
+  const route = useNavigation();
+  const params = new URL(route.url, window.location.origin).searchParams;
   const [albums, setAlbums] = React.useState(() => initial.albums.map(a => ({ ...a, image: a.image ? resolveAssetUrl(a.image) : null, groups: initial.groups.filter(g => g.projectIds?.includes(a.id)).map(g=>g.id) })));
   const [groups, setGroups] = React.useState(initial.groups);
   const [pins, setPins] = React.useState(initial.preferences.pins);
@@ -184,26 +188,24 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
   const [movePicker, setMovePicker] = React.useState(null);
   const [folderDepthLimit, setFolderDepthLimit] = React.useState(null);
   const [orderModal, setOrderModal] = React.useState(null);
-  const [selected, setSelected] = React.useState(() => {
-    const id = new URLSearchParams(window.location.search).get('folder');
-    return initial.groups.some(group => group.id === id) ? id : 'all';
-  });
-  const [view, setView] = React.useState('all');
-  const [timeSort, setTimeSort] = React.useState('default');
+  const selected = groups.some(group => group.id === params.get('folder')) ? params.get('folder') : 'all';
+  const view = params.get('view') === 'unfiled' ? 'unfiled' : 'all';
+  const [timeSort, setTimeSort] = useNavigationState('desktopSort', 'default');
   const [activeSection, setActiveSection] = React.useState('desktop');
   const [jumpRequest, setJumpRequest] = React.useState(null);
   const mainRef = React.useRef(null);
   const [draftQuery, setDraftQuery] = React.useState('');
-  const [query, setQuery] = React.useState('');
+  const query = params.get('q') || '';
+  const setQuery = text => {
+    const url = new URL(window.location.href);
+    if (text.trim()) url.searchParams.set('q', text.trim()); else url.searchParams.delete('q');
+    navigate(url);
+  };
+  React.useEffect(() => setDraftQuery(query), [query]);
   const [searchRun, setSearchRun] = React.useState(0);
   const searchSubmissionRef = React.useRef(0);
   const locationRef = React.useRef(selected);
   locationRef.current = selected;
-  React.useEffect(() => {
-    const url = new URL(window.location.href);
-    if (selected === 'all') url.searchParams.delete('folder'); else url.searchParams.set('folder', selected);
-    window.history.replaceState(null, '', url);
-  }, [selected]);
   const [collapsed, setCollapsed] = React.useState([]);
   const [newGroup, setNewGroup] = React.useState(false);
   const [groupName, setGroupName] = React.useState('');
@@ -232,7 +234,7 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
   const [selectingAlbums, setSelectingAlbums] = React.useState(false);
   const [selectedAlbumIds, setSelectedAlbumIds] = React.useState([]);
   const [selectedFolderIds, setSelectedFolderIds] = React.useState([]);
-  const [gridPage, setGridPage] = React.useState(1);
+  const [gridPage, setGridPage] = useNavigationState('desktopPage', 1);
   const [deletingSelection, setDeletingSelection] = React.useState(null);
   const [deletingBusy, setDeletingBusy] = React.useState(false);
   const [deletingError, setDeletingError] = React.useState('');
@@ -333,7 +335,7 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
   React.useEffect(() => { setAppearance(null); }, [userId]);
   React.useEffect(() => {
     const url = new URL(window.location.href);
-    if (url.searchParams.has('variant')) { url.searchParams.delete('variant'); window.history.replaceState(null, '', url); }
+    if (url.searchParams.has('variant')) { url.searchParams.delete('variant'); navigate(url, { replace: true }); }
   }, []);
   React.useEffect(() => {
     if (!notice) return undefined;
@@ -448,10 +450,18 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
   };
   const availableToAdd = manualCollection ? enrichedAlbums.filter(album => !album.groups.includes(currentGroup.id)
     && (!addQuery.trim() || album.name.toLowerCase().includes(addQuery.trim().toLowerCase()))) : [];
-  const selectGroup = (id) => { setSelected(id); setView('all'); setQuery(''); setDraftQuery(''); setDirectoryOpen(false); setJumpRequest(null); setActiveSection('desktop'); };
-  const selectView = (id) => { setView(id); setSelected('all'); setQuery(''); setDraftQuery(''); setDirectoryOpen(false); setJumpRequest(null); };
+  const selectLocation = (folder, viewName = 'all') => {
+    const url = new URL(window.location.href);
+    ['folder', 'view', 'q', 'sharedFolder', 'sharedPath', 'photoId', 'focusPhotoId'].forEach(key => url.searchParams.delete(key));
+    if (folder && folder !== 'all') url.searchParams.set('folder', folder);
+    if (viewName === 'unfiled') url.searchParams.set('view', viewName);
+    navigate(url);
+    setDraftQuery(''); setDirectoryOpen(false); setJumpRequest(null); setActiveSection('desktop');
+  };
+  const selectGroup = id => selectLocation(id);
+  const selectView = id => selectLocation('all', id);
   const jumpToSection = (id) => {
-    setSelected('all'); setView('all'); setQuery(''); setDraftQuery(''); setDirectoryOpen(false);
+    selectLocation('all');
     if (id === 'updates') setCollapsed((old) => old.filter((key) => key !== 'recent'));
     setActiveSection(id); setJumpRequest({ id });
   };
@@ -902,7 +912,13 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
       if (mountedRef.current) setDeletingError(error?.message || '删除失败，请重试');
     } finally { deletingRef.current = false; if (mountedRef.current) setDeletingBusy(false); }
   };
-  React.useEffect(() => setGridPage(1), [selected, view, query, sort?.key, sort?.order, timeSort, dateFilter?.from, dateFilter?.to]);
+  const gridFilterKey = JSON.stringify([sort?.key, sort?.order, timeSort, dateFilter?.from, dateFilter?.to]);
+  const gridFilterRef = React.useRef({ entryKey: route.entry.key, filter: gridFilterKey });
+  React.useEffect(() => {
+    // A restored entry already owns its pagination; reset only for edits in this entry.
+    if (gridFilterRef.current.entryKey === route.entry.key && gridFilterRef.current.filter !== gridFilterKey) setGridPage(1);
+    gridFilterRef.current = { entryKey: route.entry.key, filter: gridFilterKey };
+  }, [route.entry.key, gridFilterKey, setGridPage]);
   const visibleIds = (home ? filtered.slice(0,6) : currentGroup ? groupAlbums(currentGroup,filtered).slice(0,gridPage*24) : filtered.slice(0,gridPage*24)).map(a=>a.id).join(',');
   const [liveImportStatuses, setLiveImportStatuses] = React.useState(importStatuses || {});
   React.useEffect(() => {
@@ -1188,23 +1204,20 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
 }
 
 export default function AlbumDesktop({ currentUser, workspaceInfo, onOpen, onShare, sharingOpen, sort, dateFilter, toolbar, projectPreviews = [], importStatuses = {}, folderStyle = 'glass', footer, onSearchScopeChange, searchRequest }) {
+  const route = useNavigation();
   const [initial, setInitial] = React.useState(null);
   const [error, setError] = React.useState('');
   const [reload, setReload] = React.useState(0);
   const previousSharingOpen = React.useRef(sharingOpen);
-  const [sharedFolderId, setSharedFolderId] = React.useState(() => new URLSearchParams(window.location.search).get('sharedFolder'));
+  const sharedFolderId = new URL(route.url, window.location.origin).searchParams.get('sharedFolder');
   const openSharedFolder = id => {
     const url = new URL(window.location.href); url.searchParams.set('sharedFolder', String(id)); url.searchParams.delete('folder');
-    window.history.pushState(null, '', url); setSharedFolderId(String(id));
+    ['q', 'view', 'sharedPath'].forEach(key => url.searchParams.delete(key));
+    navigate(url);
   };
   const closeSharedFolder = () => {
-    const url = new URL(window.location.href); url.searchParams.delete('sharedFolder'); url.searchParams.delete('folder');
-    window.history.pushState(null, '', url); setSharedFolderId(null);
+    goBack(withoutParams(window.location.href, ['sharedFolder', 'sharedPath']));
   };
-  React.useEffect(() => {
-    const change = () => setSharedFolderId(new URLSearchParams(window.location.search).get('sharedFolder'));
-    window.addEventListener('popstate', change); return () => window.removeEventListener('popstate', change);
-  }, []);
   React.useEffect(() => {
     let active=true;setInitial(null);setError('');
     loadAlbumDesktop().then(data=>{if(active)setInitial(data)}).catch(err=>{if(active)setError(err?.message || '桌面加载失败')});

@@ -7,6 +7,8 @@ import { CollectionCard } from './folders/GlassFolders';
 import { folderPath } from './folders/folderTree';
 import ProjectCard from './ProjectCard';
 import CardSharingStatus from './CardSharingStatus';
+import useNavigation from './useNavigation';
+import { navigate, goBack } from './utils/navigation';
 import './sharedAlbums.css';
 import './sharedFolderView.css';
 import './AlbumDesktop.css';
@@ -29,18 +31,32 @@ export function SharedFolders({ folders = [], onOpen, compact = false }) {
 }
 
 export function FolderShareBrowser({ data, onOpen, onBack, folderStyle = 'glass', initialFolderId }) {
+  const route = useNavigation();
   const { share, albums } = data;
   const groups = React.useMemo(() => data.groups.map(group => ({ ...group, sharing: {
     direction: 'received', originLabel: share.originLabel, mode: share.mode,
   } })), [data.groups, share.originLabel, share.mode]);
-  const [selected, setSelected] = React.useState(initialFolderId || share.folderId);
+  const selected = new URL(route.url, window.location.origin).searchParams.get('sharedPath') || initialFolderId || share.folderId;
+  const setSelected = id => {
+    const url = new URL(window.location.href);
+    if (id === share.folderId) url.searchParams.delete('sharedPath'); else url.searchParams.set('sharedPath', id);
+    url.searchParams.delete('q');
+    navigate(url);
+  };
   const root = groups.find(group => group.id === share.folderId);
   const current = groups.find(group => group.id === selected) || root;
   if (!current) return <div className="desktop-load-state" role="alert">文件夹已不存在<Button onClick={onBack}>返回</Button></div>;
   const path = folderPath(current, groups), children = groups.filter(group => group.parentId === current.id);
   const items = albums.filter(album => current.projectIds.includes(album.id));
+  const back = () => {
+    if (current.id === root.id) { onBack?.(); return; }
+    const url = new URL(window.location.href);
+    if (current.parentId && current.parentId !== root.id) url.searchParams.set('sharedPath', current.parentId);
+    else url.searchParams.delete('sharedPath');
+    goBack(url);
+  };
   return <section className={`shared-folder-view${folderStyle === 'classic' ? ' is-classic' : ''}`} aria-label="共享文件夹内容">
-    <nav className="acp-folder-breadcrumb" aria-label="共享文件夹位置"><button onClick={onBack}><IconChevronLeft />返回</button>
+    <nav className="acp-folder-breadcrumb" aria-label="共享文件夹位置"><button onClick={back}><IconChevronLeft />返回</button>
       {path.map(group => <React.Fragment key={group.id}><IconChevronRight /><button aria-current={group.id === current.id ? 'page' : undefined} onClick={() => setSelected(group.id)}>{group.name}</button></React.Fragment>)}
     </nav>
     <h1>{current.name}</h1>
@@ -77,6 +93,6 @@ export default function SharedFolderView({ shareId, onOpen, onBack, folderStyle 
   if (error) return <div className="desktop-load-state" role="alert"><p>{error}</p><Button onClick={onBack}>返回小组空间</Button></div>;
   if (!result || result.id !== shareId) return <div className="desktop-load-state" role="status">正在加载共享文件夹…</div>;
   if (result.data.copyFolderId) return <div className="desktop-load-state" role="status"><p>{result.data.share.copyStatus === 'failed' ? '部分相册复制失败，可在分享记录中重试' : result.data.share.copyStatus === 'ready' ? '独立副本已就绪' : '正在后台复制相册，已完成的部分可先查看'}</p>
-    <Button onClick={() => { window.location.href = `/?folder=${encodeURIComponent(result.data.copyFolderId)}`; }}>打开副本文件夹</Button><Button onClick={onBack}>返回</Button></div>;
+    <Button onClick={() => navigate(`/?folder=${encodeURIComponent(result.data.copyFolderId)}`)}>打开副本文件夹</Button><Button onClick={onBack}>返回</Button></div>;
   return <FolderShareBrowser key={shareId} data={result.data} onOpen={(album, photo) => onOpen(album.id, photo)} onBack={onBack} folderStyle={folderStyle} />;
 }

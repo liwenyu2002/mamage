@@ -1,4 +1,6 @@
 import React from 'react';
+import useNavigation from './useNavigation';
+import { navigate } from './utils/navigation';
 import { Button, Modal, Toast } from './ui';
 import { IconListView, IconDownload, IconSimilarStack } from './ui/icons';
 import { wechatAiDraftKey, wechatImportKey, hasWechatDraft } from './utils/wechatDraftState';
@@ -41,7 +43,8 @@ function ContentReference({ confirmed }) {
 }
 
 export default function WechatWorkspace({ currentUser, workspaceId, initialMode = 'library' }) {
-  const [workspaceView, setWorkspaceView] = React.useState(() => new URLSearchParams(location.search).get('view') === 'monitor' ? 'monitor' : 'writing');
+  const route = useNavigation();
+  const workspaceView = new URL(route.url, window.location.origin).searchParams.get('view') === 'monitor' ? 'monitor' : 'writing';
   const draftKey = wechatAiDraftKey(currentUser?.id, workspaceId);
   const importKey = wechatImportKey(currentUser?.id, workspaceId);
   const stateKey = workflowKey(currentUser?.id, workspaceId);
@@ -216,8 +219,8 @@ export default function WechatWorkspace({ currentUser, workspaceId, initialMode 
   return <div className={`wechat-workspace is-${stage}`}>
     <nav className="wechat-view-tabs" role="tablist" aria-label="公众号工作区">
       {[['writing', '内容创作', IconListView], ['monitor', '推文观察', IconSimilarStack]].map(([key, label, Icon]) => <button key={key} type="button" role="tab"
-        aria-selected={workspaceView === key} onClick={() => { setWorkspaceView(key); const url = new URL(location.href);
-          if (key === 'monitor') url.searchParams.set('view', 'monitor'); else url.searchParams.delete('view'); history.replaceState(null, '', url); }}><Icon />{label}</button>)}
+        aria-selected={workspaceView === key} onClick={() => { const url = new URL(location.href);
+          if (key === 'monitor') url.searchParams.set('view', 'monitor'); else url.searchParams.delete('view'); navigate(url); }}><Icon />{label}</button>)}
     </nav>
     {workspaceView === 'monitor' ? <React.Suspense fallback={<p role="status">正在加载推文观察…</p>}><Monitor workspaceId={workspaceId} /></React.Suspense> : null}
     <div hidden={workspaceView !== 'writing'}>

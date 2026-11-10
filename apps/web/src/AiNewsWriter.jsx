@@ -1,4 +1,5 @@
 import React from 'react';
+import { navigate } from './utils/navigation';
 import { Layout, Input, TextArea, Modal, GlassSelect, SegmentedControl, DatePicker, Button, Tag, Toast } from './ui';
 import { request, resolveAssetUrl } from './services/request';
 import { getToken } from './services/authService';
@@ -1500,8 +1501,7 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
       const key = wechatImportKey(currentUser?.id, workspaceId);
       if (!key) throw new Error('请先登录');
       localStorage.setItem(key, JSON.stringify(article));
-      window.history.pushState({}, '', '/function/wechat-composer');
-      window.dispatchEvent(new PopStateEvent('popstate'));
+      navigate('/function/wechat-composer');
     } catch (error) { Toast.error('暂时无法打开排版，请稍后重试'); }
   };
 

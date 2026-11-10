@@ -7,6 +7,8 @@ import {
 } from './ui/icons';
 import './ShareView.css';
 import { FolderShareBrowser } from './SharedFolderView';
+import useNavigation from './useNavigation';
+import { navigate, goBack, withoutParams, openMediaRoute, closeMediaRoute } from './utils/navigation';
 
 function formatDate(v) {
   const date = new Date(v);
@@ -62,6 +64,8 @@ export default function ShareView(props) {
 }
 
 function PublicFolderView({ share, onBack }) {
+  const route = useNavigation();
+  const projectId = new URL(route.url, window.location.origin).searchParams.get('projectId');
   const [data, setData] = React.useState(share), [album, setAlbum] = React.useState(null);
   const [loading, setLoading] = React.useState(false), [error, setError] = React.useState('');
   const sequence = React.useRef(0);
@@ -85,7 +89,7 @@ function PublicFolderView({ share, onBack }) {
     document.addEventListener('visibilitychange', refresh);
     return () => { active = false; clearInterval(timer); document.removeEventListener('visibilitychange', refresh); };
   }, [album, code]);
-  const load = async projectId => {
+  const load = React.useCallback(async projectId => {
     const current = ++sequence.current;
     setLoading(true); setError('');
     try {
@@ -97,16 +101,24 @@ function PublicFolderView({ share, onBack }) {
       else { setData(next); setAlbum(null); }
     } catch (err) { if (current === sequence.current) { setAlbum(null); setError(err.message); } }
     finally { if (current === sequence.current) setLoading(false); }
-  };
+  }, [code]);
+  React.useEffect(() => {
+    if (projectId) void load(projectId);
+    else { sequence.current++; setAlbum(null); setError(''); setLoading(false); }
+  }, [projectId, load]);
+  const returnToFolder = () => goBack(withoutParams(window.location.href, ['projectId', 'previewId']));
   if (loading) return <main className="share-page"><div className="desktop-load-state" role="status">正在加载…</div></main>;
-  if (error) return <main className="share-page"><div className="desktop-load-state" role="alert"><p>{error}</p><button onClick={() => load(null)}>重新加载文件夹</button></div></main>;
-  if (album) return <AlbumShareView key={album.projectId} share={album} onBack={() => load(null)} />;
+  if (error) return <main className="share-page"><div className="desktop-load-state" role="alert"><p>{error}</p><button onClick={returnToFolder}>返回文件夹</button></div></main>;
+  if (album && projectId) return <AlbumShareView key={projectId} share={album} onBack={returnToFolder} />;
   return <main className="share-page"><div className="share-page-inner"><nav className="share-nav"><span className="share-brand">MaMage <span>公开分享</span></span></nav>
-    <FolderShareBrowser data={data.folder} onOpen={item => load(item.id)} onBack={onBack || (() => { window.location.href = '/'; })} />
+    <FolderShareBrowser data={data.folder} onOpen={item => {
+      const url = new URL(window.location.href); url.searchParams.set('projectId', String(item.id)); navigate(url);
+    }} onBack={onBack || (() => { window.location.href = '/'; })} />
   </div></main>;
 }
 
 function AlbumShareView({ share = {}, onBack }) {
+  const route = useNavigation();
   const [viewMode, setViewMode] = React.useState('grid');
   const shareCode = share.shareCode || share.code || '';
   const [photos, setPhotos] = React.useState(() => (
@@ -229,14 +241,22 @@ function AlbumShareView({ share = {}, onBack }) {
     return resolveAssetUrl(p.playbackUrl || p.playback_url || p.url || '') || null;
   };
 
-  const [viewerVisible, setViewerVisible] = React.useState(false);
-  const [viewerIndex, setViewerIndex] = React.useState(0);
+  const previewId = new URL(route.url, window.location.origin).searchParams.get('previewId');
+  const photoKey = (photo, index) => String(photo?.id || photo?.photoId || photo?.photo_id || `index-${index}`);
+  const viewerIndex = photos.findIndex((photo, index) => photoKey(photo, index) === previewId);
+  const viewerVisible = viewerIndex >= 0;
+  React.useEffect(() => {
+    if (previewId && viewerVisible) openMediaRoute(previewId, 'previewId');
+  }, [previewId, viewerVisible]);
   const [viewerShowOriginalMap, setViewerShowOriginalMap] = React.useState({});
   const [videoErrorMap, setVideoErrorMap] = React.useState({});
 
   // 限定翻页序列（photos 索引数组）：拍照找我等场景只在命中集合内切换；null=整册顺序。普通打开自动清空。
   const [viewerSeq, setViewerSeq] = React.useState(null);
-  const openViewer = (idx) => { setViewerSeq(null); setViewerIndex(idx); setViewerVisible(true); setSvChrome(true); };
+  const openViewer = (idx) => {
+    if (!photos[idx]) return;
+    openMediaRoute(photoKey(photos[idx], idx), 'previewId'); setViewerSeq(null); setSvChrome(true);
+  };
 
   // 沉浸式查看器的手机交互：滑动翻页 + 轻点切换顶/底栏
   const [svChrome, setSvChrome] = React.useState(true);
@@ -288,21 +308,14 @@ function AlbumShareView({ share = {}, onBack }) {
     openViewer(idx); // 内部会清 seq
     if (seq.length > 1) setViewerSeq(seq); // 同一批 setState,序列最终生效
   };
-  const closeViewer = () => setViewerVisible(false);
-  const viewerPrev = () => setViewerIndex((i) => {
-    if (viewerSeq && viewerSeq.length) {
-      const p = viewerSeq.indexOf(i);
-      return p > 0 ? viewerSeq[p - 1] : i;
-    }
-    return Math.max(0, i - 1);
-  });
-  const viewerNext = () => setViewerIndex((i) => {
-    if (viewerSeq && viewerSeq.length) {
-      const p = viewerSeq.indexOf(i);
-      return (p >= 0 && p < viewerSeq.length - 1) ? viewerSeq[p + 1] : i;
-    }
-    return Math.min(photos.length - 1, i + 1);
-  });
+  const closeViewer = () => closeMediaRoute('previewId');
+  const moveViewer = step => {
+    const pos = viewerSeq?.indexOf(viewerIndex);
+    const index = viewerSeq ? viewerSeq[pos + step] : viewerIndex + step;
+    if (index != null && photos[index]) openMediaRoute(photoKey(photos[index], index), 'previewId');
+  };
+  const viewerPrev = () => moveViewer(-1);
+  const viewerNext = () => moveViewer(1);
 
   // 查看器键盘操作：Esc 关闭、左右方向键翻页（lightbox 标准交互）
   React.useEffect(() => {
@@ -314,7 +327,7 @@ function AlbumShareView({ share = {}, onBack }) {
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [viewerVisible, photos.length]);
+  }, [viewerVisible, viewerIndex, viewerSeq, photos]);
 
   React.useEffect(() => {
     if (!viewerVisible) return undefined;

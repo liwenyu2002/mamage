@@ -35,6 +35,8 @@ import './ProjectDetail.css';
 import './mediaViewer.css';
 import { GlassReveal, ViewerDisplaySettings, useViewerAppearance } from './ui/Glass';
 import useMediaViewerDialog from './useMediaViewerDialog';
+import useNavigation, { useNavigationState } from './useNavigation';
+import { navigate, getNavigation, openMediaRoute, closeMediaRoute } from './utils/navigation';
 import { getProjectById, updateProject, deleteProject, createTimelineSection, updateTimelineSection, deleteTimelineSection, reorderTimelineSections } from './services/projectService';
 import { canEditMetadata } from './utils/metadataEditPermissions';
 import { getToken } from './services/authService';
@@ -650,6 +652,9 @@ function ProjectDetail({
   shareUnitId,
   searchRequest,
 }) {
+  const route = useNavigation();
+  const routeParams = new URL(route.url, window.location.origin).searchParams;
+  const routePhotoId = routeParams.get('photoId');
   const DISABLE_UPLOAD_FEATURE = !!readOnly;
   const DISABLE_DELETE_FEATURE = !!readOnly;
 
@@ -673,7 +678,7 @@ function ProjectDetail({
     readFocus();
     window.addEventListener('popstate', readFocus);
     return () => window.removeEventListener('popstate', readFocus);
-  }, [projectId]);
+  }, [projectId, route.url]);
 
   // upload / staging
   const [uploadMode, setUploadMode] = React.useState(false);
@@ -773,7 +778,7 @@ function ProjectDetail({
   const [imageRatios, setImageRatios] = React.useState({});
   const ratioCacheRef = React.useRef({});
   const [galleryPrepared, setGalleryPrepared] = React.useState(false);
-  const [galleryRenderLimit, setGalleryRenderLimit] = React.useState(GALLERY_INITIAL_RENDER_LIMIT);
+  const [galleryRenderLimit, setGalleryRenderLimit] = useNavigationState('galleryLimit', GALLERY_INITIAL_RENDER_LIMIT);
   const galleryMoreRef = React.useRef(null);
   const [detailImageReadyMap, setDetailImageReadyMap] = React.useState({});
   const timelineDefaultModeProjectRef = React.useRef(null);
@@ -903,7 +908,13 @@ function ProjectDetail({
   const [viewerRescue, setViewerRescue] = React.useState(null);
   const [isMobile, setIsMobile] = React.useState(() => (typeof window !== 'undefined' ? window.innerWidth <= 768 : false));
   const viewerPointerRef = React.useRef({ active: false, pointerId: null, startX: 0, startY: 0 });
-  const [searchKeyword, setSearchKeyword] = React.useState('');
+  const searchKeyword = routeParams.get('q') || '';
+  const setSearchKeyword = value => {
+    const url = new URL(window.location.href);
+    const replacing = url.searchParams.has('q');
+    if (value) url.searchParams.set('q', value); else url.searchParams.delete('q');
+    navigate(url, { replace: replacing });
+  };
   const [searching, setSearching] = React.useState(false);
   const [searchError, setSearchError] = React.useState('');
   const [searchMeta, setSearchMeta] = React.useState(null);
@@ -916,9 +927,13 @@ function ProjectDetail({
   const [searchTotal, setSearchTotal] = React.useState(null);
   const searchResultsRef = React.useRef([]);
   const [actionSheetOpen, setActionSheetOpen] = React.useState(false);
-  const [mediaFilter, setMediaFilter] = React.useState('all'); // all | image | video
-  const [onlyOwnUploads, setOnlyOwnUploads] = React.useState(false);
-  React.useEffect(() => { setOnlyOwnUploads(false); }, [projectId, currentUser?.id]);
+  const [mediaFilter, setMediaFilter] = useNavigationState('albumMediaFilter', 'all');
+  const [onlyOwnUploads, setOnlyOwnUploads] = useNavigationState('albumOwnUploads', false);
+  const filterUserRef = React.useRef(currentUser?.id);
+  React.useEffect(() => {
+    if (filterUserRef.current !== currentUser?.id) setOnlyOwnUploads(false);
+    filterUserRef.current = currentUser?.id;
+  }, [currentUser?.id, setOnlyOwnUploads]);
   const searchReqSeqRef = React.useRef(0);
   const hasSearchedRef = React.useRef(false);
 
@@ -1882,7 +1897,6 @@ function ProjectDetail({
   }, [photoTagsMap, photoDescMap, photoAnalysisPendingMap]);
 
   React.useEffect(() => {
-    setSearchKeyword('');
     setSearchError('');
     setSearchMeta(null);
     setSearchRelated(false);
@@ -2335,7 +2349,7 @@ function ProjectDetail({
       } else if (status === 401) {
         try { localStorage.removeItem('mamage_jwt_token'); } catch (e) { }
         Toast.error('请重新登录管理员账号');
-        try { window.history.pushState({}, '', '/login'); } catch (e) { window.location.href = '/login'; }
+        navigate('/login');
       } else if (status === 404) {
         Toast.warning('相册已不存在');
         if (typeof onBack === 'function') onBack(true);
@@ -2628,7 +2642,7 @@ function ProjectDetail({
           if (status === 401 || status === 403) {
             try { localStorage.removeItem('mamage_jwt_token'); } catch (e) { }
             Toast.error('权限不足或登录已过期，请重新登录或联系管理员');
-            try { window.history.pushState({}, '', '/login'); } catch (e) { window.location.href = '/login'; }
+            navigate('/login');
           } else if (status === 404) {
             Toast.warning('相册已不存在');
             if (typeof onBack === 'function') onBack(true);
@@ -2810,7 +2824,7 @@ function ProjectDetail({
             // clear token and redirect to login
             try { localStorage.removeItem('mamage_jwt_token'); } catch (e) { }
             Toast.error('权限不足或登录已过期，请重新登录或联系管理员');
-            try { window.history.pushState({}, '', '/login'); } catch (e) { window.location.href = '/login'; }
+            navigate('/login');
           } else {
             Toast.error(getPhotoDeleteErrorMessage(err));
           }
@@ -3207,9 +3221,12 @@ function ProjectDetail({
   const ownUploadCount = React.useMemo(() => (photoMetas || []).filter(meta => isPhotoUploadedBy(meta, currentUser?.id)).length,
     [photoMetas, currentUser?.id]);
 
+  const galleryFilterKey = JSON.stringify([projectId, searchKeyword, mediaFilter, onlyOwnUploads]);
+  const galleryFilterRef = React.useRef({ entryKey: route.entry.key, filter: galleryFilterKey });
   React.useEffect(() => {
-    setGalleryRenderLimit(GALLERY_INITIAL_RENDER_LIMIT);
-  }, [projectId, searchKeyword, mediaFilter, onlyOwnUploads]);
+    if (galleryFilterRef.current.entryKey === route.entry.key && galleryFilterRef.current.filter !== galleryFilterKey) setGalleryRenderLimit(GALLERY_INITIAL_RENDER_LIMIT);
+    galleryFilterRef.current = { entryKey: route.entry.key, filter: galleryFilterKey };
+  }, [route.entry.key, galleryFilterKey, setGalleryRenderLimit]);
 
   const mediaFilteredIndexes = React.useMemo(() => getMediaFilteredIndexes(), [getMediaFilteredIndexes]);
   const visiblePhotoCount = Math.min(mediaFilteredIndexes.length, Math.max(GALLERY_INITIAL_RENDER_LIMIT, galleryRenderLimit));
@@ -4346,6 +4363,7 @@ function ProjectDetail({
     const targetProjectId = targetProjectIdRaw ? String(targetProjectIdRaw).trim() : '';
     const hitIdx = targetId ? (photoMetas || []).findIndex((m) => String(getMetaPhotoId(m) || '') === targetId) : -1;
     if (hitIdx >= 0) {
+      if (!openMediaRoute(targetId)) return;
       closeFacePersonModal();
       if (targetId) setFocusPhotoId(targetId);
       setViewerEnableOpenZoom(false);
@@ -4354,7 +4372,6 @@ function ProjectDetail({
       return;
     }
     if (targetProjectId && typeof window !== 'undefined') {
-      closeFacePersonModal();
       try {
         const url = new URL(window.location.href);
         url.searchParams.set('projectId', targetProjectId);
@@ -4365,12 +4382,8 @@ function ProjectDetail({
           url.searchParams.delete('photoId');
           url.searchParams.delete('focusPhotoId');
         }
-        window.history.pushState({}, '', url);
-        try {
-          window.dispatchEvent(new PopStateEvent('popstate'));
-        } catch (evtErr) {
-          window.dispatchEvent(new Event('popstate'));
-        }
+        url.searchParams.delete('q');
+        if (navigate(url)) closeFacePersonModal();
         return;
       } catch (e) {
         // fallback below
@@ -4585,12 +4598,16 @@ function ProjectDetail({
       nextIndex = normalizeViewerIndex(viewerIndex + direction);
     }
     if (nextIndex === viewerIndex) return;
+    const photoId = getMetaPhotoId(photoMetas[nextIndex]);
+    if (photoId && !openMediaRoute(photoId)) return;
     setViewerDirection(direction);
     setViewerIndex(nextIndex);
-  }, [viewerVisible, viewerCount, normalizeViewerIndex, viewerIndex, activeViewerSeq]);
+  }, [viewerVisible, viewerCount, normalizeViewerIndex, viewerIndex, activeViewerSeq, photoMetas, getMetaPhotoId]);
 
   const openViewerAt = React.useCallback((index, immediateSrc = '') => {
     if (index < 0) return;
+    const photoId = getMetaPhotoId(photoMetas[index]);
+    if (photoId && !openMediaRoute(photoId)) return;
     const warmSrc = immediateSrc || getViewerTargetSrc(index, false);
     setViewerEnableOpenZoom(true);
     if (warmSrc) {
@@ -4601,7 +4618,7 @@ function ProjectDetail({
     setViewerShowOriginal(false);
     setViewerVisible(true);
     setViewerSeq(null); // 普通打开走整册顺序；找我等场景在调用后另行设序列
-  }, [getViewerTargetSrc]);
+  }, [getViewerTargetSrc, getMetaPhotoId, photoMetas]);
 
   // 拍照找我：命中照片 → 打开查看器,且翻页限定在命中集合内(按相似度顺序)
   const [findMeOpen, setFindMeOpen] = React.useState(false);
@@ -4622,22 +4639,32 @@ function ProjectDetail({
 
   const lastAutoOpenedPhotoKeyRef = React.useRef('');
   React.useEffect(() => {
-    if (!initialOpenPhotoId && !initialOpenPhotoSrc) return;
+    if (!routePhotoId && !initialOpenPhotoSrc) {
+      if (lastAutoOpenedPhotoKeyRef.current) {
+        lastAutoOpenedPhotoKeyRef.current = '';
+        setViewerVisible(false); setViewerToneVisible(false);
+        setViewerEnableOpenZoom(false); setViewerShowOriginal(false);
+      }
+      return;
+    }
     if (loading) return;
     if (!Array.isArray(photoMetas) || !photoMetas.length) return;
-    const key = `${String(projectId || '')}:${initialOpenPhotoId || initialOpenPhotoSrc}`;
+    const key = `${String(projectId || '')}:${routePhotoId || initialOpenPhotoSrc}`;
     if (lastAutoOpenedPhotoKeyRef.current === key) return;
-    const idx = findProjectPreviewIndex(photoMetas, { photoId: initialOpenPhotoId, src: initialOpenPhotoSrc }, resolveAssetUrl);
+    const idx = findProjectPreviewIndex(photoMetas, { photoId: routePhotoId, src: initialOpenPhotoSrc }, resolveAssetUrl);
     if (idx < 0) return;
     const targetPhotoId = getMetaPhotoId(photoMetas[idx]);
     lastAutoOpenedPhotoKeyRef.current = key;
-    openViewerAt(idx, getViewerTargetSrc(idx, false));
+    if (!viewerVisible || viewerIndex !== idx) openViewerAt(idx, getViewerTargetSrc(idx, false));
     if (typeof onInitialOpenPhotoHandled === 'function') {
       onInitialOpenPhotoHandled(targetPhotoId);
     }
-  }, [initialOpenPhotoId, initialOpenPhotoSrc, loading, photoMetas, projectId, getMetaPhotoId, openViewerAt, getViewerTargetSrc, onInitialOpenPhotoHandled]);
+  }, [routePhotoId, initialOpenPhotoSrc, loading, photoMetas, projectId, getMetaPhotoId, openViewerAt, getViewerTargetSrc, onInitialOpenPhotoHandled, viewerVisible, viewerIndex]);
 
   const closeViewer = React.useCallback(() => {
+    if (new URLSearchParams(window.location.search).has('photoId')) {
+      closeMediaRoute(); return;
+    }
     setViewerVisible(false);
     setViewerToneVisible(false);
     setViewerEnableOpenZoom(false);
@@ -4716,6 +4743,18 @@ function ProjectDetail({
   }, [viewerVisible, currentViewerPhotoId, resetViewerPhotoEdit]);
   const viewerDraftTags = Array.from(new Set([...viewerEditTags, viewerEditTagInput.trim()].filter(Boolean)));
   const viewerEditDirty = viewerEditDescription !== viewerSavedDescription || JSON.stringify(viewerDraftTags) !== viewerSavedTagsKey;
+  React.useEffect(() => {
+    if (!viewerVisible || !(viewerEditDirty || (viewerToneVisible && toneDirty) || viewerToneSaving || viewerEditSaving)) return undefined;
+    const unblock = getNavigation().block(next => {
+      const current = new URL(window.location.origin + route.url), target = new URL(next, window.location.origin);
+      if (current.pathname === target.pathname && ['projectId', 'photoId'].every(key => current.searchParams.get(key) === target.searchParams.get(key))) return true;
+      if (viewerToneSaving || viewerEditSaving) { Toast.info('正在保存，请稍候再离开'); return false; }
+      return window.confirm('有尚未保存的照片修改，离开将丢弃这些修改。是否继续？');
+    });
+    const beforeUnload = event => { event.preventDefault(); event.returnValue = ''; };
+    window.addEventListener('beforeunload', beforeUnload);
+    return () => { unblock(); window.removeEventListener('beforeunload', beforeUnload); };
+  }, [viewerVisible, viewerEditDirty, viewerToneVisible, toneDirty, viewerToneSaving, viewerEditSaving, route.url]);
 
   const saveViewerPhotoEdit = React.useCallback(async () => {
     if (viewerEditSaving) return;

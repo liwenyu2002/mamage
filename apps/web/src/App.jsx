@@ -19,7 +19,9 @@ import { canAll } from './permissions/permissionStore';
 import { LiquidGlassDefs } from './liquidGlass';
 import { GlassAccountMenu, ViewerDisplaySettings, useViewerAppearance } from './ui/Glass';
 import UiZoomControl, { useUiZoom, applyDocumentZoom } from './UiZoomControl';
-import { IconFaceScan, IconSparkleAI, IconChevronRight, IconPlus } from './ui/icons';
+import { IconFaceScan, IconSparkleAI, IconChevronLeft, IconChevronRight, IconPlus } from './ui/icons';
+import useNavigation, { useNavigationScroll } from './useNavigation';
+import { navigate, goBack, withoutParams, openMediaRoute, closeMediaRoute } from './utils/navigation';
 
 const lazyWithPreload = (loader) => {
   const Component = React.lazy(loader);
@@ -152,6 +154,13 @@ try {
 } catch (e) { /* ignore */ }
 
 function App() {
+  const route = useNavigation();
+  useNavigationScroll();
+  const routeUrl = new URL(route.url, window.location.origin);
+  const routeQuery = routeUrl.searchParams.get('q') || '';
+  const globalQuery = ['/', '/demo'].includes(routeUrl.pathname) && !routeUrl.searchParams.has('projectId')
+    && !routeUrl.searchParams.has('folder') && !routeUrl.searchParams.has('sharedFolder') ? routeQuery : '';
+  const photoSearchMode = Boolean(globalQuery);
   const displaySettings = useViewerAppearance();
 
   const [projects, setProjects] = React.useState([]);
@@ -220,7 +229,6 @@ function App() {
   }, [projectInfoOpen]);
   const [shareMode, setShareMode] = React.useState(false);
   const [shareInitialProject, setShareInitialProject] = React.useState(null);
-  const [photoSearchMode, setPhotoSearchMode] = React.useState(false);
   const [folderSearchScope, setFolderSearchScope] = React.useState(null);
   const [scopedSearchRequest, setScopedSearchRequest] = React.useState(null);
   const [photoSearchResults, setPhotoSearchResults] = React.useState([]);
@@ -360,14 +368,13 @@ function App() {
     const url = new URL(window.location.href);
     if (readAlbumUploadIntent(url.href)) {
       url.searchParams.delete('upload'); url.searchParams.delete('unitId');
-      window.history.replaceState({}, '', url);
+      window.history.replaceState(window.history.state, '', url);
     }
   }, []);
 
   const clearPhotoSearchState = React.useCallback(() => {
     latestPhotoSearchReqRef.current += 1;
     photoSearchAbortRef.current?.abort();
-    setPhotoSearchMode(false);
     setPhotoSearchResults([]);
     photoSearchResultsRef.current = [];
     setPhotoSearchPhase('idle');
@@ -409,7 +416,6 @@ function App() {
       received = received || mapped.length > 0;
       photoSearchResultsRef.current = next;
       setPhotoSearchResults(next);
-      setPhotoSearchMode(true);
       setPhotoSearchPage(page);
       setPhotoSearchTotal(response?.total ?? null);
       setPhotoSearchHasMore(Boolean(response?.hasMore));
@@ -596,8 +602,9 @@ function App() {
   const handleSearchSubmit = React.useCallback(() => {
     let trimmed = String(keyword || '').trim();
     if (currentProjectId || (selectedNav === 'projects' && folderSearchScope)) {
-      setScopedSearchRequest({ q: trimmed, projectId: currentProjectId || null,
-        folderId: currentProjectId ? null : folderSearchScope.folderId, revision: {} });
+      const url = new URL(window.location.href);
+      if (trimmed) url.searchParams.set('q', trimmed); else url.searchParams.delete('q');
+      navigate(url);
       return;
     }
     trimmed = trimmed || searchSuggestion;
@@ -608,19 +615,11 @@ function App() {
       const url = new URL(window.location.href);
       url.searchParams.delete('projectId');
       const base = isDemoPath ? '/demo' : (url.pathname && url.pathname !== '/' ? '/' : url.pathname || '/');
-      window.history.pushState({}, '', base + (url.search ? url.search : ''));
+      url.searchParams.set('q', trimmed);
+      navigate(base + url.search);
     } catch (e) {
       // ignore
     }
-    setPhotoSearchMode(true);
-    setPhotoSearchResults([]);
-    setPhotoSearchError(null);
-    setPhotoSearchHasMore(false);
-    setPhotoSearchPage(1);
-    setPhotoSearchTotal(0);
-    setPhotoSearchMeta(null);
-    loadProjects(trimmed, 1, PROJECT_PAGE_SIZE);
-    loadPhotoSearchResults({ kw: trimmed, page: 1, append: false });
   }, [keyword, searchSuggestion, currentProjectId, selectedNav, folderSearchScope, loadPhotoSearchResults, clearPhotoSearchState, loadProjects, isDemoPath]);
 
   const handlePhotoSearchLoadMore = React.useCallback(() => {
@@ -659,52 +658,44 @@ function App() {
   }, []);
 
   const closePhotoPreview = React.useCallback(() => {
-    setPhotoPreviewVisible(false);
+    if (new URLSearchParams(window.location.search).has('previewId')) closeMediaRoute('previewId');
+    else setPhotoPreviewVisible(false);
   }, []);
 
   const handleSelectProject = React.useCallback((projectId, photo = {}) => {
     handleInitialUploadHandled();
-    setScopedSearchRequest(null);
-    setKeyword('');
-    setCurrentProjectId(projectId);
     const photoId = photo?.photoId == null ? null : String(photo.photoId).trim() || null;
-    setPendingOpenPhotoId(photoId);
-    setPendingOpenPhotoSrc(photo?.src || null);
-    setSelectedNav('projects');
     try {
       const url = new URL(window.location.href);
+      url.pathname = isDemoPath ? '/demo' : '/';
+      ['q', 'previewId', 'upload', 'unitId'].forEach(key => url.searchParams.delete(key));
       url.searchParams.set('projectId', projectId);
       url.searchParams.delete('focusPhotoId');
       if (photoId) url.searchParams.set('photoId', photoId);
       else url.searchParams.delete('photoId');
-      window.history.pushState({}, '', url);
+      if (navigate(url)) setPendingOpenPhotoSrc(photo?.src || null);
     } catch (e) {
       // ignore
     }
-  }, [handleInitialUploadHandled]);
+  }, [handleInitialUploadHandled, isDemoPath]);
 
   const handleBackToList = React.useCallback(() => {
     handleInitialUploadHandled();
-    setScopedSearchRequest(null);
-    setCurrentProjectId(null);
-    setPendingOpenPhotoId(null);
-    setPendingOpenPhotoSrc(null);
-    setSelectedNav('projects');
+    const url = new URL(window.location.href);
+    url.pathname = isDemoPath ? '/demo' : '/';
+    ['projectId', 'focusPhotoId', 'photoId', 'q', 'previewId'].forEach(key => url.searchParams.delete(key));
+    goBack(url);
+  }, [isDemoPath, handleInitialUploadHandled]);
+  const handleGoHome = React.useCallback(() => {
+    handleInitialUploadHandled();
+    navigate(isDemoPath ? '/demo' : '/');
+  }, [isDemoPath, handleInitialUploadHandled]);
+  const clearSearch = React.useCallback(() => {
+    const parent = withoutParams(window.location.href, ['q', 'previewId']);
     setKeyword('');
-    clearPhotoSearchState();
-    loadProjects('', 1, PROJECT_PAGE_SIZE);
-    try {
-      const url = new URL(window.location.href);
-      url.searchParams.delete('projectId');
-      url.searchParams.delete('focusPhotoId');
-      url.searchParams.delete('photoId');
-      // navigate back to root list view
-      const base = isDemoPath ? '/demo' : (url.pathname && url.pathname !== '/' ? '/' : url.pathname || '/');
-      window.history.pushState({}, '', base + (url.search ? url.search : ''));
-    } catch (e) {
-      // ignore
-    }
-  }, [clearPhotoSearchState, loadProjects, isDemoPath, handleInitialUploadHandled]);
+    if (!new URLSearchParams(window.location.search).has('q')) return;
+    goBack(parent, { acceptPrevious: previous => previous === parent });
+  }, []);
 
   const handleProjectPrevPage = React.useCallback(() => {
     if (loading || projectPage <= 1) return;
@@ -716,15 +707,12 @@ function App() {
     loadProjects(projectQuery, projectPage + 1, PROJECT_PAGE_SIZE);
   }, [loading, projectHasMore, projectPage, projectQuery, loadProjects]);
 
-  // On mount: read projectId from URL and listen to popstate for back/forward navigation
+  // Public links are loaded separately from the authenticated workspace routes.
   React.useEffect(() => {
     try {
-      const params = new URLSearchParams(window.location.search);
-      const pid = params.get('projectId');
-      const openPhotoId = params.get('photoId');
       const path = window.location.pathname;
       if (path === '/login' && readAlbumUploadIntent(window.location.href)) {
-        window.history.replaceState({}, '', '/' + window.location.search);
+        navigate('/' + window.location.search, { replace: true });
       }
       // handle public share links served by SPA: /share/:code
       if (path && path.startsWith('/share/')) {
@@ -753,7 +741,9 @@ function App() {
                   };
 
                   // If backend returned a project-like object, merge metadata into it
-                  if (data.project) {
+                  if (data.folder) {
+                    setShareInitialProject(Object.assign({}, data, meta));
+                  } else if (data.project) {
                     setShareInitialProject(Object.assign({}, data.project, meta));
                   } else if (Array.isArray(data.photos) || Array.isArray(data.list) || Array.isArray(data.images)) {
                     setShareInitialProject(Object.assign({}, data, {
@@ -811,95 +801,49 @@ function App() {
           })();
         }
       }
-      if (path === '/privacy') {
-        setSelectedNav('privacy');
-        setCurrentProjectId(null);
-      } else if (path === '/scenery') {
-        setSelectedNav('scenery');
-        setCurrentProjectId(null);
-      } else if (path === '/login' && !readAlbumUploadIntent(window.location.href)) {
-        // if visiting /login and already authenticated, redirect to root
-        if (currentUser) {
-          try { window.history.replaceState({}, '', '/'); } catch (e) { }
-          setSelectedNav('projects');
-          setCurrentProjectId(null);
-        }
-      } else if (mediaPlatformFromPath(path)) {
-        const platform = mediaPlatformFromPath(path);
-        setSelectedNav('function');
-        setFunctionPage(platform.key);
-        setCurrentProjectId(null);
-        if (path === '/function/group-rescue') {
-          try { window.history.replaceState({}, '', DEFAULT_MEDIA_PLATFORM.path); } catch (e) { }
-        }
-      } else if (pid) {
-        setSelectedNav('projects');
-        setCurrentProjectId(pid);
-        setPendingOpenPhotoId(openPhotoId ? String(openPhotoId) : null);
-      } else {
-        setSelectedNav('projects');
-        setCurrentProjectId(null);
-        setPendingOpenPhotoId(null);
-      }
     } catch (e) {
       // ignore
     }
-
-    const onPop = () => {
-      const intent = readAlbumUploadIntent(window.location.href);
-      setAlbumUploadIntent(intent);
-      if (intent) rememberAlbumUploadIntent(window.sessionStorage, intent);
-      setPendingOpenPhotoSrc(null);
-      try {
-        const path = window.location.pathname;
-        const params = new URLSearchParams(window.location.search);
-        const p = params.get('projectId');
-        const openPhotoId = params.get('photoId');
-        if (path && path.startsWith('/share/')) {
-          // reload to allow share handling effect to fetch fresh data
-          try { window.location.reload(); } catch (e) { window.location.href = path; }
-          return;
-        }
-        if (path === '/privacy') {
-          setSelectedNav('privacy');
-          setCurrentProjectId(null);
-        } else if (path === '/scenery') {
-          setSelectedNav('scenery');
-          setCurrentProjectId(null);
-        } else if (path === '/login' && !readAlbumUploadIntent(window.location.href)) {
-          // on popstate to /login, keep showing auth if not logged in
-          if (currentUser) {
-            try { window.history.replaceState({}, '', '/'); } catch (e) { }
-            setSelectedNav('projects');
-            setCurrentProjectId(null);
-          }
-        } else if (mediaPlatformFromPath(path)) {
-          const platform = mediaPlatformFromPath(path);
-          setSelectedNav('function');
-          setFunctionPage(platform.key);
-          setCurrentProjectId(null);
-          if (path === '/function/group-rescue') {
-            try { window.history.replaceState({}, '', DEFAULT_MEDIA_PLATFORM.path); } catch (e) { }
-          }
-        } else if (p) {
-          setSelectedNav('projects');
-          setCurrentProjectId(p);
-          setPendingOpenPhotoId(openPhotoId ? String(openPhotoId) : null);
-        } else {
-          setSelectedNav('projects');
-          setCurrentProjectId(null);
-          setPendingOpenPhotoId(null);
-        }
-      } catch (err) {
-        setCurrentProjectId(null);
-        setSelectedNav('projects');
-        setPendingOpenPhotoId(null);
-      }
-    };
-
-    window.addEventListener('popstate', onPop);
-    return () => window.removeEventListener('popstate', onPop);
   }, []);
+
+  const lastGlobalQuery = React.useRef('');
+  React.useEffect(() => {
+    lastGlobalQuery.current = '';
+    clearPhotoSearchState();
+  }, [currentUser?.id, workspaceInfo?.activeUnitId, clearPhotoSearchState]);
+  React.useEffect(() => {
+    const url = new URL(route.url, window.location.origin), params = url.searchParams;
+    if (url.pathname.startsWith('/share/')) return;
+    const intent = readAlbumUploadIntent(url.href);
+    setAlbumUploadIntent(intent);
+    if (intent) rememberAlbumUploadIntent(window.sessionStorage, intent);
+    if (url.pathname === '/login' && currentUser && !intent) { navigate('/', { replace: true }); return; }
+    const platform = mediaPlatformFromPath(url.pathname);
+    const page = ({ '/about': 'about', '/account': 'account', '/privacy': 'privacy', '/scenery': 'scenery' })[url.pathname];
+    setSelectedNav(page || (platform ? 'function' : 'projects'));
+    if (platform) setFunctionPage(platform.key);
+    const projectId = !page && !platform ? params.get('projectId') : null;
+    setCurrentProjectId(projectId);
+    setPendingOpenPhotoId(projectId ? params.get('photoId') : null);
+    setKeyword(params.get('q') || '');
+    setScopedSearchRequest(null);
+    setMobileNavVisible(false);
+    setMobileHeaderPanel(null);
+    setProjectInfoOpen(false);
+  }, [route.url, currentUser, globalQuery]);
+  React.useEffect(() => {
+    if (!globalQuery || (!currentUser && !isDemoPath)) return;
+    if (lastGlobalQuery.current === globalQuery) return;
+    lastGlobalQuery.current = globalQuery;
+    loadProjects(globalQuery, 1, PROJECT_PAGE_SIZE);
+    loadPhotoSearchResults({ kw: globalQuery });
+  }, [globalQuery, currentUser, workspaceInfo?.activeUnitId, isDemoPath, loadProjects, loadPhotoSearchResults]);
+  const previewId = routeUrl.searchParams.get('previewId');
+  React.useEffect(() => {
+    const photo = photoSearchResults.find(item => String(item.id) === previewId);
+    if (photo) { openMediaRoute(photo.id, 'previewId'); openPhotoPreview(photo); }
+    else setPhotoPreviewVisible(false);
+  }, [previewId, photoSearchResults, openPhotoPreview]);
 
   const canUseMediaStudio = Boolean(
     currentUser
@@ -914,7 +858,7 @@ function App() {
     if (canUseMediaStudio) return;
     setSelectedNav('projects');
     setCurrentProjectId(null);
-    try { window.history.replaceState({}, '', '/'); } catch (e) { }
+    navigate('/', { replace: true });
   }, [selectedNav, currentUser, canUseMediaStudio]);
 
   const normalizedProjects = React.useMemo(() => {
@@ -1115,65 +1059,51 @@ function App() {
   }, [closeMobileNav, mobileNavVisible]);
 
   const handleNavigateScenery = React.useCallback(() => {
-    setSelectedNav('scenery');
-    setCurrentProjectId(null);
-    try { window.history.pushState({}, '', '/scenery'); } catch (e) { }
+    navigate('/scenery');
   }, []);
 
   // 全媒体编辑台默认进入推文平台；平台切换由页面内二级导航承接。
   const handleNavigateFunction = React.useCallback(() => {
-    setSelectedNav('function');
-    setCurrentProjectId(null);
-    setFunctionPage(DEFAULT_MEDIA_PLATFORM.key);
-    try { window.history.pushState({}, '', DEFAULT_MEDIA_PLATFORM.path); } catch (e) { }
+    navigate(DEFAULT_MEDIA_PLATFORM.path);
   }, []);
 
   const handleNavigateMediaPlatform = React.useCallback((platform) => {
     if (!platform) return;
     if (functionPage === platform.key) return;
-    setSelectedNav('function');
-    setCurrentProjectId(null);
-    setFunctionPage(platform.key);
-    try { window.history.pushState({}, '', platform.path); } catch (e) { }
+    navigate(platform.path);
     if (platform.editor === 'wechat' && WechatComposer.preload) WechatComposer.preload();
     if (platform.editor === 'writer' && AiNewsWriter.preload) AiNewsWriter.preload();
     if (platform.editor === 'video' && VideoEditor.preload) VideoEditor.preload();
   }, [functionPage]);
 
   const handleNavigatePrivacy = React.useCallback(() => {
-    setSelectedNav('privacy');
-    setCurrentProjectId(null);
-    try { window.history.pushState({}, '', '/privacy'); } catch (e) { }
+    navigate('/privacy');
   }, []);
 
   const handleNavigateAbout = React.useCallback(() => {
-    setSelectedNav('about');
-    setCurrentProjectId(null);
-    try { window.history.pushState({}, '', '/about'); } catch (e) { }
+    navigate('/about');
   }, []);
 
   const handleNavigateAccount = React.useCallback(() => {
-    try { window.history.pushState({}, '', '/account'); } catch (e) { }
-    setSelectedNav('account');
-    setCurrentProjectId(null);
+    navigate('/account');
   }, []);
 
   const handleLogout = React.useCallback(async () => {
     try {
       await authService.logout();
       setCurrentUser(null);
-      try { window.history.pushState({}, '', '/login'); } catch (e) { }
+      navigate('/login', { replace: true });
     } catch (e) {
       console.error(e);
     }
   }, []);
 
   const navItems = React.useMemo(() => ([
-    { key: 'projects', label: '项目', onClick: handleBackToList },
+    { key: 'projects', label: '项目', onClick: handleGoHome },
     { key: 'scenery', label: '风景', onClick: handleNavigateScenery },
     ...(canUseMediaStudio ? [{ key: 'function', label: '全媒体编辑台', onClick: handleNavigateFunction }] : []),
     { key: 'about', label: '关于', onClick: handleNavigateAbout },
-  ]), [canUseMediaStudio, handleBackToList, handleNavigateAbout, handleNavigateFunction, handleNavigateScenery]);
+  ]), [canUseMediaStudio, handleGoHome, handleNavigateAbout, handleNavigateFunction, handleNavigateScenery]);
 
   const renderNavItem = React.useCallback((item, mobile = false) => (
     <button
@@ -1215,18 +1145,6 @@ function App() {
 
   const handleInitialPhotoOpened = React.useCallback((photoId) => {
     setPendingOpenPhotoSrc(null);
-    const sid = photoId === null || photoId === undefined ? '' : String(photoId).trim();
-    if (!sid) return;
-    setPendingOpenPhotoId((prev) => (prev && String(prev).trim() === sid ? null : prev));
-    try {
-      const url = new URL(window.location.href);
-      if (String(url.searchParams.get('photoId') || '').trim() === sid) {
-        url.searchParams.delete('photoId');
-        window.history.replaceState({}, '', url);
-      }
-    } catch (e) {
-      // ignore
-    }
   }, []);
 
 
@@ -1273,7 +1191,7 @@ function App() {
             <PrivacyPage
               onBack={() => {
                 setSelectedNav('projects');
-                try { window.history.pushState({}, '', '/login'); } catch (e) { }
+                navigate('/login');
               }}
             />
           </LazyPanel>
@@ -1320,23 +1238,21 @@ function App() {
             {isMobileHeader ? (
               <button
                 type="button"
-                className={`mamage-menu-trigger${currentProjectId ? ' is-home' : (mobileNavVisible ? ' is-open' : '')}`}
-                aria-label={currentProjectId ? '返回首页' : '打开导航'}
+                className={`mamage-menu-trigger${currentProjectId ? ' is-back' : (mobileNavVisible ? ' is-open' : '')}`}
+                aria-label={currentProjectId ? '返回上一页' : '打开导航'}
                 aria-controls={currentProjectId ? undefined : 'mamage-mobile-nav'}
                 aria-expanded={currentProjectId ? undefined : mobileNavVisible}
                 onClick={currentProjectId ? handleBackToList : () => setMobileNavVisible((prev) => !prev)}
               >
-                <span />
-                <span />
-                <span />
+                {currentProjectId ? <IconChevronLeft /> : <><span /><span /><span /></>}
               </button>
             ) : null}
 
             <button
               type="button"
-              onClick={currentProjectId && isMobileHeader ? () => { setMobileHeaderPanel(null); setProjectInfoOpen((prev) => !prev); } : handleBackToList}
+              onClick={currentProjectId && isMobileHeader ? () => { setMobileHeaderPanel(null); setProjectInfoOpen((prev) => !prev); } : handleGoHome}
               className={`mamage-brand-button${currentProjectId && isMobileHeader ? ' is-project-title' : ''}`}
-              title={currentProjectId && isMobileHeader ? '查看相册信息' : (currentProjectId ? '返回项目列表' : '返回首页')}
+              title={currentProjectId && isMobileHeader ? '查看相册信息' : '返回小组空间'}
               aria-expanded={currentProjectId && isMobileHeader ? projectInfoOpen : undefined}
               aria-controls={currentProjectId && isMobileHeader ? 'mamage-album-header-info' : undefined}
             >
@@ -1397,17 +1313,7 @@ function App() {
                   type="button"
                   className="mamage-search-clear"
                   aria-label="清空搜索"
-                  onClick={() => {
-                    // 清空输入的同时退出搜索结果态，回到项目列表（与"搜索空关键词"行为一致）
-                    setKeyword('');
-                    if (currentProjectId || (selectedNav === 'projects' && folderSearchScope)) {
-                      setScopedSearchRequest({ q: '', projectId: currentProjectId || null,
-                        folderId: currentProjectId ? null : folderSearchScope.folderId, revision: {} });
-                      return;
-                    }
-                    clearPhotoSearchState();
-                    loadProjects('', 1, PROJECT_PAGE_SIZE);
-                  }}
+                  onClick={clearSearch}
                 >
                   ×
                 </button>
@@ -1497,7 +1403,7 @@ function App() {
                 className="mamage-action-button is-secondary"
                 onClick={() => {
                   try {
-                    window.history.pushState({}, '', '/login');
+                    navigate('/login');
                     window.location.reload();
                   } catch (e) {
                     window.location.href = '/login';
@@ -1513,7 +1419,7 @@ function App() {
 
         {currentProjectId && !isMobileHeader ? (
           <div className="mamage-desktop-project-notch" data-glass="clear" aria-label="相册信息">
-            <button type="button" className="mamage-desktop-project-title" title={projectHeaderTitle} onClick={handleBackToList}>{projectHeaderTitle}</button>
+            <button type="button" className="mamage-desktop-project-title" aria-label="返回上一页" title="返回上一页" onClick={handleBackToList}><IconChevronLeft />{projectHeaderTitle}</button>
             {projectHeaderMeta.length > 0 ? (
               <span className="mamage-notch-meta">
                 {projectHeaderMeta.map((item) => <span key={item}>{item}</span>)}
@@ -1571,7 +1477,7 @@ function App() {
                     <Text>{`“${String(keyword || '').trim()}”的搜索结果`}</Text>
                     <Button
                       size="small"
-                      onClick={handleBackToList}
+                      onClick={clearSearch}
                     >
                       清空搜索
                     </Button>
@@ -1629,7 +1535,7 @@ function App() {
                           >
                             <button
                               type="button"
-                              onClick={() => openPhotoPreview(photo)}
+                              onClick={() => { openPhotoPreview(photo); openMediaRoute(photo.id, 'previewId'); }}
                               title={(photo.thumbUrl || photo.url) ? '点击预览大图' : ''}
                               style={{
                                 width: '100%',
@@ -1900,7 +1806,7 @@ function App() {
                           onClick={() => {
                             setSelectedNav('projects');
                             setCurrentProjectId(null);
-                            try { window.history.replaceState({}, '', '/'); } catch (e) { }
+                            navigate('/', { replace: true });
                           }}
                         >
                           回到相册

@@ -60,6 +60,9 @@
 }
 :root .mamage-desktop-project-notch::before, :root .mamage-desktop-project-notch::after { content: none; }
 :root .mamage-header .mamage-desktop-project-title { position: static; transform: none; max-width: 100%; width: auto; min-width: 0; font-size: 15px; }
+:root .mamage-header .mamage-desktop-project-title { display: inline-flex; align-items: center; gap: 6px; }
+:root .mamage-header .mamage-desktop-project-title > svg { width: 16px; height: 16px; flex: 0 0 16px; }
+:root .mamage-menu-trigger.is-back > svg { width: 22px; height: 22px; flex: 0 0 22px; }
 @media (max-width: 1320px) {
   :root .mamage-header { margin-inline: 14px; }
   :root .mamage-header .mamage-nav-actions { flex-basis: 550px; }

@@ -62,7 +62,7 @@ export default function AuthPage({ onAuthenticated }) {
                 : '统一身份登录未完成，请重试或联系管理员'
           : code;
         setLoginAlert(message); Toast.error(message);
-        window.history.replaceState({}, '', window.location.pathname + window.location.search);
+        window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search);
       }
     } catch (e) { /* ignore */ }
     return () => { canceled = true; clearTimeout(timeout); controller.abort(); };
