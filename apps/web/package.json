@@ -10,7 +10,9 @@
     "prosemirror-state": "^1.4.4",
     "prosemirror-view": "^1.42.8",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "react-image-crop": "11.1.2",
+    "lucide-react": "1.70.0"
   },
   "dependenciesMeta": {},
   "scripts": {
@@ -34,6 +36,7 @@
     "test:oidc-login": "node --test scripts/test-oidc-login.cjs",
     "test:gallery": "node scripts/run-gallery-tests.cjs",
     "test:photo-tone": "node scripts/test-photo-tone-browser.cjs",
+    "test:photo-geometry": "node scripts/test-photo-geometry-browser.cjs",
     "preview:photo-tone": "node scripts/serve-photo-tone.cjs",
     "preview:news": "node scripts/preview-news-usability.cjs",
     "pretest:audit": "npm run test:iam && npm run test:oidc-login && npm run test:glass-compatibility",

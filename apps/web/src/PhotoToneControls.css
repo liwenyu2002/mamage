@@ -19,6 +19,8 @@
 .tone-editor-tools { display: flex; align-items: center; gap: 6px; padding: 4px 0 6px; }
 .tone-compare { display: flex; padding: 2px; border-radius: 6px; border: 1px solid #80808030; margin-right: auto; }
 .tone-compare button { min-width: 52px; min-height: 28px; padding: 4px 8px; border: none; border-radius: 4px; background: transparent; font-size: 12px; white-space: nowrap; }
+.tone-compare button { display: inline-flex; align-items: center; gap: 4px; }
+.tone-compare button svg { width: 14px; height: 14px; }
 .tone-compare button[aria-pressed='true'] { background: #80808022; font-weight: 600; }
 .tone-comparison-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
 .tone-metering { font-size: 11px; color: var(--viewer-muted); }
@@ -45,6 +47,28 @@
 .tone-editor-footer .tone-save { margin-left: auto; background: var(--viewer-ink); color: var(--viewer-bg, #fff); min-width: 64px; }
 .viewer-overlay--workspace[data-glass-theme='dark'] .tone-save { color: #222426; }
 .tone-editor-error { color: #cf6c62; font-size: 12px; line-height: 1.5; }
+.tone-edit-modes { display: flex; gap: 4px; border-bottom: 1px solid #80808026; padding: 0 0 8px; margin-bottom: 8px; }
+.tone-edit-modes button { display: flex; align-items: center; justify-content: center; gap: 6px; flex: 1; min-height: 34px; border: 0; border-radius: 6px; background: transparent; }
+.tone-edit-modes button[aria-selected='true'] { background: #80808022; font-weight: 600; }
+.tone-edit-modes svg { width: 16px; height: 16px; }
+.tone-source-size { display: flex; justify-content: space-between; gap: 8px; color: var(--viewer-muted); font-size: 11px; font-variant-numeric: tabular-nums; margin-bottom: 8px; }
+.tone-ratios { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 8px 0 16px; }
+.tone-ratios button { min-height: 32px; border: 1px solid #80808030; border-radius: 5px; background: transparent; padding: 4px; }
+.tone-ratios button[aria-pressed='true'] { background: #80808022; border-color: currentColor; }
+.tone-rotation-tools { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+.tone-reset-crop { margin-left: auto; background: transparent; border: 0; font-size: 12px; padding: 6px; }
+.tone-photo-stage { display: flex; align-items: center; max-width: 100%; max-height: 100%; position: relative; }
+.tone-photo-stage.is-side-by-side { gap: 12px; width: 100%; }
+.tone-before-image, .tone-after-image { position: relative; min-width: 0; margin: 0; display: flex; align-items: center; justify-content: center; }
+.is-side-by-side .tone-before-image, .is-side-by-side .tone-after-image { flex: 1 1 0; width: 50%; }
+.tone-before-image figcaption, .tone-after-caption { position: absolute; left: 8px; bottom: 8px; font-size: 11px; line-height: 18px; padding: 2px 6px; background: #17191dde; color: white; border-radius: 4px; }
+.tone-crop { max-width: 100%; line-height: 0; }
+.tone-crop .ReactCrop__child-wrapper { display: block; }
+.tone-crop .ReactCrop__crop-selection { border-radius: 0; }
+.tone-crop .ReactCrop__drag-handle { background: white; border: 1px solid #313638; }
+.tone-crop .ReactCrop__drag-handle::after { position: absolute; inset: -9px; content: ''; }
+.tone-source-loading { padding: 20px; font-size: 13px; color: var(--viewer-muted); }
+.viewer-overlay--workspace .has-tone-side-compare .viewer-face-image-surface { width: 100%; }
 @media (pointer: coarse) {
   .tone-control input[type='range'] { height: 30px; }
   .tone-editor .tone-icon { width: 36px; height: 36px; flex-basis: 36px; }
@@ -66,5 +90,5 @@
   .tone-editor-footer { padding: 6px 12px; }
 }
 @media (max-width: 900px) and (min-height: 501px) {
-  .viewer-overlay--workspace .viewer-wrap.has-details.has-tone-editor { grid-template-rows: auto minmax(0, 1fr) max(264px, 34%) auto auto; }
+  .viewer-overlay--workspace .viewer-wrap.has-details.has-tone-editor { grid-template-rows: auto minmax(0, 1fr) max(344px, 40%) auto auto; }
 }

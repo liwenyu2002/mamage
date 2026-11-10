@@ -20,7 +20,7 @@ async function albumSnapshot() {
   const helperPath = path.join(__dirname, '../lib/video_processing_state.js');
   const stateHelpers = fs.existsSync(helperPath) ? require(helperPath) : {};
   const readState = stateHelpers.attachVideoProcessingState;
-  const globals = { console, pool, ...stateHelpers,
+  const globals = { console, pool, require, ...stateHelpers,
     attachVideoProcessingState: (items, options) => readState(items, { ...options, enabled: true }),
     router: { get: (_path, callback) => { handler = callback; } },
     populateReqUserFromAuthIfPresent: async () => {}, getScopedOrgIdFromReq: () => 2,

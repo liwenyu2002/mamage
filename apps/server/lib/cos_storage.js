@@ -654,6 +654,9 @@ function deleteObjectsForPhotoRows(rows) {
     if (thumbKey) keysToDelete.push(thumbKey);
     if (publicDownloadKey) keysToDelete.push(publicDownloadKey);
     if (playbackKey) keysToDelete.push(playbackKey);
+    const baked = require('./photo_tone/artifacts.cjs').getBakedEdit(row);
+    if (baked) keysToDelete.push(...[baked.url, baked.thumbUrl, ...(baked.retired || [])]
+      .filter(key => new RegExp(`^uploads/photo-edits/${Number(row.id)}/[a-f0-9-]{36}/(?:image\\.jpg|thumb\\.webp)$`).test(key)));
   }
   return deleteObjects(keysToDelete);
 }

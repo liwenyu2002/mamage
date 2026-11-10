@@ -71,6 +71,8 @@ const RENDER_SOURCE_TIMEOUT_MS = Math.max(1000, Number(process.env.PHOTO_RENDER_
 const RENDER_MAX_SOURCE_BYTES = Math.max(1024 * 1024, Number(process.env.PHOTO_RENDER_MAX_SOURCE_BYTES || 128 * 1024 * 1024));
 const photoTone = require('../lib/photo_tone/engine.mjs');
 const { renderAdjustedPhotoBuffer, renderPhotoToneWorkingCopy } = require('../lib/photo_tone/render.cjs');
+const { preparePhotoEdit } = require('../lib/photo_tone/save.cjs');
+const { getBakedEdit, editRevision, editableSourceUrl, displayPhotoRow, publicAdjustments } = require('../lib/photo_tone/artifacts.cjs');
 const ZIP_TICKET_TTL_MS = Math.max(15000, Number(process.env.PHOTO_ZIP_TICKET_TTL_MS || 2 * 60 * 1000));
 const { createVideoDownloads, mediaFilename } = require('../lib/video_download');
 const videoDownloads = createVideoDownloads({
@@ -488,8 +490,8 @@ function normalizePhotoAdjustments(input) {
   try { return photoTone.normalizePhotoAdjustments(input); } catch (_) { return undefined; }
 }
 
-function parsePhotoAdjustments(input) {
-  return normalizePhotoAdjustments(input) || null;
+function parsePhotoAdjustments(input, id) {
+  return publicAdjustments(input, id);
 }
 
 function hasMeaningfulPhotoAdjustments(input) {
@@ -516,7 +518,7 @@ function resolvePhotoSourceTargetUrl(req, row, variant = 'original') {
   const requested = String(variant || 'original').toLowerCase();
   const raw = requested === 'thumb' ? (row.thumbUrl || row.url) : (row.url || row.thumbUrl);
   if (!raw) return '';
-  const built = buildMediaUrl(raw, { userId: req.user && req.user.id, photoId: row.id });
+  const built = editableSourceUrl(buildMediaUrl(raw, { userId: req.user && req.user.id, photoId: row.id }));
   return /^https?:\/\//i.test(built)
     ? built
     : `${req.protocol}://${req.get('host')}${String(built).startsWith('/') ? built : `/${built}`}`;
@@ -746,7 +748,8 @@ router.get('/', requirePermission('photos.view'), async (req, res) => {
         playbackUrl: resolveUrl(p.playbackUrl),
         playback_url: resolveUrl(p.playbackUrl),
         description: p.description || null,
-        adjustments: parsePhotoAdjustments(p.adjustments),
+        adjustments: parsePhotoAdjustments(p.adjustments, p.id),
+        editRevision: editRevision(p),
         aiStatus: p.aiStatus || null,
         aiScore: p.aiScore !== undefined && p.aiScore !== null ? p.aiScore : null,
         aiQuality: (() => { try { return typeof p.aiQuality === 'string' ? JSON.parse(p.aiQuality) : (p.aiQuality || null); } catch (e) { return null; } })(),
@@ -873,7 +876,8 @@ router.get('/scenery/random', requirePermission('photos.view'), async (req, res)
         playbackUrl: resolveUrl(p.playbackUrl),
         playback_url: resolveUrl(p.playbackUrl),
         description: p.description || null,
-        adjustments: parsePhotoAdjustments(p.adjustments),
+        adjustments: parsePhotoAdjustments(p.adjustments, p.id),
+        editRevision: editRevision(p),
         aiStatus: p.aiStatus || null,
         aiError: p.aiError || null,
         aiStartedAt: p.aiStartedAt || null,
@@ -1005,7 +1009,7 @@ router.post('/delete', requirePermission('photos.delete'), async (req, res) => {
     try {
       await conn.beginTransaction();
 
-      let selSql = 'SELECT id, project_id AS projectId, url, thumb_url AS thumbUrl, public_download_url AS publicDownloadUrl, playback_url AS playbackUrl FROM photos WHERE id IN (?)';
+      let selSql = 'SELECT id, project_id AS projectId, url, thumb_url AS thumbUrl, public_download_url AS publicDownloadUrl, playback_url AS playbackUrl, adjustments FROM photos WHERE id IN (?)';
       const selParams = [ids];
       if (orgId === null) {
         selSql += ' AND organization_id IS NULL';
@@ -1495,7 +1499,7 @@ async function handleZipRequest(req, res) {
     const streamOriginals = cosStorage.isConfigured() && rows.every(row => {
       const key = cosStorage.keyFromUrlOrPath(row.url);
       return key && cosStorage.isSafeKey(key) && key.startsWith('uploads/')
-        && (row.type === 'video' || !hasMeaningfulPhotoAdjustments(parsePhotoAdjustments(row.adjustments)));
+        && (row.type === 'video' || getBakedEdit(row) || !hasMeaningfulPhotoAdjustments(parsePhotoAdjustments(row.adjustments)));
     });
     if (streamOriginals) return await videoDownloads.stream(req, res, ids, { videosOnly: false });
     if (res.destroyed) return;
@@ -1803,6 +1807,12 @@ async function handleZipRequest(req, res) {
         const projId = r.projectId || 0;
         const rawProjName = projMap[projId] || `project-${projId}`;
         const rawSecName = r.sectionId ? (sectionMap[r.sectionId] || '') : '';
+        const baked = getBakedEdit(r);
+        if (baked) {
+          const name = `${zipFolder}/${mediaFilename({ ...r, url: baked.url, projectName: rawProjName, sectionName: rawSecName })}`;
+          if (!await appendStorageObjectToArchive(baked.url, name, ZIP_MAX_REMOTE_BYTES)) throw new Error('Edited photo unavailable');
+          continue;
+        }
         const originalNameInZip = `${zipFolder}/${mediaFilename({ ...r, projectName: rawProjName, sectionName: rawSecName })}`;
         const maxBytes = r.type === 'video' ? 100 * 1024 ** 3 : ZIP_MAX_REMOTE_BYTES;
         const adjustments = parsePhotoAdjustments(r.adjustments);
@@ -1899,6 +1909,18 @@ router.post('/:id/rendered', requirePermission('photos.view'), async (req, res) 
     }
     if (!adjustments) adjustments = normalizePhotoAdjustments({});
 
+    const baked = getBakedEdit(row);
+    if (baked && photoTone.getToneAdjustmentKey(adjustments) === photoTone.getToneAdjustmentKey(row.adjustments)) {
+      const key = variant === 'thumb' ? baked.thumbUrl : baked.url;
+      const { buffer } = await fetchImageBufferFromUrl(resolvePhotoSourceTargetUrl(req, { ...row, url: key, thumbUrl: key }));
+      res.setHeader('Content-Type', variant === 'thumb' ? 'image/webp' : 'image/jpeg');
+      res.setHeader('Cache-Control', 'private, no-store');
+      res.setHeader('Vary', 'Authorization');
+      res.setHeader('X-MaMage-Tone-Engine', photoTone.ENGINE);
+      res.setHeader('X-MaMage-Render-Variant', 'saved');
+      return res.send(buffer);
+    }
+
     const targetUrl = resolvePhotoSourceTargetUrl(req, row, variant);
     if (!targetUrl) return res.status(404).json({ error: 'photo source not found' });
 
@@ -1906,7 +1928,7 @@ router.post('/:id/rendered', requirePermission('photos.view'), async (req, res) 
       timeoutMs: RENDER_SOURCE_TIMEOUT_MS,
       maxBytes: RENDER_MAX_SOURCE_BYTES,
     });
-    const rendered = await renderAdjustedPhotoBuffer(buffer, adjustments, { maxSize, format, quality });
+    const rendered = await renderAdjustedPhotoBuffer(buffer, adjustments, { maxSize, format, quality, fullResolution: variant === 'original' && body.fullResolution === true });
 
     res.setHeader('Content-Type', getRenderedContentType(format));
     res.setHeader('Cache-Control', 'private, no-store');
@@ -1952,7 +1974,7 @@ router.get('/:id/pixel-source', requirePermission('photos.view'), async (req, re
       const target = resolvePhotoSourceTargetUrl(req, row, 'original');
       if (!target) return res.status(404).json({ error: 'photo source not found' });
       const { buffer } = await fetchImageBufferFromUrl(target);
-      const working = await renderPhotoToneWorkingCopy(buffer, clampNumber(req.query.maxSize, 320, 1600, 1280));
+      const working = await renderPhotoToneWorkingCopy(buffer, clampNumber(req.query.maxSize, 320, 1600, 1280), req.query.full === '1');
       res.setHeader('Content-Type', 'image/png');
       res.setHeader('Cache-Control', 'private, no-store');
       res.setHeader('Vary', 'Authorization');
@@ -1964,8 +1986,8 @@ router.get('/:id/pixel-source', requirePermission('photos.view'), async (req, re
     const raw = variant === 'original' ? (row.url || row.thumbUrl) : (row.thumbUrl || row.url);
     if (!raw) return res.status(404).json({ error: 'photo source not found' });
 
-    const built = /^https?:\/\//i.test(String(raw)) ? String(raw)
-      : buildMediaUrl(raw, { userId: req.user && req.user.id, photoId: row.id });
+    const built = editableSourceUrl(/^https?:\/\//i.test(String(raw)) ? String(raw)
+      : buildMediaUrl(raw, { userId: req.user && req.user.id, photoId: row.id }));
     const targetUrl = /^https?:\/\//i.test(built)
       ? built
       : `${req.protocol}://${req.get('host')}${String(built).startsWith('/') ? built : `/${built}`}`;
@@ -2027,11 +2049,12 @@ router.get('/:id/direct-url', requirePermission('photos.view'), async (req, res)
     if (!['original', 'thumb', 'public', 'playback'].includes(variant)) {
       return res.status(400).json({ error: 'invalid variant' });
     }
+    const displayRow = req.query.original === '1' ? row : displayPhotoRow(row);
     const raw = variant === 'thumb'
-      ? (row.thumbUrl || row.url)
+      ? (displayRow.thumbUrl || displayRow.url)
       : (variant === 'public'
-        ? (row.publicDownloadUrl || row.url || row.thumbUrl)
-        : (variant === 'playback' ? (row.playbackUrl || row.url || row.thumbUrl) : (row.url || row.thumbUrl)));
+        ? (getBakedEdit(displayRow) ? displayRow.url : (row.publicDownloadUrl || row.url || row.thumbUrl))
+        : (variant === 'playback' ? (row.playbackUrl || row.url || row.thumbUrl) : (displayRow.url || displayRow.thumbUrl)));
     const key = cosStorage.keyFromUrlOrPath(raw);
     if (!key) return res.status(404).json({ error: 'photo source not found' });
 
@@ -2039,7 +2062,7 @@ router.get('/:id/direct-url', requirePermission('photos.view'), async (req, res)
     const fallbackName = download && row.type === 'video' ? await videoDownloads.filename(req, id)
       : `${String(row.title || `photo-${id}`).replace(/[\\/:*?"<>|]/g, '_') || `photo-${id}`}${getExtFromStorageKey(key)}`;
     const signed = await cosStorage.signedGetUrl(key, {
-      expires: cosStorage.keyFromUrlOrPath(raw).startsWith('uploads/units/')
+      expires: /^(uploads\/units\/|uploads\/photo-edits\/)/.test(key)
         ? 60 : Math.max(60, Number(process.env.COS_SIGNED_READ_EXPIRES_SECONDS || 900)),
       downloadName: download ? fallbackName : undefined,
     });
@@ -2160,7 +2183,8 @@ router.get('/:id', requirePermission('photos.view'), async (req, res) => {
       detailedDescription: p.detailedDescription || null,
       personObservationsEnabled: process.env.PHOTO_PERSON_OBSERVATIONS_ENABLED === '1',
       sourceAttribution,
-      adjustments: parsePhotoAdjustments(p.adjustments),
+      adjustments: parsePhotoAdjustments(p.adjustments, p.id),
+      editRevision: editRevision(p),
       tags: parsedTags,
       aiStatus: p.aiStatus || null,
       aiScore: p.aiScore !== undefined && p.aiScore !== null ? p.aiScore : null,
@@ -2187,6 +2211,7 @@ router.get('/:id', requirePermission('photos.view'), async (req, res) => {
 // 更新单张照片的 description 与 tags
 // PATCH /api/photos/:id
 router.patch('/:id', requirePermission('photos.edit'), async (req, res) => {
+  let prepared, committed = false;
   try {
     const id = Number(req.params.id);
     if (!/^\d+$/.test(String(req.params.id)) || !Number.isSafeInteger(id) || id <= 0) return res.status(400).json({ error: 'invalid id' });
@@ -2229,15 +2254,19 @@ router.patch('/:id', requirePermission('photos.edit'), async (req, res) => {
       if (adjustments !== null && !normalizedAdjustments) {
         return res.status(400).json({ error: 'invalid adjustments' });
       }
+      const row = await getScopedPhotoSourceRow(req, id);
+      if (!row) return res.status(404).json({ error: 'photo not found' });
+      prepared = await preparePhotoEdit({ row, adjustments: normalizedAdjustments || {}, baseRevision: req.body.baseEditRevision,
+        storage: cosStorage, loadOriginal: async source => (await fetchImageBufferFromUrl(resolvePhotoSourceTargetUrl(req, source))).buffer });
       updates.push('adjustments = ?');
-      params.push(normalizedAdjustments ? JSON.stringify(normalizedAdjustments) : null);
+      params.push(JSON.stringify(prepared.saved));
     }
 
     if (updates.length === 0) return res.status(400).json({ error: 'nothing to update' });
 
     // enforce organization scoping: ensure photo belongs to user's organization
     const orgId = req.user && (req.user.organization_id !== undefined && req.user.organization_id !== null) ? parseInt(req.user.organization_id, 10) : null;
-    let ownershipSql = 'SELECT id FROM photos WHERE id = ?';
+    let ownershipSql = 'SELECT id, url, adjustments FROM photos WHERE id = ?';
     const ownershipParams = [id];
     if (orgId === null) {
       ownershipSql += ' AND organization_id IS NULL';
@@ -2252,16 +2281,18 @@ router.patch('/:id', requirePermission('photos.edit'), async (req, res) => {
       await conn.beginTransaction();
       const [ownRows] = await conn.query(ownershipSql + ' FOR UPDATE', ownershipParams);
       if (!ownRows || ownRows.length === 0) {
-        await conn.rollback();
-        return res.status(404).json({ error: 'photo not found' });
+        throw Object.assign(new Error('photo not found'), { status: 404 });
       }
       await requirePhotoAccess(req, id, 'metadata', conn);
+      prepared?.assertCurrent(ownRows[0]);
       await conn.query(sql, params);
       await conn.commit();
+      committed = true;
     } catch (error) {
       await conn.rollback().catch(() => null);
       throw error;
     } finally { conn.release(); }
+    if (prepared) await prepared.committed().catch(error => console.warn('[photo-edit] retired artifact cleanup failed', id, error.name));
 
     const [rows] = await pool.query(
       `SELECT p.id, p.project_id AS projectId, p.timeline_section_id AS timelineSectionId,
@@ -2295,7 +2326,8 @@ router.patch('/:id', requirePermission('photos.edit'), async (req, res) => {
       title: p.title,
       originalFilename: p.originalFilename || null,
       description: p.description,
-      adjustments: parsePhotoAdjustments(p.adjustments),
+      adjustments: parsePhotoAdjustments(p.adjustments, p.id),
+      editRevision: editRevision(p),
       tags: parsedTags,
       aiStatus: p.aiStatus || null,
       aiError: p.aiError || null,
@@ -2303,7 +2335,9 @@ router.patch('/:id', requirePermission('photos.edit'), async (req, res) => {
       aiFinishedAt: p.aiFinishedAt || null
     });
   } catch (err) {
+    if (prepared && !committed) await prepared.abort().catch(error => console.warn('[photo-edit] aborted artifact cleanup failed', req.params.id, error.name));
     if (sendWorkspaceError(res, err)) return;
+    if (err.status >= 400 && err.status < 600) return res.status(err.status).json({ error: err.message });
     console.error('PATCH /api/photos/:id error:', err && err.stack ? err.stack : err);
     res.status(500).json({ error: 'Internal server error' });
   }

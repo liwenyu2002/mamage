@@ -43,7 +43,7 @@ import { resolveAssetUrl, BASE_URL, request } from './services/request';
 import { hydrateSimilarityPhotos } from './services/similarityPhotos';
 import { findProjectPreviewIndex } from './utils/projectPreviewPhotos';
 import { buildPhotoFocusUrl, readPhotoFocusIntent, consumePhotoFocusIntent, focusPhotoCard } from './utils/photoFocus';
-import { getDirectMediaUrl, downloadOriginalMedia } from './services/directStorage';
+import { getDirectMediaUrl, downloadOriginalMedia, clearDirectMediaUrlCache } from './services/directStorage';
 import { batchVideoDownload } from './services/batchVideoDownload';
 import FindMeModal from './FindMeModal';
 import FacePersonMerge from './FacePersonMerge';
@@ -67,6 +67,7 @@ import { getFaceBoxStyle } from './utils/faceGeometry';
 import { canDeletePhoto, getPhotoDeleteErrorMessage, isPhotoUploadedBy } from './utils/photoDeletePermissions';
 import ViewerToneImage, { requestRenderedToneBlob } from './ProjectTonePreview';
 import PhotoToneControls from './PhotoToneControls';
+import { rotatedSize, cropPixels, straightenedCrop, fitCropAspect } from '../../server/lib/photo_tone/geometry.mjs';
 import {
   createInitialUploadProgress,
   getUploadFileKey,
@@ -866,6 +867,11 @@ function ProjectDetail({
   const [viewerToneComparison, setViewerToneComparison] = React.useState('adjusted');
   const [viewerToneHoldingOriginal, setViewerToneHoldingOriginal] = React.useState(false);
   const [viewerToneFacesLoading, setViewerToneFacesLoading] = React.useState(false);
+  const [viewerToneMode, setViewerToneMode] = React.useState('tone');
+  const [viewerToneAspect, setViewerToneAspect] = React.useState(undefined);
+  const [viewerToneSourceSize, setViewerToneSourceSize] = React.useState(null);
+  const [viewerToneBaseRevision, setViewerToneBaseRevision] = React.useState(null);
+  const [viewerToneLoading, setViewerToneLoading] = React.useState(false);
   const viewerToneComparing = viewerToneComparison === 'original';
   const [viewerToneHistory, setViewerToneHistory] = React.useState({ past: [], future: [] });
   const toneGestureRef = React.useRef(false);
@@ -2899,7 +2905,7 @@ function ProjectDetail({
 
     if (isVideoMeta(meta) || options.forceOriginal || isDefaultPhotoAdjustments(adjustments)) {
       const photoId = getPhotoRecordId(meta);
-      await downloadOriginalMedia({ photoId, url, filename: `${baseName}${inferDownloadExt(url)}` });
+      await downloadOriginalMedia({ photoId, url, filename: `${baseName}${inferDownloadExt(url)}`, forceOriginal: options.forceOriginal });
       return { rendered: false };
     }
 
@@ -3673,6 +3679,10 @@ function ProjectDetail({
     setViewerToneError('');
     setViewerToneAnalysis(null);
     setViewerToneHistory({ past: [], future: [] });
+    setViewerToneMode('tone');
+    setViewerToneSourceSize(null);
+    setViewerToneBaseRevision(null);
+    setViewerToneAspect(undefined);
     toneGestureRef.current = false;
   }, [currentViewerPhotoId]);
 
@@ -3687,33 +3697,51 @@ function ProjectDetail({
     setViewerToneAnalyzing(false);
   }, []);
 
-  const patchPhotoAdjustmentState = React.useCallback((photoId, adjustments) => {
+  const patchPhotoAdjustmentState = React.useCallback((photoId, adjustments, data = {}) => {
     if (!photoId) return;
     const normalized = normalizePhotoAdjustments(adjustments);
+    const versioned = url => url ? `${url}${url.includes('?') ? '&' : '?'}edit=${encodeURIComponent(data.editRevision || '')}` : url;
+    data = { ...data, url: versioned(data.url), thumbUrl: versioned(data.thumbUrl) };
     setPhotoAdjustmentsMap((prev) => ({ ...(prev || {}), [photoId]: normalized }));
     setPhotoMetas((prev) => (Array.isArray(prev)
-      ? prev.map((meta) => (String(getPhotoRecordId(meta) || '') === String(photoId) ? { ...(meta || {}), adjustments: normalized } : meta))
+      ? prev.map((meta) => (String(getPhotoRecordId(meta) || '') === String(photoId) ? { ...(meta || {}), ...data, adjustments: normalized,
+        thumbSrc: data.thumbUrl || meta.thumbSrc, originalSrc: data.url || meta.originalSrc } : meta))
       : prev));
-  }, []);
+    setDirectMediaUrlMap(previous => Object.fromEntries(Object.entries(previous).filter(([key]) => !key.startsWith(`${photoId}:`))));
+    clearDirectMediaUrlCache();
+    if (data.thumbUrl) setImages(previous => previous.map((url, index) => String(getPhotoRecordId(photoMetas?.[index])) === String(photoId) ? data.thumbUrl : url));
+  }, [photoMetas]);
 
   const activeTonePhotoRef = React.useRef(currentViewerPhotoId);
   activeTonePhotoRef.current = currentViewerPhotoId;
   const toneDirty = !(isDefaultPhotoAdjustments(viewerToneDraft) && isDefaultPhotoAdjustments(currentViewerAdjustment))
     && getToneAdjustmentKey(viewerToneDraft) !== getToneAdjustmentKey(currentViewerAdjustment);
 
-  const openToneEditor = React.useCallback(() => {
-    if (viewerToneSaving || !canEditItem(photoMetas?.[viewerIndex])) return;
+  const openToneEditor = React.useCallback(async () => {
+    if (viewerToneSaving || viewerToneLoading || !canEditItem(photoMetas?.[viewerIndex])) return;
     if (!currentViewerPhotoId) return Toast.warning('无法获取照片 ID');
     if (!viewerToneVisible) {
-      const saved = isDefaultPhotoAdjustments(currentViewerAdjustment) ? normalizePhotoAdjustments(DEFAULT_PHOTO_ADJUSTMENTS) : currentViewerAdjustment;
-      setViewerToneDraft(toneDraftsRef.current.get(String(currentViewerPhotoId)) || saved);
+      setViewerToneLoading(true);
+      try {
+        const data = await getPhotoById(currentViewerPhotoId);
+        if (activeTonePhotoRef.current !== currentViewerPhotoId) return;
+        if (!data.editRevision) throw new Error('服务器尚未支持原画质编辑保存');
+        const saved = normalizePhotoAdjustments(data.adjustments);
+        patchPhotoAdjustmentState(currentViewerPhotoId, saved, data);
+        setViewerToneDraft(saved);
+        setViewerToneBaseRevision(data.editRevision);
+      } catch (error) { Toast.error(error.message || '无法读取编辑信息'); return; }
+      finally { setViewerToneLoading(false); }
       setViewerToneComparison('adjusted');
+      setViewerToneMode('tone');
+      setViewerToneSourceSize(null);
+      setViewerToneHistory({ past: [], future: [] });
       setViewerToneHoldingOriginal(false);
       setViewerToneAnalyzing(true);
       setViewerToneError('');
     }
     setViewerToneVisible(prev => !prev);
-  }, [currentViewerAdjustment, currentViewerPhotoId, canEditItem, photoMetas, viewerIndex, viewerToneVisible, viewerToneSaving]);
+  }, [currentViewerPhotoId, canEditItem, photoMetas, viewerIndex, viewerToneVisible, viewerToneSaving, viewerToneLoading, patchPhotoAdjustmentState]);
 
   const recordToneHistory = React.useCallback(() => {
     if (toneGestureRef.current?.recorded) return;
@@ -3731,14 +3759,31 @@ function ProjectDetail({
     if (record) recordToneHistory();
     setViewerToneComparison(mode => mode === 'original' ? 'adjusted' : mode);
     setViewerToneHoldingOriginal(false);
-    setViewerToneAnalyzing(true);
+    if (getToneAdjustmentKey({ ...next, rotation: 0, crop: null }) !== getToneAdjustmentKey({ ...viewerToneDraft, rotation: 0, crop: null })) setViewerToneAnalyzing(true);
     toneDraftsRef.current.set(String(currentViewerPhotoId), next);
     setViewerToneDraft(next);
   }, [currentViewerPhotoId, recordToneHistory, viewerToneDraft]);
 
   const updateToneDraft = React.useCallback((key, value) => {
-    commitToneDraft({ ...viewerToneDraft, [key]: Number(value), source: 'manual' });
-  }, [commitToneDraft, viewerToneDraft]);
+    if (key === 'rotation' && viewerToneSourceSize) {
+      const { width, height } = viewerToneSourceSize;
+      const bounds = rotatedSize(width, height, Number(value));
+      commitToneDraft({ ...viewerToneDraft, rotation: Number(value), crop: fitCropAspect(bounds.width, bounds.height,
+        straightenedCrop(width, height, Number(value)), viewerToneAspect), source: 'manual' });
+    } else commitToneDraft({ ...viewerToneDraft, [key]: key === 'crop' ? value : Number(value), source: 'manual' });
+  }, [commitToneDraft, viewerToneDraft, viewerToneSourceSize, viewerToneAspect]);
+
+  const setToneAspect = (aspect) => {
+    setViewerToneAspect(aspect);
+    if (!viewerToneSourceSize || !aspect) return;
+    const { width, height } = viewerToneSourceSize;
+    const bounds = rotatedSize(width, height, viewerToneDraft.rotation);
+    updateToneDraft('crop', fitCropAspect(bounds.width, bounds.height, straightenedCrop(width, height, viewerToneDraft.rotation), aspect));
+  };
+  const toneOutputSize = viewerToneSourceSize ? (() => {
+    const bounds = rotatedSize(viewerToneSourceSize.width, viewerToneSourceSize.height, viewerToneDraft.rotation);
+    return cropPixels(bounds.width, bounds.height, viewerToneDraft.crop);
+  })() : null;
 
   const undoViewerTone = () => {
     const previous = viewerToneHistory.past.at(-1);
@@ -3767,20 +3812,21 @@ function ProjectDetail({
     try {
       setViewerToneSaving(true);
       const adjustments = buildPhotoAdjustments(viewerToneDraft, viewerToneDraft.source);
-      const data = await updatePhoto(currentViewerPhotoId, { adjustments });
+      const data = await updatePhoto(currentViewerPhotoId, { adjustments, baseEditRevision: viewerToneBaseRevision });
       const saved = normalizePhotoAdjustments(data?.adjustments || adjustments);
       if (getToneAdjustmentKey(saved) !== getToneAdjustmentKey(adjustments)) throw new Error('服务器未完整保存调色参数，请检查版本');
-      patchPhotoAdjustmentState(currentViewerPhotoId, saved);
+      if (!isDefaultPhotoAdjustments(saved) && !saved.baked) throw new Error('服务器未生成编辑图片，请检查版本');
+      patchPhotoAdjustmentState(currentViewerPhotoId, saved, data);
       toneDraftsRef.current.set(String(currentViewerPhotoId), saved);
-      if (activeTonePhotoRef.current === currentViewerPhotoId) setViewerToneDraft(saved);
-      Toast.success('调色参数已保存');
+      if (activeTonePhotoRef.current === currentViewerPhotoId) { setViewerToneDraft(saved); setViewerToneBaseRevision(data.editRevision); }
+      Toast.success('编辑图片已保存');
     } catch (err) {
       console.error('saveViewerTone error', err);
       Toast.error(err?.body || err?.message || '保存调色参数失败');
     } finally {
       setViewerToneSaving(false);
     }
-  }, [currentViewerPhotoId, patchPhotoAdjustmentState, viewerToneDraft, canEditItem, photoMetas, viewerIndex]);
+  }, [currentViewerPhotoId, patchPhotoAdjustmentState, viewerToneDraft, viewerToneBaseRevision, canEditItem, photoMetas, viewerIndex]);
 
   const resetViewerTone = () => commitToneDraft(DEFAULT_PHOTO_ADJUSTMENTS);
 
@@ -4617,6 +4663,7 @@ function ProjectDetail({
   }, [viewerVisible, closeViewer, navigateViewer]);
 
   const handleViewerPointerDown = React.useCallback((e) => {
+    if (viewerToneVisible) return;
     if (e.target instanceof Element && e.target.closest('video, button, input, a')) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     viewerPointerRef.current = {
@@ -4625,7 +4672,7 @@ function ProjectDetail({
       startX: e.clientX,
       startY: e.clientY,
     };
-  }, []);
+  }, [viewerToneVisible]);
 
   const handleViewerPointerUp = React.useCallback((e) => {
     const state = viewerPointerRef.current;
@@ -6834,7 +6881,7 @@ function ProjectDetail({
         {viewerVisible ? createPortal(
         <div className="viewer-overlay viewer-overlay--workspace is-open" {...viewerAppearance.surfaceProps} onClick={closeViewer} role="dialog" aria-modal="true" aria-label="媒体查看器">
             <div className="mamage-dynamic-backdrop viewer-backdrop" aria-hidden="true" />
-            <div className={`viewer-wrap${viewerDetailsVisible || viewerToneVisible ? ' has-details' : ''}${viewerToneVisible ? ' has-tone-editor' : ''}`} style={{ '--viewer-direction': viewerDirection }}>
+            <div className={`viewer-wrap${viewerDetailsVisible || viewerToneVisible ? ' has-details' : ''}${viewerToneVisible ? ' has-tone-editor' : ''}${viewerToneVisible && viewerToneComparison === 'side' ? ' has-tone-side-compare' : ''}`} style={{ '--viewer-direction': viewerDirection }}>
               {/* 顶部状态栏：关闭+计数+摄影师·环节 | AI 分+推荐+原图开关（只读状态集中于此） */}
               <div className="viewer-topbar" onClick={(e) => e.stopPropagation()}>
                 <div className="viewer-topbar-left">
@@ -6911,7 +6958,7 @@ function ProjectDetail({
                     <div className="viewer-img-stage" onClick={(e) => e.stopPropagation()}>
                       <div className="viewer-carousel" style={viewerTrackStyle}>
                         {images.map((_, idx) => {
-                          const slideSrc = idx === viewerIndex && viewerShowOriginal
+                          let slideSrc = idx === viewerIndex && viewerShowOriginal
                             ? getViewerTargetSrc(idx, true)
                             : getViewerTargetSrc(idx, false);
                           const slideMeta = photoMetas?.[idx] || null;
@@ -6919,7 +6966,12 @@ function ProjectDetail({
                           const slidePhotoId = getMetaPhotoId(slideMeta);
                           const slideFaces = slidePhotoId ? (viewerFaceMap[slidePhotoId] || []) : [];
                           const showFaceBoxes = !isSlideVideo && idx === viewerIndex && viewerFaceOverlayVisible && !viewerToneVisible && slideFaces.length > 0;
-                          const slideAdjustments = idx === viewerIndex && viewerToneVisible ? viewerToneDraft : getAdjustmentForPhoto(slideMeta);
+                          let slideAdjustments = idx === viewerIndex && viewerToneVisible ? viewerToneDraft : getAdjustmentForPhoto(slideMeta);
+                          if (showFaceBoxes && (slideAdjustments.rotation || slideAdjustments.crop)) {
+                            const source = slideMeta.originalSrc || slideMeta.url;
+                            slideSrc = `${source}${source.includes('?') ? '&' : '?'}original=1`;
+                            slideAdjustments = DEFAULT_PHOTO_ADJUSTMENTS;
+                          }
                           const slideAdjustmentStyle = getPhotoAdjustmentStyle(slideAdjustments);
                           const useExactTonePreview = !isSlideVideo && idx === viewerIndex && !isDefaultPhotoAdjustments(slideAdjustments);
                           return (
@@ -6959,6 +7011,9 @@ function ProjectDetail({
                                     exact={useExactTonePreview}
                                     interactive={idx === viewerIndex && viewerToneVisible}
                                     comparison={viewerToneHoldingOriginal ? 'original' : viewerToneComparison}
+                                    cropMode={viewerToneMode === 'crop'} cropAspect={viewerToneAspect} editingDisabled={viewerToneSaving}
+                                    onCropChange={crop => updateToneDraft('crop', crop)} onCropStart={beginToneGesture}
+                                    onCropEnd={() => { toneGestureRef.current = false; }} onSourceSize={setViewerToneSourceSize}
                                     faces={idx === viewerIndex && viewerToneVisible ? slideFaces : undefined}
                                     onAnalysis={receiveToneAnalysis}
                                     onToneError={receiveToneError}
@@ -7015,6 +7070,9 @@ function ProjectDetail({
                                 exact={useExactTonePreview}
                                 interactive={idx === viewerIndex && viewerToneVisible}
                                 comparison={viewerToneHoldingOriginal ? 'original' : viewerToneComparison}
+                                cropMode={viewerToneMode === 'crop'} cropAspect={viewerToneAspect} editingDisabled={viewerToneSaving}
+                                onCropChange={crop => updateToneDraft('crop', crop)} onCropStart={beginToneGesture}
+                                onCropEnd={() => { toneGestureRef.current = false; }} onSourceSize={setViewerToneSourceSize}
                                 faces={idx === viewerIndex && viewerToneVisible ? currentViewerFaces : undefined}
                                 onAnalysis={receiveToneAnalysis}
                                 onToneError={receiveToneError}
@@ -7037,6 +7095,11 @@ function ProjectDetail({
                   draft={viewerToneDraft} analysis={viewerToneAnalysis}
                   busy={viewerToneAnalyzing} saving={viewerToneSaving} error={viewerToneError}
                   facesLoading={viewerToneFacesLoading}
+                  mode={viewerToneMode} onMode={mode => { setViewerToneMode(mode); if (mode === 'crop') setViewerToneComparison('adjusted'); }}
+                  aspect={viewerToneAspect} onAspect={setToneAspect}
+                  onRotate={degrees => updateToneDraft('rotation', degrees)}
+                  onResetCrop={() => commitToneDraft({ ...viewerToneDraft, rotation: 0, crop: null })}
+                  sourceSize={viewerToneSourceSize} outputSize={toneOutputSize}
                   dirty={toneDirty} comparison={viewerToneComparison} holdingOriginal={viewerToneHoldingOriginal}
                   onCompare={setViewerToneComparison} onHoldOriginal={setViewerToneHoldingOriginal} onChange={updateToneDraft}
                   onGestureStart={beginToneGesture} onGestureEnd={() => { toneGestureRef.current = false; }}

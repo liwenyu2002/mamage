@@ -2,6 +2,9 @@ import React from 'react';
 import { getToken } from './services/authService';
 import { BASE_URL } from './services/request';
 import { IconChevronLeft, IconChevronRight } from './ui/icons';
+import ReactCrop from 'react-image-crop';
+import 'react-image-crop/dist/ReactCrop.css';
+import { drawPhotoGeometry, canvasFromPixels } from './utils/photoGeometry';
 import {
   isDefaultPhotoAdjustments,
   normalizePhotoAdjustments,
@@ -61,6 +64,7 @@ export async function requestRenderedToneBlob(photoId, adjustments, options = {}
       maxSize,
       format,
       quality,
+      fullResolution: variant === 'original',
     }),
   }).then((response) => {
     if (!response.ok) throw new Error(response.status === 401 || response.status === 403 ? '无权渲染照片' : '无法渲染照片');
@@ -86,6 +90,13 @@ export default function ViewerToneImage({
   hiddenImageInteractive = false,
   interactive = false,
   comparison = 'adjusted',
+  cropMode = false,
+  cropAspect,
+  editingDisabled = false,
+  onCropChange,
+  onCropStart,
+  onCropEnd,
+  onSourceSize,
   faces,
   onAnalysis,
   onToneError,
@@ -96,6 +107,7 @@ export default function ViewerToneImage({
   ...imgProps
 }) {
   const canvasRef = React.useRef(null);
+  const originalCanvasRef = React.useRef(null);
   const normalized = React.useMemo(() => normalizePhotoAdjustments(adjustments), [adjustments]);
   const meteringFaces = React.useMemo(() => (faces || []).map(({ left, top, width, height, unit, imageWidth, imageHeight, score }) =>
     ({ left, top, width, height, unit, imageWidth, imageHeight, score })), [faces]);
@@ -103,7 +115,7 @@ export default function ViewerToneImage({
   const meteringRef = React.useRef({ faces: meteringFaces, key: meteringKey });
   meteringRef.current = { faces: meteringFaces, key: meteringKey };
   const adjustmentKey = React.useMemo(() => getToneAdjustmentKey(normalized), [normalized]);
-  const shouldRenderCanvas = Boolean(src && (interactive || (exact && !isDefaultPhotoAdjustments(normalized))));
+  const shouldRenderCanvas = Boolean(src && (interactive || (exact && !normalized.baked && !isDefaultPhotoAdjustments(normalized))));
   const [canvasReady, setCanvasReady] = React.useState(false);
   const [renderedSrc, setRenderedSrc] = React.useState('');
   const normalizedRef = React.useRef(normalized);
@@ -112,48 +124,59 @@ export default function ViewerToneImage({
   const frameRef = React.useRef(null);
   const [splitPosition, setSplitPosition] = React.useState(50);
   const comparisonRef = React.useRef({ mode: comparison, split: splitPosition });
-  comparisonRef.current = { mode: comparison, split: splitPosition };
-  const callbacksRef = React.useRef({ onAnalysis, onToneError });
-  callbacksRef.current = { onAnalysis, onToneError };
+  comparisonRef.current = { mode: comparison, split: splitPosition, cropMode };
+  const callbacksRef = React.useRef({ onAnalysis, onToneError, onSourceSize });
+  callbacksRef.current = { onAnalysis, onToneError, onSourceSize };
   normalizedRef.current = normalized;
 
   const paintComparison = React.useCallback(() => {
     const canvas = canvasRef.current, frame = frameRef.current;
     if (!canvas || !frame) return;
-    const { mode, split } = comparisonRef.current;
-    const context = canvas.getContext('2d', { colorSpace: 'srgb' });
-    context.putImageData(mode === 'original' ? frame.original : frame.adjusted, 0, 0);
-    if (mode === 'split' && split > 0) {
-      context.putImageData(frame.original, 0, 0, 0, 0, Math.round(canvas.width * split / 100), canvas.height);
+    const { mode, split, cropMode: cropping } = comparisonRef.current;
+    drawPhotoGeometry(mode === 'original' ? frame.original : frame.adjusted, canvas,
+      mode === 'original' ? {} : normalizedRef.current, cropping);
+    if (mode === 'split' && split > 0 && !cropping) {
+      const before = document.createElement('canvas');
+      drawPhotoGeometry(frame.original, before, normalizedRef.current);
+      const width = Math.round(canvas.width * split / 100);
+      if (width) canvas.getContext('2d').drawImage(before, 0, 0, width, canvas.height, 0, 0, width, canvas.height);
+      before.width = before.height = 0;
     }
+    if (mode === 'side' && originalCanvasRef.current) drawPhotoGeometry(frame.original, originalCanvasRef.current, {});
     canvas.dataset.toneView = mode;
     canvas.dataset.toneSplit = String(split);
+    canvas.dataset.toneKey = getToneAdjustmentKey({ ...frame.adjustments,
+      rotation: normalizedRef.current.rotation, crop: normalizedRef.current.crop });
   }, []);
 
-  React.useLayoutEffect(() => { if (interactive) paintComparison(); }, [interactive, comparison, splitPosition, paintComparison]);
+  React.useLayoutEffect(() => { if (interactive) paintComparison(); }, [interactive, comparison, cropMode, adjustmentKey, splitPosition, paintComparison]);
 
   React.useEffect(() => {
     if (!interactive || !src) return undefined;
     let disposed = false;
     let worker;
+    let original;
     frameRef.current = null;
     setSplitPosition(50);
     setCanvasReady(false);
     setRenderedSrc('');
     const sourceUrl = photoId
-      ? `${BASE_URL || ''}/api/photos/${encodeURIComponent(String(photoId))}/pixel-source?variant=working&maxSize=1280`
+      ? `${BASE_URL || ''}/api/photos/${encodeURIComponent(String(photoId))}/pixel-source?variant=working&full=1`
       : src;
-    loadTonePixels(sourceUrl, { maxSize: Math.min(maxSize, 1280), authenticated: Boolean(photoId), token: getToken() })
+    loadTonePixels(sourceUrl, { fullResolution: true, authenticated: Boolean(photoId), token: getToken() })
       .then(source => {
         if (disposed) return;
-        const original = new ImageData(source.data, source.width, source.height);
+        original = canvasFromPixels(source.data, source.width, source.height);
+        callbacksRef.current.onSourceSize?.({ width: source.width, height: source.height });
         worker = new Worker(new URL('./utils/photoTone.worker.js', import.meta.url), { type: 'module' });
-        let busy = false, lastKey = '', lastMeteringKey = '', sequence = 0;
+        let busy = false, lastKey = '', lastMeteringKey = '', sequence = 0, requested;
+        const colorKey = () => getToneAdjustmentKey({ ...normalizedRef.current, rotation: 0, crop: null });
         const pump = () => {
-          const key = getToneAdjustmentKey(normalizedRef.current);
+          const key = colorKey();
           if (disposed || busy || (key === lastKey && lastMeteringKey === meteringRef.current.key)) return;
           lastKey = key; lastMeteringKey = meteringRef.current.key; busy = true;
-          worker.postMessage({ type: 'render', id: ++sequence, adjustments: normalizedRef.current,
+          requested = normalizedRef.current;
+          worker.postMessage({ type: 'render', id: ++sequence, adjustments: requested,
             faces: meteringRef.current.faces, meteringKey: lastMeteringKey });
         };
         worker.onmessage = ({ data: result }) => {
@@ -162,26 +185,29 @@ export default function ViewerToneImage({
           if (result.error) { callbacksRef.current.onToneError?.(result.error); return; }
           const canvas = canvasRef.current;
           if (!canvas) return;
-          canvas.width = source.width; canvas.height = source.height;
-          frameRef.current = { original, adjusted: new ImageData(result.pixels, source.width, source.height) };
+          if (frameRef.current?.adjusted) frameRef.current.adjusted.width = frameRef.current.adjusted.height = 0;
+          frameRef.current = { original, adjusted: canvasFromPixels(result.pixels, source.width, source.height), adjustments: requested };
           paintComparison();
           canvas.dataset.toneDuration = String(result.duration);
-          canvas.dataset.toneKey = lastKey;
           setCanvasReady(true);
-          if (lastKey === getToneAdjustmentKey(normalizedRef.current) && lastMeteringKey === meteringRef.current.key) {
+          if (lastKey === colorKey() && lastMeteringKey === meteringRef.current.key) {
             callbacksRef.current.onAnalysis?.(result.analysis);
           }
           onLoadRef.current?.({ target: { naturalWidth: source.naturalWidth, naturalHeight: source.naturalHeight } });
           pump();
         };
         worker.onerror = () => { if (!disposed) callbacksRef.current.onToneError?.('本机调色预览失败，请重新打开调色'); };
-        const copy = source.data.slice();
-        worker.postMessage({ type: 'source', source: { ...source, data: copy } }, [copy.buffer]);
+        worker.postMessage({ type: 'source', source }, [source.data.buffer]);
         localRef.current = pump;
         pump();
       }).catch(error => { if (!disposed) callbacksRef.current.onToneError?.(error.message); });
-    return () => { disposed = true; localRef.current = null; frameRef.current = null; worker?.terminate(); };
-  }, [interactive, maxSize, photoId, src, paintComparison]);
+    return () => {
+      disposed = true; localRef.current = null;
+      if (original) original.width = original.height = 0;
+      if (frameRef.current?.adjusted) frameRef.current.adjusted.width = frameRef.current.adjusted.height = 0;
+      frameRef.current = null; worker?.terminate();
+    };
+  }, [interactive, photoId, /* Editing source is original; display URL refreshes must not reload it. */ !photoId && src, paintComparison]);
 
   React.useEffect(() => { localRef.current?.(); }, [adjustmentKey, meteringKey]);
 
@@ -242,7 +268,7 @@ export default function ViewerToneImage({
     };
   }, [adjustmentKey, interactive, maxSize, photoId, pixelVariant, shouldRenderCanvas, src]);
 
-  const fallbackStyle = shouldRenderCanvas && canvasReady
+  const fallbackStyle = interactive ? { display: 'none' } : shouldRenderCanvas && canvasReady
     ? { ...(style || {}), position: 'absolute', inset: 0, opacity: 0, pointerEvents: hiddenImageInteractive ? undefined : 'none' }
     : style;
   const canvasStyle = { ...(style || {}) };
@@ -259,6 +285,8 @@ export default function ViewerToneImage({
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   };
 
+  const canvasElement = <canvas ref={canvasRef} className={`${className || ''} viewer-adjusted-canvas`} style={canvasStyle} aria-hidden="true" />;
+  const crop = normalized.crop || { x: 0, y: 0, width: 1, height: 1 };
   return (
     <>
       {shouldRenderCanvas && renderedSrc ? (
@@ -271,14 +299,22 @@ export default function ViewerToneImage({
           onLoad={onLoad}
         />
       ) : null}
-      {shouldRenderCanvas && !renderedSrc ? (
-        <canvas
-          ref={canvasRef}
-          className={`${className || ''} viewer-adjusted-canvas`}
-          style={canvasStyle}
-          aria-hidden="true"
-        />
-      ) : null}
+      {shouldRenderCanvas && !renderedSrc && (interactive ? (
+        <div className={`tone-photo-stage${comparison === 'side' && !cropMode ? ' is-side-by-side' : ''}`}>
+          {comparison === 'side' && !cropMode && <figure className="tone-before-image"><canvas ref={originalCanvasRef} className={className} /><figcaption>原图</figcaption></figure>}
+          <div className="tone-after-image">
+            <ReactCrop className={`tone-crop${cropMode ? ' is-cropping' : ''}`} disabled={!cropMode || editingDisabled || !canvasReady}
+              crop={cropMode ? { unit: '%', x: crop.x * 100, y: crop.y * 100, width: crop.width * 100, height: crop.height * 100 } : undefined}
+              aspect={cropAspect} keepSelection ruleOfThirds minWidth={16} minHeight={16}
+              onDragStart={onCropStart} onDragEnd={onCropEnd}
+              onChange={(_, percent) => {
+                if (percent.width > 0 && percent.height > 0) onCropChange?.({ x: percent.x / 100, y: percent.y / 100, width: percent.width / 100, height: percent.height / 100 });
+              }}>{canvasElement}</ReactCrop>
+            {comparison === 'side' && !cropMode && <span className="tone-after-caption">调整后</span>}
+          </div>
+        </div>
+      ) : canvasElement)}
+      {interactive && !canvasReady && <div className="tone-source-loading" role="status">正在读取原画质图片</div>}
       <img
         src={src}
         alt={alt}
@@ -287,7 +323,7 @@ export default function ViewerToneImage({
         onLoad={shouldRenderCanvas && canvasReady ? undefined : onLoad}
         {...imgProps}
       />
-      {interactive && canvasReady && comparison === 'split' && (
+      {interactive && canvasReady && comparison === 'split' && !cropMode && (
         <div className="tone-comparison-overlay">
           <span className="tone-comparison-label tone-comparison-label--before">原图</span>
           <span className="tone-comparison-label tone-comparison-label--after">调整后</span>

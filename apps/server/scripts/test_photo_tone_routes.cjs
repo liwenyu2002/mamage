@@ -8,13 +8,19 @@ const photoTone = require('../lib/photo_tone/engine.mjs');
 const renderer = require('../lib/photo_tone/render.cjs');
 const source = fs.readFileSync(require.resolve('../routes/photos'), 'utf8');
 
-async function fixture({ denied = false } = {}) {
+async function fixture({ denied = false, saved = false } = {}) {
   const row = { id: 11, url: '/original.jpg', thumbUrl: '/thumb.jpg', adjustments: { version: 2, brightness: 80 } };
   const original = await sharp({ create: { width: 640, height: 400, channels: 3, background: '#718998' } }).png().toBuffer();
-  const calls = { reads: 0, access: [] };
+  const edited = await sharp(original).resize(120, 80).jpeg().toBuffer();
+  if (saved) {
+    const revision = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+    row.adjustments = { version: 3, exposure: .5, baked: { photoId: 11, revision,
+      url: `uploads/photo-edits/11/${revision}/image.jpg`, thumbUrl: `uploads/photo-edits/11/${revision}/thumb.webp`, width: 120, height: 80 } };
+  }
+  const calls = { reads: 0, access: [], urls: [] };
   const router = express.Router();
   const context = {
-    router, photoTone, ...renderer, Buffer, URL, console,
+    router, photoTone, ...renderer, ...require('../lib/photo_tone/artifacts.cjs'), Buffer, URL, console,
     pool: { query: async (_sql, params) => [params[0] === 11 && params[1] === 8 ? [row] : []] },
     requirePermission: () => (_req, _res, next) => next(),
     populateReqUserFromAuthIfPresent: async () => {},
@@ -26,7 +32,7 @@ async function fixture({ denied = false } = {}) {
     buildMediaUrl: url => url,
     clampNumber: photoTone.clamp,
     RENDER_SOURCE_TIMEOUT_MS: 20000, RENDER_MAX_SOURCE_BYTES: 128 * 1024 ** 2,
-    fetchImageBufferFromUrl: async () => { calls.reads++; return { buffer: original }; },
+    fetchImageBufferFromUrl: async url => { calls.reads++; calls.urls.push(url); return { buffer: url.includes('photo-edits/') ? edited : original }; },
   };
   const param = source.slice(source.indexOf("router.param('id'"), source.indexOf('const AI_SEARCH_RATE_WINDOW_MS'));
   const helpers = source.slice(source.indexOf('function normalizePhotoAdjustments('), source.indexOf('async function fetchImageBufferFromUrl('));
@@ -38,7 +44,7 @@ async function fixture({ denied = false } = {}) {
   app.use('/photos', router);
   const server = app.listen(0, '127.0.0.1');
   await new Promise(resolve => server.once('listening', resolve));
-  return { calls, base: `http://127.0.0.1:${server.address().port}`,
+  return { calls, edited, base: `http://127.0.0.1:${server.address().port}`,
     close: async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); } };
 }
 
@@ -75,4 +81,22 @@ test('tone routes refuse denied or malformed requests before reading source imag
       assert.equal(f.calls.reads, 0);
     } finally { await f.close(); }
   }
+});
+
+test('saved download returns stored bytes while full-resolution editing still reads the untouched original', async () => {
+  const f = await fixture({ saved: true });
+  try {
+    const saved = await fetch(f.base + '/photos/11/rendered', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ format: 'jpeg' }) });
+    assert.equal(saved.status, 200); assert.equal(saved.headers.get('x-mamage-render-variant'), 'saved');
+    assert.equal(saved.headers.get('vary'), 'Authorization');
+    assert.deepEqual(Buffer.from(await saved.arrayBuffer()), f.edited);
+    const working = await fetch(f.base + '/photos/11/pixel-source?variant=working&full=1&maxSize=320');
+    const meta = await sharp(Buffer.from(await working.arrayBuffer())).metadata();
+    assert.equal(meta.width, 640); assert.equal(meta.height, 400);
+    assert.ok(f.calls.urls[0].includes('photo-edits/'));
+    assert.ok(f.calls.urls[1].includes('/original.jpg'));
+    assert.ok(f.calls.urls[1].includes('original=1'));
+    assert.equal(f.calls.access.length, 2);
+  } finally { await f.close(); }
 });

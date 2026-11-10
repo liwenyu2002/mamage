@@ -1,10 +1,12 @@
 import React from 'react';
 import { IconClose, IconChevronLeft, IconChevronRight } from './ui/icons';
+import { Crop, SlidersHorizontal, RotateCcw, RotateCw, Columns2 } from 'lucide-react';
 import './PhotoToneControls.css';
 
 export default function PhotoToneControls({ draft, analysis, busy, facesLoading, saving, error, dirty,
   comparison, holdingOriginal, onCompare, onHoldOriginal, onChange, onGestureStart, onGestureEnd, onAuto, onReset,
-  onSave, onClose, onUndo, onRedo, canUndo, canRedo, histogram }) {
+  onSave, onClose, onUndo, onRedo, canUndo, canRedo, histogram,
+  mode = 'tone', onMode, aspect, onAspect, onRotate, onResetCrop, sourceSize, outputSize }) {
   React.useEffect(() => {
     const release = () => onHoldOriginal(false);
     const onVisibility = () => { if (document.hidden) release(); };
@@ -30,26 +32,30 @@ export default function PhotoToneControls({ draft, analysis, busy, facesLoading,
   return (
     <section className="viewer-tone-panel glass-reveal-surface tone-editor" aria-label="照片调色" onClick={e => e.stopPropagation()}>
       <header className="tone-editor-head">
-        <div className="tone-editor-title"><h2>调色</h2><span>{dirty ? '未保存' : '已保存'}</span></div>
+        <div className="tone-editor-title"><h2>编辑照片</h2><span>{dirty ? '未保存' : '已保存'}</span></div>
         <div className="tone-head-chart" aria-label="亮度直方图">{histogram}</div>
         <button type="button" className="tone-icon" aria-label="关闭调色" title="关闭调色" onClick={onClose}><IconClose /></button>
       </header>
       <div className="tone-editor-body">
+        <div className="tone-edit-modes" role="tablist" aria-label="编辑工具">
+          <button role="tab" type="button" aria-selected={mode === 'tone'} disabled={saving} onClick={() => onMode('tone')}><SlidersHorizontal size={16} />调色</button>
+          <button role="tab" type="button" aria-selected={mode === 'crop'} disabled={saving} onClick={() => onMode('crop')}><Crop size={16} />裁切与旋转</button>
+        </div>
+        {sourceSize && <div className="tone-source-size">原图 {sourceSize.width} × {sourceSize.height}<span>{outputSize && `${outputSize.width} × ${outputSize.height}`}</span></div>}
         <div className="tone-chart" aria-label="亮度直方图">{histogram}
           <div className="tone-clipping"><span>黑场 {((analysis?.clipping?.shadows || 0) * 100).toFixed(1)}%</span><span>高光截断 {((analysis?.clipping?.highlights || 0) * 100).toFixed(1)}%</span></div>
         </div>
         <div className="tone-editor-tools">
           <div className="tone-compare" role="group" aria-label="原图对照">
-            <button type="button" aria-pressed={comparison === 'adjusted'} onClick={() => onCompare('adjusted')}>调整后</button>
-            <button type="button" aria-pressed={comparison === 'original'} onClick={() => onCompare('original')}>原图</button>
-            <button type="button" aria-pressed={comparison === 'split'} onClick={() => onCompare('split')}>划线对比</button>
+            <button type="button" aria-pressed={comparison === 'side'} onClick={() => { onMode('tone'); onCompare(comparison === 'side' ? 'adjusted' : 'side'); }}><Columns2 size={14} />双图对比</button>
+            <button type="button" aria-pressed={comparison === 'split'} onClick={() => { onMode('tone'); onCompare(comparison === 'split' ? 'adjusted' : 'split'); }}>划线对比</button>
           </div>
           <button type="button" className="tone-icon" title="撤销" aria-label="撤销调色" disabled={!canUndo || saving} onClick={onUndo}><IconChevronLeft /></button>
           <button type="button" className="tone-icon" title="重做" aria-label="重做调色" disabled={!canRedo || saving} onClick={onRedo}><IconChevronRight /></button>
         </div>
         <div className="tone-comparison-actions">
         <span className="tone-metering" role="status">{facesLoading ? '读取人脸区域' : analysis?.metering?.mode === 'faces' ? `人脸优先 · ${analysis.metering.faceCount} 人` : '全图测光'}</span>
-        <button type="button" className="tone-hold-original" aria-pressed={holdingOriginal} disabled={!analysis || Boolean(error)}
+        <button type="button" className="tone-hold-original" aria-pressed={holdingOriginal} disabled={mode === 'crop' || !analysis || Boolean(error)}
           onPointerDown={event => {
             if (event.button !== 0 || !event.isPrimary) return;
             event.preventDefault();
@@ -69,7 +75,27 @@ export default function PhotoToneControls({ draft, analysis, busy, facesLoading,
           }}>按住看原图</button>
         </div>
         {error && <p className="tone-editor-error" role="alert">{error}</p>}
-        {groups.map(([title, controls]) => (
+        {mode === 'crop' && <fieldset className="tone-group tone-geometry" disabled={saving || !sourceSize}>
+          <legend>裁切比例</legend>
+          <div className="tone-ratios" role="group" aria-label="裁切比例">
+            {[[undefined, '自由'], [sourceSize?.width / sourceSize?.height, '原比例'], [1, '1:1'], [4 / 3, '4:3'], [3 / 4, '3:4'], [16 / 9, '16:9'], [9 / 16, '9:16']].map(([value, label]) =>
+              <button type="button" key={label} aria-pressed={aspect === value} onClick={() => onAspect(value)}>{label}</button>)}
+          </div>
+          <div className="tone-rotation-tools">
+            <button type="button" className="tone-icon" title="向左旋转 90 度" aria-label="向左旋转 90 度" onClick={() => onRotate(draft.rotation - 90)}><RotateCcw size={16} /></button>
+            <button type="button" className="tone-icon" title="向右旋转 90 度" aria-label="向右旋转 90 度" onClick={() => onRotate(draft.rotation + 90)}><RotateCw size={16} /></button>
+            <button type="button" className="tone-reset-crop" onClick={onResetCrop}>还原裁切</button>
+          </div>
+          <div className="tone-control">
+            <label htmlFor="tone-rotation">旋转角度</label>
+            <input className="tone-number" aria-label="旋转角度数值" type="number" min={-180} max={180} step={0.1} value={draft.rotation || 0}
+              onFocus={onGestureStart} onBlur={onGestureEnd} onChange={e => onRotate(Number(e.target.value))} />
+            <input id="tone-rotation" type="range" min={-180} max={180} step={0.1} value={draft.rotation || 0}
+              onPointerDown={onGestureStart} onPointerUp={onGestureEnd} onPointerCancel={onGestureEnd}
+              onKeyDown={onGestureStart} onKeyUp={onGestureEnd} onChange={e => onRotate(Number(e.target.value))} />
+          </div>
+        </fieldset>}
+        {mode === 'tone' && groups.map(([title, controls]) => (
           <fieldset className="tone-group" key={title} disabled={saving}>
             <legend>{title}</legend>
             {controls.map(([key, label, min = -100, max = 100, step = 1]) => {

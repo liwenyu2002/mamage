@@ -24,7 +24,7 @@ function fixture() {
       type TEXT, event_date TEXT, created_at TEXT, updated_at TEXT);
     CREATE TABLE photos(id INTEGER PRIMARY KEY, uuid TEXT, organization_id INTEGER, unit_id INTEGER, project_id INTEGER,
       photographer_id INTEGER, type TEXT, title TEXT, description TEXT, tags TEXT, timeline_section_id INTEGER,
-      url TEXT, thumb_url TEXT, public_download_url TEXT, playback_url TEXT, created_at TEXT, updated_at TEXT);
+      url TEXT, thumb_url TEXT, public_download_url TEXT, playback_url TEXT, adjustments TEXT, created_at TEXT, updated_at TEXT);
     CREATE TABLE project_timeline_sections(id INTEGER, project_id INTEGER, name TEXT, section_time TEXT, sort_order INTEGER);
     CREATE TABLE folder_shares(id INTEGER PRIMARY KEY AUTOINCREMENT, organization_id INTEGER, source_unit_id INTEGER,
       source_folder_id TEXT, folder_name TEXT, target_unit_id INTEGER, target_user_id INTEGER, mode TEXT,
@@ -121,6 +121,7 @@ test('photo originals require a live, correctly scoped share, including approved
       VALUES(90,'original-test','project',76,2,1,'automatic','2099-01-01');`);
     const key = 'uploads/units/1/one.jpg';
     const url = new URL(f.mediaAcl.buildShareOriginalUrl('/' + key, { shareId: 90, photoId: 1 }));
+    assert.equal(url.searchParams.get('original'), '1');
     assert.equal(f.mediaAcl.buildShareOriginalUrl('https://example.test/private.jpg', { shareId: 90, photoId: 1 }), null);
     assert.equal(f.mediaAcl.buildShareOriginalUrl('/uploads/../private.jpg', { shareId: 90, photoId: 1 }), null);
     const token = url.searchParams.get('ma');
@@ -145,6 +146,25 @@ test('photo originals require a live, correctly scoped share, including approved
     assert.equal(await allowed(), false, 'removing a selected photo revokes its existing original URL');
     f.db.exec("UPDATE share_links SET share_type='project',project_id=76,sync_mode='automatic' WHERE id=90; UPDATE photos SET type='video' WHERE id=1");
     assert.equal(await allowed(), false, 'photo permission does not change video-original policy');
+  } finally { f.db.close(); }
+});
+
+test('saved photo artifacts inherit share authorization and stale artifact URLs are revoked', async () => {
+  const f = fixture();
+  try {
+    f.db.exec(`INSERT INTO share_links(id,code,share_type,project_id,organization_id,unit_id,sync_mode,expires_at)
+      VALUES(90,'edited-test','project',76,2,1,'automatic','2099-01-01');`);
+    const revision = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+    const prefix = `uploads/photo-edits/1/${revision}/`;
+    const baked = { photoId: 1, revision, url: prefix + 'image.jpg', thumbUrl: prefix + 'thumb.webp', width: 120, height: 80 };
+    f.db.prepare('UPDATE photos SET adjustments=? WHERE id=1').run(JSON.stringify({ version: 3, exposure: .5, baked }));
+    const token = new URL(f.mediaAcl.buildMediaUrl(baked.url, { shareId: 90, photoId: 1 })).searchParams.get('ma');
+    const allowed = () => f.mediaAcl.authorizeMediaKey(baked.url, token, f.pool);
+    assert.equal(await allowed(), true);
+    f.db.exec("UPDATE share_links SET revoked_at='2026-10-22' WHERE id=90");
+    assert.equal(await allowed(), false);
+    f.db.exec('UPDATE share_links SET revoked_at=NULL WHERE id=90; UPDATE photos SET adjustments=NULL WHERE id=1');
+    assert.equal(await allowed(), false, 'A reset cannot leave the old edited image accessible through its signed URL');
   } finally { f.db.close(); }
 });
 

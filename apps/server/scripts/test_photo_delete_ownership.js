@@ -47,7 +47,7 @@ function fixture({ role='editor', accountRole='admin', collegeAdmin=false, enabl
     if(sql.startsWith('DELETE FROM photos')){
       state.deleted.push(...params[0]);state.photos=state.photos.filter(photo=>!params[0].includes(photo.id));return [{affectedRows:params[0].length}];
     }
-    if(sql.startsWith('SELECT id FROM photos WHERE id ='))return [state.photos.filter(photo=>photo.id===params[0]&&photo.organization_id===params[1])];
+    if(sql.startsWith('SELECT id, url, adjustments FROM photos WHERE id ='))return [state.photos.filter(photo=>photo.id===params[0]&&photo.organization_id===params[1])];
     if(sql.startsWith('UPDATE photos SET')){
       assert.ok(!sql.includes('photographer_id'),'uploader identity must not be editable');
       state.photos.find(photo=>photo.id===params.at(-1)).description=params[0];return [{affectedRows:1}];

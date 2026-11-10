@@ -1,8 +1,9 @@
+import { normalizeGeometry, geometryKey } from './geometry.mjs';
 export const ENGINE = 'mamage-tone-v3-srgb';
 export const DEFAULT_PHOTO_ADJUSTMENTS = Object.freeze({
   version: 3, engine: ENGINE, exposure: 0, contrast: 0, highlights: 0,
   shadows: 0, whites: 0, blacks: 0, temperature: 0, tint: 0,
-  vibrance: 0, saturation: 0, skinSaturation: 0, skinBrightness: 0, source: 'manual',
+  vibrance: 0, saturation: 0, skinSaturation: 0, skinBrightness: 0, source: 'manual', rotation: 0, crop: null,
 });
 const SLIDERS = ['contrast', 'highlights', 'shadows', 'whites', 'blacks', 'temperature', 'tint', 'vibrance', 'saturation', 'skinSaturation', 'skinBrightness'];
 export function clamp(value, min, max, fallback = 0) {
@@ -40,6 +41,7 @@ export function normalizePhotoAdjustments(input) {
     source: parsed.source === 'auto' ? 'auto' : 'manual', updatedAt: parsed.updatedAt || null };
   for (const key of SLIDERS) result[key] = clamp(parsed[key], -100, 100);
   result.wbGains = whiteBalance(result.temperature, result.tint);
+  Object.assign(result, normalizeGeometry(parsed));
   return result;
 }
 
@@ -52,12 +54,12 @@ export function isDefaultPhotoAdjustments(input) {
   const a = normalizePhotoAdjustments(input);
   const keys = ['exposure', ...SLIDERS];
   return keys.every(k => Math.abs(a[k] || 0) < 0.00001)
-    && a.wbGains.every(g => Math.abs(g - 1) < 0.00001);
+    && a.wbGains.every(g => Math.abs(g - 1) < 0.00001) && !a.rotation && !a.crop;
 }
 
 export function getToneAdjustmentKey(input) {
   const a = normalizePhotoAdjustments(input);
-  return [a.engine, a.exposure, ...SLIDERS.map(k => a[k]), ...a.wbGains].join('|');
+  return [a.engine, a.exposure, ...SLIDERS.map(k => a[k]), ...a.wbGains, geometryKey(a)].join('|');
 }
 
 function mapLuminance(y, a) {
@@ -96,7 +98,7 @@ function skinColorWeight(r, g, b) {
 
 export function createToneProcessor(input) {
   const a = normalizePhotoAdjustments(input);
-  if (isDefaultPhotoAdjustments(a)) return (r, g, b) => [r, g, b];
+  if (isDefaultPhotoAdjustments({ ...a, rotation: 0, crop: null })) return (r, g, b) => [r, g, b];
   const exposure = 2 ** a.exposure, gains = a.wbGains.map(g => g * exposure);
   const limit = Math.max(1, luma(...gains)), size = 8192;
   const lut = Float64Array.from({ length: size + 1 }, (_, i) => mapLuminance((i / size) ** 2 * limit, a));
@@ -218,30 +220,59 @@ function prioritizeFaces(a, histogram, metering) {
   if (!metering?.faces?.length || !metering.samples?.length) return;
   const medians = metering.faces.map(face => face.median).sort((x, y) => x - y);
   const faceMid = medians[Math.floor((medians.length - 1) * 0.35)];
-  // A modest lift of dim faces, not one fixed skin brightness for everyone.
-  const target = faceMid + clamp((118 - faceMid) * 0.5, 0, 18);
   const lowKey = percentile(histogram, 0.5) < 45;
-  const faceEv = clamp(Math.log2(decode(target / 255) / decode(faceMid / 255)), 0, lowKey ? 0.2 : 0.65);
-  a.exposure = Math.max(a.exposure, Math.round(faceEv * 20) / 20);
-  a.shadows = Math.max(a.shadows, Math.round(clamp((118 - faceMid) * 0.4, 0, lowKey ? 8 : 30)));
+  const backlit = !lowKey && percentile(histogram, 0.95) >= 220
+    && percentile(histogram, 0.95) - faceMid >= 100;
+  // Recover a relative amount of facial detail, not one universal skin value.
+  // A bright projection screen allows stronger shadow recovery than a low-key scene.
+  const target = faceMid + clamp((backlit ? 140 - faceMid : 118 - faceMid)
+    * (backlit ? 0.65 : 0.5), 0, lowKey ? 9 : backlit ? 50 : 18);
+  if (target <= faceMid) return;
   const baseline = { ...a, exposure: 0, contrast: 0, highlights: 0, shadows: 0, whites: 0, blacks: 0 };
-  const clipping = settings => {
-    const process = createToneProcessor(settings);
-    return metering.samples.reduce((n, rgb) => n + (Math.max(...process(...rgb)) >= 254 ? 1 : 0), 0) / metering.samples.length;
-  };
-  const budget = clipping(baseline) + 0.003;
+  const baselineProcess = createToneProcessor(baseline);
+  // A saturated LED channel reaching the sRGB gamut boundary is not white
+  // highlight loss. The renderer already fits chroma; guard scene luminance here.
+  const unclipped = metering.samples.filter(rgb => luma(...baselineProcess(...rgb)) < 254);
   const brightestFace = Math.max(...metering.faces.map(face => face.highlights));
-  // Limit new clipping globally and on brighter faces. Prefer a softer shoulder
-  // to reducing the whole scene; fall back to less lift when both cannot fit.
-  for (let step = 0; step < 15; step++) {
-    if (a.exposure > 0 && percentile(histogram, 0.99) > 215) a.highlights = -24;
-    protectAutoMidtones(a);
-    const faceHighlight = encode(mapLuminance(decode(brightestFace / 255) * 2 ** a.exposure, a)) * 255;
-    if (clipping(a) <= budget && faceHighlight <= Math.max(brightestFace, 238)) return;
-    if (a.exposure > 0) a.exposure = Math.max(0, Math.round((a.exposure - 0.05) * 20) / 20);
-    else { a.shadows = Math.max(0, a.shadows - 5); a.highlights = 0; }
+  const gray = (value, settings) => encode(mapLuminance(decode(value / 255) * 2 ** settings.exposure, settings)) * 255;
+  const upper = percentile(histogram, 0.99);
+  let best = baseline, bestCost = (target - faceMid) ** 2;
+  const maxEv = lowKey ? 0.2 : backlit ? 2.25 : 0.65;
+  const shadows = lowKey ? [0, 4, 8] : backlit ? [0, 25, 50, 70, 85] : [0, 10, 20, 30];
+  for (let step = 0; step <= 9; step++) for (const shadow of shadows) {
+    const candidate = { ...baseline, exposure: Math.round(step / 9 * maxEv * 100) / 100, shadows: shadow };
+    candidate.contrast = backlit ? Math.round(Math.min(13, shadow * 0.15)) : 0;
+    // Find the softest shoulder that holds previously unclipped screen whites.
+    const ceiling = Math.max(upper, 245);
+    if (upper > 200 && gray(upper, candidate) > ceiling) {
+      let low = -100, high = 0;
+      for (let n = 0; n < 8; n++) {
+        const middle = (low + high) / 2;
+        if (gray(upper, { ...candidate, highlights: middle }) > ceiling) high = middle;
+        else low = middle;
+      }
+      candidate.highlights = Math.floor(low);
+    }
+    // Shadow recovery must not wash out the room's black anchor.
+    if (backlit) {
+      const anchor = Math.min(24, percentile(histogram, 0.1));
+      const lifted = gray(anchor, candidate) / 255, desired = anchor / 255;
+      candidate.blacks = -Math.round(clamp((lifted - desired) / (1 - desired) / 0.08 * 100, 0, 60));
+    }
+    const result = gray(faceMid, candidate);
+    if (result < faceMid || gray(brightestFace, candidate) > Math.max(brightestFace, 238)) continue;
+    if (medians.some(value => gray(value, candidate) < value - 1)) continue;
+    if (backlit && gray(20, candidate) >= 40) continue;
+    // Keep midtone separation instead of selecting an aggressively flattened curve.
+    if (gray(190, candidate) - gray(80, candidate) < 65) continue;
+    const cost = (result - target) ** 2 + candidate.exposure ** 2 * 2 + shadow ** 2 * 0.0005;
+    if (cost >= bestCost) continue;
+    const process = createToneProcessor(candidate);
+    const newlyClipped = unclipped.reduce((n, rgb) => n + (luma(...process(...rgb)) >= 254 ? 1 : 0), 0);
+    if (newlyClipped / metering.samples.length > 0.003) continue;
+    best = candidate; bestCost = cost;
   }
-  a.exposure = 0; a.shadows = 0; a.highlights = 0;
+  Object.assign(a, best);
 }
 
 function suggestAutoTone(histogram, input, metering) {
@@ -273,7 +304,7 @@ function suggestAutoTone(histogram, input, metering) {
   return buildPhotoAdjustments(a, 'auto');
 }
 
-export function analyzeTonePixels(source, output, input, metering) {
+export function analyzeTonePixels(source, output, input, metering, cachedAuto) {
   const sourceHistogram = Array(256).fill(0), adjustedHistogram = Array(256).fill(0);
   let dark = 0, bright = 0, count = 0;
   for (let i = 0; i < source.length; i += 4) {
@@ -284,7 +315,7 @@ export function analyzeTonePixels(source, output, input, metering) {
     if (Math.max(output[i], output[i + 1], output[i + 2]) <= 1) dark++;
     count++;
   }
-  const autoAdjustments = suggestAutoTone(sourceHistogram, input, metering);
+  const autoAdjustments = cachedAuto || suggestAutoTone(sourceHistogram, input, metering);
   return { sourceHistogram, adjustedHistogram,
     metering: { mode: metering?.faces?.length ? 'faces' : 'global', faceCount: metering?.faces?.length || 0 },
     clipping: { shadows: dark / (count || 1), highlights: bright / (count || 1) }, autoAdjustments };

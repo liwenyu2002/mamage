@@ -228,3 +228,32 @@ test('face metering rejects unreliable geometry, de-duplicates, and handles imag
   const noFaces = tone.analyzeTonePixels(fixture.data, fixture.data, null, tone.measureToneFaces(fixture.data, fixture, invalid));
   assert.equal(noFaces.metering.mode, 'global');
 });
+
+test('projector backlight gets stronger face recovery without copying the example preset', () => {
+  for (const faceValue of [45, 65, 85]) {
+    const fixture = faceScene([faceValue], 250);
+    const metering = tone.measureToneFaces(fixture.data, fixture, fixture.faces);
+    const a = tone.analyzeTonePixels(fixture.data, fixture.data, null, metering).autoAdjustments;
+    const process = tone.createToneProcessor(a);
+    assert.ok(process(faceValue, faceValue, faceValue)[0] >= faceValue + 25, JSON.stringify(a));
+    assert.ok(process(250, 250, 250)[0] < 254);
+    assert.ok(a.highlights < -24, 'Bright screens need more than the former -24 shoulder cap');
+    assert.ok(a.blacks <= 0);
+    assert.equal(a.skinBrightness, 0); assert.equal(a.saturation, 0);
+    assert.ok(process(20, 20, 20)[0] < 40, 'Room shadows retain a black anchor');
+  }
+});
+
+test('saturated display colors do not masquerade as blown white highlights and block face recovery', () => {
+  const fixture = faceScene([70], 245);
+  for (let y = 0; y < fixture.height; y++) for (let x = 121; x < fixture.width; x++) {
+    fixture.data.set([28, 98, 252, 255], (y * fixture.width + x) * 4);
+  }
+  const metering = tone.measureToneFaces(fixture.data, fixture, fixture.faces);
+  const a = tone.analyzeTonePixels(fixture.data, fixture.data, null, metering).autoAdjustments;
+  const process = tone.createToneProcessor(a);
+  assert.ok(process(70, 70, 70)[0] >= 95, JSON.stringify(a));
+  assert.ok(process(245, 245, 245)[0] < 250, 'Bright neutral screen detail stays below white clipping');
+  const blue = process(28, 98, 252);
+  assert.ok(blue[2] > blue[1] && blue[1] > blue[0], 'The colored screen retains its hue ordering');
+});

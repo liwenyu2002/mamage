@@ -1,9 +1,14 @@
 import {
-  DEFAULT_PHOTO_ADJUSTMENTS, normalizePhotoAdjustments, buildPhotoAdjustments,
+  DEFAULT_PHOTO_ADJUSTMENTS, normalizePhotoAdjustments as normalizePixels, buildPhotoAdjustments,
   isDefaultPhotoAdjustments, processTonePixels, analyzeTonePixels,
 } from '../../../server/lib/photo_tone/engine.mjs';
 
-export { DEFAULT_PHOTO_ADJUSTMENTS, normalizePhotoAdjustments, buildPhotoAdjustments, isDefaultPhotoAdjustments };
+export { DEFAULT_PHOTO_ADJUSTMENTS, buildPhotoAdjustments, isDefaultPhotoAdjustments };
+export function normalizePhotoAdjustments(input) {
+  let value = input;
+  if (typeof value === 'string') { try { value = JSON.parse(value); } catch { value = null; } }
+  return { ...normalizePixels(value), ...(value?.baked ? { baked: value.baked } : {}) };
+}
 export { getToneAdjustmentKey } from '../../../server/lib/photo_tone/engine.mjs';
 
 // CSS brightness/sepia cannot represent the pixel pipeline. Keep the last exact
@@ -13,7 +18,7 @@ export function getPhotoAdjustmentStyle() { return undefined; }
 const sources = new Map();
 export function loadTonePixels(src, options = {}) {
   const maxSize = Math.max(320, Math.min(4096, Number(options.maxSize || 1280)));
-  const key = JSON.stringify([src, maxSize, options.token || '']);
+  const key = JSON.stringify([src, options.fullResolution ? 'full' : maxSize, options.token || '']);
   if (sources.has(key)) return sources.get(key);
   const promise = (async () => {
     let objectUrl = '';
@@ -33,17 +38,22 @@ export function loadTonePixels(src, options = {}) {
       img.src = imageSrc;
       await img.decode();
       const naturalWidth = sourceWidth || img.naturalWidth, naturalHeight = sourceHeight || img.naturalHeight;
-      const scale = Math.min(1, maxSize / Math.max(img.naturalWidth, img.naturalHeight));
+      const scale = options.fullResolution ? 1 : Math.min(1, maxSize / Math.max(img.naturalWidth, img.naturalHeight));
+      if (options.fullResolution && (img.naturalWidth !== naturalWidth || img.naturalHeight !== naturalHeight)) throw new Error('未取得完整分辨率原图，请重新打开编辑');
       const width = Math.max(1, Math.round(img.naturalWidth * scale)), height = Math.max(1, Math.round(img.naturalHeight * scale));
       const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
       const ctx = canvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
       ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, width, height); ctx.drawImage(img, 0, 0, width, height);
-      return { width, height, naturalWidth, naturalHeight, data: ctx.getImageData(0, 0, width, height).data };
+      const data = ctx.getImageData(0, 0, width, height).data;
+      canvas.width = canvas.height = 0;
+      return { width, height, naturalWidth, naturalHeight, data };
     } finally { if (objectUrl) URL.revokeObjectURL(objectUrl); }
   })().catch(error => { if (sources.get(key) === promise) sources.delete(key); throw error; });
-  // At most four decoded previews, scoped to the current authenticated session.
-  if (sources.size >= 4) sources.delete(sources.keys().next().value);
-  sources.set(key, promise);
+  // Full-resolution buffers belong to the active editor, not a multi-photo cache.
+  if (!options.fullResolution) {
+    if (sources.size >= 4) sources.delete(sources.keys().next().value);
+    sources.set(key, promise);
+  }
   return promise;
 }
 

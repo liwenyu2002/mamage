@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const { pool, buildUploadUrl, UPLOAD_BASE_URL } = require('../db');
 const cosStorage = require('./cos_storage');
 const { requirePhotoAccess } = require('./workspace_access');
+const { getBakedEdit, editableSourceUrl } = require('./photo_tone/artifacts.cjs');
 
 const SECRET = process.env.MEDIA_URL_SECRET || process.env.JWT_SECRET || '';
 const TTL_SECONDS = Math.max(60, Math.min(24 * 3600,
@@ -68,10 +69,10 @@ function buildShareOriginalUrl(path, context) {
   if (!context?.shareId || !context?.photoId) return null;
   const key = cosStorage.keyFromUrlOrPath(path);
   if (!key || !key.startsWith('uploads/') || !cosStorage.isSafeKey(key)) return null;
-  return buildMediaUrl(`/${key}`, context);
+  return editableSourceUrl(buildMediaUrl(`/${key}`, context));
 }
 
-async function authorizeMediaKey(key, token, db = pool) {
+async function authorizeMediaKey(key, token, db = pool, context = null) {
   const unitId = unitIdFromKey(key);
   const payload = verifyPayload(token);
   if (!payload) return !unitId && /^uploads\/(?:wechat|avatars)\//.test(key);
@@ -80,14 +81,18 @@ async function authorizeMediaKey(key, token, db = pool) {
   if (!Number.isSafeInteger(payload.p)) return false;
   const [rows] = await db.query(
     `SELECT id, organization_id, unit_id, project_id, type,
-            url, thumb_url, public_download_url, playback_url
+            url, thumb_url, public_download_url, playback_url, adjustments
      FROM photos WHERE id = ? LIMIT 1`, [payload.p]
   );
   const photo = rows[0];
   if (!photo || (unitId && Number(photo.unit_id) !== unitId)) return false;
+  const baked = getBakedEdit(photo);
   const matchingField = ['url', 'thumb_url', 'public_download_url', 'playback_url']
-    .find((field) => photo[field] && cosStorage.keyFromUrlOrPath(photo[field]) === key);
+    .find((field) => photo[field] && cosStorage.keyFromUrlOrPath(photo[field]) === key)
+    || (baked && [baked.url, baked.thumbUrl].includes(key) ? 'edited' : null);
   if (!matchingField) return false;
+  // The caller may only use this context after authorization returns true.
+  if (context) context.photo = photo;
 
   if (payload.t === 'user' && Number.isSafeInteger(payload.u)) {
     if (!await require('./iam_account_guard').allowMedia(payload.u, payload.i, db)) return false;

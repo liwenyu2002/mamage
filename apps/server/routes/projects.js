@@ -139,9 +139,9 @@ function parseTags(tags) {
   return [];
 }
 
-function parsePhotoAdjustments(adjustments) {
+function parsePhotoAdjustments(adjustments, id) {
   if (!adjustments) return null;
-  try { return require('../lib/photo_tone/engine.mjs').normalizePhotoAdjustments(adjustments); }
+  try { return require('../lib/photo_tone/artifacts.cjs').publicAdjustments(adjustments, id); }
   catch (_) { return null; }
 }
 
@@ -1023,7 +1023,8 @@ router.get('/:id', async (req, res) => {
       fullUrl: mediaUrl(req, p.url, p.id),
       fullThumbUrl: mediaUrl(req, p.thumbUrl, p.id),
       description: p.description || null,
-      adjustments: parsePhotoAdjustments(p.adjustments)
+      adjustments: parsePhotoAdjustments(p.adjustments, p.id),
+      editRevision: require('../lib/photo_tone/artifacts.cjs').editRevision(p)
     }));
 
     project.photos = await attachVideoProcessingState(project.photos, { db: pool });
@@ -1585,7 +1586,7 @@ router.delete('/:id', requirePermission('projects.delete'), async (req, res) => 
       await requireProjectAccess(req, id, 'manage', conn);
 
       const [photoRows] = await conn.query(
-        `SELECT id, url, thumb_url AS thumbUrl, public_download_url AS publicDownloadUrl, playback_url AS playbackUrl
+        `SELECT id, url, thumb_url AS thumbUrl, public_download_url AS publicDownloadUrl, playback_url AS playbackUrl, adjustments
          FROM photos
          WHERE project_id = ? FOR UPDATE`,
         [id]
