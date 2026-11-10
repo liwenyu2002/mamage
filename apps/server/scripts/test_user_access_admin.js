@@ -73,7 +73,10 @@ function legacyRoleApp(f) {
   const source = fs.readFileSync(require.resolve('../routes/users'), 'utf8');
   vm.runInNewContext(source.slice(source.indexOf("router.get('/all',"), source.indexOf('module.exports = router;')), {
     router, pool: f.db, console: { error() {} },
-    require: name => { assert.equal(name, '../lib/user_access_admin'); return require(name); },
+    require: name => {
+      assert.ok(['../lib/user_access_admin', '../lib/account_merge'].includes(name), `Unexpected route dependency: ${name}`);
+      return require(name);
+    },
     authMiddleware: (req, _res, next) => { req.user = { id: Number(req.get('x-test-user')), role: 'superadmin' }; next(); },
     // Simulate a permission precheck that passed before a concurrent revocation.
     requirePermission: () => (_req, _res, next) => next(),

@@ -35,7 +35,7 @@ const db = { async query(sql, params) {
   if(sql.startsWith('INSERT'))return [{}];
   if(sql.startsWith('SELECT p.id')) {
     assert(sql.includes('p.organization_id = ? AND p.unit_id = ?'));
-    assert.deepEqual(params,[7,9]);
+    assert.deepEqual(params,sql.includes('p.name') ? [7,7,7,9] : [7,9]);
     const rows=(sql.includes('p.name') ? readSnapshot.ids : catalogIds).map(id=>({id,createdAt:'2026-10-01'}));
     if(concurrentCatalog && sql.includes('p.name')) {
       concurrentCatalog=false;catalogIds.push(4);
