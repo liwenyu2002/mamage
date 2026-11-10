@@ -21,6 +21,39 @@ import { folderPath, folderBranchHeight, folderMoveIssue, groupAlbums as treeAlb
 import './AlbumDesktop.css';
 import './folders/folders.css';
 
+// 首屏骨架：按真实布局铺出来（侧栏目录 + 标题 + 工具条 + 相册网格），避免"白屏 → 内容"的跳变。
+function DesktopSkeleton() {
+  return <div className="album-desktop acp-page acp-skeleton" role="status" aria-live="polite" aria-busy="true">
+    <div className="acp-workspace">
+      <aside className="acp-sidebar" aria-hidden="true">
+        <div className="acp-sidebar-directory acp-skeleton-panel">
+          {[0, 1, 2, 3, 4, 5].map(index => <div className="acp-skeleton-row" key={index}>
+            <span className="acp-skeleton-dot" /><span className="acp-skeleton-bar" style={{ width: `${72 - index * 7}%` }} />
+          </div>)}
+        </div>
+      </aside>
+      <div className="acp-main">
+        <div className="acp-skeleton-heading" aria-hidden="true">
+          <span className="acp-skeleton-bar is-title" /><span className="acp-skeleton-pill is-action" />
+        </div>
+        <div className="acp-skeleton-toolbar" aria-hidden="true">
+          <span className="acp-skeleton-pill is-search" />
+          <span className="acp-skeleton-pill" /><span className="acp-skeleton-pill is-narrow" />
+        </div>
+        <div className="acp-albums acp-skeleton-grid" aria-hidden="true">
+          {[0, 1, 2, 3, 4, 5, 6, 7].map(index => <div className="acp-skeleton-card" key={index} style={{ animationDelay: `${index * 70}ms` }}>
+            <span className="acp-skeleton-cover" />
+            <span className="acp-skeleton-bar" style={{ width: `${64 + (index % 3) * 9}%` }} />
+            <span className="acp-skeleton-bar is-muted" style={{ width: '38%' }} />
+          </div>)}
+        </div>
+      </div>
+    </div>
+    <div className="acp-skeleton-caption"><span className="acp-skeleton-pulse" />正在加载小组空间…</div>
+  </div>;
+}
+
+
 const CreateAlbumModal = React.lazy(() => import('./CreateAlbumModal'));
 const EditAlbumModal = React.lazy(() => import('./EditAlbumModal'));
 
@@ -1194,7 +1227,7 @@ export default function AlbumDesktop({ currentUser, workspaceInfo, onOpen, onSha
     return () => { active = false; document.removeEventListener('visibilitychange', refresh); };
   }, [currentUser?.id, workspaceInfo?.activeUnitId, sharingOpen]);
   if(error)return <div className="desktop-load-state" role="alert"><p>{error}</p><Button onClick={()=>setReload(n=>n+1)}>重新加载</Button></div>;
-  if(!initial)return <div className="desktop-load-state" role="status">正在加载小组空间…</div>;
+  if(!initial)return <DesktopSkeleton />;
   if(sharedFolderId) return <SharedFolderView shareId={sharedFolderId} onOpen={onOpen} onBack={closeSharedFolder} folderStyle={folderStyle} />;
   const workspaceName=workspaceInfo?.units?.find(unit=>Number(unit.id)===Number(workspaceInfo.activeUnitId))?.name || '历史相册';
   return <DesktopContent footer={footer} key={`${currentUser.id}-${workspaceInfo?.activeUnitId || 'legacy'}-${reload}`} initial={initial} userId={String(currentUser.id)} workspaceName={workspaceName}

@@ -34,6 +34,7 @@ export async function finishIamLogin({ location = window.location, history = win
     const target = new URL(result.returnTo || '/', location.origin);
     if (target.origin !== location.origin || target.pathname.startsWith('/api/')) throw Error('Invalid destination');
     storage.setItem('mamage_jwt_token', result.token);
+    try { storage.removeItem('mamage_iam_qr_pending'); } catch {}
     if (target.pathname + target.search !== location.pathname + location.search) location.replace(target.pathname + target.search);
   } catch {
     history.replaceState({}, '', location.pathname + location.search + '#iam_error=IAM_LOGIN_UNAVAILABLE');

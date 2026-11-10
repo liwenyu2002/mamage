@@ -42,7 +42,9 @@ export default function CampusLoginQr() {
         if (canceled || terminal) return;
         if (result.phase === 'ready') {
           if (result.completeUrl !== `/api/auth/iam/qr/${attempt}/complete`) throw new Error('Invalid completion');
-          navigating = true; finish('ready'); window.location.assign(result.completeUrl);
+          navigating = true; finish('ready');
+          try { window.sessionStorage.setItem('mamage_iam_qr_pending', String(Date.now())); } catch {}
+          window.location.assign(result.completeUrl);
         } else if (result.phase === 'waiting') timer = setTimeout(poll, 1500);
         else finish(result.phase === 'expired' ? 'expired' : 'fallback');
       } catch (e) { if (!canceled && !terminal) finish(e.expired ? 'expired' : 'fallback'); }

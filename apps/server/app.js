@@ -258,6 +258,14 @@ async function startup() {
   } });
   else startBackgroundWorkers();
   startSearchTelemetry();
+  // 预热相册桌面用到的 photos 聚合与封面窗口查询，避免进程重启后第一个用户落在冷缓存上。
+  void (async () => {
+    try {
+      const { pool } = require('./db');
+      await pool.query('SELECT project_id, COUNT(*) FROM photos GROUP BY project_id LIMIT 1');
+      await pool.query(`SELECT id FROM (SELECT id, ROW_NUMBER() OVER (PARTITION BY project_id ORDER BY created_at DESC, id DESC) rn FROM photos) t WHERE rn = 1 LIMIT 1`);
+    } catch { /* 预热失败不影响启动 */ }
+  })();
   if (process.env.OPERATIONS_MONITOR_ENABLED === '1') {
     operationsMonitor = require('./lib/operations_status').startOperationsMonitor({ status: operationsRouter.status,
       pool, isLeader: () => !distributed() || coordinator.isLeader() });

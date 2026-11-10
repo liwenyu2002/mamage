@@ -13,7 +13,8 @@ const json = value => new Response(JSON.stringify(value), { headers: { 'content-
 const authorization = cfg.authorizeUrl + '?' + new URLSearchParams({ client_id: cfg.clientId, redirect_uri: cfg.callback,
   response_type: 'code', state: 'synthetic-state', code_challenge: 'synthetic-pkce', code_challenge_method: 'S256' });
 function upstream({ redirect = null, serviceState = null, imagePath = 'api/app/qrcode/' + 'a'.repeat(32), type = 'image/png',
-  imageBody = image, initActions = [{ code: 'qrcode', id: 'qr-action' }], preNext = null, listening = { status: 2007, responseBody: { contextRaw: 'updated-context' } } } = {}) {
+  imageBody = image, initActions = [{ code: 'qrcode', id: 'qr-action' }], preNext = null, listening = { status: 2007, responseBody: { contextRaw: 'updated-context' } },
+  wrap = null } = {}) {
   const calls = [];
   const transport = async (input, options) => {
     const url = new URL(input); calls.push({ url, options });
@@ -31,7 +32,7 @@ function upstream({ redirect = null, serviceState = null, imagePath = 'api/app/q
     if (url.pathname.includes('/qrcode/')) return new Response(imageBody, { headers: { 'content-type': type } });
     throw Error('Unexpected upstream route');
   };
-  return { calls, gateway: createIamQrGateway({ transport }) };
+  return { calls, gateway: createIamQrGateway({ transport: wrap ? wrap(transport) : transport }) };
 }
 test('QR uses the original OAuth state/PKCE service and retains private context only server-side', async () => {
   const { calls, gateway } = upstream(), challenge = await gateway.start(cfg, authorization);
@@ -144,3 +145,56 @@ test('expired challenges cannot read an image, poll or complete a login', () => 
   assert.equal((await request(`/qr/${qr.id}/status`, {}, qr.cookie)).status, 401);
   assert.match((await request(`/qr/${qr.id}/complete`, undefined, qr.cookie)).headers.get('location'), /iam_error/);
 }));
+
+
+test('a stalled IAM attempt is retried instead of surfacing IAM_QR_UNAVAILABLE', async () => {
+  let stalls = 2;
+  const { calls, gateway } = upstream({ wrap: inner => async (input, options) => {
+    if (String(input).endsWith('/init') && stalls > 0) {
+      stalls -= 1; const error = new Error('aborted'); error.name = 'TimeoutError'; throw error;
+    }
+    return inner(input, options);
+  } });
+  const challenge = await gateway.start(cfg, authorization);
+  assert.equal(challenge.mime, 'image/png');
+  assert.equal(stalls, 0);
+  // 前两次超时在网关内被吃掉，真正到达上游的 init 只有成功的那一次
+  assert.equal(calls.filter(call => call.url.pathname.endsWith('/init')).length, 1);
+});
+
+test('a permanently stalled IAM init still fails closed with IAM_QR_UNAVAILABLE', async () => {
+  const { gateway } = upstream({ wrap: inner => async (input, options) => {
+    if (String(input).endsWith('/init')) { const error = new Error('aborted'); error.name = 'TimeoutError'; throw error; }
+    return inner(input, options);
+  } });
+  // 网关抛出传输层错误，路由层统一映射成 IAM_QR_UNAVAILABLE 返回给前端
+  await assert.rejects(gateway.start(cfg, authorization), e => e.name === 'TimeoutError');
+});
+
+test('flaky IAM status (9308) is retried before giving up', async () => {
+  let flaky = 2;
+  const { calls, gateway } = upstream({ wrap: inner => async (input, options) => {
+    if (String(input).endsWith('/init') && flaky > 0) {
+      flaky -= 1;
+      return new Response(JSON.stringify({ status: 9308, msg: '默认应用配置错误' }), { headers: { 'content-type': 'application/json' } });
+    }
+    return inner(input, options);
+  } });
+  const challenge = await gateway.start(cfg, authorization);
+  assert.equal(challenge.mime, 'image/png');
+  assert.equal(flaky, 0);
+  assert.equal(calls.filter(call => call.url.pathname.endsWith('/init')).length, 1);
+});
+
+test('a persistent IAM 9308 fails closed instead of looping forever', async () => {
+  let callsToInit = 0;
+  const { gateway } = upstream({ wrap: inner => async (input, options) => {
+    if (String(input).endsWith('/init')) {
+      callsToInit += 1;
+      return new Response(JSON.stringify({ status: 9308, msg: '默认应用配置错误' }), { headers: { 'content-type': 'application/json' } });
+    }
+    return inner(input, options);
+  } });
+  await assert.rejects(gateway.start(cfg, authorization), /IAM_QR_UNAVAILABLE/);
+  assert.equal(callsToInit, 5);
+});

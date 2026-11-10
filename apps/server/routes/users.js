@@ -664,4 +664,59 @@ router.patch('/:id/role', authMiddleware, requirePermission('users.manage_roles'
   }
 });
 
+
+// ==============================
+// 账号合并（超级管理员）
+// ==============================
+require('../lib/user_access_admin').registerUserAccessAdmin(router, { db: pool, auth: authMiddleware });
+const accountMerge = require('../lib/account_merge');
+
+async function requireAccessAdmin(req, res) {
+  const actor = await require('../lib/user_access_admin').accessAdministrator(pool, req.user.id);
+  if (!actor.allowed) { res.status(403).json({ error: 'ACCESS_ADMIN_REQUIRED', message: '仅超级管理员可合并账号' }); return false; }
+  return true;
+}
+
+// 预览：合并前看清哪些数据会跟着走。GET /api/users/merge/preview?sourceId=&targetId=
+router.get('/merge/preview', authMiddleware, async (req, res) => {
+  try {
+    if (!await requireAccessAdmin(req, res)) return;
+    return res.json(await accountMerge.preview(pool, req.query.sourceId, req.query.targetId));
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.code, message: err.message });
+    console.error('[GET /api/users/merge/preview]', err && err.stack ? err.stack : err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// 执行合并。POST /api/users/merge { sourceId, targetId, confirmName }
+router.post('/merge', authMiddleware, async (req, res) => {
+  try {
+    if (!await requireAccessAdmin(req, res)) return;
+    const preview = await accountMerge.preview(pool, req.body?.sourceId, req.body?.targetId);
+    if (preview.blocked) return res.status(403).json({ error: 'PROTECTED_SUPERADMIN', message: preview.blocked });
+    if (String(req.body?.confirmName || '').trim() !== preview.target.name) {
+      return res.status(400).json({ error: 'CONFIRM_REQUIRED', message: '请输入保留账号的姓名以确认合并' });
+    }
+    const result = await accountMerge.mergeAccounts(pool, req.user.id, req.body.sourceId, req.body.targetId);
+    return res.json({ ok: true, ...result });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.code, message: err.message });
+    console.error('[POST /api/users/merge]', err && err.stack ? err.stack : err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+
+// 重复账号扫描（超级管理员，只读）。GET /api/users/duplicates
+router.get('/duplicates', authMiddleware, async (req, res) => {
+  try {
+    if (!await requireAccessAdmin(req, res)) return;
+    return res.json(await require('../lib/duplicate_accounts').scan(pool));
+  } catch (err) {
+    console.error('[GET /api/users/duplicates]', err && err.stack ? err.stack : err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 module.exports = router;

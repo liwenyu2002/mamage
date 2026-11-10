@@ -106,8 +106,15 @@ function mountIamQr(router, { config, store, rate, createFlow, browserCookie, ga
         await store.delete(keyFor(req.params.id));
         return target;
       });
+      try {
+        const target = new URL(go);
+        console.warn('[iam-qr] complete ->', target.origin + target.pathname, 'params=' + [...target.searchParams.keys()].join(','));
+      } catch {}
       res.redirect(go);
-    } catch { res.redirect('/login#iam_error=IAM_LOGIN_EXPIRED'); }
+    } catch (e) {
+      console.warn('[iam-qr] complete failed', e.code || e.name || 'error');
+      res.redirect('/login#iam_error=IAM_LOGIN_EXPIRED');
+    }
   });
   router.post('/qr/:id/cancel', async (req, res) => {
     try {
