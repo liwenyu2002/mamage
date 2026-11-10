@@ -145,7 +145,7 @@ async function loginOnce(ctx, returnTo = '/projects') {
   const response = await callback(ctx, flow.callback, flow.cookie);
   assert.equal(response.status, 302);
   const location = response.headers.get('location');
-  assert.match(location, /^\/login#oidc_code=[\w-]{43}$/);
+  assert.match(location, /^\/api\/auth\/oidc\/complete#oidc_code=[\w-]{43}$/);
   const code = location.split('oidc_code=')[1];
   const session = await fetch(`${ctx.server.base}/api/auth/oidc/session`, { method: 'POST', headers: {
     Origin: ctx.config.publicOrigin, 'Content-Type': 'application/json', cookie: flow.cookie.header },
@@ -185,6 +185,55 @@ test('同一 Keycloak 主体再次登录复用账号，不重复建号', async (
     assert.equal(session.status, 200);
     assert.equal(ctx.f.sql.prepare("SELECT COUNT(*) AS count FROM users WHERE email = 'zhang@example.edu'").all()[0].count, 1,
       'second login reuses the provisioned visitor instead of duplicating it');
+  } finally { await ctx.server.close(); await ctx.idpServer.close(); ctx.f.close(); }
+});
+
+test('内嵌授权先移交顶层，缺 Cookie 的 iframe 不换 token，顶层仍验证绑定与 PKCE', async () => {
+  const ctx = await harness();
+  try {
+    ctx.config.embedEnabled = true; ctx.config.idpHint = 'dingtalk';
+    const start = await fetch(ctx.server.base + '/api/auth/oidc/login?embedded=1&returnTo=%2F%3FprojectId%3D102&kc_idp_hint=evil', { redirect: 'manual' });
+    const cookie = cookieFrom(start), auth = new URL(start.headers.get('location'));
+    assert.equal(auth.searchParams.get('kc_idp_hint'), 'dingtalk', '请求不能覆盖服务器的 IdP');
+    const upstream = await fetch(auth, { redirect: 'manual' });
+    const cb = new URL(upstream.headers.get('location'));
+    const returned = await fetch(ctx.server.base + '/api/auth/oidc/callback' + cb.search, { redirect: 'manual' });
+    const fragment = new URL(returned.headers.get('location'), ctx.server.base).hash;
+    assert.ok(fragment.startsWith('#oidc_callback='));
+    assert.equal(ctx.idp.requests.filter(item => item.path.endsWith('/token')).length, 0);
+    assert.equal(ctx.f.sql.prepare('SELECT COUNT(*) AS n FROM iam_login_identities').get().n, 0);
+    const query = decodeURIComponent(fragment.slice(15));
+    const missingCookie = await fetch(ctx.server.base + '/api/auth/oidc/finish?' + query, { redirect: 'manual' });
+    assert.match(missingCookie.headers.get('location'), /oidc_error=OIDC_LOGIN_EXPIRED/);
+    const complete = await fetch(ctx.server.base + '/api/auth/oidc/finish?' + query, { redirect: 'manual', headers: { cookie: cookie.header } });
+    assert.match(complete.headers.get('location'), /oidc_code=[\w-]{43}$/);
+    const handoff = complete.headers.get('location').split('oidc_code=')[1];
+    const session = await fetch(ctx.server.base + '/api/auth/oidc/session', { method: 'POST',
+      headers: { Origin: ctx.config.publicOrigin, 'Content-Type': 'application/json', cookie: cookie.header }, body: JSON.stringify({ code: handoff }) });
+    assert.equal(session.status, 200); assert.equal((await session.json()).returnTo, '/?projectId=102');
+    const replay = await fetch(ctx.server.base + '/api/auth/oidc/finish?' + query, { redirect: 'manual', headers: { cookie: cookie.header } });
+    assert.match(replay.headers.get('location'), /oidc_error=OIDC_LOGIN_EXPIRED/);
+  } finally { await ctx.server.close(); await ctx.idpServer.close(); ctx.f.close(); }
+});
+
+test('OIDC 完成桥同源加载脚本，不启动图库、不发 JWT，只给父窗口一次性临时码', async () => {
+  const vm = require('node:vm'), ctx = await harness();
+  try {
+    const page = await fetch(ctx.server.base + '/api/auth/oidc/complete?untrusted=%3Cscript%3E');
+    assert.equal(page.headers.get('x-frame-options'), 'SAMEORIGIN');
+    assert.match(page.headers.get('content-security-policy'), /frame-ancestors 'self'/);
+    assert.equal(page.headers.get('cache-control'), 'no-store');
+    const html = await page.text(); assert.ok(!html.includes('untrusted'));
+    assert.match(html, /src="\/api\/auth\/oidc\/complete.js"/);
+    const script = await (await fetch(ctx.server.base + '/api/auth/oidc/complete.js')).text();
+    for (const framed of [false, true]) {
+      const calls = [], hash = '#oidc_code=' + 'h'.repeat(43), origin = ctx.config.publicOrigin;
+      const window = {}; window.parent = framed ? { postMessage: (message, target) => calls.push({ message, target }) } : window;
+      vm.runInNewContext(script, { window, URLSearchParams, location: { hash, origin, pathname: '/api/auth/oidc/complete', replace: target => calls.push(target) },
+        history: { replaceState: (_, __, target) => calls.push(target) } });
+      assert.equal(calls[0], '/api/auth/oidc/complete', '先清除临时码再发送');
+      assert.deepEqual(JSON.parse(JSON.stringify(calls[1])), framed ? { message: { type: 'mamage:oidc-complete', hash }, target: origin } : '/login' + hash);
+    }
   } finally { await ctx.server.close(); await ctx.idpServer.close(); ctx.f.close(); }
 });
 

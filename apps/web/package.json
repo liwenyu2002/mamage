@@ -34,6 +34,7 @@
     "test:embedded-webview": "node scripts/test-embedded-webview-browser.cjs",
     "test:person-split-browser": "node scripts/check-person-split.cjs",
     "test:oidc-login": "node --test scripts/test-oidc-login.cjs",
+    "test:oidc-frame-browser": "node scripts/test-oidc-frame-browser.cjs",
     "test:gallery": "node scripts/run-gallery-tests.cjs",
     "test:photo-tone": "node scripts/test-photo-tone-browser.cjs",
     "test:photo-geometry": "node scripts/test-photo-geometry-browser.cjs",

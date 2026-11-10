@@ -3,13 +3,34 @@
 export function hasOidcHandoff(location) {
   return /(?:^#|&)oidc_(?:code|error)=/.test(location.hash || '');
 }
-export function oidcLoginUrl(location) {
-  return '/api/auth/oidc/login?returnTo=' + encodeURIComponent(location.pathname + location.search);
+export function oidcLoginUrl(location, { embedded = false } = {}) {
+  return '/api/auth/oidc/login?returnTo=' + encodeURIComponent(location.pathname + location.search)
+    + (embedded ? '&embedded=1' : '');
+}
+export function canEmbedOidcLogin(providers, userAgent = '') {
+  return providers?.oidc === true && providers?.oidcEmbed === true && !/DingTalk/i.test(userAgent);
+}
+export function oidcFrameResult(event, frameWindow, origin) {
+  if (!frameWindow || event.source !== frameWindow || event.origin !== origin
+    || event.data?.type !== 'mamage:oidc-complete') return null;
+  const hash = event.data.hash;
+  if (typeof hash !== 'string') return null;
+  if (/^#oidc_(?:code=[\w-]{43}|error=[A-Z0-9_]{1,100})$/.test(hash)) return '/login' + hash;
+  if (hash.startsWith('#oidc_callback=') && hash.length <= 24000) {
+    try {
+      const query = new URLSearchParams(decodeURIComponent(hash.slice(15)));
+      const code = query.get('code'), state = query.get('state');
+      if ([...query].length === 2 && code && code.length <= 2000 && /^[\w-]{43}$/.test(state || ''))
+        return '/api/auth/oidc/finish?' + new URLSearchParams({ code, state });
+    } catch { /* malformed callback */ }
+  }
+  return null;
 }
 // 可选的无感登录：仅在 OIDC_AUTO_START=1 且本标签页 2 分钟内没试过时自动跳转；
 // 带错误/邀请参数或已经手动选了登录方式时不跳，避免失败后循环。
-export function autoStartOidcLogin({ providers, location, storage, now = Date.now() }) {
+export function autoStartOidcLogin({ providers, location, storage, userAgent = '', now = Date.now() }) {
   if (!providers?.oidc || !providers?.oidcAutoStart) return false;
+  if (canEmbedOidcLogin(providers, userAgent)) return false;
   if (/(?:oidc|iam|dingtalk)_(?:error|code|token)=/.test(location.hash || '')) return false;
   const params = new URLSearchParams(location.search);
   if (['invite', 'invite_code', 'inviteCode'].some(key => params.has(key))) return false;

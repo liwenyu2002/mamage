@@ -25,14 +25,16 @@ MaMage 接学院张小平老师自建的 Keycloak。认证走标准 **OpenID Con
   │                │ exp/nonce；userinfo 补资料       │
   │                │ resolveProfile 找账号/自动开户     │
   │                │ 一次性 handoff（2 分钟）          │
-  │ 302 /login#oidc_code=<handoff>                   │
+  │ 302 /api/auth/oidc/complete#oidc_code=<handoff>   │
   │◄───────────────│                                │
+  │ 顶层跳至 /login#oidc_code=<handoff>              │
   │ POST /api/auth/oidc/session  {code}              │
   │（Origin 必须同站，JSON）                          │
   │◄────────────── 本站 JWT + returnTo               │
 ```
 
 安全点：
+- 内嵌模式在兑换 code 前先经同源完成页回到顶层 `/api/auth/oidc/finish`，再执行图中的 Cookie 校验及后续步骤；不在 iframe 内建立本站会话。
 - `state` 一次性、与 HttpOnly Cookie（`__Host-mamage_oidc`，内网 http 时降级为站点专用 Cookie）绑定；
 - PKCE 强制 S256；`nonce` 绑定到 `id_token`；
 - `id_token` 只认 JWKS 中 `kid` 对应密钥，拒绝 `alg=none`；`iss` 精确相等、`aud` 含 `client_id`、多 aud 时校验 `azp`；
@@ -60,12 +62,25 @@ OIDC_PROFILE_LOGIN_MATCHING=1
 OIDC_AUTO_PROVISION=0
 OIDC_CLOCK_SKEW_SECONDS=60
 OIDC_AUTO_START=0                                      # 1 = 打开登录页自动跳 IdP（无感 SSO）
+OIDC_EMBED_ENABLED=0                                   # 1 = 在本站内嵌官方认证页面，须同时核对 CSP
+OIDC_IDP_HINT=                                         # 可选的 Keycloak IdP alias，由服务器固定配置
 ```
 
 其余可选：`OIDC_AUTO_START`（默认 0；开启后未登录访问会像其他接入应用一样自动跳转 Keycloak，每标签页 2 分钟内只尝试一次，带错误/邀请参数时不跳）、`OIDC_REDIRECT_URI`（默认 `<MAMAGE_PUBLIC_URL>/api/auth/oidc/callback`）、
 `OIDC_DISCOVERY_CACHE_SECONDS`、`OIDC_TIMEOUT_MS`、`OIDC_SUBJECT_EMAIL_DOMAIN`。
 内网只有 http 时，必须**精确登记** `OIDC_ALLOW_INSECURE_ISSUER_ORIGIN`（IdP 来源）与
 `OIDC_ALLOW_INSECURE_HTTP_ORIGIN`（本站入口）——这是有意的内网例外，不支持通配。
+
+### 内嵌研究院钉钉登录
+
+- 研究院这一部署可设置 `OIDC_EMBED_ENABLED=1`、`OIDC_IDP_HINT=dingtalk`。iframe 从本站 `/api/auth/oidc/login?embedded=1` 发起全新的授权码 + PKCE 流程，经 Keycloak、研究院钉钉 broker 跳至官方界面。不截取二维码、不代理认证页 HTML，也不复用旧授权 URL 或 state。
+- 顶层页面的 CSP 必须允许 `frame-src 'self' https://sso.inner.bza.edu.cn https://sso-dt.inner.bza.edu.cn https://login.dingtalk.com`；仓库的 Nginx CSP 模板已列出这些精确来源。部署时同步实际入口 Nginx 的 CSP，并保留该入口已有的存储桶 `connect-src` 等配置。不能用通配来源，也不能移除 IdP 的防内嵌安全头。
+- 内嵌回调先经 `/api/auth/oidc/complete` 向**同源父窗口**传递授权回跳，再由顶层 `/api/auth/oidc/finish` 携带浏览器 Cookie 校验原 state、PKCE、ID token。确认身份后仍生成原有的一次性 handoff，在顶层换取本站会话。用户绑定、组织、人脸及管理权限均未变更。
+- 父窗口同时核对消息的精确 origin、当前 iframe 的 window 引用、消息类型和参数格式。钉钉或其他第三方发来的账号/令牌消息不作为本站登录凭证。
+- 认证页面由钉钉控制，可能先显示“账号登录”或已登录头像，可在官方界面中切换“扫码登录”。不伪造扫码/头像状态，不尝试修改跨域页面。官方桌面扫码页不适配过窄的 iframe，低于 480px 时保留整页入口，避免裁掉二维码；钉钉客户端内保留整页免登入口。
+- 开启内嵌时普通浏览器不再自动离开本站；账号密码、同页“打开完整登录页”、刷新、9 分钟过期重试均保留。回调失败不会自动重开 iframe。浏览器禁止第三方 Cookie 或 IdP 禁止 iframe 时使用完整登录页。
+- 实测 Chromium 禁用第三方 Cookie 时，研究院 Keycloak 返回的错误页受其 `frame-ancestors 'self'` 保护，无法在本站内嵌。这种情况需点完整登录页；跨域 iframe 的 `load` 事件无法可靠区分正常页面与浏览器拦截页，不能声称已自动检测拦截。
+- 本地验证：`npm --prefix apps/server run test:oidc`、`npm --prefix apps/web run test:oidc-login`；前端构建后再跑 `npm --prefix apps/web run test:oidc-frame-browser`。实际扫码及对应原账号回归仍须在登记过的回调地址上人工验收。
 
 自检：
 
@@ -132,8 +147,8 @@ B/C 未实现；当前离职处理依赖 `iam_user_state`/`iam_accounts` 既有�
 测试：
 
 ```sh
-npm --prefix apps/server run test:oidc        # 10 项：完整链路/重放/PKCE/nonce/aud/签名/过期/停用/待核对/discovery
-npm --prefix apps/web run test:oidc-login     # 3 项：handoff 安全语义与登录入口
+npm --prefix apps/server run test:oidc        # 完整链路/重放/PKCE/nonce/验签/过期/停用/内嵌回跳
+npm --prefix apps/web run test:oidc-login     # handoff、登录入口、消息来源和参数校验
 ```
 
 ## 七、给张老师的对接消息（可直接发群）

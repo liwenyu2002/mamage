@@ -69,6 +69,8 @@ function oidcConfig(env = process.env) {
     timeoutMs: Math.min(Math.max(Number(env.OIDC_TIMEOUT_MS) || 10000, 1000), 30000),
     providerLabel: String(env.OIDC_PROVIDER_LABEL || '统一身份认证').slice(0, 20),
     autoStart: env.OIDC_AUTO_START === '1',
+    embedEnabled: env.OIDC_EMBED_ENABLED === '1',
+    idpHint: /^[A-Za-z0-9._-]{1,80}$/.test(env.OIDC_IDP_HINT || '') ? env.OIDC_IDP_HINT : '',
     publicOrigin: site?.origin, insecureHttp: site?.protocol === 'http:', callback: callback?.href || null,
     sourceKey: crypto.createHash('sha256').update(`oidc\n${issuerHref}\n${clientId}`).digest('hex'), flowKey,
     profileLoginMatching: env.OIDC_PROFILE_LOGIN_MATCHING === '1',

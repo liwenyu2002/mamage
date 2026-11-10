@@ -37,6 +37,7 @@ function createOidcAuthRouter({ db, config = oidcConfig, store = createSharedSto
     if (Date.now() >= nextPrune && store.pruneExpired) { nextPrune = Date.now() + 60000; await store.pruneExpired(); }
     const browser = browserCookie(req, cfg) || random(), state = random(), verifier = random(), nonce = random();
     await store.set(sha256(state), { kind: 'oauth', browserHash: sha256(browser), verifier, nonce,
+      embedded: cfg.embedEnabled && req.query.embedded === '1',
       sourceKey: cfg.sourceKey, flowKey: cfg.flowKey, returnTo: returnPath(returnTo, cfg.publicOrigin), expiresAt: Date.now() + 10 * 60000 });
     res.cookie(cookieName(cfg), browser, optionsFor(cfg));
     const document = await client.discovery(cfg);
@@ -44,6 +45,7 @@ function createOidcAuthRouter({ db, config = oidcConfig, store = createSharedSto
     for (const [key, value] of Object.entries({ client_id: cfg.clientId, redirect_uri: cfg.callback, response_type: 'code',
       scope: cfg.scopesValue, state, nonce,
       code_challenge: crypto.createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256' })) url.searchParams.set(key, value);
+    if (cfg.idpHint) url.searchParams.set('kc_idp_hint', cfg.idpHint);
     return { url: url.href, stateKey: sha256(state), browserHash: sha256(browser) };
   }
   router.get('/login', async (req, res) => {
@@ -65,7 +67,7 @@ function createOidcAuthRouter({ db, config = oidcConfig, store = createSharedSto
       await store.delete(sha256(key)); return item;
     });
   }
-  router.get('/callback', async (req, res) => {
+  async function finishAuthorization(req, res) {
     try {
       const cfg = config();
       if (typeof req.query.code !== 'string' || !req.query.code || req.query.code.length > 2000) throw error('OIDC_INVALID_CODE');
@@ -93,12 +95,55 @@ function createOidcAuthRouter({ db, config = oidcConfig, store = createSharedSto
       await store.set(sha256(handoff), { kind: 'handoff', userId: user.id, version: Number(account.session_version),
         sourceKey: cfg.sourceKey, flowKey: cfg.flowKey, browserHash: state.browserHash,
         returnTo: state.returnTo, expiresAt: Date.now() + 120000 });
-      res.redirect('/login#oidc_code=' + handoff);
+      res.redirect('/api/auth/oidc/complete#oidc_code=' + handoff);
     } catch (e) {
       const code = /^(?:OIDC|IAM|ACCOUNT)_/.test(e.code || '') ? e.code : 'OIDC_LOGIN_UNAVAILABLE';
       console.warn('[oidc.callback]', code);
-      res.redirect('/login#oidc_error=' + encodeURIComponent(code));
+      res.redirect('/api/auth/oidc/complete#oidc_error=' + encodeURIComponent(code));
     }
+  }
+  router.get('/callback', async (req, res) => {
+    const { code, state } = req.query;
+    try {
+      if (typeof code === 'string' && code.length > 0 && code.length <= 2000
+        && typeof state === 'string' && /^[\w-]{43}$/.test(state)) {
+        const pending = await store.get(sha256(state));
+        // Lax Cookie 在跨站 iframe 回调中可能缺失。先回到本站顶层，再校验并消费同一 state。
+        if (pending?.embedded || req.get('Sec-Fetch-Dest') === 'iframe') {
+          const query = new URLSearchParams({ code, state }).toString();
+          return res.redirect('/api/auth/oidc/complete#oidc_callback=' + encodeURIComponent(query));
+        }
+      }
+      return finishAuthorization(req, res);
+    } catch {
+      return res.redirect('/api/auth/oidc/complete#oidc_error=OIDC_LOGIN_UNAVAILABLE');
+    }
+  });
+  router.get('/finish', finishAuthorization);
+  // 只交接本站的一次性临时码，不能在 iframe 内启动图库或兑换会话。
+  // 顶层登录与内嵌登录共用此落点，避免失败回调在 iframe 中递归打开登录页。
+  router.get('/complete', (req, res) => {
+    res.set('Content-Security-Policy', "default-src 'none'; script-src 'self'; base-uri 'none'; frame-ancestors 'self'");
+    res.set('X-Frame-Options', 'SAMEORIGIN');
+    res.type('html').send('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MaMage 登录</title><body><p>正在返回 MaMage…</p><script src="/api/auth/oidc/complete.js"></script></body></html>');
+  });
+  router.get('/complete.js', (req, res) => {
+    res.type('application/javascript').send(`(() => {
+      let hash = location.hash, target = '/login#oidc_error=OIDC_LOGIN_UNAVAILABLE';
+      if (/^#oidc_(?:code=[\\w-]{43}|error=[A-Z0-9_]{1,100})$/.test(hash)) target = '/login' + hash;
+      else if (hash.startsWith('#oidc_callback=')) {
+        try {
+          const query = new URLSearchParams(decodeURIComponent(hash.slice(15)));
+          const code = query.get('code'), state = query.get('state');
+          if ([...query].length === 2 && code && code.length <= 2000 && /^[\\w-]{43}$/.test(state || ''))
+            target = '/api/auth/oidc/finish?' + new URLSearchParams({ code, state });
+        } catch {}
+      }
+      if (target === '/login#oidc_error=OIDC_LOGIN_UNAVAILABLE') hash = '#oidc_error=OIDC_LOGIN_UNAVAILABLE';
+      history.replaceState(null, '', location.pathname);
+      if (window.parent === window) location.replace(target);
+      else window.parent.postMessage({ type: 'mamage:oidc-complete', hash }, location.origin);
+    })();`);
   });
   router.post('/session', express.json({ limit: '2kb' }), async (req, res) => {
     try {

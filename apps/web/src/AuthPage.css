@@ -38,6 +38,18 @@
 }
 
 .auth-content { width: 360px; max-width: 100%; min-width: 0; }
+.auth-page-embedded .auth-content { width: 440px; }
+.auth-page-embedded .auth-body { padding: 16px 16px 28px; align-items: flex-start; }
+.auth-page-embedded .auth-login-tabs { margin-bottom: 20px; max-width: 100%; }
+.auth-page-embedded .auth-login-tabs button { min-width: 0; padding: 0 12px; }
+.auth-page-embedded .auth-intro { margin-bottom: 12px; }
+.auth-page-embedded .auth-account-switch { margin-top: 12px; }
+.auth-oidc-frame-wrap { position: relative; min-width: 0; height: 600px; background: #fff; }
+.auth-oidc-frame { display: block; width: 100%; height: 100%; border: 0; background: #fff; color-scheme: light; }
+.auth-oidc-frame-state { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 14px; align-items: center; justify-content: center; background: #fff; color: #68717f; font-size: 14px; }
+.auth-oidc-frame-actions { display: flex; align-items: center; justify-content: center; gap: 22px; flex-wrap: wrap; padding-top: 8px; border-top: 1px solid #edeef0; }
+.auth-page-root .auth-oidc-frame-actions .auth-secondary-link { margin: 0; }
+.auth-oidc-slow { margin: 8px 0; color: #68717f; text-align: center; font-size: 13px; }
 .auth-intro { text-align: center; margin-bottom: 28px; }
 .auth-product-mark { display: block; margin: 0 auto 18px; object-fit: contain; border-radius: 8px; }
 .auth-intro h1 { margin: 0; font-size: 24px; line-height: 1.5; font-weight: 650; }

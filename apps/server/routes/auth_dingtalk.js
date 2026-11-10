@@ -53,7 +53,8 @@ router.get('/providers', (req, res) => {
   const oidc = require('../lib/oidc_config').oidcConfig();
   res.json({ password: true, dingtalk: getConfig().enabled, iam: iam.loginReady, iamQr: iam.loginReady && iam.qrEnabled,
     oidc: oidc.loginReady, oidcLabel: oidc.loginReady ? oidc.providerLabel : null,
-    oidcAutoStart: oidc.loginReady && oidc.autoStart });
+    oidcAutoStart: oidc.loginReady && oidc.autoStart,
+    oidcEmbed: oidc.loginReady && oidc.embedEnabled });
 });
 
 router.get('/dingtalk/login', (req, res) => {

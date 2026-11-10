@@ -2,10 +2,11 @@ import React from 'react';
 import { Input, Button, Toast } from './ui';
 import { IconChevronRight } from './ui/icons';
 import { campusLoginUrl, autoStartCampusLogin } from './services/iamLogin';
-import { autoStartOidcLogin, oidcLoginUrl } from './services/oidcLogin';
+import { autoStartOidcLogin, canEmbedOidcLogin, oidcLoginUrl } from './services/oidcLogin';
 import './AuthPage.css';
 import * as authService from './services/authService';
 import CampusLoginQr from './CampusLoginQr';
+import OidcLoginFrame from './OidcLoginFrame';
 
 const PASSWORD_RE = /^(?![0-9]+$)(?![a-zA-Z]+$)[0-9A-Za-z]{8,16}$/;
 const EMAIL_RE = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
@@ -32,7 +33,14 @@ export default function AuthPage({ onAuthenticated }) {
   const [loginMode, setLoginMode] = React.useState(null);
   const [redirecting, setRedirecting] = React.useState(false);
   const [loginAlert, setLoginAlert] = React.useState('');
+  const [loginFrameFits, setLoginFrameFits] = React.useState(() => window.matchMedia('(min-width: 480px)').matches);
   const initialLoginFailure = React.useRef(/(?:iam|oidc|dingtalk)_error=/.test(window.location.hash));
+  React.useEffect(() => {
+    const query = window.matchMedia('(min-width: 480px)');
+    const changed = () => setLoginFrameFits(query.matches);
+    query.addEventListener('change', changed);
+    return () => query.removeEventListener('change', changed);
+  }, []);
   React.useEffect(() => {
     const returned = () => setRedirecting(false);
     window.addEventListener('pageshow', returned);
@@ -47,7 +55,7 @@ export default function AuthPage({ onAuthenticated }) {
       .then((r) => { if (!r.ok) throw Error('Providers unavailable'); return r.json(); })
       .then((d) => { if (!canceled) setAuthProviders({ password: true, iam: d.iam === true, iamQr: d.iamQr === true, dingtalk: d.dingtalk === true,
         oidc: d.oidc === true, oidcLabel: typeof d.oidcLabel === 'string' ? d.oidcLabel : null,
-        oidcAutoStart: d.oidcAutoStart === true }); })
+        oidcAutoStart: d.oidcAutoStart === true, oidcEmbed: d.oidcEmbed === true }); })
       .catch(() => { if (!canceled) setProvidersFailed(true); })
       .finally(() => { clearTimeout(timeout); if (!canceled) setProvidersLoading(false); });
     // 钉钉回调失败时错误信息挂在 hash 上
@@ -70,6 +78,8 @@ export default function AuthPage({ onAuthenticated }) {
   const [active, setActive] = React.useState('login');
   const hasCampusLogin = authProviders.iam || authProviders.dingtalk || authProviders.oidc;
   const currentLoginMode = loginMode || (hasCampusLogin ? 'campus' : 'password');
+  const embeddedOidc = active === 'login' && currentLoginMode === 'campus'
+    && loginFrameFits && canEmbedOidcLogin(authProviders, navigator.userAgent) && !redirecting;
   React.useEffect(() => {
     if (providersLoading || providersFailed || active !== 'login' || loginMode || initialLoginFailure.current) return;
     // 扫码完成后浏览器回到本站却没拿到 code：说明 IAM 只建了会话、没走回调。
@@ -77,7 +87,7 @@ export default function AuthPage({ onAuthenticated }) {
     try {
       const pending = Number(window.sessionStorage.getItem('mamage_iam_qr_pending') || 0);
       const handoff = /(?:iam|oidc)_(?:code|error)=/.test(window.location.hash || '');
-      if (pending > 0 && Date.now() - pending < 60000 && !handoff && authProviders.iam) {
+      if (pending > 0 && Date.now() - pending < 60000 && !handoff && authProviders.iam && !authProviders.oidc) {
         window.sessionStorage.removeItem('mamage_iam_qr_pending');
         setRedirecting(true);
         window.location.replace('/api/auth/iam/login?returnTo=' + encodeURIComponent(window.location.pathname + window.location.search));
@@ -87,7 +97,8 @@ export default function AuthPage({ onAuthenticated }) {
     try {
       if (autoStartCampusLogin({ providers: authProviders, location: window.location,
         userAgent: navigator.userAgent, storage: window.sessionStorage })
-        || autoStartOidcLogin({ providers: authProviders, location: window.location, storage: window.sessionStorage })) setRedirecting(true);
+        || autoStartOidcLogin({ providers: authProviders, location: window.location,
+          userAgent: navigator.userAgent, storage: window.sessionStorage })) setRedirecting(true);
     } catch { /* Manual login remains available when browser storage is unavailable. */ }
   }, [providersLoading, providersFailed, active, loginMode, authProviders]);
   const beginCampusLogin = () => {
@@ -367,7 +378,7 @@ export default function AuthPage({ onAuthenticated }) {
   };
 
   return (
-    <div className="auth-page-root">
+    <div className={`auth-page-root${embeddedOidc ? ' auth-page-embedded' : ''}`}>
       <header className="auth-brand">
         <img src="/favicon-32x32.png" alt="" width="26" height="26" />
         <span>MaMage</span><span className="auth-brand-caption">校园素材库</span>
@@ -388,18 +399,20 @@ export default function AuthPage({ onAuthenticated }) {
           </div>
         ) : null}
         <div className="auth-intro">
-          <img className="auth-product-mark" src="/icons/icon-192.png" alt="MaMage" width="52" height="52" />
+          {!embeddedOidc && <img className="auth-product-mark" src="/icons/icon-192.png" alt="MaMage" width="52" height="52" />}
           <h1 id="auth-title">{active === 'register' ? '创建 MaMage 账号' : '登录 MaMage'}</h1>
-          <p>{active === 'register' ? '校园素材库' : '欢迎回来'}</p>
+          {!embeddedOidc && <p>{active === 'register' ? '校园素材库' : '欢迎回来'}</p>}
         </div>
         {loginAlert && <div className="auth-notice" role="alert">{loginAlert}</div>}
         {active === 'login' ? (
           providersLoading && !loginMode ? <div className="auth-provider-loading" role="status"><span className="mamage-button-spinner" />正在连接登录服务</div> :
           currentLoginMode === 'campus' && hasCampusLogin ? (
           <div className="auth-campus-panel" id="campus-login-panel" role="tabpanel" aria-labelledby="campus-login-tab">
-            <h2>{authProviders.oidc ? (authProviders.oidcLabel || '统一身份认证') : authProviders.iam ? '校园统一身份认证' : '使用钉钉扫码或点击头像授权登录'}</h2>
+            {!embeddedOidc && <h2>{authProviders.oidc ? (authProviders.oidcLabel || '统一身份认证') : authProviders.iam ? '校园统一身份认证' : '使用钉钉扫码或点击头像授权登录'}</h2>}
+            {embeddedOidc && <OidcLoginFrame label={authProviders.oidcLabel} onOpenPage={beginOidcLogin}
+              initialFailure={initialLoginFailure.current} />}
             {authProviders.iam && !authProviders.oidc && authProviders.iamQr && !redirecting && !/DingTalk/i.test(navigator.userAgent) ? <CampusLoginQr /> : null}
-            {authProviders.oidc ? (
+            {authProviders.oidc && !embeddedOidc ? (
               <Button className="auth-primary" loading={redirecting} onClick={beginOidcLogin}>
                 前往{authProviders.oidcLabel || '统一身份认证'}<IconChevronRight />
               </Button>
