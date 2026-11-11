@@ -6,6 +6,7 @@ export default function OidcLoginFrame({ label, onOpenPage, initialFailure = fal
   const completed = React.useRef(false);
   const [attempt, setAttempt] = React.useState(0);
   const [status, setStatus] = React.useState(initialFailure ? 'failed' : 'loading');
+  const [frameLoads, setFrameLoads] = React.useState(0);
   const url = React.useMemo(() => oidcLoginUrl(window.location, { embedded: true, reauthenticate }), [reauthenticate]);
 
   React.useEffect(() => {
@@ -26,10 +27,16 @@ export default function OidcLoginFrame({ label, onOpenPage, initialFailure = fal
     };
   }, [attempt]);
 
-  const retry = () => { setStatus('loading'); setAttempt(value => value + 1); };
+  const retry = () => { setStatus('loading'); setFrameLoads(0); setAttempt(value => value + 1); };
   const unavailable = status === 'expired' || status === 'failed';
   return (
     <div className="auth-oidc-embed">
+      {frameLoads > 1 && status === 'visible' && (
+        <div className="auth-oidc-continue" role="status">
+          <span>扫码后如果页面无法显示，请在完整页面继续。</span>
+          <button type="button" className="auth-secondary-link" onClick={onOpenPage}>在完整页面继续登录</button>
+        </div>
+      )}
       <div className="auth-oidc-frame-wrap" aria-busy={status === 'loading' || status === 'completing'}>
         {!unavailable && <iframe key={attempt} ref={frame} src={url} title={label || '研究院统一身份认证'}
           className="auth-oidc-frame" referrerPolicy="no-referrer"
@@ -42,6 +49,7 @@ export default function OidcLoginFrame({ label, onOpenPage, initialFailure = fal
                 setStatus('failed'); return;
               }
             } catch { /* 正常的跨域认证界面 */ }
+            setFrameLoads(value => value + 1);
             setStatus(value => value === 'completing' ? value : 'visible');
           }} onError={() => setStatus('failed')} />}
         {(status === 'loading' || status === 'completing' || unavailable) && (

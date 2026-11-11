@@ -15,7 +15,11 @@ async function main() {
   app.use((req, res, next) => { res.set('Content-Security-Policy', csp); next(); });
   app.get('/fixture-idp', (req, res) => res.type('html').send(
     `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>Test IdP</title><body><h2>测试认证服务</h2><a href="${base}/api/auth/oidc/complete${failCallback
-      ? '#oidc_error=OIDC_ACCOUNT_NOT_AUTHORIZED' : '#oidc_callback=' + encodeURIComponent(oauth)}">模拟扫码确认</a></body></html>`));
+      ? '#oidc_error=OIDC_ACCOUNT_NOT_AUTHORIZED' : '#oidc_callback=' + encodeURIComponent(oauth)}">模拟扫码确认</a><a href="/fixture-required-action">模拟首次登录资料校验</a><a href="/fixture-intermediate">模拟其他认证步骤</a></body></html>`));
+  app.get('/fixture-required-action', (req, res) => res.set({
+    'Content-Security-Policy': "frame-ancestors 'self'", 'X-Frame-Options': 'SAMEORIGIN',
+  }).type('html').send('<h2>首次登录资料校验</h2>'));
+  app.get('/fixture-intermediate', (req, res) => res.type('html').send('<h2>其他认证步骤</h2>'));
   app.use('/api/auth/oidc', createOidcAuthRouter({ config: () => ({ loginReady: true }) }));
   app.use(express.static(dist));
   app.get(/.*/, (req, res) => res.sendFile(path.join(dist, 'index.html')));
@@ -28,8 +32,11 @@ async function main() {
     browser = await chromium.launch({ executablePath: process.env.MAMAGE_CHROMIUM_PATH || undefined });
     for (const width of [1440, 480]) {
       const context = await browser.newContext({ viewport: { width, height: 900 } });
-      const page = await context.newPage(), errors = [];
+      const page = await context.newPage(), errors = [], blocked = [];
       page.on('pageerror', error => errors.push(error.message));
+      page.on('requestfailed', request => {
+        if (request.url().includes('/fixture-required-action')) blocked.push(request.failure()?.errorText);
+      });
       let starts = 0, sessions = 0, failing = false, returnTo = '/';
       failCallback = false;
       try {
@@ -41,6 +48,7 @@ async function main() {
           if (url.pathname === '/api/auth/oidc/login') {
             starts++; returnTo = url.searchParams.get('returnTo');
             if (failing) return route.fulfill({ status: 503, json: { error: 'OIDC_LOGIN_UNAVAILABLE' } });
+            if (!url.searchParams.has('embedded')) return route.fulfill({ contentType: 'text/html; charset=utf-8', body: '<h2>完整登录页面</h2>' });
             return route.fulfill({ status: 302, headers: { location: `${idpBase}/fixture-idp?attempt=${starts}`,
               'set-cookie': 'mamage_oidc_lan=test-browser-binding; Path=/; HttpOnly; SameSite=Lax' } });
           }
@@ -67,6 +75,22 @@ async function main() {
         assert.equal(returnTo, '/?projectId=102&upload=1'); assert.equal(starts, 1);
         assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
         assert.ok((await page.locator('.auth-oidc-frame').boundingBox()).width >= 280);
+
+        await page.frameLocator('.auth-oidc-frame').getByText('模拟首次登录资料校验').click();
+        await page.getByRole('button', { name: '在完整页面继续登录', exact: true }).waitFor({ timeout: 3000 });
+        assert.ok(blocked.includes('net::ERR_BLOCKED_BY_RESPONSE'), '研究院资料页禁止跨站内嵌时应模拟浏览器拒绝');
+        await page.getByRole('button', { name: '在完整页面继续登录', exact: true }).click();
+        await page.getByText('完整登录页面', { exact: true }).waitFor();
+        assert.equal(returnTo, '/?projectId=102&upload=1');
+        assert.equal(context.pages().length, 1, '继续登录应在当前页面而非弹窗中完成');
+        await page.goto(startUrl);
+        await page.frameLocator('.auth-oidc-frame').getByText('测试认证服务').waitFor();
+        await page.frameLocator('.auth-oidc-frame').getByText('模拟其他认证步骤').click();
+        await page.frameLocator('.auth-oidc-frame').getByText('其他认证步骤').waitFor();
+        await page.getByRole('button', { name: '在完整页面继续登录', exact: true }).waitFor();
+        await page.getByRole('button', { name: '刷新登录', exact: true }).click();
+        await page.frameLocator('.auth-oidc-frame').getByText('测试认证服务').waitFor();
+        assert.equal(await page.getByRole('button', { name: '在完整页面继续登录', exact: true }).count(), 0);
 
         await page.evaluate(() => window.postMessage({ type: 'mamage:oidc-complete', hash: '#oidc_code=' + 'h'.repeat(43) }, location.origin));
         await portal().evaluate(() => parent.postMessage({ type: 'mamage:oidc-complete', hash: '#oidc_code=' + 'h'.repeat(43) }, '*'));
