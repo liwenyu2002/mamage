@@ -182,6 +182,7 @@ app.use((req, res, next) => {
 app.use('/api/auth/iam', require('./routes/auth_iam'));
 app.use('/api/auth/oidc', require('./routes/auth_oidc'));
 app.use('/api', require('./lib/iam_account_guard').bearerGuard(keys.JWT_SECRET));
+app.use('/api', require('./lib/oidc_assignment_guard').createOidcAssignmentGuard({ secret: keys.JWT_SECRET }));
 
 // ============ API 璺敱 ============
 app.use('/api/projects', projectsRouter);

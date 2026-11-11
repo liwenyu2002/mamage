@@ -27,7 +27,7 @@ function createIdp() {
   const { privateKey, jwk } = keyPair();
   const idp = {
     codes: new Map(), accessTokens: new Map(), overrides: {}, requests: [],
-    claims: () => ({ sub: 'kc-subject-1', name: '张晓朋', email: 'zhang@example.edu', preferred_username: 'zhangxp' }),
+    claims: () => ({ sub: 'kc-subject-1', name: '张晓朋', email: 'zhang@example.edu', email_verified: true, preferred_username: 'zhangxp' }),
     issueIdToken(code) {
       const now = Math.floor(Date.now() / 1000);
       const claims = { iss: idp.issuer, aud: 'mamage-test', azp: 'mamage-test', iat: now, exp: now + 300,
@@ -166,7 +166,7 @@ test('OIDC 登录完整链路：发现 → PKCE → id_token 验签 → 自动�
     const [[user]] = [ctx.f.sql.prepare("SELECT id, role, name, email, student_no FROM users WHERE email = 'zhang@example.edu'").all()];
     assert.equal(user.role, 'visitor');
     assert.equal(user.name, '张晓朋');
-    assert.equal(user.student_no, 'zhangxp');
+    assert.match(user.student_no, /^iam_[a-f0-9]{28}$/, '可修改的用户名不能作为学号');
     const identity = ctx.f.sql.prepare('SELECT * FROM iam_login_identities').all();
     assert.equal(identity.length, 1);
     assert.equal(identity[0].subject_id, 'kc-subject-1');
@@ -185,6 +185,59 @@ test('同一 Keycloak 主体再次登录复用账号，不重复建号', async (
     assert.equal(session.status, 200);
     assert.equal(ctx.f.sql.prepare("SELECT COUNT(*) AS count FROM users WHERE email = 'zhang@example.edu'").all()[0].count, 1,
       'second login reuses the provisioned visitor instead of duplicating it');
+  } finally { await ctx.server.close(); await ctx.idpServer.close(); ctx.f.close(); }
+});
+
+test('未验证的邮箱与可修改用户名不能绑定存量账号', async () => {
+  const ctx = await harness();
+  ctx.idp.claims = () => ({ sub: 'kc-unverified', name: 'Original owner', email: 'existing@example.edu',
+    email_verified: false, preferred_username: 'student-7' });
+  try {
+    const flow = await startLogin(ctx);
+    const response = await callback(ctx, flow.callback, flow.cookie);
+    assert.match(response.headers.get('location'), /oidc_error=IAM_ACCOUNT_LINK_REQUIRED/);
+    assert.equal(ctx.f.sql.prepare('SELECT COUNT(*) AS n FROM iam_login_identities').get().n, 0);
+    assert.equal(ctx.f.sql.prepare('SELECT COUNT(*) AS n FROM iam_login_pending').get().n, 1);
+    assert.deepEqual({ ...ctx.f.sql.prepare('SELECT student_no, email, role FROM users WHERE id=7').get() },
+      { student_no: 'student-7', email: 'existing@example.edu', role: 'admin' });
+  } finally { await ctx.server.close(); await ctx.idpServer.close(); ctx.f.close(); }
+});
+
+test('新身份自动建无小组的基础账号，不把未经验证的邮箱或自选用户名当身份依据', async () => {
+  const ctx = await harness();
+  ctx.idp.claims = () => ({ sub: 'kc-new-person', name: 'New person', email: 'new-person@example.edu',
+    email_verified: false, preferred_username: 'student-7' });
+  try {
+    assert.equal((await loginOnce(ctx)).session.status, 200);
+    const user = ctx.f.sql.prepare('SELECT id, role, name, email, student_no FROM users WHERE name=?').get('New person');
+    assert.equal(user.role, 'visitor'); assert.equal(user.email, null);
+    assert.match(user.student_no, /^iam_[a-f0-9]{28}$/);
+    assert.equal(ctx.f.sql.prepare('SELECT COUNT(*) AS n FROM organization_unit_memberships WHERE user_id=?').get(user.id).n, 0);
+    assert.equal((await loginOnce(ctx)).session.status, 200);
+    assert.equal(ctx.f.sql.prepare('SELECT COUNT(*) AS n FROM users WHERE name=?').get('New person').n, 1);
+  } finally { await ctx.server.close(); await ctx.idpServer.close(); ctx.f.close(); }
+});
+
+test('已绑定身份再次登录时不以未验证邮箱和自选用户名覆盖原资料', async () => {
+  const ctx = await harness();
+  ctx.idp.claims = () => ({ sub: 'kc-bound', name: 'Original owner', email: 'changed@example.edu',
+    email_verified: false, preferred_username: 'chosen-by-user' });
+  try {
+    ctx.f.sql.prepare('INSERT INTO iam_login_identities(source_key,subject_id,user_id) VALUES(?,?,?)')
+      .run(ctx.config.sourceKey, 'kc-bound', 7);
+    assert.equal((await loginOnce(ctx)).session.status, 200);
+    assert.deepEqual({ ...ctx.f.sql.prepare('SELECT student_no, email, role FROM users WHERE id=7').get() },
+      { student_no: 'student-7', email: 'existing@example.edu', role: 'admin' });
+  } finally { await ctx.server.close(); await ctx.idpServer.close(); ctx.f.close(); }
+});
+
+test('只有显式登记的非用户名字段可作为可信学工号', async () => {
+  const ctx = await harness();
+  try {
+    assert.equal(oidcConfig({ ...ctx.env, OIDC_TRUST_STUDENT_NUMBER:'1' }).trustStudentNumber, false);
+    const trusted = oidcConfig({ ...ctx.env, OIDC_PROFILE_STUDENT_PATH:'school_student_number', OIDC_TRUST_STUDENT_NUMBER:'1' });
+    assert.equal(trusted.trustStudentNumber, true);
+    assert.notEqual(trusted.flowKey, ctx.config.flowKey, '信任配置变化使旧登录状态失效');
   } finally { await ctx.server.close(); await ctx.idpServer.close(); ctx.f.close(); }
 });
 
@@ -368,7 +421,8 @@ test('关闭资料匹配时仅已绑定身份可登录', async () => {
 test('开启匹配但不开自动开户：唯一邮箱命中存量账号并保留原权限', async () => {
   const ctx = await harness();
   ctx.config.autoProvision = false;
-  ctx.idp.claims = () => ({ sub: 'kc-subject-existing', name: 'Original owner', email: 'existing@example.edu', preferred_username: 'student-7' });
+  ctx.idp.claims = () => ({ sub: 'kc-subject-existing', name: 'Original owner', email: 'existing@example.edu',
+    email_verified: true, preferred_username: 'chosen-by-user' });
   try {
     const { session } = await loginOnce(ctx);
     assert.equal(session.status, 200);
@@ -377,6 +431,7 @@ test('开启匹配但不开自动开户：唯一邮箱命中存量账号并保�
     const user = ctx.f.sql.prepare('SELECT id, role, email, student_no FROM users WHERE id = 7').all()[0];
     assert.equal(user.role, 'admin', '匹配存量账号不改变原有权限');
     assert.equal(user.email, 'existing@example.edu');
+    assert.equal(user.student_no, 'student-7');
     assert.equal(ctx.f.sql.prepare('SELECT COUNT(*) AS count FROM users').all()[0].count, 2);
   } finally { await ctx.server.close(); await ctx.idpServer.close(); ctx.f.close(); }
 });

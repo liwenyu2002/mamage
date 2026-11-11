@@ -96,6 +96,7 @@ async function authorizeMediaKey(key, token, db = pool, context = null) {
 
   if (payload.t === 'user' && Number.isSafeInteger(payload.u)) {
     if (!await require('./iam_account_guard').allowMedia(payload.u, payload.i, db)) return false;
+    if (await require('./oidc_assignment_guard').isOidcAssignmentPending(payload.u, { db })) return false;
     const [users] = await db.query('SELECT id, role, organization_id FROM users WHERE id = ? LIMIT 1', [payload.u]);
     const user = users[0];
     if (!user || Number(user.organization_id) !== Number(photo.organization_id)) return false;

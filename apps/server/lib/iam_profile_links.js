@@ -34,7 +34,9 @@ function claimsFromProfile(profile, cfg = {}) {
   const read = (path, aliases) => path ? configuredClaim(profile, path) : pick(aliases);
   const claims = { name: name(read(cfg.profileNamePath, ['name', 'displayName', 'cn'])),
     email: email(read(cfg.profileEmailPath, ['email', 'mail'])),
-    studentNo: name(read(cfg.profileStudentPath, ['studentNo', 'student_no', 'employeeNumber', 'workNo', 'jobNumber'])) };
+    studentNo: cfg.trustStudentNumber === false ? ''
+      : name(read(cfg.profileStudentPath, ['studentNo', 'student_no', 'employeeNumber', 'workNo', 'jobNumber'])) };
+  if (cfg.requireVerifiedEmail) claims.emailVerified = profile?.email_verified === true;
   const subject = email(profile?.id);
   if (cfg.subjectEmailDomain && cfg.profileIdPath === 'id' && /^[^\s@]+@[^\s@]+$/.test(subject)
     && subject.split('@')[1] === cfg.subjectEmailDomain) {
@@ -45,10 +47,12 @@ function claimsFromProfile(profile, cfg = {}) {
   if (claims.name.length > 50 || claims.email.length > 255 || claims.studentNo.length > 32) throw error('IAM_PROFILE_CLAIMS_CONFLICT', 403);
   return claims;
 }
+const trustedEmail = (cfg, claims) => cfg.requireVerifiedEmail && !claims.emailVerified ? '' : claims.email || '';
 async function matchUser(conn, cfg, claims) {
+  const matchEmail = trustedEmail(cfg, claims);
   const [rows] = await conn.query(`SELECT id, name, email, student_no FROM users WHERE organization_id = ? AND
-    ((email = ? AND email <> '') OR (student_no = ? AND student_no <> '')) FOR UPDATE`, [cfg.orgId, claims.email || '', claims.studentNo || '']);
-  const candidates = rows.filter(r => (claims.email && email(r.email) === email(claims.email))
+    ((email = ? AND email <> '') OR (student_no = ? AND student_no <> '')) FOR UPDATE`, [cfg.orgId, matchEmail, claims.studentNo || '']);
+  const candidates = rows.filter(r => (matchEmail && email(r.email) === matchEmail)
     || (claims.studentNo && name(r.student_no) === name(claims.studentNo)));
   if (candidates.length > 1) throw error('IAM_ACCOUNT_MATCH_CONFLICT', 403);
   const user = candidates[0];
@@ -64,9 +68,10 @@ async function syncProfile(conn, cfg, subject, userId, profile) {
   const claims = claimsFromProfile(profile, cfg);
   const [[user]] = await conn.query('SELECT name, email, student_no FROM users WHERE id = ? FOR UPDATE', [userId]);
   if (!user) throw error('IAM_ACCOUNT_LINK_INVALID', 403);
-  const fields = { name: claims.name || user.name, email: claims.email || user.email,
+  const verifiedEmail = trustedEmail(cfg, claims);
+  const fields = { name: claims.name || user.name, email: verifiedEmail || user.email,
     student_no: claims.studentNo || user.student_no };
-  const changedEmail = claims.email && claims.email !== email(user.email) ? claims.email : '';
+  const changedEmail = verifiedEmail && verifiedEmail !== email(user.email) ? verifiedEmail : '';
   const changedStudentNo = claims.studentNo && claims.studentNo !== name(user.student_no) ? claims.studentNo : '';
   if (changedEmail || changedStudentNo) {
     const [conflicts] = await conn.query(`SELECT id FROM users WHERE id <> ? AND
@@ -100,7 +105,7 @@ async function resolveProfile(db, cfg, profile, subject) {
           if (conflicts.length) throw error('IAM_ACCOUNT_LINK_REQUIRED', 403);
           const studentNo = claims.studentNo || 'iam_' + sha256(`${cfg.sourceKey}\n${subject}`).slice(0, 28);
           const [created] = await conn.query("INSERT INTO users (student_no, name, email, role, organization_id) VALUES (?, ?, ?, 'visitor', ?)",
-            [studentNo, claims.name, claims.email || null, cfg.orgId]);
+            [studentNo, claims.name, trustedEmail(cfg, claims) || null, cfg.orgId]);
           userId = Number(created.insertId);
         }
       }

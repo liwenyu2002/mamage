@@ -33,6 +33,7 @@ export default function AuthPage({ onAuthenticated }) {
   const [providerRetry, setProviderRetry] = React.useState(0);
   const [loginMode, setLoginMode] = React.useState(null);
   const [redirecting, setRedirecting] = React.useState(false);
+  const redirectTimer = React.useRef(null);
   const [explicitLogout] = React.useState(() => hasExplicitLogout());
   const [loginAlert, setLoginAlert] = React.useState('');
   const [loginFrameFits, setLoginFrameFits] = React.useState(() => window.matchMedia('(min-width: 480px)').matches);
@@ -44,10 +45,20 @@ export default function AuthPage({ onAuthenticated }) {
     return () => query.removeEventListener('change', changed);
   }, []);
   React.useEffect(() => {
-    const returned = () => setRedirecting(false);
+    const returned = event => {
+      if (event.persisted) { clearTimeout(redirectTimer.current); setRedirecting(false); }
+    };
     window.addEventListener('pageshow', returned);
-    return () => window.removeEventListener('pageshow', returned);
+    return () => { clearTimeout(redirectTimer.current); window.removeEventListener('pageshow', returned); };
   }, []);
+  const watchRedirect = () => {
+    clearTimeout(redirectTimer.current);
+    redirectTimer.current = setTimeout(() => {
+      window.stop();
+      setRedirecting(false);
+      setLoginAlert('登录页面连接较慢，请检查校园网后重试');
+    }, 12000);
+  };
   React.useEffect(() => {
     let canceled = false;
     const controller = new AbortController();
@@ -91,7 +102,7 @@ export default function AuthPage({ onAuthenticated }) {
       const handoff = /(?:iam|oidc)_(?:code|error)=/.test(window.location.hash || '');
       if (pending > 0 && Date.now() - pending < 60000 && !handoff && authProviders.iam && !authProviders.oidc) {
         window.sessionStorage.removeItem('mamage_iam_qr_pending');
-        setRedirecting(true);
+        setRedirecting(true); watchRedirect();
         window.location.replace('/api/auth/iam/login?returnTo=' + encodeURIComponent(window.location.pathname + window.location.search));
         return;
       }
@@ -100,18 +111,19 @@ export default function AuthPage({ onAuthenticated }) {
       if (autoStartCampusLogin({ providers: authProviders, location: window.location,
         userAgent: navigator.userAgent, storage: window.sessionStorage })
         || autoStartOidcLogin({ providers: authProviders, location: window.location,
-          userAgent: navigator.userAgent, storage: window.sessionStorage })) setRedirecting(true);
+          userAgent: navigator.userAgent, storage: window.sessionStorage })) { setRedirecting(true); watchRedirect(); }
     } catch { /* Manual login remains available when browser storage is unavailable. */ }
   }, [providersLoading, providersFailed, active, loginMode, authProviders]);
   const beginCampusLogin = () => {
     const url = campusLoginUrl(authProviders, window.location);
     if (!url || redirecting) return;
-    setRedirecting(true); window.location.assign(url);
+    setLoginAlert(''); setRedirecting(true); watchRedirect(); window.location.assign(url);
   };
   // 学院 Keycloak（OIDC）优先；芯盾/钉钉入口在同时配置时保留为次选，互不覆盖。
   const beginOidcLogin = () => {
     if (!authProviders.oidc || redirecting) return;
-    setRedirecting(true); window.location.assign(oidcLoginUrl(window.location, { reauthenticate: explicitLogout }));
+    setLoginAlert(''); setRedirecting(true); watchRedirect();
+    window.location.assign(oidcLoginUrl(window.location, { reauthenticate: explicitLogout }));
   };
   const [loading, setLoading] = React.useState(false);
   // controlled fields

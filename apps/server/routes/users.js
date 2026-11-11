@@ -465,10 +465,11 @@ router.get('/me', authMiddleware, async (req, res) => {
     const [[identity]] = await pool.query('SELECT user_id FROM iam_login_identities WHERE user_id = ? LIMIT 1', [req.user.id]);
     const [[membership]] = await pool.query('SELECT user_id FROM organization_unit_memberships WHERE user_id = ? AND removed_at IS NULL LIMIT 1', [req.user.id]);
     const accessAdmin = await require('../lib/user_access_admin').accessAdministrator(pool, req.user.id);
+    const oidcNeedsAssignment = await require('../lib/oidc_assignment_guard').isOidcAssignmentPending(req.user.id, { db: pool });
     res.json({ ...req.user, ...userAccessProfile(workspace, req.user.permissions, faces), activeUnitId: workspace.unitId,
       unitRole: workspace.role, collegeAdmin: workspace.collegeAdmin, workspaceEnabled: workspace.enabled,
       iamManaged: Boolean(identity), campusStudentNo: require('../lib/user_access_admin').displayStudentNo(req.user.student_no),
-      canManageUserAccess: accessAdmin.allowed,
+      canManageUserAccess: accessAdmin.allowed, oidcNeedsAssignment,
       needsAssignment: Boolean(identity && !membership && !workspace.collegeAdmin && req.user.role !== 'superadmin') });
   } catch (err) {
     console.error('[users.me]', err);

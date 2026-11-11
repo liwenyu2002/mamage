@@ -23,8 +23,15 @@ async function assertPrimaryVisible(page) {
 }
 async function main() {
   if (artifacts) fs.mkdirSync(artifacts, { recursive: true });
+  let receiveRedirectProbe;
   const server = http.createServer((req, res) => {
-    const file = path.join(dist, new URL(req.url, 'http://fixture').pathname);
+    const url = new URL(req.url, 'http://fixture');
+    if (url.pathname === '/test-redirect-state') {
+      receiveRedirectProbe?.({ disabled:url.searchParams.get('disabled') === 'true', notice:url.searchParams.get('notice') });
+      res.writeHead(204);return res.end();
+    }
+    if (req.headers['x-test-stall-auth'] === '1' && url.pathname === '/api/auth/oidc/login') return;
+    const file = path.join(dist, url.pathname);
     const target = file.startsWith(dist + '/') && fs.existsSync(file) && fs.statSync(file).isFile() ? file : path.join(dist, 'index.html');
     res.setHeader('Content-Type', target.endsWith('.js') ? 'application/javascript' : target.endsWith('.css') ? 'text/css' : target.endsWith('.png') ? 'image/png' : 'text/html');
     fs.createReadStream(target).pipe(res);
@@ -130,6 +137,33 @@ async function main() {
       const page=await failed.newPage();await page.goto(base+'/');
       await page.getByText('校园登录暂不可用',{exact:true}).waitFor();await page.getByLabel('密码',{exact:true}).waitFor();
     }finally{await failed.close();}
+    const stalled=await browser.newContext({viewport:{width:390,height:844},extraHTTPHeaders:{'X-Test-Stall-Auth':'1'}});
+    try {
+      await stalled.route('**/api/**',async route=>{
+        const url=new URL(route.request().url());
+        if(url.pathname==='/api/auth/providers') return route.fulfill({json:{password:true,oidc:true,oidcLabel:'研究院统一身份认证'}});
+        if(url.pathname==='/api/auth/oidc/login') return route.continue();
+        return route.fulfill({json:[]});
+      });
+      const page=await stalled.newPage();await page.goto(base+'/');
+      const button=page.getByRole('button',{name:'前往研究院统一身份认证',exact:true});
+      await button.waitFor();
+      const resultPromise=new Promise(resolve=>{receiveRedirectProbe=resolve;});
+      await page.evaluate(()=>setTimeout(()=>{
+        const query=new URLSearchParams({disabled:String(document.querySelector('.auth-primary')?.disabled),
+          notice:document.querySelector('.auth-notice')?.textContent||''});
+        fetch('/test-redirect-state?'+query).catch(()=>{});
+      },14000));
+      const cdp=await stalled.newCDPSession(page);
+      const started=page.waitForRequest(r=>new URL(r.url()).pathname==='/api/auth/oidc/login');
+      await cdp.send('Runtime.evaluate',{expression:"document.querySelector('.auth-primary').click()"});
+      await started;
+      const result=await Promise.race([resultPromise,new Promise((_,reject)=>setTimeout(()=>reject(Error('redirect probe timed out')),20000))]);
+      assert.equal(result.notice,'登录页面连接较慢，请检查校园网后重试');
+      assert.equal(result.disabled,false,'连接超时后应能重新尝试');
+      await page.getByRole('tab',{name:'账号密码',exact:true}).click();
+      await page.getByLabel('密码',{exact:true}).waitFor();
+    }finally{await stalled.close();}
     console.log('Login browser checks passed: three providers, desktop/mobile/narrow screens, keyboard/password errors, registration, redirects, container auto-entry and failure fallback.');
   }finally{if(browser) await browser.close();server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
 }

@@ -90,6 +90,31 @@ async function main() {
     assert.equal(sessions, 1);
     await context.close();
     }
+    const pending = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    try {
+      const page = await pending.newPage();
+      let assigned = false;
+      await page.addInitScript(() => localStorage.setItem('mamage_jwt_token', 'local-test-token'));
+      await pending.route('**/api/**', async route => {
+        const url = new URL(route.request().url());
+        if (url.pathname === '/api/users/me') return route.fulfill({ json: { id: 2, name: '新用户',
+          role: assigned ? 'photographer' : 'visitor', organization_id: 1, permissions: ['photos.view'],
+          workspaceEnabled: true, activeUnitId: assigned ? 1 : null, oidcNeedsAssignment: !assigned } });
+        if (url.pathname === '/api/workspaces') return route.fulfill({ json: { enabled:true, activeUnitId:assigned ? 1 : null,
+          units:assigned ? [{ id:1, name:'测试小组', role:'editor' }] : [] } });
+        if (url.pathname === '/api/album-desktop') return route.fulfill({ json: { albums:[], groups:[], sharedAlbums:[], sharedFolders:[],
+          preferences:{ pins:[], colors:{} }, scope:{ userId:2, organizationId:1, unitId:1 }, workspaceRevision:1, userRevision:1 } });
+        if (url.pathname === '/api/projects/list') return route.fulfill({ json: { list:[], total:0, hasMore:false } });
+        if (url.pathname === '/api/projects/import-status') return route.fulfill({ json: { statuses:{} } });
+        return route.fulfill({ json:[] });
+      });
+      await page.goto(base + '/');
+      await page.getByText('请联系管理员分配组织权限。', { exact:true }).waitFor();
+      assert.equal(await page.locator('.pending-account').count(),1);
+      assigned = true;
+      await page.getByRole('button', { name:'刷新权限', exact:true }).click();
+      await page.locator('.pending-account').waitFor({ state:'detached' });
+    } finally { await pending.close(); }
     console.log('Explicit logout restores embedded login, requires reauthentication, and preserves mobile and password login');
   } finally {
     await browser.close();

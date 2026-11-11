@@ -37,6 +37,7 @@ function oidcConfig(env = process.env) {
   const profileNamePath = String(env.OIDC_PROFILE_NAME_PATH || 'name').trim();
   const profileEmailPath = String(env.OIDC_PROFILE_EMAIL_PATH || 'email').trim();
   const profileStudentPath = String(env.OIDC_PROFILE_STUDENT_PATH || 'preferred_username').trim();
+  const trustStudentNumber = env.OIDC_TRUST_STUDENT_NUMBER === '1' && profileStudentPath !== 'preferred_username';
   const profilePathsReady = [profileIdPath, profileNamePath, profileEmailPath, profileStudentPath]
     .every(path => validProfilePath(path));
   const scopesReady = scopes.length > 0 && scopes.length <= 12 && scopes.includes('openid')
@@ -61,10 +62,11 @@ function oidcConfig(env = process.env) {
   const issuerHref = issuer?.href || '';
   const flowKey = crypto.createHash('sha256').update(JSON.stringify([issuerHref, clientId, callback?.href || '', orgId,
     profileIdPath, profileNamePath, profileEmailPath, profileStudentPath, clientAuth, scopes.join(' '),
-    env.OIDC_AUTO_PROVISION === '1', env.OIDC_PROFILE_LOGIN_MATCHING === '1', clockSkewSeconds])).digest('hex');
+    env.OIDC_AUTO_PROVISION === '1', env.OIDC_PROFILE_LOGIN_MATCHING === '1', trustStudentNumber, clockSkewSeconds])).digest('hex');
   return { enabled: env.OIDC_ENABLED === '1', loginReady: env.OIDC_ENABLED === '1' && valid, missing,
     issuer: issuerHref, clientId, clientSecret, clientAuth, orgId, scopes, scopesValue: scopes.join(' '),
     profileIdPath, profileNamePath, profileEmailPath, profileStudentPath, clockSkewSeconds,
+    requireVerifiedEmail: true, trustStudentNumber,
     discoveryTtlSeconds: Math.min(Math.max(Number(env.OIDC_DISCOVERY_CACHE_SECONDS) || 3600, 60), 86400),
     timeoutMs: Math.min(Math.max(Number(env.OIDC_TIMEOUT_MS) || 10000, 1000), 30000),
     providerLabel: String(env.OIDC_PROVIDER_LABEL || '统一身份认证').slice(0, 20),

@@ -1,13 +1,17 @@
 const assert = require('node:assert/strict');
 process.env.ORGANIZATION_UNITS_ACTIVE = '1';
 process.env.MEDIA_URL_SECRET = 'isolated-media-acl-test';
+process.env.OIDC_ISSUER = 'https://idp.example.test/realm';
+process.env.OIDC_CLIENT_ID = 'isolated-media-test';
 let activeUnit = 1;
 let shareActive = true;
+let oidcPending = false;
 const original = 'uploads/2025/10/01/private.jpg';
 const thumbnail = 'uploads/2025/10/01/thumb_private.jpg';
 const photo = { id: 77, photo_id: 77, project_id: 9, organization_id: 2, unit_id: 1,
   url: `/${original}`, thumb_url: `/${thumbnail}` };
 const db = { async query(sql) {
+  if (sql.includes('FROM users u') && sql.includes('iam_login_identities i')) return [oidcPending ? [{ id: 7 }] : []];
   if (sql.includes('FROM organization_units WHERE')) return [[{ id: 1 }]];
   if (sql.includes('organization_admin_grants')) return [[]];
   if (sql.includes('SELECT active_unit_id')) return [[{ active_unit_id: activeUnit }]];
@@ -45,6 +49,11 @@ const avatar = require('../lib/user_avatar');
   const url = new URL(media.buildMediaUrl(`/${original}`, { userId: 7, photoId: 77 }));
   assert(url.searchParams.has('ma'), 'legacy keys also need a resource-scoped token');
   assert.equal(await media.authorizeMediaKey(original, url.searchParams.get('ma'), db), true);
+  oidcPending = true;
+  assert.equal(await media.authorizeMediaKey(original, url.searchParams.get('ma'), db), false, 'pending SSO users cannot reuse private media URLs');
+  const pendingShare = new URL(media.buildMediaUrl(`/${thumbnail}`, { shareId: 3, photoId: 77 }));
+  assert.equal(await media.authorizeMediaKey(thumbnail, pendingShare.searchParams.get('ma'), db), true, 'public shares remain independent of account assignment');
+  oidcPending = false;
   activeUnit = 2;
   assert.equal(await media.authorizeMediaKey(original, url.searchParams.get('ma'), db), false, 'changing units must revoke old private access');
   const share = new URL(media.buildMediaUrl(`/${thumbnail}`, { shareId: 3, photoId: 77 }));

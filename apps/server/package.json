@@ -31,7 +31,7 @@
     "integrations:check": "node scripts/check_school_integrations.js",
     "iam:check": "node scripts/check_iam_integration.js",
     "oidc:check": "node scripts/check_oidc.js",
-    "test:oidc": "node --test scripts/test_keycloak_oidc.js",
+    "test:oidc": "node --test scripts/test_keycloak_oidc.js scripts/test_oidc_assignment_guard.js",
     "test:iam": "node --test scripts/test_iam_integration.js scripts/test_iam_qr.js scripts/test_user_access_admin.js",
     "test:iam-mysql": "node --test scripts/test_iam_mysql.js",
     "pretest:audit": "npm run test:iam && npm run test:oidc",

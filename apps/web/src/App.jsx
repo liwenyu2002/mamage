@@ -1213,6 +1213,28 @@ function App() {
     );
   }
 
+  if (currentUser?.oidcNeedsAssignment && !isDemoPath) {
+    return (
+      <main className="pending-account">
+        <img src="/icons/icon-192.png" alt="MaMage" width="48" height="48" />
+        <h1>账号已创建</h1>
+        <p>请联系管理员分配组织权限。</p>
+        <div className="pending-account-actions">
+          <UiButton theme="solid" type="primary" onClick={async () => {
+            try {
+              const refreshed = await authService.me();
+              if (refreshed) setCurrentUser(refreshed);
+              else Toast.error('无法刷新账号状态，请稍后重试');
+            } catch {
+              Toast.error('无法刷新账号状态，请稍后重试');
+            }
+          }}>刷新权限</UiButton>
+          <UiButton onClick={handleLogout}>退出登录</UiButton>
+        </div>
+      </main>
+    );
+  }
+
   const columnWorkspace = folderStyle === 'classic' && !currentProjectId && selectedNav === 'projects' && !photoSearchMode && currentUser && !isDemoPath;
   const workspaceHasCreateDock = selectedNav === 'projects' && !photoSearchMode && Boolean(currentUser);
   const showCreateAlbum = !isDemoPath && !currentProjectId && !workspaceHasCreateDock && canAll('projects.create');

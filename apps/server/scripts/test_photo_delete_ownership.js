@@ -13,7 +13,7 @@ function load(filename, dependencies) {
   return module.exports;
 }
 
-function fixture({ role='editor', accountRole='admin', collegeAdmin=false, enabled=true, race=false, authenticated=true, iamLinked=false }={}) {
+function fixture({ role='editor', accountRole='admin', collegeAdmin=false, enabled=true, race=false, authenticated=true, iamLinked=false, oidcPending=false }={}) {
   const workspace={enabled,userId:7,orgId:2,userRole:accountRole,unitId:enabled?1:null,role,collegeAdmin};
   const initial=[
     {id:11,photo_id:11,project_id:9,projectId:9,organization_id:2,unit_id:enabled?1:null,photographer_id:7,type:'normal',url:'/own.jpg'},
@@ -94,6 +94,7 @@ function fixture({ role='editor', accountRole='admin', collegeAdmin=false, enabl
       if(key==='../lib/access_policy')return require('../lib/access_policy');
       if(key==='../lib/face_access')return{getFacePermissions:async()=>({search:false,manage:false})};
       if(key==='../lib/user_access_admin')return require('../lib/user_access_admin');
+      if(key==='../lib/oidc_assignment_guard')return{isOidcAssignmentPending:async()=>oidcPending};
       throw Error('Unexpected module '+key);
     },
   });
@@ -150,6 +151,13 @@ test('IAM identity metadata does not grant account administration or workspace a
       assert.equal(user.canManageUserAccess,accountRole==='superadmin');
     });
   }
+});
+
+test('user profile exposes pending research SSO assignment status',async()=>{
+  const f=fixture({iamLinked:true,role:null,accountRole:'visitor',oidcPending:true});
+  await serve(f,async(_remove,me)=>{
+    const user=await me();assert.equal(user.oidcNeedsAssignment,true);
+  });
 });
 
 test('IAM profile form saves keep managed identity and photo ownership intact',async()=>{

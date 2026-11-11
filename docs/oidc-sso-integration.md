@@ -57,7 +57,8 @@ OIDC_ORGANIZATION_ID=<本站组织 id>
 OIDC_PROFILE_ID_PATH=sub
 OIDC_PROFILE_NAME_PATH=name
 OIDC_PROFILE_EMAIL_PATH=email
-OIDC_PROFILE_STUDENT_PATH=preferred_username          # 学工号需在 Keycloak 加 mapper，与对方约定键名
+OIDC_PROFILE_STUDENT_PATH=preferred_username          # 默认不用于学工号，需学校提供可信 mapper
+OIDC_TRUST_STUDENT_NUMBER=0                           # 确认不可由用户修改的学工号字段后才可开启
 OIDC_PROFILE_LOGIN_MATCHING=1
 OIDC_AUTO_PROVISION=0
 OIDC_CLOCK_SKEW_SECONDS=60
@@ -114,9 +115,10 @@ npm --prefix apps/server run oidc:check -- --database   # 再检查 iam_* 表（
 
 - `OIDC_PROFILE_LOGIN_MATCHING=0`：最保守，只放行已绑定过的 Keycloak 身份（`iam_login_identities`），
   不做 claim 关联；首次登录会被拒绝（`IAM_ACCOUNT_LINK_REQUIRED`），也不会写待核对队列。
-- `OIDC_PROFILE_LOGIN_MATCHING=1`（首次接入建议开）：按邮箱或学工号唯一匹配存量账号；姓名仅辅助核对，
-  冲突、重复命中一律拒绝并写入待核对。`OIDC_AUTO_PROVISION=1` 才会为已获 IdP 授权的新用户建立
-  `visitor`，**不授予**小组成员、管理或人脸权限。
+- `OIDC_PROFILE_LOGIN_MATCHING=1`：仅使用已验证邮箱或明确配置为可信的学工号匹配存量账号，并核对姓名；
+  可由用户修改的 `preferred_username` 不能作为学工号。未经验证的邮箱与存量账号冲突时进入待核对。
+  `OIDC_AUTO_PROVISION=1` 为已获 IdP 授权的新身份建立 `visitor`，不授予小组、管理或人脸权限；
+  未分组前只开放账号资料和已有公开分享链接，未经验证的邮箱不写入可用于身份匹配的邮箱字段。
 - 第二个 IdP 用邮箱自动关联存量账号存在被冒名风险：接陌生 IdP 时先用 0 做保守模式，等 `sub` 绑定完成后再开 1。
 - 首次登录成功写入 `iam_login_identities(source_key, subject_id, user_id)`；之后按 `(source_key, sub)` 找回，
   姓名/邮箱变化不重新绑定。
