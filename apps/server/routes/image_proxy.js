@@ -2,6 +2,7 @@ const express = require('express');
 const crypto = require('crypto');
 const cosStorage = require('../lib/cos_storage');
 const { unitIdFromKey, authorizeMediaKey } = require('../lib/media_access');
+const { savedDisplayKey } = require('../lib/photo_tone/artifacts.cjs');
 
 const router = express.Router();
 
@@ -163,8 +164,11 @@ router.use(async (req, res) => {
   if (!key || !cosStorage.isSafeKey(key)) return res.status(400).end();
   if (!isAllowedKeyPrefix(key)) return res.status(404).end();
   if (!verifyMediaSignature(key, req.query || {})) return res.status(403).end();
+  let deliveryKey = key;
   try {
-    if (!await authorizeMediaKey(key, req.query && req.query.ma)) return res.status(403).end();
+    const context = {};
+    if (!await authorizeMediaKey(key, req.query && req.query.ma, undefined, context)) return res.status(403).end();
+    if (context.photo && req.query?.original !== '1') deliveryKey = savedDisplayKey(context.photo, key);
   } catch (err) {
     console.error('[image_proxy] access check failed:', err && err.message ? err.message : err);
     return res.status(503).end();
@@ -188,11 +192,11 @@ router.use(async (req, res) => {
   requestOptions.signal = transfer.signal;
   try {
     const object = req.method === 'HEAD'
-      ? await cosStorage.headObject(key, requestOptions)
-      : await cosStorage.getObject(key, requestOptions);
+      ? await cosStorage.headObject(deliveryKey, requestOptions)
+      : await cosStorage.getObject(deliveryKey, requestOptions);
 
     if (!transfer.receive(object.Body)) return;
-    setObjectHeaders(res, key, object);
+    setObjectHeaders(res, deliveryKey, object);
     const status = object && object.$metadata && object.$metadata.httpStatusCode === 206 ? 206 : 200;
     res.status(status);
 

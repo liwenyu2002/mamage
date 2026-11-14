@@ -268,3 +268,101 @@ HELM_BIN="$PWD/.local/tools/darwin-arm64/helm" npm run test:k8s:smoke
 本机真实 MySQL + 双独立 API 测试覆盖跨实例视频/编辑素材上传、会话重启恢复、重复完成、一次性票据、ZIP 状态/取消、共享限流、事务回滚、任务优先级与协调者 SIGKILL 接续。该测试的对象存储使用协议替身，真实 S3/CORS/100GB 视频吞吐仍需目标链路验收。
 
 本地 Kubernetes 验证不代表多节点网络分区、MySQL 主从切换或 CSI 故障已经完整验证。外部模型请求可能在故障后重复计费；本轮不重训或更换识图模型。为对象存储配置未完成 multipart 的生命周期清理，长视频的磁盘峰值、失败重试与终态告警也需压测。
+
+## 2026-11-13 镜像重建：镜像层数打满后的恢复与当前基线
+
+### 现象
+
+给生产 API 打热修镜像后，Pod 一直 `CreateContainerError` / `CrashLoopBackOff`，kubelet 事件里是：
+
+```
+failed to create containerd container: failed to mount .../tmpmounts/containerd-mount…:
+mount source: "overlay" ... err: invalid argument
+```
+
+`docker image inspect` 显示原 `mamage-api:release-8b314e047147` 已经被逐次热修叠加到 **487 层**，
+`lowerdir` 拼出的挂载参数超过 overlayfs 可接受长度，于是**任何新容器都起不来**（不是应用代码问题）。
+
+### 恢复步骤（已验证）
+
+从**正在运行的容器**导出根文件系统，重新做成单层镜像，再把热修文件作为少量层叠上去。
+
+```bash
+POD=$(sudo k3s kubectl -n mamage get pods -l app.kubernetes.io/component=api -o jsonpath='{.items[0].metadata.name}')
+
+# 1) 导出运行中容器的 rootfs（排除 PVC、/proc 等；/etc/shadow* 会因非 root 报 permission denied，可忽略）
+sudo k3s kubectl -n mamage exec $POD -- tar -cf - -C / \
+  --exclude=./proc --exclude=./sys --exclude=./dev --exclude=./data \
+  --exclude=./tmp --exclude=./run --exclude=./app/hotfix . > /home/ubuntu/flat-rootfs.tar
+
+# 2) 导入为单层基础镜像（必须重新声明运行配置，import 不继承）
+sudo docker import \
+  --change 'ENTRYPOINT ["/usr/bin/tini","--"]' --change 'CMD ["node","app.js"]' \
+  --change 'ENV NODE_ENV=production' --change 'ENV MAMAGE_CONTAINER=1' --change 'ENV PORT=8080' \
+  --change 'ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright' --change 'ENV PYTHON_PATH=/opt/python/bin/python' \
+  --change 'ENV IMAGE_SIMILARITY_PYTHON_PATH=/opt/python/bin/python' --change 'ENV TORCH_HOME=/opt/mamage-models' \
+  --change 'ENV OMP_NUM_THREADS=2' --change 'ENV PYTHONDONTWRITEBYTECODE=1' --change 'ENV TMPDIR=/tmp' \
+  --change 'ENV LD_LIBRARY_PATH=/opt/vips/lib' --change 'ENV IMAGE_SIMILARITY_CPU_BACKEND=generic' \
+  --change 'USER node' --change 'WORKDIR /app' --change 'EXPOSE 8080' \
+  /home/ubuntu/flat-rootfs.tar mamage-api:flat-base
+
+# 3) 在单层基础上 COPY 热修文件（每个 COPY 一层，控制在十几层）
+sudo docker build -q -t mamage-api:flat-<日期> .
+sudo docker save mamage-api:flat-<日期> | sudo k3s ctr images import -
+
+# 4) 切换镜像
+sudo k3s kubectl -n mamage set image deployment/school-mamage-api api=mamage-api:flat-<日期>
+sudo k3s kubectl -n mamage rollout status deployment/school-mamage-api --timeout=300s
+```
+
+### 必须避免的坑：不要整段删除 `volumes`
+
+清理 ConfigMap 挂载时用了：
+
+```bash
+# 错误做法：一次性删掉 volumes 数组，会连 /data 的 PVC 一起删掉
+kubectl patch deployment school-mamage-api --type=json \
+  -p '[{"op":"remove","path":"/spec/template/spec/volumes"},
+       {"op":"remove","path":"/spec/template/spec/containers/0/volumeMounts"}]'
+```
+
+后果：`/data` 丢失，容器启动即报 `ENOENT: mkdir '/data/video-work/uploads'`，进入 CrashLoop。
+正确做法是恢复数据卷：
+
+```bash
+cat > /tmp/restore-volumes.json <<'EOF'
+{"spec":{"template":{"spec":{
+  "volumes":[{"name":"data","persistentVolumeClaim":{"claimName":"school-mamage-data"}}],
+  "containers":[{"name":"api","volumeMounts":[{"name":"data","mountPath":"/data"}]}]}}}}
+EOF
+sudo k3s kubectl -n mamage patch deployment school-mamage-api --type=strategic --patch-file /tmp/restore-volumes.json
+```
+
+### 当前基线
+
+| 项 | 值 |
+|---|---|
+| API 镜像 | `mamage-api:flat-20261113`（15 层，约 1.17 GB） |
+| 数据卷 | `school-mamage-data` → `/data` |
+| 合并复盘 | 487 层 → 15 层；`docker image prune -a` 清掉 135 个历史镜像 |
+| 回滚镜像 | `mamage-api:release-8b314e047147`（可用，但**不含** 2026-11 之后的热修） |
+
+镜像内已包含的热修：新版调色（`lib/photo_tone`、`pixel-source?variant=working` 返回 `X-MaMage-Tone-Engine`）、
+IAM 二维码重试与会话 Cookie、账号合并、重复账号扫描、人脸档案字段、IdP 完整资料留存、相册桌面查询性能修复。
+
+### 回归检查（切换后逐项执行）
+
+```bash
+curl -s http://10.1.131.37/api/health                       # {"status":"ok"}
+curl -s http://10.1.131.37/api/auth/providers               # iam/iamQr/password 状态符合预期
+# 调色：需带登录 token，响应头必须含 X-MaMage-Tone-Engine: mamage-tone-v3-srgb
+curl -sD - -o /tmp/w.png -H "Authorization: Bearer $TOKEN" \
+  "http://10.1.131.37/api/photos/<id>/pixel-source?variant=working&maxSize=800" | grep -i tone-engine
+sudo k3s kubectl -n mamage exec $POD -- ls /data             # video-uploads / video-work 存在
+```
+
+### 长期约束
+
+- 热修不要再「在上一版热修镜像上继续叠」。要么基于 `flat-*` 基线，要么走一次从源码重建的正式发布。
+- 正式发布应以仓库工作区为准重新构建，确保镜像可由代码复现；当前 `flat-20261113` 是应急基线，
+  对应的源码改动仍待提交成正式 release。

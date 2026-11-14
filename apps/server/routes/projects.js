@@ -139,32 +139,10 @@ function parseTags(tags) {
   return [];
 }
 
-function parsePhotoAdjustments(adjustments) {
+function parsePhotoAdjustments(adjustments, id) {
   if (!adjustments) return null;
-  const value = typeof adjustments === 'string' ? (() => {
-    try { return JSON.parse(adjustments); } catch (e) { return null; }
-  })() : adjustments;
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const num = (v, fallback = 0) => {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : fallback;
-  };
-  const gains = Array.isArray(value.wbGains) ? value.wbGains : [];
-  return {
-    version: 1,
-    engine: value.engine || 'mamage-tone-v1',
-    brightness: Math.min(100, Math.max(-100, num(value.brightness))),
-    contrast: Math.min(100, Math.max(-100, num(value.contrast))),
-    whites: Math.min(100, Math.max(-100, num(value.whites))),
-    highlights: Math.min(100, Math.max(-100, num(value.highlights))),
-    shadows: Math.min(100, Math.max(-100, num(value.shadows))),
-    blacks: Math.min(100, Math.max(-100, num(value.blacks))),
-    temperature: Math.min(100, Math.max(-100, num(value.temperature))),
-    tint: Math.min(100, Math.max(-100, num(value.tint))),
-    wbGains: [0, 1, 2].map((idx) => Math.min(1.8, Math.max(0.5, num(gains[idx], 1)))),
-    source: value.source || 'manual',
-    updatedAt: value.updatedAt || null,
-  };
+  try { return require('../lib/photo_tone/artifacts.cjs').publicAdjustments(adjustments, id); }
+  catch (_) { return null; }
 }
 
 // 选择封面：优先选同时包含标签 '合影' 和 '推荐' 的最新照片，次优包含 '合影'，次优包含 '推荐'，否则取最新一张
@@ -1045,7 +1023,8 @@ router.get('/:id', async (req, res) => {
       fullUrl: mediaUrl(req, p.url, p.id),
       fullThumbUrl: mediaUrl(req, p.thumbUrl, p.id),
       description: p.description || null,
-      adjustments: parsePhotoAdjustments(p.adjustments)
+      adjustments: parsePhotoAdjustments(p.adjustments, p.id),
+      editRevision: require('../lib/photo_tone/artifacts.cjs').editRevision(p)
     }));
 
     project.photos = await attachVideoProcessingState(project.photos, { db: pool });
@@ -1607,7 +1586,7 @@ router.delete('/:id', requirePermission('projects.delete'), async (req, res) => 
       await requireProjectAccess(req, id, 'manage', conn);
 
       const [photoRows] = await conn.query(
-        `SELECT id, url, thumb_url AS thumbUrl, public_download_url AS publicDownloadUrl, playback_url AS playbackUrl
+        `SELECT id, url, thumb_url AS thumbUrl, public_download_url AS publicDownloadUrl, playback_url AS playbackUrl, adjustments
          FROM photos
          WHERE project_id = ? FOR UPDATE`,
         [id]

@@ -3,6 +3,7 @@
     "docx": "^9.7.1",
     "dompurify": "^3.4.17",
     "html-to-image": "^1.11.13",
+    "lucide-react": "1.70.0",
     "marked": "^5.0.2",
     "prosemirror-commands": "^1.7.2",
     "prosemirror-keymap": "^1.2.3",
@@ -10,7 +11,8 @@
     "prosemirror-state": "^1.4.4",
     "prosemirror-view": "^1.42.8",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "react-image-crop": "11.1.2"
   },
   "dependenciesMeta": {},
   "scripts": {
@@ -33,6 +35,8 @@
     "test:person-split-browser": "node scripts/check-person-split.cjs",
     "test:oidc-login": "node --test scripts/test-oidc-login.cjs",
     "test:gallery": "node scripts/run-gallery-tests.cjs",
+    "test:photo-tone": "node scripts/test-photo-tone-browser.cjs",
+    "preview:photo-tone": "node scripts/serve-photo-tone.cjs",
     "preview:news": "node scripts/preview-news-usability.cjs",
     "pretest:audit": "npm run test:iam && npm run test:oidc-login && npm run test:glass-compatibility",
     "test:news-browser": "node scripts/test-news-usability-browser.cjs",

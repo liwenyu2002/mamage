@@ -499,3 +499,81 @@
   .collection-selection-toolbar { animation: none; }
   .collection-tools-list > button { transition: none; }
 }
+
+/* ── 首屏骨架：与真实布局同尺寸，避免白屏跳到内容的生硬感 ───────────── */
+.acp-skeleton { --acp-skeleton-base: #d7e0d9; --acp-skeleton-sheen: #eef3ef; opacity: 0; animation: acp-skeleton-appear .22s ease 180ms forwards; }
+.acp-skeleton .acp-main { padding-top: 6px; }
+.acp-skeleton-panel { display: flex; flex-direction: column; gap: 16px; padding: 16px 14px; min-height: 320px; }
+.acp-skeleton-row { display: flex; align-items: center; gap: 10px; }
+.acp-skeleton-dot { width: 18px; height: 18px; flex: 0 0 18px; border-radius: 6px; background: var(--acp-skeleton-base); }
+.acp-skeleton-bar { display: block; height: 11px; border-radius: 6px; background: var(--acp-skeleton-base); }
+.acp-skeleton-bar.is-title { width: 210px; height: 26px; border-radius: 9px; }
+.acp-skeleton-bar.is-muted { opacity: .6; }
+.acp-skeleton-pill { display: block; width: 92px; height: 34px; border-radius: 999px; background: var(--acp-skeleton-base); }
+.acp-skeleton-pill.is-action { width: 112px; height: 38px; border-radius: 12px; }
+.acp-skeleton-pill.is-search { width: min(420px, 46%); height: 40px; border-radius: 12px; }
+.acp-skeleton-pill.is-narrow { width: 108px; }
+.acp-skeleton-heading { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 18px; }
+.acp-skeleton-toolbar { display: flex; align-items: center; gap: 12px; padding-bottom: 16px; margin-bottom: 18px; border-bottom: 1px solid #0000000d; }
+.acp-skeleton-grid { row-gap: 18px; }
+.acp-skeleton-card { display: flex; flex-direction: column; gap: 9px; padding: 7px; border: 1px solid #ffffffcc; border-radius: var(--lg-radius-sm); background: rgba(255, 255, 255, .78); box-shadow: inset 0 1px 0 #ffffffee, 0 3px 8px #17202a05; }
+.acp-skeleton-cover { display: block; width: 100%; aspect-ratio: 3 / 2; border-radius: 12px; background: linear-gradient(135deg, var(--acp-skeleton-base), var(--acp-skeleton-sheen) 55%, var(--acp-skeleton-base)); }
+.acp-skeleton .acp-skeleton-card,
+.acp-skeleton .acp-skeleton-cover,
+.acp-skeleton .acp-skeleton-bar,
+.acp-skeleton .acp-skeleton-dot,
+.acp-skeleton .acp-skeleton-pill { animation: acp-skeleton-sheen 1.6s ease-in-out infinite; }
+.acp-skeleton-card { animation: acp-skeleton-rise .45s ease both; }
+.acp-skeleton-caption { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 6px auto 0; color: var(--lg-muted, #727477); font-size: 12px; letter-spacing: .01em; }
+.acp-skeleton-pulse { width: 7px; height: 7px; border-radius: 50%; background: #2f6b4f; animation: acp-skeleton-pulse 1.4s ease-in-out infinite; }
+@keyframes acp-skeleton-sheen {
+  0%, 100% { background-color: var(--acp-skeleton-base); }
+  50% { background-color: var(--acp-skeleton-sheen); }
+}
+@keyframes acp-skeleton-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes acp-skeleton-appear { from { opacity: 0; } to { opacity: 1; } }
+@keyframes acp-skeleton-pulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .acp-skeleton .acp-skeleton-card, .acp-skeleton .acp-skeleton-cover, .acp-skeleton .acp-skeleton-bar,
+  .acp-skeleton .acp-skeleton-dot, .acp-skeleton .acp-skeleton-pill, .acp-skeleton-pulse { animation: none; }
+}
+@media (max-width: 760px) {
+  .acp-skeleton-panel { min-height: 0; }
+  .acp-skeleton-heading .acp-skeleton-bar.is-title { width: 52%; }
+  .acp-skeleton-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* 与我共享的文件夹：卡片沿用原生样式，隐藏无法得知的照片总数 */
+.shared-folder-slot .acp-collection-meta-line { display: none; }
+
+/* 共享文件夹卡片恢复原生信息行 */
+.shared-folder-slot .acp-collection-meta-line { display: flex; }
+
+/* 共享视图：方向切换 */
+.shared-tabs { display: inline-flex; gap: 4px; margin: 2px 0 16px; padding: 3px; border-radius: 999px; background: rgba(20, 23, 19, .05); }
+.shared-tabs button { display: inline-flex; align-items: center; gap: 6px; padding: 7px 16px; border: 0; border-radius: 999px;
+  background: transparent; color: var(--lg-muted, #6f776e); font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.shared-tabs button small { font-weight: 500; opacity: .7; }
+.shared-tabs button.is-active { background: #fff; color: #111; box-shadow: 0 1px 4px rgba(20, 23, 19, .1); }
+
+/* 共享视图：文件夹区块与上方切换、下方相册的间距 */
+#shared-outgoing .acp-all-collections,
+#shared-incoming-folders .acp-all-collections { margin: 0 0 22px; }
+#shared-incoming-albums { margin-top: 4px; }
+#shared-outgoing > .acp-section-content { margin-top: 0; }
+.shared-folder-slot { margin: 0; }
+.shared-folder-slot .acp-collection { margin-top: 0; }
+
+/* 共享视图：文件夹上提、与下方相册拉开 */
+#shared-outgoing .acp-all-collections,
+#shared-incoming-folders .acp-all-collections { margin: -12px 0 0; padding-bottom: 26px; }
+
+/* 共享视图区块间距：文件夹上提，下方留白 */
+.shared-sent-block .acp-all-collections,
+.shared-received-block .acp-all-collections { margin: -12px 0 0; padding-bottom: 26px; }
+.shared-sent-block > .acp-section-content,
+.shared-received-block .acp-section-content { margin-top: 0; }
+
+/* 共享卡片上的分享说明 */
+.acp-share-meta { margin: 2px 2px 0; color: var(--lg-muted, #6f776e); font-size: 10.5px; line-height: 1.4;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

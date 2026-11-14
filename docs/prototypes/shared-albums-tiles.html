@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>MaMage · 与我共享（尺寸方案对比）</title>
+<style>
+  :root {
+    --ink: #23271f;
+    --muted: #6f776e;
+    --line: rgba(20, 23, 19, .09);
+    --card: rgba(255, 255, 255, .72);
+    --glass-border: rgba(255, 255, 255, .85);
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 40px 36px 64px;
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", sans-serif;
+    color: var(--ink);
+    background:
+      radial-gradient(1200px 400px at 20% -10%, #eef2ee, transparent 70%),
+      radial-gradient(900px 380px at 85% 0%, #eef1f4, transparent 70%),
+      #f7f8f7;
+  }
+  h1 { margin: 0 0 6px; font-size: 20px; font-weight: 700; }
+  .lede { margin: 0 0 30px; color: var(--muted); font-size: 13px; }
+  section { margin-bottom: 38px; }
+  .variant-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
+  .variant-head h2 { margin: 0; font-size: 15px; font-weight: 650; }
+  .variant-head .size { color: var(--muted); font-size: 12px; }
+  .variant-head .tag { margin-left: auto; font-size: 11px; color: #2f6b4f; background: rgba(47,107,79,.08);
+    border: 1px solid rgba(47,107,79,.18); padding: 2px 8px; border-radius: 999px; }
+  .variant-head .tag.neutral { color: var(--muted); background: rgba(20,23,19,.04); border-color: var(--line); }
+
+  .shared-heading { display: flex; align-items: center; gap: 9px; margin-bottom: 12px; color: #25292d; }
+  .shared-heading svg { width: 18px; height: 18px; }
+  .shared-heading h2 { margin: 0; font-size: 17px; font-weight: 650; }
+  .shared-heading span { color: var(--muted); font-size: 12px; }
+
+  .grid { display: grid; justify-content: start; gap: 10px; }
+
+  .tile { position: relative; border: 1px solid var(--glass-border); border-radius: var(--radius);
+    background: var(--card); box-shadow: inset 0 1px 0 rgba(255,255,255,.7), 0 5px 18px rgba(31,45,49,.045);
+    overflow: hidden; cursor: pointer; transition: transform .16s ease, box-shadow .16s ease; }
+  .tile:hover { transform: translateY(-1px); box-shadow: inset 0 1px 0 rgba(255,255,255,.8), 0 8px 22px rgba(31,45,49,.08); }
+  .cover { width: 100%; aspect-ratio: 1 / 1; background: linear-gradient(140deg, #dfe6df, #c9d3c8 55%, #aeb9ad);
+    display: grid; place-items: center; color: #7d8a7d; }
+  .cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .cover .ph { width: 26px; height: 26px; border-radius: 7px; border: 1.5px solid currentColor; opacity: .55; }
+  .meta { padding: 7px 9px 9px; display: grid; gap: 2px; }
+  .title { font-size: 12.5px; line-height: 1.4; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sub { font-size: 10.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .badge { position: absolute; top: 6px; right: 6px; padding: 2px 6px; border-radius: 999px;
+    background: rgba(17, 20, 18, .72); color: #fff; font-size: 10px; line-height: 1.5; backdrop-filter: blur(4px); }
+  .add { position: absolute; top: 6px; right: 6px; width: 24px; height: 24px; display: grid; place-items: center;
+    border-radius: 7px; background: rgba(255,255,255,.94); box-shadow: 0 2px 6px rgba(20,30,26,.14);
+    font-size: 14px; color: #40584e; opacity: 0; transition: opacity .16s ease; }
+  .tile:hover .add { opacity: 1; }
+  .tile.is-saved .add { opacity: 1; }
+
+  /* A: 120px 方块，单行标题 */
+  .grid-a { grid-template-columns: repeat(auto-fill, 120px); }
+  /* B: 96px 迷你，封面为主，信息收起 */
+  .grid-b { grid-template-columns: repeat(auto-fill, 96px); gap: 8px; }
+  .grid-b .meta { padding: 6px 7px; }
+  .grid-b .title { font-size: 11.5px; }
+  .grid-b .sub { display: none; }
+  /* C: 140px 双行（当前线上） */
+  .grid-c { grid-template-columns: repeat(auto-fill, 140px); }
+  .grid-c .title { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; height: 2.9em; }
+  /* D: 紧凑行（不占宽度，列表式） */
+  .rows { display: grid; gap: 6px; max-width: 560px; }
+  .row { display: flex; align-items: center; gap: 10px; padding: 7px 10px 7px 7px; border-radius: 11px;
+    border: 1px solid var(--glass-border); background: rgba(255,255,255,.6); cursor: pointer; }
+  .row:hover { background: #fff; }
+  .row .thumb { width: 34px; height: 34px; border-radius: 7px; background: linear-gradient(140deg,#dfe6df,#b7c2b5); flex: 0 0 34px; }
+  .row .info { min-width: 0; display: grid; gap: 1px; }
+  .row .info strong { font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .info span { font-size: 10.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .chev { margin-left: auto; color: #9aa39a; font-size: 14px; }
+
+  footer { margin-top: 8px; color: var(--muted); font-size: 12px; line-height: 1.8; }
+  code { background: rgba(20,23,19,.05); padding: 1px 5px; border-radius: 4px; font-size: 11.5px; }
+</style>
+</head>
+<body>
+  <h1>「与我共享」尺寸方案对比</h1>
+  <p class="lede">同一份数据（2 个共享相册），四种密度。挑一个我再改到线上。</p>
+
+  <section>
+    <div class="variant-head"><h2>A · 小方块</h2><span class="size">120 × 约 160</span><span class="tag">推荐</span></div>
+    <div class="shared-heading"><svg viewBox="0 0 24 24" fill="none"><circle cx="6" cy="12" r="2.6" stroke="currentColor" stroke-width="1.7"/><circle cx="18" cy="6" r="2.6" stroke="currentColor" stroke-width="1.7"/><circle cx="18" cy="18" r="2.6" stroke="currentColor" stroke-width="1.7"/><path d="M8.4 10.9 15.6 7.2M8.4 13.1l7.2 3.7" stroke="currentColor" stroke-width="1.7"/></svg><h2>与我共享</h2><span>2</span></div>
+    <div class="grid grid-a">
+      <div class="tile"><div class="cover"><span class="ph"></span></div><span class="badge">77 张</span><div class="meta"><div class="title">融媒体拍摄</div><div class="sub">只读 · 实时共享</div></div></div>
+      <div class="tile"><div class="cover"><span class="ph"></span></div><span class="badge">302 张</span><div class="meta"><div class="title">2026年“海聚智行”暑期社会实践产业赛道路演答辩暨院企交流会</div><div class="sub">只读 · 实时共享</div></div></div>
+      <div class="tile"><div class="cover"><span class="ph"></span></div><span class="badge">45 张</span><div class="meta"><div class="title">零一大讲堂</div><div class="sub">共同编辑</div></div></div>
+      <div class="tile is-saved"><div class="cover"><span class="ph"></span></div><span class="add">+</span><div class="meta"><div class="title">毕业季合影</div><div class="sub">只读</div></div></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="variant-head"><h2>B · 迷你方块</h2><span class="size">96 × 约 118</span><span class="tag neutral">最省空间</span></div>
+    <div class="grid grid-b">
+      <div class="tile"><div class="cover"><span class="ph"></span></div><span class="badge">77</span><div class="meta"><div class="title">融媒体拍摄</div></div></div>
+      <div class="tile"><div class="cover"><span class="ph"></span></div><span class="badge">302</span><div class="meta"><div class="title">海聚智行…</div></div></div>
+      <div class="tile"><div class="cover"><span class="ph"></span></div><span class="badge">45</span><div class="meta"><div class="title">零一大讲堂</div></div></div>
+      <div class="tile"><div class="cover"><span class="ph"></span></div><span class="badge">12</span><div class="meta"><div class="title">毕业季合影</div></div></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="variant-head"><h2>C · 当前线上</h2><span class="size">168 × 约 233</span><span class="tag neutral">对照</span></div>
+    <div class="grid grid-c" style="grid-template-columns: repeat(auto-fill, 168px)">
+      <div class="tile"><div class="cover"><span class="ph"></span></div><span class="badge">77 张</span><div class="meta"><div class="title">融媒体拍摄</div><div class="sub">只读 · 实时共享</div></div></div>
+      <div class="tile"><div class="cover"><span class="ph"></span></div><span class="badge">302 张</span><div class="meta"><div class="title">2026年“海聚智行”暑期社会实践产业赛道路演答辩暨院企交流会</div><div class="sub">只读 · 实时共享</div></div></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="variant-head"><h2>D · 紧凑行</h2><span class="size">整行 560 宽 · 每行 48 高</span><span class="tag neutral">最省高度</span></div>
+    <div class="rows">
+      <div class="row"><span class="thumb"></span><span class="info"><strong>融媒体拍摄</strong><span>77 张 · 只读 · 实时共享</span></span><span class="chev">›</span></div>
+      <div class="row"><span class="thumb"></span><span class="info"><strong>2026年“海聚智行”暑期社会实践产业赛道路演答辩暨院企交流会</strong><span>302 张 · 只读 · 实时共享</span></span><span class="chev">›</span></div>
+      <div class="row"><span class="thumb"></span><span class="info"><strong>零一大讲堂</strong><span>45 张 · 共同编辑</span></span><span class="chev">›</span></div>
+    </div>
+  </section>
+
+  <footer>
+    选好告我：A/B/C/D 哪个，或「A 再小一点 / 只要封面不要文字」。<br />
+    目前线上是 C；A 相比 C 宽度减 29%、高度减 31%，一行能放 7–8 个。
+  </footer>
+</body>
+</html>

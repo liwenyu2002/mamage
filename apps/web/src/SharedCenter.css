@@ -1,0 +1,34 @@
+.share-center-backdrop { position: fixed; inset: 0; z-index: 1200; display: grid; place-items: center; padding: 24px;
+  background: rgba(17, 20, 18, .38); backdrop-filter: blur(6px); }
+.share-center { width: min(620px, 100%); max-height: 78vh; display: flex; flex-direction: column;
+  border-radius: var(--lg-radius); background: var(--liquid-glass-material-readable);
+  border: 1px solid var(--liquid-glass-border); box-shadow: 0 24px 60px rgba(20, 24, 28, .24); overflow: hidden; }
+.share-center-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 18px 12px; }
+.share-center-head h2 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 16px; font-weight: 650; }
+.share-center-head h2 svg { width: 17px; height: 17px; }
+.share-center-head span { display: block; margin-top: 3px; color: var(--lg-muted); font-size: 11.5px; }
+.share-center-tabs { display: flex; gap: 6px; padding: 0 18px 12px; border-bottom: 1px solid rgba(20, 23, 19, .08); }
+.share-center-tabs button { padding: 6px 12px; border: 0; border-radius: 999px; background: rgba(20, 23, 19, .05);
+  color: var(--lg-muted); font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.share-center-tabs button small { margin-left: 4px; font-weight: 500; opacity: .75; }
+.share-center-tabs button.is-active { background: #fff; color: #111; box-shadow: 0 1px 4px rgba(20, 23, 19, .1); }
+.share-center-body { flex: 1; min-height: 120px; overflow: auto; padding: 10px 12px 14px; display: flex; flex-direction: column; gap: 4px; }
+.share-center-empty { margin: 26px auto; color: var(--lg-muted); font-size: 12px; }
+.share-center-error { margin: 0 18px 10px; color: #a33; font-size: 12px; }
+.share-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 0; border-radius: 10px;
+  background: transparent; text-align: left; cursor: pointer; color: inherit; }
+.share-row:hover:not(:disabled) { background: rgba(255, 255, 255, .8); }
+.share-row:disabled { cursor: default; opacity: .85; }
+.share-row-icon { display: grid; place-items: center; width: 30px; height: 30px; flex: 0 0 30px; border-radius: 8px;
+  background: rgba(20, 23, 19, .05); color: #4a5a51; }
+.share-row-icon.is-folder { background: rgba(47, 107, 79, .1); color: #2f6b4f; }
+.share-row-icon svg { width: 15px; height: 15px; }
+.share-row-main { flex: 1; min-width: 0; display: grid; gap: 1px; }
+.share-row-main strong { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.share-row-main small { font-size: 11px; color: var(--lg-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.share-row-count { font-size: 11px; color: var(--lg-muted); white-space: nowrap; }
+.share-row-chevron { width: 14px; height: 14px; color: #9aa39a; flex: 0 0 14px; }
+.share-center-foot { display: flex; justify-content: space-between; gap: 10px; padding: 10px 18px; border-top: 1px solid rgba(20, 23, 19, .08);
+  color: var(--lg-muted); font-size: 11px; }
+.share-center-loading { position: absolute; left: 50%; bottom: 28px; transform: translateX(-50%);
+  padding: 6px 12px; border-radius: 999px; background: rgba(17, 20, 18, .9); color: #fff; font-size: 11.5px; }

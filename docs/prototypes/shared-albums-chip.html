@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>MaMage · 与我共享（胶囊提示方案）</title>
+<style>
+  :root {
+    --ink: #23271f;
+    --muted: #6f776e;
+    --line: rgba(20, 23, 19, .08);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 36px 34px 60px;
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", sans-serif;
+    color: var(--ink);
+    background:
+      radial-gradient(1100px 380px at 18% -10%, #eef2ee, transparent 70%),
+      radial-gradient(900px 340px at 88% 0%, #eef1f4, transparent 70%),
+      #f7f8f7;
+  }
+  h1 { margin: 0 0 4px; font-size: 19px; font-weight: 700; }
+  .lede { margin: 0 0 26px; color: var(--muted); font-size: 12.5px; }
+  .block { margin-bottom: 30px; }
+  .block-head { display: flex; align-items: baseline; gap: 9px; margin-bottom: 10px; }
+  .block-head b { font-size: 13.5px; font-weight: 650; }
+  .block-head span { color: var(--muted); font-size: 11.5px; }
+  .block-head em { margin-left: auto; font-style: normal; font-size: 11px; color: #2f6b4f;
+    background: rgba(47,107,79,.08); border: 1px solid rgba(47,107,79,.16); padding: 1px 8px; border-radius: 999px; }
+  .block-head em.neutral { color: var(--muted); background: rgba(20,23,19,.04); border-color: var(--line); }
+
+  .section { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; color: #25292d; }
+  .section svg { width: 14px; height: 14px; opacity: .8; }
+  .section h2 { margin: 0; font-size: 14px; font-weight: 600; }
+  .section .n { color: var(--muted); font-size: 12px; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px 3px 4px;
+    border: 1px solid rgba(255,255,255,.92); border-radius: 999px;
+    background: rgba(255,255,255,.62); box-shadow: 0 1px 3px rgba(31,45,49,.04);
+    cursor: pointer; transition: background .15s ease, box-shadow .15s ease;
+  }
+  .chip:hover { background: #fff; box-shadow: 0 3px 10px rgba(31,45,49,.07); }
+  .thumb { width: 18px; height: 18px; flex: 0 0 18px; border-radius: 5px;
+    background: linear-gradient(140deg, #dfe6df, #bcc7ba); }
+  .name { font-size: 12px; font-weight: 600; max-width: 180px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .count { font-size: 10.5px; color: #7d877d; white-space: nowrap; padding-right: 2px; }
+
+  /* B：无缩略图 */
+  .chip.no-thumb { padding: 3px 10px; }
+  .chip.no-thumb .thumb { display: none; }
+
+  /* C：并进标题行 */
+  .inline-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+  .inline-row .section { margin: 0; }
+  .inline-row .sep { width: 1px; height: 14px; background: var(--line); }
+
+  /* D：稍大一点（如果有 4-6 个共享，两行更好扫） */
+  .chip.lg { padding: 5px 11px 5px 5px; gap: 7px; }
+  .chip.lg .thumb { width: 22px; height: 22px; flex-basis: 22px; border-radius: 6px; }
+  .chip.lg .name { font-size: 12.5px; }
+
+  footer { color: var(--muted); font-size: 12px; line-height: 1.9; }
+  code { background: rgba(20,23,19,.05); padding: 1px 5px; border-radius: 4px; font-size: 11.5px; }
+</style>
+</head>
+<body>
+  <h1>「与我共享」胶囊提示</h1>
+  <p class="lede">只表达「有东西分享给你」，不占版面。四种密度，选一个我改线上。</p>
+
+  <div class="block">
+    <div class="block-head"><b>A · 当前线上</b><span>每个胶囊 26px 高</span><em>推荐</em></div>
+    <div class="section">
+      <svg viewBox="0 0 24 24" fill="none"><circle cx="6" cy="12" r="2.6" stroke="currentColor" stroke-width="1.7"/><circle cx="18" cy="6" r="2.6" stroke="currentColor" stroke-width="1.7"/><circle cx="18" cy="18" r="2.6" stroke="currentColor" stroke-width="1.7"/><path d="M8.4 10.9 15.6 7.2M8.4 13.1l7.2 3.7" stroke="currentColor" stroke-width="1.7"/></svg>
+      <h2>与我共享</h2><span class="n">2</span>
+    </div>
+    <div class="chips">
+      <span class="chip"><span class="thumb"></span><span class="name">融媒体拍摄</span><span class="count">77 张</span></span>
+      <span class="chip"><span class="thumb"></span><span class="name">2026年“海聚智行”暑期社会实践产业赛道路演答辩暨院企交流会</span><span class="count">302 张</span></span>
+    </div>
+  </div>
+
+  <div class="block">
+    <div class="block-head"><b>B · 无缩略图</b><span>每个胶囊 22px 高</span><em class="neutral">最轻</em></div>
+    <div class="chips">
+      <span class="chip no-thumb"><span class="name">融媒体拍摄</span><span class="count">77 张</span></span>
+      <span class="chip no-thumb"><span class="name">2026年“海聚智行”暑期社会实践产业赛道路演答辩暨院企交流会</span><span class="count">302 张</span></span>
+      <span class="chip no-thumb"><span class="name">零一大讲堂</span><span class="count">45 张</span></span>
+    </div>
+  </div>
+
+  <div class="block">
+    <div class="block-head"><b>C · 并进一行</b><span>标题与胶囊同一行，整体 26px</span><em class="neutral">最省高度</em></div>
+    <div class="inline-row">
+      <div class="section">
+        <svg viewBox="0 0 24 24" fill="none"><circle cx="6" cy="12" r="2.6" stroke="currentColor" stroke-width="1.7"/><circle cx="18" cy="6" r="2.6" stroke="currentColor" stroke-width="1.7"/><circle cx="18" cy="18" r="2.6" stroke="currentColor" stroke-width="1.7"/><path d="M8.4 10.9 15.6 7.2M8.4 13.1l7.2 3.7" stroke="currentColor" stroke-width="1.7"/></svg>
+        <h2>与我共享</h2><span class="n">2</span>
+      </div>
+      <span class="sep"></span>
+      <span class="chip"><span class="thumb"></span><span class="name">融媒体拍摄</span><span class="count">77 张</span></span>
+      <span class="chip"><span class="thumb"></span><span class="name">海聚智行…</span><span class="count">302 张</span></span>
+    </div>
+  </div>
+
+  <div class="block">
+    <div class="block-head"><b>D · 稍大一档</b><span>每个胶囊 32px 高</span><em class="neutral">分享较多时更好点</em></div>
+    <div class="chips">
+      <span class="chip lg"><span class="thumb"></span><span class="name">融媒体拍摄</span><span class="count">77 张</span></span>
+      <span class="chip lg"><span class="thumb"></span><span class="name">海聚智行·暑期社会实践</span><span class="count">302 张</span></span>
+      <span class="chip lg"><span class="thumb"></span><span class="name">零一大讲堂</span><span class="count">45 张</span></span>
+      <span class="chip lg"><span class="thumb"></span><span class="name">毕业季合影</span><span class="count">12 张</span></span>
+    </div>
+  </div>
+
+  <footer>
+    对比参考：最初 600×90 横卡 → 168×233 方块 → 340×41 窄行 → <b>A 的 134×26 胶囊</b>。<br />
+    回我字母即可；也可以说「A 但不要缩略图」「C 但胶囊换行」这种组合。
+  </footer>
+</body>
+</html>

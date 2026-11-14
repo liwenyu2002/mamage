@@ -69,7 +69,10 @@ const ZIP_MAX_REMOTE_BYTES = Math.max(1024 * 1024, Number(process.env.PHOTO_ZIP_
 const ZIP_MAX_RENDER_SOURCE_BYTES = Math.max(1024 * 1024, Number(process.env.PHOTO_ZIP_RENDER_MAX_SOURCE_BYTES || 128 * 1024 * 1024));
 const RENDER_SOURCE_TIMEOUT_MS = Math.max(1000, Number(process.env.PHOTO_RENDER_SOURCE_TIMEOUT_MS || 20000));
 const RENDER_MAX_SOURCE_BYTES = Math.max(1024 * 1024, Number(process.env.PHOTO_RENDER_MAX_SOURCE_BYTES || 128 * 1024 * 1024));
-const TONE_ENGINE = 'mamage-tone-v2-acr-like';
+const photoTone = require('../lib/photo_tone/engine.mjs');
+const { renderAdjustedPhotoBuffer, renderPhotoToneWorkingCopy } = require('../lib/photo_tone/render.cjs');
+const { preparePhotoEdit } = require('../lib/photo_tone/save.cjs');
+const { getBakedEdit, editRevision, editableSourceUrl, displayPhotoRow, publicAdjustments } = require('../lib/photo_tone/artifacts.cjs');
 const ZIP_TICKET_TTL_MS = Math.max(15000, Number(process.env.PHOTO_ZIP_TICKET_TTL_MS || 2 * 60 * 1000));
 const { createVideoDownloads, mediaFilename } = require('../lib/video_download');
 const videoDownloads = createVideoDownloads({
@@ -482,235 +485,18 @@ function clampNumber(value, min, max, fallback = 0) {
   return Math.min(max, Math.max(min, n));
 }
 
-function computeWbGains(temperature = 0, tint = 0) {
-  const t = clampNumber(temperature, -100, 100, 0) / 100;
-  const g = clampNumber(tint, -100, 100, 0) / 100;
-  return [
-    clampNumber(1 + t * 0.22, 0.5, 1.8, 1),
-    clampNumber(1 - g * 0.16, 0.5, 1.8, 1),
-    clampNumber(1 - t * 0.22, 0.5, 1.8, 1),
-  ];
-}
-
 function normalizePhotoAdjustments(input) {
-  if (input === null) return null;
-  if (input === undefined) return undefined;
-
-  let parsed = input;
-  if (typeof input === 'string') {
-    try {
-      parsed = JSON.parse(input);
-    } catch (e) {
-      return undefined;
-    }
-  }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined;
-
-  const brightness = clampNumber(parsed.brightness, -100, 100, 0);
-  const contrast = clampNumber(parsed.contrast, -100, 100, 0);
-  const highlights = clampNumber(parsed.highlights, -100, 100, 0);
-  const shadows = clampNumber(parsed.shadows, -100, 100, 0);
-  const whites = clampNumber(parsed.whites, -100, 100, 0);
-  const blacks = clampNumber(parsed.blacks, -100, 100, 0);
-  const temperature = clampNumber(parsed.temperature, -100, 100, 0);
-  const tint = clampNumber(parsed.tint, -100, 100, 0);
-  const rawGains = Array.isArray(parsed.wbGains) && parsed.wbGains.length >= 3
-    ? parsed.wbGains
-    : computeWbGains(temperature, tint);
-  const wbGains = [0, 1, 2].map((idx) => clampNumber(rawGains[idx], 0.5, 1.8, 1));
-  const source = String(parsed.source || 'manual').trim().slice(0, 24) || 'manual';
-
-  return {
-    version: 2,
-    engine: TONE_ENGINE,
-    brightness,
-    contrast,
-    highlights,
-    shadows,
-    whites,
-    blacks,
-    temperature,
-    tint,
-    wbGains,
-    source,
-    updatedAt: parsed.updatedAt ? String(parsed.updatedAt).slice(0, 64) : new Date().toISOString(),
-  };
+  if (input === null || input === undefined) return input;
+  try { return photoTone.normalizePhotoAdjustments(input); } catch (_) { return undefined; }
 }
 
-function parsePhotoAdjustments(rawAdjustments) {
-  if (!rawAdjustments) return null;
-  if (typeof rawAdjustments === 'object') return normalizePhotoAdjustments(rawAdjustments) || null;
-  try {
-    return normalizePhotoAdjustments(JSON.parse(rawAdjustments)) || null;
-  } catch (e) {
-    return null;
-  }
+function parsePhotoAdjustments(input, id) {
+  return publicAdjustments(input, id);
 }
 
-function hasMeaningfulPhotoAdjustments(adjustments) {
-  const a = normalizePhotoAdjustments(adjustments);
-  if (!a) return false;
-  return Math.abs(a.brightness) >= 0.01
-    || Math.abs(a.contrast) >= 0.01
-    || Math.abs(a.whites) >= 0.01
-    || Math.abs(a.highlights) >= 0.01
-    || Math.abs(a.shadows) >= 0.01
-    || Math.abs(a.blacks) >= 0.01
-    || Math.abs(a.temperature) >= 0.01
-    || Math.abs(a.tint) >= 0.01;
-}
-
-function srgbToLinear(v) {
-  const x = v / 255;
-  return x <= 0.04045 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4);
-}
-
-function linearToSrgb(v, dither = 0) {
-  const x = clampNumber(v, 0, 1, 0);
-  const y = x <= 0.0031308 ? x * 12.92 : (1.055 * Math.pow(x, 1 / 2.4)) - 0.055;
-  return clampNumber(Math.round((y * 255) + dither), 0, 255, 0);
-}
-
-function smoothstep(edge0, edge1, value) {
-  if (edge0 === edge1) return value >= edge1 ? 1 : 0;
-  const x = clampNumber((value - edge0) / (edge1 - edge0), 0, 1, 0);
-  return x * x * (3 - (2 * x));
-}
-
-function curvePushPull(luma, sliderValue, mask, scale) {
-  const amount = (clampNumber(sliderValue, -100, 100, 0) / 100) * clampNumber(mask, 0, 1, 0) * scale;
-  if (Math.abs(amount) < 0.00001) return luma;
-  const strength = 1 - Math.exp(-Math.abs(amount) * 2.2);
-  if (amount > 0) {
-    return clampNumber(luma + (1 - luma) * strength, 0, 1, luma);
-  }
-  return clampNumber(luma - luma * strength, 0, 1, luma);
-}
-
-function applyMidtoneContrast(luma, contrastValue) {
-  const amount = (clampNumber(contrastValue, -100, 100, 0) / 100) * 0.58;
-  if (Math.abs(amount) < 0.00001) return luma;
-  const midMask = Math.pow(clampNumber(4 * luma * (1 - luma), 0, 1, 0), 0.72);
-  return clampNumber(luma + amount * (luma - 0.5) * midMask, 0, 1, luma);
-}
-
-function acrLikeToneMapLuma(luma, adjustments) {
-  let y = clampNumber(luma, 0, 1, 0);
-  const highlightsMask = smoothstep(0.44, 0.82, y) * (1 - smoothstep(0.96, 1, y) * 0.42);
-  y = curvePushPull(y, adjustments.highlights, highlightsMask, 0.34);
-
-  const shadowsMask = (1 - smoothstep(0.18, 0.58, y)) * (0.38 + smoothstep(0.012, 0.11, y) * 0.62);
-  y = curvePushPull(y, adjustments.shadows, shadowsMask, 0.36);
-
-  const whitesMask = smoothstep(0.68, 0.985, y);
-  y = curvePushPull(y, adjustments.whites, whitesMask, 0.3);
-
-  const blacksMask = 1 - smoothstep(0.012, 0.32, y);
-  y = curvePushPull(y, adjustments.blacks, blacksMask, 0.28);
-
-  return applyMidtoneContrast(y, adjustments.contrast);
-}
-
-function fitRgbToLuma(lr, lg, lb, sourceLuma, targetLuma) {
-  const y = clampNumber(targetLuma, 0, 1, 0);
-  if (sourceLuma <= 0.000001) return [y, y, y];
-  const ratio = clampNumber(y / sourceLuma, 0, 8, 1);
-  let nr = lr * ratio;
-  let ng = lg * ratio;
-  let nb = lb * ratio;
-  const maxChannel = Math.max(nr, ng, nb);
-  if (maxChannel > 1) {
-    const overshoot = maxChannel - 1;
-    const blendToGray = smoothstep(0, 0.42, overshoot) * 0.72;
-    nr += (y - nr) * blendToGray;
-    ng += (y - ng) * blendToGray;
-    nb += (y - nb) * blendToGray;
-  }
-  return [clampNumber(nr, 0, 1), clampNumber(ng, 0, 1), clampNumber(nb, 0, 1)];
-}
-
-function applyToneToRgb(r, g, b, adjustments, dither = 0) {
-  const exposure = Math.pow(2, (adjustments.brightness / 100) * 1.12);
-  const gains = Array.isArray(adjustments.wbGains) ? adjustments.wbGains : [1, 1, 1];
-  let lr = srgbToLinear(r) * gains[0] * exposure;
-  let lg = srgbToLinear(g) * gains[1] * exposure;
-  let lb = srgbToLinear(b) * gains[2] * exposure;
-  const luma = clampNumber((0.2126 * lr) + (0.7152 * lg) + (0.0722 * lb), 0, 1, 0);
-  const mappedLuma = acrLikeToneMapLuma(luma, adjustments);
-  [lr, lg, lb] = fitRgbToLuma(lr, lg, lb, luma, mappedLuma);
-  return [linearToSrgb(lr, dither), linearToSrgb(lg, dither), linearToSrgb(lb, dither)];
-}
-
-const BAYER_4 = [
-  0, 8, 2, 10,
-  12, 4, 14, 6,
-  3, 11, 1, 9,
-  15, 7, 13, 5,
-];
-
-function orderedDither(x, y, strength = 0.55) {
-  const idx = ((y & 3) * 4) + (x & 3);
-  return ((BAYER_4[idx] / 15) - 0.5) * strength;
-}
-
-async function renderAdjustedPhotoBuffer(inputBuffer, adjustments, options = {}) {
-  const sharp = require('sharp');
-  const normalizedAdjustments = normalizePhotoAdjustments(adjustments) || normalizePhotoAdjustments({});
-  const maxSize = Math.max(320, Math.min(4096, Number(options.maxSize || 4096)));
-  const format = String(options.format || 'jpeg').toLowerCase();
-  const quality = Math.max(70, Math.min(98, Number(options.quality || 96)));
-  const pipeline = sharp(inputBuffer, { failOn: 'none' })
-    .rotate()
-    .resize({
-      width: maxSize,
-      height: maxSize,
-      fit: 'inside',
-      withoutEnlargement: true,
-    })
-    .toColourspace('srgb')
-    .flatten({ background: '#ffffff' });
-  const { data, info } = await pipeline.raw({ depth: 'ushort' }).toBuffer({ resolveWithObject: true });
-  const channels = info.channels || 3;
-  const outputChannels = 3;
-  const out = Buffer.alloc(info.width * info.height * outputChannels);
-
-  let maxSample = 0;
-  for (let offset = 0; offset + 1 < data.length; offset += 2) {
-    const sample = data.readUInt16LE(offset);
-    if (sample > maxSample) maxSample = sample;
-  }
-  const sampleToByte = maxSample > 1024 ? (255 / 65535) : 1;
-  const pixelCount = info.width * info.height;
-
-  for (let pixelIndex = 0; pixelIndex < pixelCount; pixelIndex += 1) {
-    const sourceOffset = pixelIndex * channels * 2;
-    const targetOffset = pixelIndex * outputChannels;
-    const x = pixelIndex % info.width;
-    const y = Math.floor(pixelIndex / info.width);
-    const dither = orderedDither(x, y, 0.62);
-    const sourceR = data.readUInt16LE(sourceOffset) * sampleToByte;
-    const sourceG = data.readUInt16LE(sourceOffset + 2) * sampleToByte;
-    const sourceB = data.readUInt16LE(sourceOffset + 4) * sampleToByte;
-    const [r, g, b] = applyToneToRgb(sourceR, sourceG, sourceB, normalizedAdjustments, dither);
-    out[targetOffset] = r;
-    out[targetOffset + 1] = g;
-    out[targetOffset + 2] = b;
-  }
-  const image = sharp(out, {
-    raw: {
-      width: info.width,
-      height: info.height,
-      channels: outputChannels,
-    },
-  });
-
-  if (format === 'webp') {
-    return image.webp({ quality, smartSubsample: true }).toBuffer();
-  }
-  if (format === 'png') {
-    return image.png({ compressionLevel: 8, palette: false }).toBuffer();
-  }
-  return image.jpeg({ quality, chromaSubsampling: '4:4:4', mozjpeg: true }).toBuffer();
+function hasMeaningfulPhotoAdjustments(input) {
+  const a = normalizePhotoAdjustments(input);
+  return Boolean(a && !photoTone.isDefaultPhotoAdjustments(a));
 }
 
 async function getScopedPhotoSourceRow(req, id) {
@@ -732,7 +518,7 @@ function resolvePhotoSourceTargetUrl(req, row, variant = 'original') {
   const requested = String(variant || 'original').toLowerCase();
   const raw = requested === 'thumb' ? (row.thumbUrl || row.url) : (row.url || row.thumbUrl);
   if (!raw) return '';
-  const built = buildMediaUrl(raw, { userId: req.user && req.user.id, photoId: row.id });
+  const built = editableSourceUrl(buildMediaUrl(raw, { userId: req.user && req.user.id, photoId: row.id }));
   return /^https?:\/\//i.test(built)
     ? built
     : `${req.protocol}://${req.get('host')}${String(built).startsWith('/') ? built : `/${built}`}`;
@@ -962,7 +748,8 @@ router.get('/', requirePermission('photos.view'), async (req, res) => {
         playbackUrl: resolveUrl(p.playbackUrl),
         playback_url: resolveUrl(p.playbackUrl),
         description: p.description || null,
-        adjustments: parsePhotoAdjustments(p.adjustments),
+        adjustments: parsePhotoAdjustments(p.adjustments, p.id),
+        editRevision: editRevision(p),
         aiStatus: p.aiStatus || null,
         aiScore: p.aiScore !== undefined && p.aiScore !== null ? p.aiScore : null,
         aiQuality: (() => { try { return typeof p.aiQuality === 'string' ? JSON.parse(p.aiQuality) : (p.aiQuality || null); } catch (e) { return null; } })(),
@@ -1089,7 +876,8 @@ router.get('/scenery/random', requirePermission('photos.view'), async (req, res)
         playbackUrl: resolveUrl(p.playbackUrl),
         playback_url: resolveUrl(p.playbackUrl),
         description: p.description || null,
-        adjustments: parsePhotoAdjustments(p.adjustments),
+        adjustments: parsePhotoAdjustments(p.adjustments, p.id),
+        editRevision: editRevision(p),
         aiStatus: p.aiStatus || null,
         aiError: p.aiError || null,
         aiStartedAt: p.aiStartedAt || null,
@@ -1221,7 +1009,7 @@ router.post('/delete', requirePermission('photos.delete'), async (req, res) => {
     try {
       await conn.beginTransaction();
 
-      let selSql = 'SELECT id, project_id AS projectId, url, thumb_url AS thumbUrl, public_download_url AS publicDownloadUrl, playback_url AS playbackUrl FROM photos WHERE id IN (?)';
+      let selSql = 'SELECT id, project_id AS projectId, url, thumb_url AS thumbUrl, public_download_url AS publicDownloadUrl, playback_url AS playbackUrl, adjustments FROM photos WHERE id IN (?)';
       const selParams = [ids];
       if (orgId === null) {
         selSql += ' AND organization_id IS NULL';
@@ -1711,7 +1499,7 @@ async function handleZipRequest(req, res) {
     const streamOriginals = cosStorage.isConfigured() && rows.every(row => {
       const key = cosStorage.keyFromUrlOrPath(row.url);
       return key && cosStorage.isSafeKey(key) && key.startsWith('uploads/')
-        && (row.type === 'video' || !hasMeaningfulPhotoAdjustments(parsePhotoAdjustments(row.adjustments)));
+        && (row.type === 'video' || getBakedEdit(row) || !hasMeaningfulPhotoAdjustments(parsePhotoAdjustments(row.adjustments)));
     });
     if (streamOriginals) return await videoDownloads.stream(req, res, ids, { videosOnly: false });
     if (res.destroyed) return;
@@ -2019,6 +1807,12 @@ async function handleZipRequest(req, res) {
         const projId = r.projectId || 0;
         const rawProjName = projMap[projId] || `project-${projId}`;
         const rawSecName = r.sectionId ? (sectionMap[r.sectionId] || '') : '';
+        const baked = getBakedEdit(r);
+        if (baked) {
+          const name = `${zipFolder}/${mediaFilename({ ...r, url: baked.url, projectName: rawProjName, sectionName: rawSecName })}`;
+          if (!await appendStorageObjectToArchive(baked.url, name, ZIP_MAX_REMOTE_BYTES)) throw new Error('Edited photo unavailable');
+          continue;
+        }
         const originalNameInZip = `${zipFolder}/${mediaFilename({ ...r, projectName: rawProjName, sectionName: rawSecName })}`;
         const maxBytes = r.type === 'video' ? 100 * 1024 ** 3 : ZIP_MAX_REMOTE_BYTES;
         const adjustments = parsePhotoAdjustments(r.adjustments);
@@ -2115,6 +1909,18 @@ router.post('/:id/rendered', requirePermission('photos.view'), async (req, res) 
     }
     if (!adjustments) adjustments = normalizePhotoAdjustments({});
 
+    const baked = getBakedEdit(row);
+    if (baked && photoTone.getToneAdjustmentKey(adjustments) === photoTone.getToneAdjustmentKey(row.adjustments)) {
+      const key = variant === 'thumb' ? baked.thumbUrl : baked.url;
+      const { buffer } = await fetchImageBufferFromUrl(resolvePhotoSourceTargetUrl(req, { ...row, url: key, thumbUrl: key }));
+      res.setHeader('Content-Type', variant === 'thumb' ? 'image/webp' : 'image/jpeg');
+      res.setHeader('Cache-Control', 'private, no-store');
+      res.setHeader('Vary', 'Authorization');
+      res.setHeader('X-MaMage-Tone-Engine', photoTone.ENGINE);
+      res.setHeader('X-MaMage-Render-Variant', 'saved');
+      return res.send(buffer);
+    }
+
     const targetUrl = resolvePhotoSourceTargetUrl(req, row, variant);
     if (!targetUrl) return res.status(404).json({ error: 'photo source not found' });
 
@@ -2122,12 +1928,12 @@ router.post('/:id/rendered', requirePermission('photos.view'), async (req, res) 
       timeoutMs: RENDER_SOURCE_TIMEOUT_MS,
       maxBytes: RENDER_MAX_SOURCE_BYTES,
     });
-    const rendered = await renderAdjustedPhotoBuffer(buffer, adjustments, { maxSize, format, quality });
+    const rendered = await renderAdjustedPhotoBuffer(buffer, adjustments, { maxSize, format, quality, fullResolution: variant === 'original' && body.fullResolution === true });
 
     res.setHeader('Content-Type', getRenderedContentType(format));
     res.setHeader('Cache-Control', 'private, no-store');
     res.setHeader('Vary', 'Authorization');
-    res.setHeader('X-MaMage-Tone-Engine', TONE_ENGINE);
+    res.setHeader('X-MaMage-Tone-Engine', adjustments.engine);
     res.setHeader('X-MaMage-Render-Variant', variant);
     return res.send(rendered);
   } catch (err) {
@@ -2163,11 +1969,25 @@ router.get('/:id/pixel-source', requirePermission('photos.view'), async (req, re
 
     const row = rows[0];
     const variant = String(req.query.variant || 'thumb').toLowerCase();
+    if (!['thumb', 'original', 'working'].includes(variant)) return res.status(400).json({ error: 'invalid variant' });
+    if (variant === 'working') {
+      const target = resolvePhotoSourceTargetUrl(req, row, 'original');
+      if (!target) return res.status(404).json({ error: 'photo source not found' });
+      const { buffer } = await fetchImageBufferFromUrl(target);
+      const working = await renderPhotoToneWorkingCopy(buffer, clampNumber(req.query.maxSize, 320, 1600, 1280), req.query.full === '1');
+      res.setHeader('Content-Type', 'image/png');
+      res.setHeader('Cache-Control', 'private, no-store');
+      res.setHeader('Vary', 'Authorization');
+      res.setHeader('X-MaMage-Tone-Engine', photoTone.ENGINE);
+      res.setHeader('X-MaMage-Source-Width', String(working.width));
+      res.setHeader('X-MaMage-Source-Height', String(working.height));
+      return res.send(working.buffer);
+    }
     const raw = variant === 'original' ? (row.url || row.thumbUrl) : (row.thumbUrl || row.url);
     if (!raw) return res.status(404).json({ error: 'photo source not found' });
 
-    const built = /^https?:\/\//i.test(String(raw)) ? String(raw)
-      : buildMediaUrl(raw, { userId: req.user && req.user.id, photoId: row.id });
+    const built = editableSourceUrl(/^https?:\/\//i.test(String(raw)) ? String(raw)
+      : buildMediaUrl(raw, { userId: req.user && req.user.id, photoId: row.id }));
     const targetUrl = /^https?:\/\//i.test(built)
       ? built
       : `${req.protocol}://${req.get('host')}${String(built).startsWith('/') ? built : `/${built}`}`;
@@ -2229,11 +2049,12 @@ router.get('/:id/direct-url', requirePermission('photos.view'), async (req, res)
     if (!['original', 'thumb', 'public', 'playback'].includes(variant)) {
       return res.status(400).json({ error: 'invalid variant' });
     }
+    const displayRow = req.query.original === '1' ? row : displayPhotoRow(row);
     const raw = variant === 'thumb'
-      ? (row.thumbUrl || row.url)
+      ? (displayRow.thumbUrl || displayRow.url)
       : (variant === 'public'
-        ? (row.publicDownloadUrl || row.url || row.thumbUrl)
-        : (variant === 'playback' ? (row.playbackUrl || row.url || row.thumbUrl) : (row.url || row.thumbUrl)));
+        ? (getBakedEdit(displayRow) ? displayRow.url : (row.publicDownloadUrl || row.url || row.thumbUrl))
+        : (variant === 'playback' ? (row.playbackUrl || row.url || row.thumbUrl) : (displayRow.url || displayRow.thumbUrl)));
     const key = cosStorage.keyFromUrlOrPath(raw);
     if (!key) return res.status(404).json({ error: 'photo source not found' });
 
@@ -2241,7 +2062,7 @@ router.get('/:id/direct-url', requirePermission('photos.view'), async (req, res)
     const fallbackName = download && row.type === 'video' ? await videoDownloads.filename(req, id)
       : `${String(row.title || `photo-${id}`).replace(/[\\/:*?"<>|]/g, '_') || `photo-${id}`}${getExtFromStorageKey(key)}`;
     const signed = await cosStorage.signedGetUrl(key, {
-      expires: cosStorage.keyFromUrlOrPath(raw).startsWith('uploads/units/')
+      expires: /^(uploads\/units\/|uploads\/photo-edits\/)/.test(key)
         ? 60 : Math.max(60, Number(process.env.COS_SIGNED_READ_EXPIRES_SECONDS || 900)),
       downloadName: download ? fallbackName : undefined,
     });
@@ -2362,7 +2183,8 @@ router.get('/:id', requirePermission('photos.view'), async (req, res) => {
       detailedDescription: p.detailedDescription || null,
       personObservationsEnabled: process.env.PHOTO_PERSON_OBSERVATIONS_ENABLED === '1',
       sourceAttribution,
-      adjustments: parsePhotoAdjustments(p.adjustments),
+      adjustments: parsePhotoAdjustments(p.adjustments, p.id),
+      editRevision: editRevision(p),
       tags: parsedTags,
       aiStatus: p.aiStatus || null,
       aiScore: p.aiScore !== undefined && p.aiScore !== null ? p.aiScore : null,
@@ -2389,6 +2211,7 @@ router.get('/:id', requirePermission('photos.view'), async (req, res) => {
 // 更新单张照片的 description 与 tags
 // PATCH /api/photos/:id
 router.patch('/:id', requirePermission('photos.edit'), async (req, res) => {
+  let prepared, committed = false;
   try {
     const id = Number(req.params.id);
     if (!/^\d+$/.test(String(req.params.id)) || !Number.isSafeInteger(id) || id <= 0) return res.status(400).json({ error: 'invalid id' });
@@ -2431,15 +2254,19 @@ router.patch('/:id', requirePermission('photos.edit'), async (req, res) => {
       if (adjustments !== null && !normalizedAdjustments) {
         return res.status(400).json({ error: 'invalid adjustments' });
       }
+      const row = await getScopedPhotoSourceRow(req, id);
+      if (!row) return res.status(404).json({ error: 'photo not found' });
+      prepared = await preparePhotoEdit({ row, adjustments: normalizedAdjustments || {}, baseRevision: req.body.baseEditRevision,
+        storage: cosStorage, loadOriginal: async source => (await fetchImageBufferFromUrl(resolvePhotoSourceTargetUrl(req, source))).buffer });
       updates.push('adjustments = ?');
-      params.push(normalizedAdjustments ? JSON.stringify(normalizedAdjustments) : null);
+      params.push(JSON.stringify(prepared.saved));
     }
 
     if (updates.length === 0) return res.status(400).json({ error: 'nothing to update' });
 
     // enforce organization scoping: ensure photo belongs to user's organization
     const orgId = req.user && (req.user.organization_id !== undefined && req.user.organization_id !== null) ? parseInt(req.user.organization_id, 10) : null;
-    let ownershipSql = 'SELECT id FROM photos WHERE id = ?';
+    let ownershipSql = 'SELECT id, url, adjustments FROM photos WHERE id = ?';
     const ownershipParams = [id];
     if (orgId === null) {
       ownershipSql += ' AND organization_id IS NULL';
@@ -2454,16 +2281,18 @@ router.patch('/:id', requirePermission('photos.edit'), async (req, res) => {
       await conn.beginTransaction();
       const [ownRows] = await conn.query(ownershipSql + ' FOR UPDATE', ownershipParams);
       if (!ownRows || ownRows.length === 0) {
-        await conn.rollback();
-        return res.status(404).json({ error: 'photo not found' });
+        throw Object.assign(new Error('photo not found'), { status: 404 });
       }
       await requirePhotoAccess(req, id, 'metadata', conn);
+      prepared?.assertCurrent(ownRows[0]);
       await conn.query(sql, params);
       await conn.commit();
+      committed = true;
     } catch (error) {
       await conn.rollback().catch(() => null);
       throw error;
     } finally { conn.release(); }
+    if (prepared) await prepared.committed().catch(error => console.warn('[photo-edit] retired artifact cleanup failed', id, error.name));
 
     const [rows] = await pool.query(
       `SELECT p.id, p.project_id AS projectId, p.timeline_section_id AS timelineSectionId,
@@ -2497,7 +2326,8 @@ router.patch('/:id', requirePermission('photos.edit'), async (req, res) => {
       title: p.title,
       originalFilename: p.originalFilename || null,
       description: p.description,
-      adjustments: parsePhotoAdjustments(p.adjustments),
+      adjustments: parsePhotoAdjustments(p.adjustments, p.id),
+      editRevision: editRevision(p),
       tags: parsedTags,
       aiStatus: p.aiStatus || null,
       aiError: p.aiError || null,
@@ -2505,7 +2335,9 @@ router.patch('/:id', requirePermission('photos.edit'), async (req, res) => {
       aiFinishedAt: p.aiFinishedAt || null
     });
   } catch (err) {
+    if (prepared && !committed) await prepared.abort().catch(error => console.warn('[photo-edit] aborted artifact cleanup failed', req.params.id, error.name));
     if (sendWorkspaceError(res, err)) return;
+    if (err.status >= 400 && err.status < 600) return res.status(err.status).json({ error: err.message });
     console.error('PATCH /api/photos/:id error:', err && err.stack ? err.stack : err);
     res.status(500).json({ error: 'Internal server error' });
   }

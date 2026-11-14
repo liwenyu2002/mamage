@@ -365,7 +365,7 @@ async function detectPhotoFaces(photoId, { force = false, projectId } = {}) {
   throw lastErr || new Error('detectPhotoFaces failed');
 }
 
-async function getPhotoFaces(photoId, { projectId } = {}) {
+async function getPhotoFaces(photoId, { projectId, signal } = {}) {
   if (photoId === undefined || photoId === null || String(photoId).trim() === '') {
     throw new Error('getPhotoFaces: photoId is required');
   }
@@ -384,8 +384,9 @@ async function getPhotoFaces(photoId, { projectId } = {}) {
   let lastErr = null;
   for (const c of candidates) {
     try {
-      return await request(c.url, { method: c.method, data: c.data });
+      return await request(c.url, { method: c.method, data: c.data, signal });
     } catch (e) {
+      if (signal?.aborted || e?.status === 401 || e?.status === 403) throw e;
       lastErr = e;
     }
   }
@@ -477,6 +478,13 @@ async function listFacePersons({ q = '', page = 1, pageSize = 20 } = {}) {
       pageSize,
     },
   });
+}
+
+// 更新人物档案（姓名/工号/部门/职位/别名/重要级/备注等）
+async function updateFacePerson({ personId, ...fields } = {}) {
+  const pid = String(personId || '').trim();
+  if (!pid) throw new Error('updateFacePerson: personId is required');
+  return request(`/api/persons/${encodeURIComponent(pid)}`, { method: 'PATCH', data: fields });
 }
 
 async function mergeFacePersons({ targetPersonId, sourcePersonIds, referenceFaceIds } = {}) {
@@ -1437,6 +1445,7 @@ export {
   renameFacePerson,
   listFacePersons,
   mergeFacePersons,
+  updateFacePerson,
   getPersonFaces,
   previewPersonSplit,
   splitPerson,

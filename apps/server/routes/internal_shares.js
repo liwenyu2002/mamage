@@ -80,6 +80,28 @@ router.post('/', requirePermission('photos.view'), async (req, res) => {
       photoIds = photos.map((photo) => Number(photo.id));
       photoSnapshots = new Map(photos.map((photo) => [Number(photo.id), photo]));
     }
+    // 同一相册（或同一批照片）发给同一目标、同一模式时保持幂等：已有有效分享就直接复用，
+    // 避免用户重复点击或多端提交产生多条重复分享记录。
+    if (shareType === 'album' && projectId) {
+      const [existing] = await conn.query(
+        `SELECT id, share_type AS shareType, mode, project_id AS projectId, expires_at AS expiresAt,
+                created_at AS createdAt, target_unit_id AS targetUnitId, target_user_id AS targetUserId,
+                (SELECT COUNT(*) FROM internal_share_items si WHERE si.share_id = s.id) AS snapshotCount
+         FROM internal_shares s
+         WHERE organization_id = ? AND source_unit_id = ? AND target_unit_id = ?
+           AND ((target_user_id IS NULL AND ? IS NULL) OR target_user_id = ?)
+           AND share_type = 'album' AND project_id = ? AND mode = ?
+           AND folder_share_id IS NULL AND revoked_at IS NULL
+           AND (expires_at IS NULL OR expires_at > NOW())
+         ORDER BY id DESC LIMIT 1`,
+        [workspace.orgId, workspace.unitId, targetUnitId, targetUserId, targetUserId, projectId, mode]
+      );
+      if (existing.length) {
+        await conn.commit();
+        return res.json({ ...existing[0], reused: true });
+      }
+    }
+
     const [created] = await conn.query(
       `INSERT INTO internal_shares
          (organization_id, source_unit_id, target_unit_id, target_user_id,
@@ -147,7 +169,9 @@ router.get('/received', requirePermission('photos.view'), async (req, res) => {
        ORDER BY s.created_at DESC LIMIT 200`,
       [workspace.orgId, workspace.unitId, workspace.userId]
     );
-    res.json(rows);
+    const withCover = rows.map(row => ({ ...row,
+      coverUrl: row.coverThumb ? buildMediaUrl(row.coverThumb, { userId: workspace.userId, photoId: row.coverPhotoId }) : null }));
+    res.json(withCover);
   } catch (err) { sendError(res, err); }
 });
 
@@ -160,6 +184,11 @@ router.get('/sent', requirePermission('photos.view'), async (req, res) => {
               s.expires_at AS expiresAt, s.revoked_at AS revokedAt,
               s.created_at AS createdAt, target.name AS targetUnitName,
               recipient.name AS targetUserName, p.name AS albumName,
+              (SELECT ph.thumb_url FROM photos ph WHERE ph.project_id = p.id AND ph.organization_id = p.organization_id
+                ORDER BY ph.created_at DESC, ph.id DESC LIMIT 1) AS coverThumb,
+              (SELECT ph.id FROM photos ph WHERE ph.project_id = p.id AND ph.organization_id = p.organization_id
+                ORDER BY ph.created_at DESC, ph.id DESC LIMIT 1) AS coverPhotoId,
+              (SELECT COUNT(*) FROM photos ph WHERE ph.project_id = p.id AND ph.organization_id = s.organization_id) AS photoCount,
               (SELECT j.status FROM organization_copy_jobs j
                WHERE j.share_id = s.id AND j.system_initiated = 1 ORDER BY j.id DESC LIMIT 1) AS copyStatus
        FROM internal_shares s
@@ -171,7 +200,8 @@ router.get('/sent', requirePermission('photos.view'), async (req, res) => {
        ORDER BY s.created_at DESC LIMIT 200`,
       [workspace.orgId, workspace.unitId]
     );
-    res.json(rows);
+    res.json(rows.map(row => ({ ...row,
+      coverUrl: row.coverThumb ? buildMediaUrl(row.coverThumb, { userId: workspace.userId, photoId: row.coverPhotoId }) : null })));
   } catch (err) { sendError(res, err); }
 });
 

@@ -1,0 +1,694 @@
+<!doctype html>
+<html lang="zh-CN" data-glass-theme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MaMage · 全媒体编辑台 v3（复用生产样式）</title>
+<!-- 直接复用生产样式表：顶栏、玻璃材质、按钮组件全部走原版 -->
+<link rel="stylesheet" href="../../apps/web/src/global.css" />
+<link rel="stylesheet" href="../../apps/web/src/liquidGlass.css" />
+<link rel="stylesheet" href="../../apps/web/src/ui/glass.css" />
+<link rel="stylesheet" href="../../apps/web/src/ui/navigation.css" />
+<link rel="stylesheet" href="../../apps/web/src/ui/ui.css" />
+<link rel="stylesheet" href="../../apps/web/src/ui/darkTheme.css" />
+<style>
+  /* 编辑台区域：只用生产令牌与组件类，不另起一套视觉语言 */
+  html, body { height: auto; }
+  body { min-height: 100vh; }
+  .studio-page { width: 100%; max-width: 1400px; margin: 18px auto 40px; padding: 0 24px; }
+  .studio-page *, .studio-page *::before, .studio-page *::after { box-sizing: border-box; }
+  /* 生产样式表只重置了点击高亮，没有重置按钮外观；自定义控件显式去掉浏览器默认的浅灰底与边框 */
+  .rail-btn, .corner-btn, .block-tools button, .sheet-close, .dock button,
+  .pick-tabs button, .insert-gap button, .swatch, .opt, .pick, .dock > button {
+    border: 0; background: transparent; box-shadow: none; font: inherit; color: inherit; appearance: none;
+  }
+
+  /* ── 文档条：生产玻璃胶囊 ─────────────────────────────── */
+  .docbar { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: var(--lg-radius);
+    background: var(--liquid-glass-material-readable); border: var(--liquid-glass-stroke-width, 1px) solid var(--liquid-glass-border);
+    box-shadow: var(--liquid-glass-shadow-tight), var(--liquid-glass-edge); backdrop-filter: var(--liquid-glass-backdrop);
+    -webkit-backdrop-filter: var(--liquid-glass-backdrop); }
+  .docbar-back { height: 34px; padding: 0 10px 0 8px; }
+  .docbar-title { flex: 0 1 420px; min-width: 120px; height: 34px; padding: 0 10px; border-radius: var(--lg-radius-sm);
+    border: 1px solid transparent; background: transparent; color: var(--lg-text); font-family: inherit; font-size: 15px; font-weight: 700; }
+  .docbar-title:hover { background: rgba(255, 255, 255, .6); border-color: var(--liquid-glass-border-soft); }
+  .docbar-title:focus { outline: none; background: rgba(255, 255, 255, .85); border-color: var(--liquid-glass-border); }
+  .save-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: var(--lg-radius-pill);
+    background: rgba(255, 255, 255, .55); color: var(--lg-muted); font-size: 12px; white-space: nowrap; }
+  .save-chip .dot { width: 6px; height: 6px; border-radius: 50%; background: #3f9a6a; }
+  .docbar-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+
+  /* ── T1 纸面 ─────────────────────────────────────────── */
+  .stage { position: relative; margin-top: 16px; padding: 4px 0 40px; }
+  .paper { width: min(760px, 100%); margin: 0 auto; background: #fff; border-radius: 6px; padding: 54px 60px 48px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, .05), 0 22px 52px rgba(31, 41, 35, .12); }
+  .paper-kicker { color: var(--accent, #2f6b4f); font-size: 10.5px; font-weight: 700; letter-spacing: .16em; }
+  .paper-title { margin: 14px 0 12px; font-size: 29px; line-height: 1.42; letter-spacing: -.6px; font-weight: 780; color: #141713; }
+  .paper-digest { margin: 0; color: #6f776e; font-size: 13.5px; line-height: 1.9; }
+  .paper-meta { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 16px; color: #99a097; font-size: 11px; }
+  .paper hr { border: 0; border-top: 1px solid rgba(20, 23, 19, .09); margin: 22px 0 24px; }
+  .paper p { margin: 0 0 18px; font-size: 15px; line-height: 2.1; color: #23271f; }
+  .paper p:hover { background: rgba(47, 107, 79, .03); border-radius: 4px; box-shadow: 0 0 0 6px rgba(47, 107, 79, .03); }
+  .paper h2 { margin: 30px 0 14px; font-size: 17px; font-weight: 750; line-height: 1.5; color: #1b201a; }
+  .paper h2::before { content: ""; display: inline-block; width: 4px; height: 15px; border-radius: 2px; background: var(--accent, #2f6b4f); margin-right: 9px; vertical-align: -2px; }
+  .photo-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
+  .photo-grid figure { margin: 0; }
+  .ph { height: 124px; border-radius: 5px; border: 1px solid rgba(20, 23, 19, .06); }
+  .p1 { background: linear-gradient(140deg, #cfd9cd, #aebcab 48%, #8d9d8b); }
+  .p2 { background: linear-gradient(140deg, #d9d3c7, #c0b39d 55%, #9c8f79); }
+  .p3 { background: linear-gradient(140deg, #c8d3d8, #9fb2ba 55%, #7d949e); }
+  .p4 { background: linear-gradient(140deg, #d8cfd2, #bda8ad 55%, #9a838a); }
+  .p5 { background: linear-gradient(140deg, #d3d8cb, #b3bda5 55%, #8e9a7f); }
+  .p6 { background: linear-gradient(140deg, #d5d8d3, #b8bdb6 55%, #949a92); }
+  .photo-grid figcaption { margin-top: 6px; color: #99a097; font-size: 10.5px; text-align: center; }
+  .block-wrap { position: relative; margin: 34px 0 20px; }
+  .block-wrap::after { content: ""; position: absolute; inset: -14px -16px; border: 1.5px solid rgba(47, 107, 79, .45);
+    border-radius: 10px; opacity: 0; transition: opacity .14s ease; pointer-events: none; }
+  .block-wrap.is-selected::after { opacity: 1; }
+  .block-tools { position: absolute; left: 50%; top: -46px; z-index: 5; transform: translateX(-50%); display: none; gap: 2px; padding: 4px;
+    border-radius: var(--lg-radius-pill); background: rgba(17, 20, 18, .94); box-shadow: 0 10px 24px rgba(16, 19, 17, .28); white-space: nowrap;
+    backdrop-filter: blur(8px); }
+  .block-wrap.is-selected .block-tools { display: flex; }
+  .block-tools button { padding: 5px 10px; border-radius: var(--lg-radius-pill); color: rgba(255, 255, 255, .9); font-size: 11px; }
+  .block-tools button:hover { background: rgba(255, 255, 255, .16); color: #fff; }
+  .block-tools .sep { width: 1px; margin: 4px 2px; background: rgba(255, 255, 255, .2); }
+  .group-tag { display: flex; align-items: center; gap: 8px; margin-top: -6px; margin-bottom: 20px; color: #2f6b4f; font-size: 11px; }
+  .group-tag span { color: #6f776e; }
+  .group-tag .mamage-button { margin-left: auto; }
+  .signoff { margin-top: 28px; padding-top: 14px; border-top: 1px solid rgba(20, 23, 19, .09); color: #99a097; font-size: 11.5px; }
+  .insert-gap { display: flex; justify-content: center; margin: 4px 0 12px; height: 18px; opacity: 0; transition: opacity .14s ease; }
+  .stage:hover .insert-gap { opacity: .6; }
+  .insert-gap button { display: inline-flex; align-items: center; gap: 5px; padding: 2px 10px; border-radius: 999px;
+    border: 1px dashed var(--liquid-glass-border); background: rgba(255, 255, 255, .7); color: var(--lg-muted); font-size: 10.5px; }
+
+  /* ── T2 插入栏（玻璃胶囊，和生产按钮同材质） ─────────────── */
+  .rail { position: fixed; left: max(14px, calc(50% - 380px - 68px)); top: 50%; z-index: 30; transform: translateY(-50%);
+    display: flex; flex-direction: column; gap: 2px; padding: 6px; border-radius: var(--lg-radius);
+    background: var(--liquid-glass-material); border: var(--liquid-glass-stroke-width, 1px) solid var(--liquid-glass-border);
+    box-shadow: var(--liquid-glass-shadow-tight), var(--liquid-glass-edge); backdrop-filter: var(--liquid-glass-backdrop);
+    -webkit-backdrop-filter: var(--liquid-glass-backdrop); }
+  .rail-btn { position: relative; width: 38px; height: 38px; display: grid; place-items: center; border-radius: 12px; color: #5f675e; }
+  .rail-btn svg { width: 18px; height: 18px; }
+  .rail-btn:hover { background: rgba(255, 255, 255, .85); color: #111; }
+  .rail-btn.is-active { background: rgba(17, 20, 18, .92); color: #fff; }
+  .rail-btn .tip { position: absolute; left: calc(100% + 8px); top: 50%; transform: translateY(-50%); padding: 3px 8px; border-radius: 7px;
+    background: rgba(17, 20, 18, .94); color: #fff; font-size: 10.5px; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity .12s ease; }
+  .rail-btn:hover .tip { opacity: 1; }
+  .rail-sep { height: 1px; margin: 3px 6px; background: rgba(20, 23, 19, .1); }
+  .corner { position: fixed; right: max(14px, calc(50% - 380px - 68px)); bottom: 84px; z-index: 30; display: flex; flex-direction: column; gap: 2px; padding: 6px;
+    border-radius: var(--lg-radius); background: var(--liquid-glass-material); border: var(--liquid-glass-stroke-width, 1px) solid var(--liquid-glass-border);
+    box-shadow: var(--liquid-glass-shadow-tight), var(--liquid-glass-edge); backdrop-filter: var(--liquid-glass-backdrop); }
+  .corner-btn { position: relative; width: 38px; height: 38px; display: grid; place-items: center; border-radius: 12px; color: #5f675e; }
+  .corner-btn svg { width: 17px; height: 17px; }
+  .corner-btn:hover { background: rgba(255, 255, 255, .85); color: #111; }
+  .corner-btn .tip { position: absolute; right: calc(100% + 8px); top: 50%; transform: translateY(-50%); padding: 3px 8px; border-radius: 7px;
+    background: rgba(17, 20, 18, .94); color: #fff; font-size: 10.5px; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity .12s ease; }
+  .corner-btn:hover .tip { opacity: 1; }
+  .corner-badge { position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 50%; background: #c98b3f; box-shadow: 0 0 0 2px rgba(255, 255, 255, .9); }
+
+  /* ── 底部状态条：轻玻璃 ───────────────────────────────── */
+  /* 状态条放在纸面之后（常驻保存态已在文档条），避免任何悬浮元素压住正文 */
+  .statusbar { display: flex; align-items: center; gap: 14px; width: max-content; max-width: 100%; margin: 18px auto 0;
+    padding: 8px 12px 8px 16px; border-radius: var(--lg-radius-pill); background: var(--liquid-glass-material-readable);
+    border: var(--liquid-glass-stroke-width, 1px) solid var(--liquid-glass-border); box-shadow: var(--liquid-glass-shadow-tight), var(--liquid-glass-edge);
+    backdrop-filter: var(--liquid-glass-backdrop); font-size: 11.5px; color: var(--lg-muted); white-space: nowrap; }
+  .statusbar .warn { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: var(--lg-radius-pill); background: rgba(255, 240, 224, .8); color: #99652c; font-weight: 600; }
+  .statusbar .save-chip { padding: 3px 9px; }
+
+  /* ── 抽屉：沿用生产玻璃面板材质 ────────────────────────── */
+  .backdrop { position: fixed; inset: 0; z-index: 1100; background: rgba(12, 16, 13, .22); opacity: 0; pointer-events: none; transition: opacity .18s ease; }
+  .backdrop.show { opacity: 1; pointer-events: auto; }
+  /* 顶栏在生产里是 z-index:1000 的 sticky 层，抽屉必须高于它并接近不透明 */
+  .sheet { position: fixed; top: 0; right: 0; bottom: 0; z-index: 1200; width: min(420px, 94vw); display: flex; flex-direction: column;
+    background: rgba(251, 251, 250, .96); border-left: var(--liquid-glass-stroke-width, 1px) solid var(--liquid-glass-border);
+    box-shadow: var(--liquid-glass-shadow), var(--liquid-glass-edge); backdrop-filter: var(--liquid-glass-backdrop);
+    transform: translateX(103%); transition: transform .26s cubic-bezier(.22, 1, .36, 1); }
+  .sheet.show { transform: translateX(0); }
+  .sheet-head { display: flex; align-items: center; gap: 10px; padding: 18px 18px 12px; border-bottom: 1px solid rgba(20, 23, 19, .08); }
+  .sheet-head h2 { margin: 0; font-size: 15px; font-weight: 760; color: var(--lg-text); }
+  .sheet-head .sub { color: var(--lg-muted); font-size: 11px; }
+  .sheet-close { margin-left: auto; width: 30px; height: 30px; display: grid; place-items: center; border-radius: 10px;
+    border: 1px solid var(--liquid-glass-border-soft); background: rgba(255, 255, 255, .6); }
+  .sheet-close svg { width: 14px; height: 14px; }
+  .sheet-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 14px 18px 24px; }
+  .sheet-foot { flex: 0 0 auto; display: flex; gap: 8px; padding: 12px 18px calc(12px + env(safe-area-inset-bottom));
+    border-top: 1px solid rgba(20, 23, 19, .08); background: rgba(255, 255, 255, .5); }
+  .sheet-foot .spacer { flex: 1; }
+  .fieldset { margin-bottom: 18px; }
+  .fieldset > h3 { margin: 0 0 9px; font-size: 11.5px; font-weight: 750; color: var(--lg-text); }
+  .swatches { display: flex; gap: 8px; }
+  .swatch { width: 26px; height: 26px; border-radius: 50%; border: 1px solid rgba(0, 0, 0, .08); position: relative; }
+  .swatch.is-active::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 1.5px solid #111; }
+  .row { display: flex; align-items: center; gap: 12px; padding: 8px 0; font-size: 12px; color: var(--lg-text); }
+  .row + .row { border-top: 1px dashed rgba(20, 23, 19, .07); }
+  .row > label { flex: 0 0 76px; color: var(--lg-muted); }
+  .row .val { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 650; }
+  .range { flex: 1 1 auto; height: 4px; border-radius: 3px; background: rgba(20, 23, 19, .12); position: relative; }
+  .range > i { position: absolute; inset: 0 auto 0 0; border-radius: 3px; background: #1b201a; }
+  .range > b { position: absolute; top: 50%; width: 13px; height: 13px; border-radius: 50%; background: #fff; border: 1px solid rgba(20, 23, 19, .24); transform: translate(-50%, -50%); }
+  .opt-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .opt { padding: 9px; border-radius: 12px; border: 1px solid var(--liquid-glass-border-soft); background: rgba(255, 255, 255, .55); text-align: left; }
+  .opt:hover { border-color: var(--liquid-glass-border); }
+  .opt.is-active { border-color: rgba(20, 23, 19, .42); box-shadow: 0 0 0 1px rgba(20, 23, 19, .24); }
+  .opt .preview { display: grid; gap: 3px; height: 40px; margin-bottom: 6px; }
+  .opt .preview.two { grid-template-columns: 1fr 1fr; }
+  .opt .preview.three { grid-template-columns: 1fr 1fr 1fr; }
+  .opt .preview.one { grid-template-columns: 1fr; }
+  .opt .preview i { border-radius: 3px; background: linear-gradient(140deg, #d5ddd3, #aab7a8); display: block; }
+  .opt span { display: block; font-size: 11px; color: var(--lg-text); text-align: center; }
+  .check { display: flex; align-items: flex-start; gap: 9px; padding: 11px 0; font-size: 12px; color: var(--lg-text); }
+  .check + .check { border-top: 1px dashed rgba(20, 23, 19, .07); }
+  .check .mark { flex: 0 0 18px; width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; margin-top: 1px; }
+  .check .mark svg { width: 10px; height: 10px; }
+  .check.ok .mark { background: rgba(47, 107, 79, .12); color: #2f6b4f; }
+  .check.warn .mark { background: rgba(201, 139, 63, .16); color: #a2622a; }
+  .check b { display: block; font-weight: 650; }
+  .check small { display: block; color: var(--lg-muted); font-size: 11px; margin-top: 2px; }
+  .check .fix { margin-left: auto; }
+  .pick-tabs { display: flex; gap: 2px; padding: 3px; margin-bottom: 12px; border-radius: var(--lg-radius-pill); background: rgba(20, 23, 19, .05); }
+  .pick-tabs button { flex: 1; padding: 6px 4px; border-radius: var(--lg-radius-pill); font-size: 11.5px; font-weight: 600; color: var(--lg-muted); }
+  .pick-tabs button.is-active { background: #fff; color: #111; box-shadow: 0 1px 5px rgba(20, 23, 19, .08); }
+  .pick { display: flex; align-items: center; gap: 11px; width: 100%; padding: 8px; border-radius: 12px; border: 1px solid transparent; text-align: left; }
+  .pick:hover { background: rgba(255, 255, 255, .7); border-color: var(--liquid-glass-border-soft); }
+  .pick .thumb { flex: 0 0 52px; height: 38px; border-radius: 8px; border: 1px solid var(--liquid-glass-border-soft); background: #fff; display: grid; place-items: center; }
+  .pick .thumb > span { display: flex; flex-direction: column; align-items: center; width: 80%; }
+  .pick .thumb i { display: block; width: 76%; height: 4px; border-radius: 2px; background: #c8d2c7; }
+  .pick .thumb i + i { margin-top: 4px; width: 88%; background: #e2e7e0; }
+  .pick .meta b { display: block; font-size: 12.5px; font-weight: 650; color: var(--lg-text); }
+  .pick .meta small { display: block; margin-top: 1px; color: var(--lg-muted); font-size: 10.5px; }
+  .pick .go { margin-left: auto; color: var(--lg-muted); }
+
+  /* 窄屏 */
+  .dock { display: none; }
+  @media (max-width: 900px) {
+    :root .mamage-header { margin: 8px 10px 0; }
+    .mamage-nav-links, .mamage-nav-search-group, .mamage-create-album { display: none !important; }
+    /* 窄屏把品牌与账户压成一行，避免顶栏占两行高度 */
+    :root .mamage-header .mamage-topbar { flex-wrap: nowrap; gap: 8px; }
+    :root .mamage-header .mamage-nav-actions { margin-left: auto; flex-wrap: nowrap; gap: 6px; }
+    .mamage-nav-brand-group { padding: 6px 10px 6px 14px; }
+    .glass-settings-slot { display: none; }
+    .mamage-brand-button { max-width: none; min-width: 96px; }
+    :root .mamage-nav-brand-group { flex: 0 0 auto; }
+    :root .mamage-header .mamage-nav-actions { flex: 0 1 auto; }
+    /* 窄屏主操作只留图标，保证标题与按钮同一行 */
+    .docbar-actions .mamage-button-primary .mamage-button-content { display: none; }
+    .docbar { flex-wrap: nowrap; gap: 4px; padding: 6px 8px; }
+    .docbar-title { min-width: 0; flex: 1 1 auto; font-size: 13px; }
+    .docbar-actions { flex: 0 0 auto; gap: 4px; }
+    .docbar-actions #moreBtn { display: none; }
+    .docbar .save-chip { display: none; }
+  }
+  @media (max-width: 1080px) {
+    .studio-page { padding: 0 12px; margin: 10px auto 96px; }
+    .rail, .corner { display: none; }
+    .paper { padding: 28px 20px 30px; border-radius: 10px; }
+    .paper-title { font-size: 23px; }
+    .photo-grid { grid-template-columns: repeat(2, 1fr); }
+    .photo-grid .ph { height: 104px; }
+    .docbar { flex-wrap: wrap; gap: 6px; }
+    .docbar-title { flex: 1 1 130px; font-size: 13.5px; }
+    .docbar .hide-narrow, .statusbar { display: none; }
+    .dock { display: flex; position: fixed; left: 8px; right: 8px; bottom: calc(8px + env(safe-area-inset-bottom)); z-index: 50; gap: 4px; padding: 5px;
+      border-radius: var(--lg-radius); background: var(--liquid-glass-material-readable); border: var(--liquid-glass-stroke-width, 1px) solid var(--liquid-glass-border);
+      box-shadow: var(--liquid-glass-shadow), var(--liquid-glass-edge); backdrop-filter: var(--liquid-glass-backdrop); }
+    .dock button { flex: 1; height: 46px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+      border-radius: 12px; color: var(--lg-text); font-size: 10px; }
+    .dock button svg { width: 17px; height: 17px; }
+    .dock button.is-primary { background: rgba(17, 20, 18, .92); color: #fff; }
+    .sheet { top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: 82dvh; border-left: 0; border-top: 1px solid var(--liquid-glass-border);
+      border-radius: var(--lg-radius) var(--lg-radius) 0 0; transform: translateY(103%); }
+    .sheet.show { transform: translateY(0); }
+    .sheet::before { content: ""; width: 36px; height: 4px; border-radius: 2px; background: rgba(20, 23, 19, .16); margin: 8px auto 0; display: block; }
+    .opt-grid { grid-template-columns: 1fr; }
+  }
+  .toast { position: fixed; left: 50%; bottom: 84px; z-index: 110; transform: translate(-50%, 14px); opacity: 0; pointer-events: none;
+    padding: 9px 15px; border-radius: var(--lg-radius-pill); background: rgba(17, 20, 18, .94); color: #fff; font-size: 12px; transition: all .2s ease; }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+  svg { display: block; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-back" viewBox="0 0 24 24" fill="none"><path d="M14 6 8 12l6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-dots" viewBox="0 0 24 24" fill="none"><circle cx="6" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="18" cy="12" r="1.6" fill="currentColor"/></symbol>
+  <symbol id="i-title" viewBox="0 0 24 24" fill="none"><path d="M5 6h14M12 6v13M8.5 19h7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-text" viewBox="0 0 24 24" fill="none"><path d="M4 7h16M4 12h16M4 17h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24" fill="none"><rect x="3.5" y="4.5" width="17" height="15" rx="2.4" stroke="currentColor" stroke-width="1.7"/><circle cx="9" cy="9.6" r="1.5" stroke="currentColor" stroke-width="1.6"/><path d="m5.5 17 4.2-4.4 3.1 3 2.5-2.6 3.2 4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="7" height="7" rx="1.6" stroke="currentColor" stroke-width="1.7"/><rect x="13" y="4" width="7" height="7" rx="1.6" stroke="currentColor" stroke-width="1.7"/><rect x="4" y="13" width="7" height="7" rx="1.6" stroke="currentColor" stroke-width="1.7"/><rect x="13" y="13" width="7" height="7" rx="1.6" stroke="currentColor" stroke-width="1.7"/></symbol>
+  <symbol id="i-template" viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="16" height="6" rx="1.6" stroke="currentColor" stroke-width="1.7"/><rect x="4" y="13" width="7" height="7" rx="1.6" stroke="currentColor" stroke-width="1.7"/><rect x="13" y="13" width="7" height="7" rx="1.6" stroke="currentColor" stroke-width="1.7"/></symbol>
+  <symbol id="i-sign" viewBox="0 0 24 24" fill="none"><path d="M4 17c3.4 0 4-9 7.4-9s3.8 9 7.2 9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M4 20h16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-minus" viewBox="0 0 24 24" fill="none"><path d="M5 12h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24" fill="none"><path d="M5 7h14M5 12h14M5 17h14" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><circle cx="9" cy="7" r="2" fill="#fff" stroke="currentColor" stroke-width="1.6"/><circle cx="15" cy="12" r="2" fill="#fff" stroke="currentColor" stroke-width="1.6"/><circle cx="8" cy="17" r="2" fill="#fff" stroke="currentColor" stroke-width="1.6"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24" fill="none"><path d="m5 12.5 4.2 4L19 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24" fill="none"><rect x="8.5" y="8.5" width="11" height="11" rx="2" stroke="currentColor" stroke-width="1.7"/><path d="M15.5 8.5V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7.5a2 2 0 0 0 2 2h2.5" stroke="currentColor" stroke-width="1.7"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24" fill="none"><path d="m6 6 12 12M18 6 6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.7"/><path d="M12 7.5V12l3 2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24" fill="none"><path d="M3 12s3.4-6 9-6 9 6 9 6-3.4 6-9 6-9-6-9-6Z" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="12" r="2.4" stroke="currentColor" stroke-width="1.7"/></symbol>
+  <symbol id="i-undo" viewBox="0 0 24 24" fill="none"><path d="M9 13.5 4.5 9 9 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.5 9h9a5.5 5.5 0 0 1 0 11H11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-redo" viewBox="0 0 24 24" fill="none"><path d="M15 13.5 19.5 9 15 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M19.5 9h-9a5.5 5.5 0 0 0 0 11H13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+</svg>
+
+<svg class="mamage-liquid-glass-defs" aria-hidden="true" focusable="false">
+  <defs>
+    <filter id="mamage-liquid-glass" x="-35%" y="-35%" width="170%" height="170%" colorInterpolationFilters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.008 0.014" numOctaves="2" seed="12" result="glassNoise" />
+      <feGaussianBlur in="glassNoise" stdDeviation="1.35" result="glassMap" />
+      <feDisplacementMap in="SourceGraphic" in2="glassMap" scale="38" xChannelSelector="R" yChannelSelector="G" result="refracted" />
+      <feGaussianBlur in="refracted" stdDeviation="0.2" />
+    </filter>
+  </defs>
+</svg>
+
+<div class="mamage-shell">
+  <div class="mamage-dynamic-backdrop" aria-hidden="true"></div>
+
+  <!-- 顶栏：完全按生产结构（mamage-header / topbar / brand / nav-links / search / actions / account） -->
+  <header class="mamage-header is-desktop-header">
+    <div class="mamage-topbar">
+      <div class="mamage-nav-brand-slot">
+        <div class="mamage-nav-brand-group" data-glass="clear">
+          <div class="mamage-nav-brand-content">
+            <div class="mamage-brand-area">
+              <button type="button" class="mamage-brand-button" title="返回首页">
+                <span class="mamage-brand-name">MaMage</span>
+              </button>
+            </div>
+          </div>
+          <nav class="mamage-nav-links" aria-label="主导航">
+            <button type="button" class="mamage-nav-link">项目</button>
+            <button type="button" class="mamage-nav-link">风景</button>
+            <button type="button" class="mamage-nav-link is-active">全媒体编辑台</button>
+            <button type="button" class="mamage-nav-link">关于</button>
+          </nav>
+        </div>
+      </div>
+
+      <div class="mamage-nav-actions">
+        <div class="mamage-nav-search-group" data-glass="clear">
+          <div class="mamage-nav-search-field">
+            <input class="mamage-nav-search-input" aria-label="用自然语言搜索项目、照片、人物或场景" placeholder="试试：拿话筒的邹欣" />
+            <button type="button" class="mamage-search-submit" aria-label="搜索"><span class="mamage-search-symbol" aria-hidden="true"></span></button>
+          </div>
+          <button type="button" class="mamage-action-button is-primary mamage-desktop-search-button">搜索</button>
+        </div>
+
+        <button type="button" class="mamage-action-button is-secondary mamage-create-album" data-glass="clear" aria-label="新建相册">
+          <span class="mamage-label-full">新建相册</span><span class="mamage-label-short">新建</span>
+        </button>
+
+        <div class="mamage-account-group">
+          <div class="glass-settings-slot">
+            <div class="glass-settings" data-glass="clear">
+              <div class="glass-settings-head">
+                <button type="button" class="glass-settings-trigger" aria-label="显示设置" title="显示设置">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M5 7h14M5 12h14M5 17h14" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><circle cx="9" cy="7" r="2" fill="#fff" stroke="currentColor" stroke-width="1.6"/><circle cx="15" cy="12" r="2" fill="#fff" stroke="currentColor" stroke-width="1.6"/><circle cx="8" cy="17" r="2" fill="#fff" stroke="currentColor" stroke-width="1.6"/></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="mamage-user-menu" data-open="false">
+            <div class="mamage-account-surface" data-glass="clear">
+              <button type="button" class="mamage-user-chip" aria-label="李雯宇，账户菜单">
+                <span class="mamage-user-name">李雯宇</span>
+                <span class="mamage-user-email">融媒体中心</span>
+                <svg class="mamage-user-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="m9.5 6 6 6-6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="studio-page">
+    <!-- T2：文档条 -->
+    <div class="docbar">
+      <button type="button" class="mamage-button mamage-button-borderless mamage-button-small docbar-back" data-toast="返回推文列表">
+        <span class="mamage-button-icon" aria-hidden="true"><svg width="14" height="14"><use href="#i-back"/></svg></span>
+        <span class="mamage-button-content">推文列表</span>
+      </button>
+      <input class="docbar-title" id="docTitle" value="校园交流活动（组图测试稿）" aria-label="稿件标题" />
+      <span class="save-chip"><i class="dot"></i>已保存 <b id="saveTime">23:26</b></span>
+      <div class="docbar-actions">
+        <button type="button" class="mamage-button mamage-button-borderless mamage-button-small hide-narrow" data-toast="撤销（⌘Z）"><span class="mamage-button-icon" aria-hidden="true"><svg width="14" height="14"><use href="#i-undo"/></svg></span></button>
+        <button type="button" class="mamage-button mamage-button-borderless mamage-button-small hide-narrow" data-toast="重做（⌘⇧Z）"><span class="mamage-button-icon" aria-hidden="true"><svg width="14" height="14"><use href="#i-redo"/></svg></span></button>
+        <button type="button" class="mamage-button mamage-button-borderless mamage-button-small" id="moreBtn">
+          <span class="mamage-button-content">更多</span>
+        </button>
+        <button type="button" class="mamage-button mamage-button-small hide-narrow" data-toast="手机预览：生成二维码">
+          <span class="mamage-button-content">预览</span>
+        </button>
+        <button type="button" class="mamage-button mamage-button-primary mamage-button-small" data-toast="复制到公众号：正文已复制，标题单独填">
+          <span class="mamage-button-icon" aria-hidden="true"><svg width="13" height="13"><use href="#i-copy"/></svg></span>
+          <span class="mamage-button-content">复制到公众号</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- T2：插入栏 -->
+    <nav class="rail" aria-label="插入内容">
+      <button class="rail-btn" type="button" data-sheet="insert" data-pick="title" aria-label="插入标题"><svg><use href="#i-title"/></svg><span class="tip">标题</span></button>
+      <button class="rail-btn" type="button" data-sheet="insert" data-pick="body" aria-label="插入正文"><svg><use href="#i-text"/></svg><span class="tip">正文</span></button>
+      <button class="rail-btn" type="button" data-sheet="insert" data-pick="image" aria-label="插入图片"><svg><use href="#i-image"/></svg><span class="tip">图片</span></button>
+      <button class="rail-btn" type="button" data-sheet="insert" data-pick="gallery" aria-label="插入组图"><svg><use href="#i-grid"/></svg><span class="tip">组图</span></button>
+      <span class="rail-sep"></span>
+      <button class="rail-btn" type="button" data-sheet="insert" data-pick="divider" aria-label="插入分隔线"><svg><use href="#i-minus"/></svg><span class="tip">分隔线</span></button>
+      <button class="rail-btn" type="button" data-sheet="insert" data-pick="sign" aria-label="插入落款"><svg><use href="#i-sign"/></svg><span class="tip">落款</span></button>
+      <button class="rail-btn" type="button" data-sheet="insert" data-pick="template" aria-label="套用模板"><svg><use href="#i-template"/></svg><span class="tip">模板</span></button>
+    </nav>
+
+    <!-- T3：低频入口 -->
+    <div class="corner" aria-label="样式与检查">
+      <button class="corner-btn" type="button" data-sheet="style" aria-label="页面样式"><svg><use href="#i-sliders"/></svg><span class="tip">页面样式</span></button>
+      <button class="corner-btn" type="button" data-sheet="check" aria-label="发布检查"><svg><use href="#i-check"/></svg><span class="corner-badge"></span><span class="tip">发布检查 · 2 项待补</span></button>
+    </div>
+
+    <!-- T1：纸面 -->
+    <div class="stage">
+      <article class="paper" id="paper">
+        <div class="paper-kicker">北京中关村学院 · 融媒体中心</div>
+        <h1 class="paper-title" id="paperTitle">校园交流活动（组图测试稿）</h1>
+        <p class="paper-digest">围绕校园交流与合作，记录活动现场与参与者的真实片刻。</p>
+        <div class="paper-meta"><span>文 / 李老师</span><span>摄影 / 王老师</span><span>2026.11.06</span><span>约 3 分钟</span></div>
+        <hr />
+        <p>这是一份用于检查配图排版的本地测试稿。活动在校园报告厅举行，师生围绕实践项目展开交流，记录下很多真实的片刻。正文可直接编辑；字号、行距与主题色在右侧「页面样式」统一调整。</p>
+        <div class="insert-gap"><button type="button" data-sheet="insert" data-pick="body"><svg width="11" height="11"><use href="#i-plus"/></svg>在此插入</button></div>
+        <h2>活动现场</h2>
+        <div class="block-wrap is-selected" id="selectedBlock">
+          <div class="block-tools" role="toolbar" aria-label="选中块操作">
+            <button type="button" data-toast="换图：从相册/中转站选择">换图</button>
+            <button type="button" data-sheet="style" data-focus="gallery">换样式</button>
+            <button type="button" data-toast="拆分组图：可撤销">拆分</button>
+            <span class="sep"></span>
+            <button type="button" data-toast="上移">↑</button>
+            <button type="button" data-toast="下移">↓</button>
+            <button type="button" data-toast="删除（可撤销）">删除</button>
+          </div>
+          <div class="photo-grid">
+            <figure><div class="ph p1"></div><figcaption>现场记录 1</figcaption></figure>
+            <figure><div class="ph p2"></div><figcaption>现场记录 2</figcaption></figure>
+            <figure><div class="ph p3"></div><figcaption>现场记录 3</figcaption></figure>
+            <figure><div class="ph p4"></div><figcaption>现场记录 4</figcaption></figure>
+            <figure><div class="ph p5"></div><figcaption>现场记录 5</figcaption></figure>
+            <figure><div class="ph p6"></div><figcaption>现场记录 6</figcaption></figure>
+          </div>
+          <div class="group-tag">组图 · 6 张 <span>· 原版三图（双列）</span>
+            <button class="mamage-button mamage-button-small" type="button" data-sheet="style" data-focus="gallery">
+              <span class="mamage-button-content">组图样式</span>
+            </button>
+          </div>
+        </div>
+        <p>交流环节中，同学们分享了在实践项目里的收获，也提出了下一步想尝试的方向。老师们逐一回应，并鼓励大家把想法落到具体的行动上。</p>
+        <div class="insert-gap"><button type="button" data-sheet="insert" data-pick="body"><svg width="11" height="11"><use href="#i-plus"/></svg>在此插入</button></div>
+        <h2>交流片段</h2>
+        <p>“把每一次交流都当成一次重新理解彼此的机会。”一位参与同学说。现场不时响起掌声，气氛轻松而热烈。</p>
+        <div class="signoff">初审：李老师　终审：王老师　排版：融媒体中心</div>
+      </article>
+    </div>
+  </main>
+
+  <div class="statusbar">
+    <span id="statChars">339 字</span>
+    <span class="hide-narrow">6 张图 · 3 个标题</span>
+    <span class="warn">2 项待补</span>
+    <span class="save-chip"><i class="dot"></i>自动保存到本机</span>
+    <button type="button" class="mamage-button mamage-button-small" data-toast="已复制正文（原型演示）">
+      <span class="mamage-button-icon" aria-hidden="true"><svg width="13" height="13"><use href="#i-copy"/></svg></span>
+      <span class="mamage-button-content">复制</span>
+    </button>
+  </div>
+
+  <div class="dock" aria-label="快捷操作">
+    <button type="button" data-sheet="insert"><svg><use href="#i-plus"/></svg>插入</button>
+    <button type="button" data-sheet="style"><svg><use href="#i-sliders"/></svg>样式</button>
+    <button type="button" data-sheet="check"><svg><use href="#i-check"/></svg>检查</button>
+    <button type="button" class="is-primary" data-toast="已复制正文（原型演示）"><svg><use href="#i-copy"/></svg>复制</button>
+  </div>
+
+  <div class="backdrop" id="backdrop"></div>
+
+  <aside class="sheet" id="sheet-insert" role="dialog" aria-label="插入内容" aria-hidden="true">
+    <div class="sheet-head"><h2>插入内容</h2><span class="sub" id="insertHint">选择后自动回到写作</span><button class="sheet-close" type="button" data-close aria-label="关闭"><svg><use href="#i-close"/></svg></button></div>
+    <div class="sheet-body">
+      <div class="pick-tabs" role="tablist" aria-label="内容分类">
+        <button type="button" class="is-active" data-cat="all">全部</button>
+        <button type="button" data-cat="title">标题</button>
+        <button type="button" data-cat="body">正文</button>
+        <button type="button" data-cat="image">图片</button>
+        <button type="button" data-cat="gallery">组图</button>
+        <button type="button" data-cat="other">其他</button>
+      </div>
+      <div id="pickList"></div>
+    </div>
+  </aside>
+
+  <aside class="sheet" id="sheet-style" role="dialog" aria-label="页面样式" aria-hidden="true">
+    <div class="sheet-head"><h2>页面样式</h2><span class="sub">改动立即生效，可撤销</span><button class="sheet-close" type="button" data-close aria-label="关闭"><svg><use href="#i-close"/></svg></button></div>
+    <div class="sheet-body">
+      <div class="fieldset">
+        <h3>主题色</h3>
+        <div class="swatches" id="swatches">
+          <button class="swatch is-active" type="button" style="background:#2f6b4f" data-color="#2f6b4f" title="墨绿"></button>
+          <button class="swatch" type="button" style="background:#1a1a1a" data-color="#1a1a1a" title="墨黑"></button>
+          <button class="swatch" type="button" style="background:#1f4e8c" data-color="#1f4e8c" title="藏蓝"></button>
+          <button class="swatch" type="button" style="background:#a05a2c" data-color="#a05a2c" title="赭石"></button>
+          <button class="swatch" type="button" style="background:#7048e8" data-color="#7048e8" title="黛紫"></button>
+        </div>
+      </div>
+      <div class="fieldset">
+        <h3>正文</h3>
+        <div class="row"><label>字号</label><span class="range"><i style="width:56%"></i><b style="left:56%"></b></span><span class="val">15px</span></div>
+        <div class="row"><label>行距</label><span class="range"><i style="width:70%"></i><b style="left:70%"></b></span><span class="val">2.1</span></div>
+        <div class="row"><label>段间距</label><span class="range"><i style="width:48%"></i><b style="left:48%"></b></span><span class="val">18px</span></div>
+      </div>
+      <div class="fieldset" id="styleGallery">
+        <h3>组图样式</h3>
+        <div class="opt-grid" id="galleryOpts">
+          <button class="opt is-active" type="button" data-gallery="code"><span class="preview two"><i></i><i></i><i></i><i></i></span><span>原版三图</span></button>
+          <button class="opt" type="button" data-gallery="two"><span class="preview two"><i></i><i></i></span><span>留白双列</span></button>
+          <button class="opt" type="button" data-gallery="three"><span class="preview three"><i></i><i></i><i></i><i></i><i></i><i></i></span><span>紧凑三列</span></button>
+          <button class="opt" type="button" data-gallery="one"><span class="preview one"><i></i></span><span>单列大图</span></button>
+        </div>
+      </div>
+    </div>
+    <div class="sheet-foot"><button type="button" class="mamage-button mamage-button-small" data-toast="已恢复默认样式"><span class="mamage-button-content">恢复默认</span></button><span class="spacer"></span><button type="button" class="mamage-button mamage-button-primary mamage-button-small" data-close><span class="mamage-button-content">完成</span></button></div>
+  </aside>
+
+  <aside class="sheet" id="sheet-check" role="dialog" aria-label="发布检查" aria-hidden="true">
+    <div class="sheet-head"><h2>发布检查</h2><span class="sub">2 项待补，不影响继续编辑</span><button class="sheet-close" type="button" data-close aria-label="关闭"><svg><use href="#i-close"/></svg></button></div>
+    <div class="sheet-body">
+      <div class="check ok"><span class="mark"><svg><use href="#i-check"/></svg></span><span><b>标题与摘要</b><small>13 / 64 字，摘要 0 / 120</small></span></div>
+      <div class="check ok"><span class="mark"><svg><use href="#i-check"/></svg></span><span><b>6 张图片可正常访问</b><small>均已写入图注</small></span></div>
+      <div class="check ok"><span class="mark"><svg><use href="#i-check"/></svg></span><span><b>正文无未替换占位符</b><small>复制时会再做一次图片计数校验</small></span></div>
+      <div class="check warn"><span class="mark"><svg><use href="#i-check"/></svg></span><span><b>初审 / 终审署名待补</b><small>可以发布，公众号后台需自行补全</small></span><button type="button" class="mamage-button mamage-button-small fix" data-toast="已定位到落款"><span class="mamage-button-content">去处理</span></button></div>
+      <div class="check warn"><span class="mark"><svg><use href="#i-check"/></svg></span><span><b>2 张图片缺少图注</b><small>建议补充，移动端显示更完整</small></span><button type="button" class="mamage-button mamage-button-small fix" data-toast="已定位到第 4 张图片"><span class="mamage-button-content">去处理</span></button></div>
+    </div>
+    <div class="sheet-foot"><button type="button" class="mamage-button mamage-button-small" data-toast="已重新检查"><span class="mamage-button-content">重新检查</span></button><span class="spacer"></span><button type="button" class="mamage-button mamage-button-primary mamage-button-small" data-toast="已复制正文"><span class="mamage-button-content">复制到公众号</span></button></div>
+  </aside>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+</div>
+
+<template id="pickTpl">
+  <button class="pick" type="button">
+    <span class="thumb"><span><i></i><i></i></span></span>
+    <span class="meta"><b></b><small></small></span>
+    <span class="go">›</span>
+  </button>
+</template>
+
+<script>
+(function () {
+  var $ = function (selector, root) { return (root || document).querySelector(selector); };
+  var $$ = function (selector, root) { return Array.prototype.slice.call((root || document).querySelectorAll(selector)); };
+
+  // 与生产一致：玻璃外观与兼容性标记
+  document.documentElement.dataset.glassTheme = 'light';
+  document.documentElement.style.setProperty('--glass-blur', '20px');
+  try {
+    var supported = CSS && CSS.supports && (CSS.supports('backdrop-filter', 'blur(1px)') || CSS.supports('-webkit-backdrop-filter', 'blur(1px)'));
+    if (!supported) document.documentElement.dataset.glassFallback = 'true';
+  } catch (error) { /* 老浏览器直接走回退材质 */ }
+
+  var toastTimer;
+  function toast(message) {
+    var el = $('#toast');
+    if (!el) return;
+    el.textContent = message;
+    el.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { el.classList.remove('show'); }, 2000);
+  }
+  $$('[data-toast]').forEach(function (btn) {
+    btn.addEventListener('click', function () { toast(btn.getAttribute('data-toast')); });
+  });
+
+  /* 抽屉 */
+  var backdrop = $('#backdrop');
+  function openSheet(name, focus) {
+    closeSheets();
+    var sheet = document.getElementById('sheet-' + name);
+    if (!sheet) return;
+    sheet.classList.add('show');
+    sheet.setAttribute('aria-hidden', 'false');
+    backdrop.classList.add('show');
+    $$('.rail-btn, .corner-btn').forEach(function (btn) {
+      btn.classList.toggle('is-active', btn.getAttribute('data-sheet') === name);
+    });
+    if (focus) {
+      var target = document.getElementById('style' + focus.charAt(0).toUpperCase() + focus.slice(1));
+      if (target) target.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    }
+  }
+  function closeSheets() {
+    $$('.sheet.show').forEach(function (sheet) {
+      sheet.classList.remove('show');
+      sheet.setAttribute('aria-hidden', 'true');
+    });
+    backdrop.classList.remove('show');
+    $$('.rail-btn, .corner-btn').forEach(function (btn) { btn.classList.remove('is-active'); });
+  }
+  $$('[data-sheet]').forEach(function (trigger) {
+    trigger.addEventListener('click', function (event) {
+      event.preventDefault();
+      var pick = trigger.getAttribute('data-pick');
+      if (pick) {
+        var tab = $('.pick-tabs button[data-cat="' + pick + '"]');
+        setPickCategory(tab ? pick : 'all');
+        var hint = $('#insertHint');
+        if (hint) hint.textContent = '已定位到「' + ({ title: '标题', body: '正文', image: '图片', gallery: '组图' }[pick] || '其他') + '」，选择后插入';
+      }
+      openSheet(trigger.getAttribute('data-sheet'), trigger.getAttribute('data-focus'));
+    });
+  });
+  $$('[data-close]').forEach(function (btn) { btn.addEventListener('click', closeSheets); });
+  if (backdrop) backdrop.addEventListener('click', closeSheets);
+  document.addEventListener('keydown', function (event) { if (event.key === 'Escape') closeSheets(); });
+
+  /* 插入清单 */
+  var PICKS = [
+    { cat: 'title', name: '墨绿引线标题', note: '推文观察库 · 32 篇使用' },
+    { cat: 'title', name: '黑体编号标题', note: '内置样式 · 通用' },
+    { cat: 'body', name: '舒适行距正文', note: '行高 2.1 · 不缩进' },
+    { cat: 'body', name: '引用 / 金句块', note: '内置样式 · 灰色左线' },
+    { cat: 'image', name: '单图（带图注）', note: '从相册或中转站选择' },
+    { cat: 'image', name: '双图并排', note: '自动生成组图' },
+    { cat: 'gallery', name: '原版三图（双列）', note: '推文观察库 · 复刻原文' },
+    { cat: 'gallery', name: '留白双列 / 紧凑三列', note: '内置组图' },
+    { cat: 'other', name: '分隔线', note: '细分隔，不占高度' },
+    { cat: 'other', name: '落款（含待补署名）', note: '初审 / 终审占位' },
+    { cat: 'other', name: '套用整篇模板', note: '会替换当前排版，可撤销' }
+  ];
+  var pickList = $('#pickList');
+  function renderPicks(cat) {
+    if (!pickList) return;
+    pickList.innerHTML = '';
+    PICKS.filter(function (item) { return cat === 'all' || item.cat === cat; }).forEach(function (item) {
+      var tpl = $('#pickTpl').content.cloneNode(true);
+      var btn = tpl.querySelector('.pick');
+      btn.setAttribute('data-insert', item.name);
+      btn.querySelector('b').textContent = item.name;
+      btn.querySelector('small').textContent = item.note;
+      btn.addEventListener('click', function () { toast('已插入：' + item.name); closeSheets(); });
+      pickList.appendChild(tpl);
+    });
+    if (!pickList.children.length) {
+      var empty = document.createElement('p');
+      empty.style.cssText = 'padding:28px 12px;text-align:center;color:var(--lg-muted);font-size:12px';
+      empty.textContent = '这个分类还没有可用样式';
+      pickList.appendChild(empty);
+    }
+  }
+  function setPickCategory(cat) {
+    $$('.pick-tabs button').forEach(function (btn) { btn.classList.toggle('is-active', btn.getAttribute('data-cat') === cat); });
+    renderPicks(cat);
+  }
+  $$('.pick-tabs button').forEach(function (btn) {
+    btn.addEventListener('click', function () { setPickCategory(btn.getAttribute('data-cat')); });
+  });
+  renderPicks('all');
+
+  /* 主题色与组图样式 */
+  $$('#swatches .swatch').forEach(function (swatch) {
+    swatch.addEventListener('click', function () {
+      $$('#swatches .swatch').forEach(function (other) { other.classList.toggle('is-active', other === swatch); });
+      document.documentElement.style.setProperty('--accent', swatch.getAttribute('data-color'));
+      toast('主题色已更新');
+    });
+  });
+  $$('#galleryOpts .opt').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      $$('#galleryOpts .opt').forEach(function (other) { other.classList.toggle('is-active', other === btn); });
+      toast('组图样式已预览');
+    });
+  });
+
+  /* 标题同步、字数、保存时间 */
+  var titleInput = $('#docTitle');
+  function clock() {
+    var now = new Date();
+    return String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+  }
+  if ($('#saveTime')) $('#saveTime').textContent = clock();
+  if (titleInput) {
+    titleInput.addEventListener('input', function () {
+      var paperTitle = $('#paperTitle');
+      if (paperTitle) paperTitle.textContent = titleInput.value || '未命名图文';
+      if ($('#saveTime')) $('#saveTime').textContent = clock();
+    });
+  }
+  var paper = $('#paper');
+  if (paper && $('#statChars')) {
+    $('#statChars').textContent = paper.innerText.replace(/\s+/g, '').length + ' 字';
+  }
+
+  /* 选中块 */
+  var selected = $('#selectedBlock');
+  if (selected) {
+    var tools = $('.block-tools', selected);
+    if (tools) tools.addEventListener('click', function (event) { event.stopPropagation(); });
+    document.addEventListener('click', function (event) {
+      if (!selected.contains(event.target)) selected.classList.remove('is-selected');
+    });
+    selected.addEventListener('click', function (event) {
+      if (event.target.closest('.block-tools')) return;
+      selected.classList.add('is-selected');
+    });
+  }
+
+  /* 更多菜单（沿用生产 glass 面板材质） */
+  var moreBtn = $('#moreBtn');
+  if (moreBtn) {
+    var menu = document.createElement('div');
+    menu.className = 'glass-settings';
+    menu.setAttribute('data-glass', 'readable');
+    menu.style.cssText = 'position:fixed;z-index:80;min-width:220px;padding:8px;border-radius:var(--lg-radius);display:none;' +
+      'background:var(--liquid-glass-material-readable);border:1px solid var(--liquid-glass-border);' +
+      'box-shadow:var(--liquid-glass-shadow);backdrop-filter:var(--liquid-glass-backdrop)';
+    menu.innerHTML = '<div class="mamage-user-menu-panel" style="border:0;box-shadow:none;background:transparent;padding:0">' +
+      ['小红书（笔记体）', '新闻稿（正式稿）', '工作简报（内部）', '微博（短文本）', '视频剪辑（切换工作台）', '导出 Word / Markdown', '稿件备份'].map(function (label) {
+        return '<button type="button" style="display:flex;width:100%;padding:8px 10px;border-radius:10px;text-align:left">' + label + '</button>';
+      }).join('') + '</div>';
+    document.body.appendChild(menu);
+    menu.addEventListener('click', function (event) {
+      if (!event.target.closest('button')) return;
+      toast('已选择：' + event.target.textContent);
+      menu.style.display = 'none';
+    });
+    moreBtn.addEventListener('click', function (event) {
+      event.stopPropagation();
+      var rect = moreBtn.getBoundingClientRect();
+      menu.style.display = menu.style.display === 'block' ? 'none' : 'block';
+      menu.style.top = rect.bottom + 8 + 'px';
+      menu.style.left = Math.max(12, rect.right - 220) + 'px';
+    });
+    document.addEventListener('click', function (event) {
+      if (!menu.contains(event.target) && !moreBtn.contains(event.target)) menu.style.display = 'none';
+    });
+  }
+})();
+</script>
+</body>
+</html>

@@ -58,7 +58,7 @@ export default defineConfig(({ mode }) => {
       host: env.WEBPACK_DEV_SERVER_HOST || '127.0.0.1',
       port: Number(env.WEBPACK_DEV_SERVER_PORT || env.PORT || 5173),
       strictPort: true,
-      fs: { allow: [root], deny: ['**/.env', '**/.env.*', '**/.git/**', '**/.local/**', '**/.npmrc', '**/*.{crt,pem}'] },
+      fs: { allow: [root, path.resolve(root, '../server/lib/photo_tone')], deny: ['**/.env', '**/.env.*', '**/.git/**', '**/.local/**', '**/.npmrc', '**/*.{crt,pem}'] },
       open: env.WEBPACK_DEV_SERVER_OPEN === '1',
       proxy: Object.fromEntries(['api', 'uploads', 'static'].map(prefix => [
         `^/${prefix}(?:/|$)`, { target, changeOrigin: true },

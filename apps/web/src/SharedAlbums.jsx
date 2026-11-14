@@ -9,7 +9,7 @@ export default function SharedAlbums({ albums = [], onOpen, onAdd, savedIds = []
   return <section className={`shared-albums${compact ? ' shared-albums-compact' : ''}`} aria-label="与我共享"
     id={compact ? undefined : 'desktop-shared'} data-desktop-section={compact ? undefined : 'shared'}>
     <div className="shared-albums-heading"><IconShare /><h2>与我共享</h2><span>{albums.length}</span></div>
-    <div className="shared-albums-list">{albums.map(album => <div className="shared-album-entry" key={album.id}><button type="button"
+    <div className="shared-albums-list">{albums.map(album => <div className="shared-album-entry" key={album.id} data-count={album.count || 0}><button type="button"
       className="shared-album-link" aria-label={`打开共享相册 ${album.name}`} onClick={() => onOpen(album)}>
       <span className="shared-album-cover">{album.image ? <img src={resolveAssetUrl(album.image)} alt="" loading="lazy" decoding="async" /> : <IconSimilarStack />}</span>
       <span className="shared-album-info"><strong>{album.name}</strong><span className="shared-album-origin">来自 {album.originLabel || album.sourceUnitName}</span>

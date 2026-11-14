@@ -1,7 +1,7 @@
 import React from 'react';
 import { Button, Input, SegmentedControl, Toast } from './ui';
 import { IconSearch } from './ui/icons';
-import { getPersonFaces, listFacePersons, mergeFacePersons } from './services/photoService';
+import { getPersonFaces, listFacePersons, mergeFacePersons, updateFacePerson } from './services/photoService';
 import './FacePersonMerge.css';
 
 function personLabel(person) {
@@ -29,6 +29,60 @@ function useFaceSample(personId) {
   }, [personId, attempt]);
 
   return [state.personId === personId ? state : { personId, loading: Boolean(personId), ready: false, faces: [], total: 0, error: '' }, () => setAttempt((value) => value + 1)];
+}
+
+
+// 同名消歧与档案补全：工号/部门/职位/别名/重要级，直接写在人物档案上。
+function PersonProfileEditor({ person, onSaved }) {
+  const id = String(person?.personId || person?.id || '');
+  const [open, setOpen] = React.useState(false);
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState('');
+  const [draft, setDraft] = React.useState({});
+  const start = () => {
+    setDraft({ personName: person?.name || '', employeeNo: person?.employeeNo || '', department: person?.department || '',
+      title: person?.title || '', alias: person?.alias || '', importance: String(person?.importance ?? 0),
+      note: person?.note || '' });
+    setError(''); setOpen(true);
+  };
+  const save = async () => {
+    setSaving(true); setError('');
+    try {
+      const saved = await updateFacePerson({ personId: id, ...draft, importance: Number(draft.importance) || 0 });
+      Toast.success('人物资料已保存');
+      setOpen(false);
+      try { onSaved?.(saved); } catch (e) { console.warn('refresh person failed', e); }
+    } catch (e) { setError(e?.userMessage || e?.message || '保存失败'); }
+    finally { setSaving(false); }
+  };
+  return (
+    <div className="person-profile-editor">
+      {!open ? (
+        <button type="button" className="person-profile-toggle" onClick={start}>
+          资料{person?.employeeNo || person?.department ? `：${[person?.employeeNo, person?.department].filter(Boolean).join(' · ')}` : '（补工号/部门可区分同名）'}
+        </button>
+      ) : (
+        <div className="person-profile-form">
+          <label>姓名<Input value={draft.personName} onChange={v => setDraft(d => ({ ...d, personName: v }))} /></label>
+          <label>学工号<Input value={draft.employeeNo} onChange={v => setDraft(d => ({ ...d, employeeNo: v }))} placeholder="同名时必填" /></label>
+          <label>部门/院系<Input value={draft.department} onChange={v => setDraft(d => ({ ...d, department: v }))} /></label>
+          <label>职位/身份<Input value={draft.title} onChange={v => setDraft(d => ({ ...d, title: v }))} /></label>
+          <label>别名<Input value={draft.alias} onChange={v => setDraft(d => ({ ...d, alias: v }))} placeholder="逗号分隔，如：小名、英文名" /></label>
+          <label>重要级
+            <SegmentedControl value={String(draft.importance)} onChange={v => setDraft(d => ({ ...d, importance: v }))} options={[
+              { value: '0', label: '普通' }, { value: '1', label: '关注' }, { value: '2', label: '重要' }, { value: '3', label: '公众人物' },
+            ]} />
+          </label>
+          <label>备注<Input value={draft.note} onChange={v => setDraft(d => ({ ...d, note: v }))} /></label>
+          {error ? <p className="person-profile-error" role="alert">{error}</p> : null}
+          <div className="person-profile-actions">
+            <Button size="small" theme="borderless" disabled={saving} onClick={() => setOpen(false)}>取消</Button>
+            <Button size="small" theme="solid" type="primary" loading={saving} onClick={save}>保存资料</Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function FaceSample({ person, sample, onRetry }) {
@@ -180,8 +234,14 @@ export default function FacePersonMerge({ currentPerson, initialQuery = '', onCa
           {selected ? (
             <>
               <div className="person-merge-compare">
-                <FaceSample person={currentPerson} sample={currentSample} onRetry={retryCurrent} />
-                <FaceSample person={selected} sample={selectedSample} onRetry={retrySelected} />
+                <div>
+                  <FaceSample person={currentPerson} sample={currentSample} onRetry={retryCurrent} />
+                  <PersonProfileEditor person={currentPerson} onSaved={onMerged} />
+                </div>
+                <div>
+                  <FaceSample person={selected} sample={selectedSample} onRetry={retrySelected} />
+                  <PersonProfileEditor person={selected} onSaved={onMerged} />
+                </div>
               </div>
               <SegmentedControl label="保留的人物档案" value={keep} onChange={setKeep} options={[
                 { value: 'selected', label: '保留选中人物' },

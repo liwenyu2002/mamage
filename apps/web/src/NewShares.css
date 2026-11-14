@@ -1,0 +1,17 @@
+.new-shares { margin: 2px 0 18px; }
+.new-shares-heading { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: #25292d; }
+.new-shares-heading svg { width: 15px; height: 15px; opacity: .8; }
+.new-shares-heading h2 { margin: 0; font-size: 14px; font-weight: 600; }
+.new-shares-heading > span { color: var(--lg-muted, #6f776e); font-size: 12px; }
+.new-shares-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.new-share-chip { display: inline-flex; align-items: center; gap: 7px; max-width: 100%; padding: 3px 9px 3px 4px;
+  border: 1px solid rgba(255, 255, 255, .92); border-radius: 999px; background: rgba(255, 255, 255, .62);
+  box-shadow: 0 1px 3px rgba(31, 45, 49, .04); cursor: pointer; color: inherit; transition: background .15s ease; }
+.new-share-chip:hover { background: #fff; }
+.new-share-thumb { display: grid; place-items: center; width: 18px; height: 18px; flex: 0 0 18px; border-radius: 5px;
+  overflow: hidden; background: #e6ebe6; }
+.new-share-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.new-share-chip.is-folder .new-share-thumb { background: rgba(47, 107, 79, .14); }
+.new-share-folder-glyph { width: 10px; height: 8px; border-radius: 2px; border: 1.4px solid #2f6b4f; opacity: .7; }
+.new-share-name { font-size: 12px; font-weight: 600; max-width: 180px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.new-share-meta { font-size: 10.5px; color: #7d877d; white-space: nowrap; padding-right: 2px; }

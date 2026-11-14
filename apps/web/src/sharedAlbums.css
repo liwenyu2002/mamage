@@ -41,3 +41,41 @@
 .shared-folder-new { display: grid; gap: 7px; }
 .shared-folder-error { margin: 0; color: #ad3030; font-size: 13px; }
 @media (prefers-reduced-motion: reduce) { .shared-album-link { transition: none; } .shared-album-link:hover, .shared-album-link:active { transform: none; } }
+
+
+/* 与我共享：一行胶囊提示，高度 ~26px，只表达「有一个共享给你」 */
+.shared-albums:not(.shared-albums-compact) { margin: 2px 0 18px; }
+.shared-albums:not(.shared-albums-compact) .shared-albums-heading { margin-bottom: 8px; }
+.shared-albums:not(.shared-albums-compact) .shared-albums-heading h2 { font-size: 14px; font-weight: 600; }
+.shared-albums:not(.shared-albums-compact) .shared-albums-heading > svg { width: 14px; height: 14px; }
+.shared-albums:not(.shared-albums-compact) .shared-albums-list {
+  display: flex; flex-wrap: wrap; gap: 6px; width: 100%;
+}
+.shared-albums:not(.shared-albums-compact) .shared-album-entry {
+  position: relative; display: inline-flex; align-items: center;
+  border-radius: 999px; max-width: 100%;
+  border: 1px solid rgba(255,255,255,.9); background: rgba(255,255,255,.6);
+  box-shadow: 0 1px 3px rgba(31,45,49,.04);
+}
+.shared-albums:not(.shared-albums-compact) .shared-album-link {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px 3px 4px;
+}
+.shared-albums:not(.shared-albums-compact) .shared-album-cover {
+  width: 18px; height: 18px; flex: 0 0 18px; aspect-ratio: auto; border-radius: 5px;
+}
+.shared-albums:not(.shared-albums-compact) .shared-album-info { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.shared-albums:not(.shared-albums-compact) .shared-album-info strong {
+  font-size: 12px; line-height: 1.5; font-weight: 600;
+  max-width: 180px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.shared-albums:not(.shared-albums-compact) .shared-album-info strong::after {
+  content: attr(data-count); /* 占位，实际计数走 entry */
+}
+.shared-albums:not(.shared-albums-compact) .shared-album-origin,
+.shared-albums:not(.shared-albums-compact) .shared-album-meta,
+.shared-albums:not(.shared-albums-compact) .shared-album-arrow,
+.shared-albums:not(.shared-albums-compact) .shared-album-add { display: none; }
+.shared-albums:not(.shared-albums-compact) .shared-album-entry::after {
+  content: attr(data-count) " 张"; padding-right: 9px; color: #7d877d; font-size: 10.5px; white-space: nowrap;
+}
+.shared-albums:not(.shared-albums-compact) .shared-album-entry:hover { background: #fff; }

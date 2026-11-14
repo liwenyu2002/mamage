@@ -13,6 +13,10 @@ import { canAny } from './permissions/permissionStore';
 import AlbumActionBar from './AlbumActionBar';
 import { CollectionCard, AlbumShortcut, AlbumDirectory } from './folders/GlassFolders';
 import FolderColumns from './folders/FolderColumns';
+import useNavigation, { useNavigationState } from './useNavigation';
+import NewShares from './NewShares';
+import { listSentShares, listSentFolderShares } from './services/workspaceService';
+import { navigate, goBack, withoutParams } from './utils/navigation';
 import ScopedPhotoSearch from './ScopedPhotoSearch';
 import SharedAlbums from './SharedAlbums';
 import AlbumSharingStatus from './AlbumSharingStatus';
@@ -20,6 +24,78 @@ import SharedFolderView, { SharedFolders } from './SharedFolderView';
 import { folderPath, folderBranchHeight, folderMoveIssue, groupAlbums as treeAlbums, MAX_FOLDER_DEPTH, FOLDER_DEPTH_LIMIT_MESSAGE, ROOT_DROP_ID } from './folders/folderTree';
 import './AlbumDesktop.css';
 import './folders/folders.css';
+
+// 首屏骨架：按真实布局铺出来（侧栏目录 + 标题 + 工具条 + 相册网格），避免"白屏 → 内容"的跳变。
+function DesktopSkeleton() {
+  return <div className="album-desktop acp-page acp-skeleton" role="status" aria-live="polite" aria-busy="true">
+    <div className="acp-workspace">
+      <aside className="acp-sidebar" aria-hidden="true">
+        <div className="acp-sidebar-directory acp-skeleton-panel">
+          {[0, 1, 2, 3, 4, 5].map(index => <div className="acp-skeleton-row" key={index}>
+            <span className="acp-skeleton-dot" /><span className="acp-skeleton-bar" style={{ width: `${72 - index * 7}%` }} />
+          </div>)}
+        </div>
+      </aside>
+      <div className="acp-main">
+        <div className="acp-skeleton-heading" aria-hidden="true">
+          <span className="acp-skeleton-bar is-title" /><span className="acp-skeleton-pill is-action" />
+        </div>
+        <div className="acp-skeleton-toolbar" aria-hidden="true">
+          <span className="acp-skeleton-pill is-search" />
+          <span className="acp-skeleton-pill" /><span className="acp-skeleton-pill is-narrow" />
+        </div>
+        <div className="acp-albums acp-skeleton-grid" aria-hidden="true">
+          {[0, 1, 2, 3, 4, 5, 6, 7].map(index => <div className="acp-skeleton-card" key={index} style={{ animationDelay: `${index * 70}ms` }}>
+            <span className="acp-skeleton-cover" />
+            <span className="acp-skeleton-bar" style={{ width: `${64 + (index % 3) * 9}%` }} />
+            <span className="acp-skeleton-bar is-muted" style={{ width: '38%' }} />
+          </div>)}
+        </div>
+      </div>
+    </div>
+    <div className="acp-skeleton-caption"><span className="acp-skeleton-pulse" />正在加载小组空间…</div>
+  </div>;
+}
+
+
+// 同一个相册可能分享给多个小组/多次，按相册聚合，卡片上写清「发给谁、几次、最近一次」。
+function aggregateSentAlbums(shares) {
+  const map = new Map();
+  for (const share of shares || []) {
+    const id = share.projectId || `sent-album-${share.id}`;
+    if (!map.has(id)) map.set(id, { album: { id, name: share.albumName || '未命名相册', groups: [],
+      count: Number(share.photoCount ?? share.snapshotCount) || 0,
+      image: share.coverUrl ? resolveAssetUrl(share.coverUrl) : null }, targets: [], times: [], modes: new Set() });
+    const entry = map.get(id);
+    const target = share.targetUserName || share.targetUnitName || '其他小组';
+    if (!entry.targets.includes(target)) entry.targets.push(target);
+    entry.times.push(share.createdAt);
+    entry.modes.add(share.mode === 'collaborate' ? '共同编辑' : '只读');
+  }
+  return [...map.values()].map(entry => {
+    const times = entry.times.filter(Boolean).sort().reverse();
+    const latest = times[0] ? new Date(times[0]) : null;
+    const date = latest && !Number.isNaN(latest.getTime()) ? `${latest.getMonth() + 1}/${latest.getDate()}` : '';
+    const meta = [`分享给 ${entry.targets.slice(0, 2).join('、')}${entry.targets.length > 2 ? ` 等 ${entry.targets.length} 个小组` : ''}`,
+      [...entry.modes].join('/'), date ? `最近 ${date}` : ''].filter(Boolean).join(' · ');
+    return { ...entry, meta };
+  });
+}
+
+// 共享文件夹只返回「相册数 / 照片数 / 最多 4 张封面」，这里还原成原生文件夹卡片需要的相册数组。
+function folderAlbums(folder, groupId, prefix) {
+  const total = Math.min(Number(folder.albumCount) || 0, 24);
+  const photos = Number(folder.photoCount) || 0;
+  const covers = [...(Array.isArray(folder.coverUrls) ? folder.coverUrls : []), ...(Array.isArray(folder.covers) ? folder.covers : [])]
+    .filter(cover => typeof cover === 'string');
+  const base = total ? Math.floor(photos / total) : 0;
+  let rest = photos - base * total;
+  return Array.from({ length: total }, (_, index) => {
+    const count = base + (rest > 0 ? (rest--, 1) : 0);
+    return { id: `${prefix}-${folder.id}-${index}`, name: '', groups: [groupId], count,
+      image: covers[index] ? resolveAssetUrl(covers[index]) : null };
+  });
+}
 
 const CreateAlbumModal = React.lazy(() => import('./CreateAlbumModal'));
 const EditAlbumModal = React.lazy(() => import('./EditAlbumModal'));
@@ -101,7 +177,7 @@ function GroupSymbol({ group }) {
   return <Icon />;
 }
 
-function AlbumCard({ album, groups, onOpen, onOrganize, onShare, pinned, onPin, dragProps, canOrganize, importStatus, selecting, selected, onToggle, previewScope }) {
+function AlbumCard({ album, groups, onOpen, onOrganize, onShare, pinned, onPin, dragProps, canOrganize, importStatus, selecting, selected, onToggle, previewScope, extraMeta }) {
   const group = groups.find(g => album.groups.includes(g.id));
   const [menuOpen,setMenuOpen]=React.useState(false);
   const [position,setPosition]=React.useState({});
@@ -124,6 +200,7 @@ function AlbumCard({ album, groups, onOpen, onOrganize, onShare, pinned, onPin, 
       thumbnails={album.thumbnails || []} subtitle={group?.name || ''} pinned={pinned} importStatus={importStatus} previewScope={previewScope} selectionMode={selecting}
       onClick={() => selecting ? onToggle(album.id) : onOpen(album)}
       onPreviewOpen={photo => selecting ? onToggle(album.id) : onOpen(album, photo)} />
+    {extraMeta ? <div className="acp-share-meta">{extraMeta}</div> : null}
     {selecting && <label className="collection-album-check"><input type="checkbox" aria-label={`选择相册 ${album.name}`} checked={selected} onChange={() => onToggle(album.id)} /><span aria-hidden="true" /></label>}
     {!selecting && <button ref={trigger} className="desktop-album-menu-trigger" aria-label={`更多操作 ${album.name}`} title="更多操作" aria-haspopup="menu" aria-expanded={menuOpen}
       onClick={()=>menuOpen?close():open()}><IconMoreStroked /></button>
@@ -138,6 +215,8 @@ function AlbumCard({ album, groups, onOpen, onOrganize, onShare, pinned, onPin, 
 }
 
 function DesktopContent({ initial, userId, workspaceName, organizationName, onOpen, onShare, sharingOpen, onOpenSharedFolder, onReload, sort, dateFilter, toolbar, projectPreviews, importStatuses, folderStyle, footer, onSearchScopeChange, searchRequest }) {
+  const route = useNavigation();
+  const params = new URL(route.url, window.location.origin).searchParams;
   const [albums, setAlbums] = React.useState(() => initial.albums.map(a => ({ ...a, image: a.image ? resolveAssetUrl(a.image) : null, groups: initial.groups.filter(g => g.projectIds?.includes(a.id)).map(g=>g.id) })));
   const [groups, setGroups] = React.useState(initial.groups);
   const [pins, setPins] = React.useState(initial.preferences.pins);
@@ -151,26 +230,24 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
   const [movePicker, setMovePicker] = React.useState(null);
   const [folderDepthLimit, setFolderDepthLimit] = React.useState(null);
   const [orderModal, setOrderModal] = React.useState(null);
-  const [selected, setSelected] = React.useState(() => {
-    const id = new URLSearchParams(window.location.search).get('folder');
-    return initial.groups.some(group => group.id === id) ? id : 'all';
-  });
-  const [view, setView] = React.useState('all');
-  const [timeSort, setTimeSort] = React.useState('default');
+  const selected = groups.some(group => group.id === params.get('folder')) ? params.get('folder') : 'all';
+  const view = params.get('view') === 'unfiled' ? 'unfiled' : 'all';
+  const [timeSort, setTimeSort] = useNavigationState('desktopSort', 'default');
   const [activeSection, setActiveSection] = React.useState('desktop');
   const [jumpRequest, setJumpRequest] = React.useState(null);
   const mainRef = React.useRef(null);
   const [draftQuery, setDraftQuery] = React.useState('');
-  const [query, setQuery] = React.useState('');
+  const query = params.get('q') || '';
+  const setQuery = text => {
+    const url = new URL(window.location.href);
+    if (text.trim()) url.searchParams.set('q', text.trim()); else url.searchParams.delete('q');
+    navigate(url);
+  };
+  React.useEffect(() => setDraftQuery(query), [query]);
   const [searchRun, setSearchRun] = React.useState(0);
   const searchSubmissionRef = React.useRef(0);
   const locationRef = React.useRef(selected);
   locationRef.current = selected;
-  React.useEffect(() => {
-    const url = new URL(window.location.href);
-    if (selected === 'all') url.searchParams.delete('folder'); else url.searchParams.set('folder', selected);
-    window.history.replaceState(null, '', url);
-  }, [selected]);
   const [collapsed, setCollapsed] = React.useState([]);
   const [newGroup, setNewGroup] = React.useState(false);
   const [groupName, setGroupName] = React.useState('');
@@ -199,7 +276,7 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
   const [selectingAlbums, setSelectingAlbums] = React.useState(false);
   const [selectedAlbumIds, setSelectedAlbumIds] = React.useState([]);
   const [selectedFolderIds, setSelectedFolderIds] = React.useState([]);
-  const [gridPage, setGridPage] = React.useState(1);
+  const [gridPage, setGridPage] = useNavigationState('desktopPage', 1);
   const [deletingSelection, setDeletingSelection] = React.useState(null);
   const [deletingBusy, setDeletingBusy] = React.useState(false);
   const [deletingError, setDeletingError] = React.useState('');
@@ -300,7 +377,7 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
   React.useEffect(() => { setAppearance(null); }, [userId]);
   React.useEffect(() => {
     const url = new URL(window.location.href);
-    if (url.searchParams.has('variant')) { url.searchParams.delete('variant'); window.history.replaceState(null, '', url); }
+    if (url.searchParams.has('variant')) { url.searchParams.delete('variant'); navigate(url, { replace: true }); }
   }, []);
   React.useEffect(() => {
     if (!notice) return undefined;
@@ -415,10 +492,18 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
   };
   const availableToAdd = manualCollection ? enrichedAlbums.filter(album => !album.groups.includes(currentGroup.id)
     && (!addQuery.trim() || album.name.toLowerCase().includes(addQuery.trim().toLowerCase()))) : [];
-  const selectGroup = (id) => { setSelected(id); setView('all'); setQuery(''); setDraftQuery(''); setDirectoryOpen(false); setJumpRequest(null); setActiveSection('desktop'); };
-  const selectView = (id) => { setView(id); setSelected('all'); setQuery(''); setDraftQuery(''); setDirectoryOpen(false); setJumpRequest(null); };
+  const selectLocation = (folder, viewName = 'all') => {
+    const url = new URL(window.location.href);
+    ['folder', 'view', 'q', 'sharedFolder', 'sharedPath', 'photoId', 'focusPhotoId'].forEach(key => url.searchParams.delete(key));
+    if (folder && folder !== 'all') url.searchParams.set('folder', folder);
+    if (viewName === 'unfiled') url.searchParams.set('view', viewName);
+    navigate(url);
+    setDraftQuery(''); setDirectoryOpen(false); setJumpRequest(null); setActiveSection('desktop');
+  };
+  const selectGroup = id => selectLocation(id);
+  const selectView = id => selectLocation('all', id);
   const jumpToSection = (id) => {
-    setSelected('all'); setView('all'); setQuery(''); setDraftQuery(''); setDirectoryOpen(false);
+    selectLocation('all');
     if (id === 'updates') setCollapsed((old) => old.filter((key) => key !== 'recent'));
     setActiveSection(id); setJumpRequest({ id });
   };
@@ -869,7 +954,13 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
       if (mountedRef.current) setDeletingError(error?.message || '删除失败，请重试');
     } finally { deletingRef.current = false; if (mountedRef.current) setDeletingBusy(false); }
   };
-  React.useEffect(() => setGridPage(1), [selected, view, query, sort?.key, sort?.order, timeSort, dateFilter?.from, dateFilter?.to]);
+  const gridFilterKey = JSON.stringify([sort?.key, sort?.order, timeSort, dateFilter?.from, dateFilter?.to]);
+  const gridFilterRef = React.useRef({ entryKey: route.entry.key, filter: gridFilterKey });
+  React.useEffect(() => {
+    // 恢复进来的历史条目自己持有分页位置；只有本条目内改了筛选才回到第一页。
+    if (gridFilterRef.current.entryKey === route.entry.key && gridFilterRef.current.filter !== gridFilterKey) setGridPage(1);
+    gridFilterRef.current = { entryKey: route.entry.key, filter: gridFilterKey };
+  }, [route.entry.key, gridFilterKey, setGridPage]);
   const visibleIds = (home ? filtered.slice(0,6) : currentGroup ? groupAlbums(currentGroup,filtered).slice(0,gridPage*24) : filtered.slice(0,gridPage*24)).map(a=>a.id).join(',');
   const [liveImportStatuses, setLiveImportStatuses] = React.useState(importStatuses || {});
   React.useEffect(() => {
@@ -919,7 +1010,8 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
       setActiveSection('desktop'); setJumpRequest(null);
     }
   }, [activeSection, visiblePins.length]);
-  const directory = <AlbumDirectory groups={groups} albums={albums} sections={desktopSections} selected={selected} view={view} isDesktop={home} activeSection={activeSection}
+  const directory = <AlbumDirectory onOpenShares={() => selectView('shared')}
+    sharesCount={(initial?.sharedAlbums?.length || 0) + (initial?.sharedFolders?.length || 0)} groups={groups} albums={albums} sections={desktopSections} selected={selected} view={view} isDesktop={home} activeSection={activeSection}
     onView={selectView} onJump={jumpToSection} onSelect={selectGroup} workspaceName={workspaceName} organizationName={organizationName} canOrganize={canOrganize}
     onCreate={() => beginCreateGroup(null)} getGroupDropProps={getGroupDropProps} dropTargetId={dropTargetId}
     getFolderDragProps={getFolderDragProps} expandedFolders={expandedFolders} onToggleFolder={id => setExpandedFolders(old => old.includes(id) ? old.filter(value => value !== id) : [...old, id])}
@@ -934,6 +1026,15 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
       {searchAlbums.map(album => <button type="button" key={album.id} onClick={() => setOpened(album)}><IconSimilarStack /><span>{album.name}</span><IconChevronRight /></button>)}
     </div>}
   </ScopedPhotoSearch> : null;
+  const [shareTab, setShareTab] = React.useState('received');
+  const [sentShares, setSentShares] = React.useState({ albums: [], folders: [] });
+  React.useEffect(() => {
+    let active = true;
+    Promise.all([listSentShares().catch(() => []), listSentFolderShares().catch(() => [])]).then(([albums, folders]) => {
+      if (active) setSentShares({ albums: Array.isArray(albums) ? albums : [], folders: Array.isArray(folders) ? folders : [] });
+    });
+    return () => { active = false; };
+  }, []);
   const dockInactive = Boolean(creatingInGroup || addingAlbums || editingAlbum || deletingGroup || deletingSelection
     || newGroup || collectionToolsOpen || directoryOpen || removingAlbums || appearance || pinsModal || orderModal
     || organizing || movePicker || pendingDrop || pendingFolderMove || folderDepthLimit || sharingOpen);
@@ -944,7 +1045,11 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
       {!columnBrowsing && <aside className="acp-sidebar"><div className="acp-sidebar-directory">{directory}</div></aside>}
       <main className="acp-main" ref={mainRef} id="desktop" data-desktop-section="desktop">
         {!columnBrowsing && <><div className="acp-page-heading"><div><div className="acp-breadcrumb">{workspaceName} <span>/</span> {currentGroup ? <button onClick={() => selectGroup('all')}>相册</button> : '素材库'}</div>
-          <h1>{currentGroup?.name || (query ? '搜索结果' : view === 'unfiled' ? '未归类' : '小组空间')}<span>{currentGroup ? groupAlbums(currentGroup, albums).length : albums.length} 个相册</span></h1></div>
+          <h1>{currentGroup?.name || (query ? '搜索结果' : view === 'shared' ? '共享' : view === 'unfiled' ? '未归类' : '小组空间')}<span>{view === 'shared'
+                      ? `${shareTab === 'sent'
+                        ? sentShares.albums.length + sentShares.folders.length
+                        : (initial?.sharedAlbums || []).filter(album => !album.viaFolderOnly).length + (initial?.sharedFolders?.length || 0)} 项`
+                      : currentGroup ? `${groupAlbums(currentGroup, albums).length} 个相册` : `${albums.length} 个相册`}</span></h1></div>
           <div className="acp-heading-actions"><GlassSelect className="acp-time-sort" placeholder="按活动日期排序" value={timeSort} options={TIME_SORT_OPTIONS} onChange={setTimeSort} />{currentGroup && <button className="acp-icon is-needed" title="文件夹功能" aria-label="文件夹功能" onClick={() => setCollectionToolsOpen(true)}><IconMoreStroked /></button>}<button className="acp-icon desktop-directory-trigger" title="相册目录" aria-label="打开相册目录" onClick={()=>setDirectoryOpen(true)}><IconListView /></button></div></div>
         {currentGroup && <AlbumSharingStatus folderId={currentGroup.id} unitId={initial.scope.unitId} suspended={sharingOpen} />}
         <div className="acp-toolbar"><div className="acp-filters"><form className="acp-search" onSubmit={(event) => { event.preventDefault(); search(draftQuery); }}><IconSparkleAI />
@@ -968,7 +1073,50 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
             getAlbumDragProps={getAlbumDragProps} getGroupDropProps={getGroupDropProps} dropTargetId={dropTargetId} maxDepth={MAX_FOLDER_DEPTH}
             query={query} draftQuery={draftQuery} onSearch={search} onDraftQuery={setDraftQuery} searchGroups={libraryGroups} searchResults={photoResults}
             searchAlbums={filtered} view={view} onView={selectView} onManagePins={() => setPinsModal(true)} workspaceName={workspaceName} canOrganize={canOrganize}
-            canEditFolder={canEditFolder} canEditAlbum={canEditAlbumInfo} canReorderFolders={canDeleteFolders} /> : query ? photoResults : home ? <>
+            canEditFolder={canEditFolder} canEditAlbum={canEditAlbumInfo} canReorderFolders={canDeleteFolders} /> : view === 'shared' ? <>
+            <div className="shared-tabs" role="tablist" aria-label="共享方向">
+              {[
+                { id: 'received', label: '分享给我的', count: (initial.sharedAlbums || []).filter(a => !a.viaFolderOnly).length + (initial.sharedFolders || []).length },
+                { id: 'sent', label: '我分享的', count: sentShares.albums.length + sentShares.folders.length },
+              ].map(tab => <button key={tab.id} type="button" role="tab" aria-selected={shareTab === tab.id}
+                className={shareTab === tab.id ? 'is-active' : ''} onClick={() => setShareTab(tab.id)}>
+                {tab.label}<small>{tab.count}</small></button>)}
+            </div>
+            {shareTab === 'received' ? <div className="shared-received-block">
+              {(initial.sharedAlbums || []).some(album => !album.viaFolderOnly) ? <section className="acp-section" id="shared-incoming-albums">
+                <div className="acp-section-heading"><h2>相册 <small>{(initial.sharedAlbums || []).filter(album => !album.viaFolderOnly).length}</small></h2></div>
+                <div className="acp-section-content"><div className="acp-albums">
+                  {(initial.sharedAlbums || []).filter(album => !album.viaFolderOnly).map(album => <AlbumCard key={album.id}
+                    album={{ ...album, groups: [] }} groups={[]} onOpen={setOpened}
+                    extraMeta={[album.originLabel ? `来自 ${album.originLabel}` : '', album.sharedByName ? `分享人 ${album.sharedByName}` : ''].filter(Boolean).join(' · ')} />)}
+                </div></div>
+              </section> : null}
+              {(initial.sharedFolders || []).length ? <section className="acp-collections-section" id="shared-incoming-folders">
+                <div className="acp-section-heading"><h2>文件夹 <small>{(initial.sharedFolders || []).length}</small></h2></div>
+                <div className="acp-all-collections">{(initial.sharedFolders || []).map(folder => {
+                  const sharedGroup = { id: `shared-folder-${folder.id}`, name: folder.albumName, parentId: null };
+                  const sharedAlbumsForFolder = folderAlbums(folder, sharedGroup.id, 'received');
+                  return <div className="shared-folder-slot" key={folder.id}><CollectionCard group={sharedGroup} groups={[sharedGroup]}
+                    albums={sharedAlbumsForFolder} onSelect={() => onOpenSharedFolder?.(folder.id)} /></div>;
+                })}</div>
+              </section> : null}
+              {!(initial.sharedAlbums || []).some(album => !album.viaFolderOnly) && !(initial.sharedFolders || []).length
+                ? <p className="acp-empty">还没有人分享给你</p> : null}
+            </div> : <div className="shared-sent-block">
+              {sentShares.folders.length ? <div className="acp-all-collections">{sentShares.folders.map(folder => {
+                const sharedGroup = { id: `sent-folder-${folder.id}`, name: folder.albumName, parentId: null };
+                const sharedAlbumsForFolder = folderAlbums(folder, sharedGroup.id, 'sent');
+                return <div className="shared-folder-slot" key={folder.id}><CollectionCard group={sharedGroup} groups={[sharedGroup]}
+                  albums={sharedAlbumsForFolder}
+                  onSelect={() => { if (folder.folderId) selectGroup(String(folder.folderId)); else onOpenSharedFolder?.(folder.id); }} /></div>;
+              })}</div> : null}
+              {sentShares.albums.length ? <div className="acp-section-content"><div className="acp-albums">
+                {aggregateSentAlbums(sentShares.albums).map(item => <AlbumCard key={item.album.id} album={item.album} groups={[]}
+                  onOpen={setOpened} extraMeta={item.meta} />)}
+              </div></div> : null}
+              {!sentShares.albums.length && !sentShares.folders.length ? <p className="acp-empty">你还没有把文件分享给其他小组</p> : null}
+            </div>}
+          </> : query ? photoResults : home ? <>
             {visiblePins.length > 0 && <section className="acp-pins-section" id="desktop-pins" data-desktop-section="pins"><span className="acp-section-spotlight" aria-hidden="true" /><div className="acp-section-heading"><div className="acp-section-name"><h2>我的置顶</h2><span className="acp-personal-label">仅自己可见</span></div><button className="acp-text-button" onClick={() => setPinsModal(true)}>管理 <IconSliders /></button></div>
               <div {...(selectingAlbums ? {} : getSortListProps('pins'))} className="acp-shortcuts-grid acp-pins-grid">{visiblePins.map((key) => {
                 const [type, id] = key.split(':');
@@ -980,8 +1128,8 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
                   selecting={selectingAlbums} selected={selectedAlbumSet.has(album.id)} onToggle={() => toggleAlbumSelection(album.id)}
                   sortDragProps={selectingAlbums ? {} : getSortDragProps('pins', key, album)} sortDropProps={selectingAlbums ? {} : getSortDropProps('pins', key)} /> : null;
               })}</div></section>}
-            <SharedAlbums albums={initial.sharedAlbums} onOpen={setOpened} onAdd={canOrganize ? organize : undefined} savedIds={savedSharedIds} />
-            <SharedFolders folders={initial.sharedFolders} onOpen={onOpenSharedFolder} />
+            <NewShares albums={initial.sharedAlbums || []} folders={initial.sharedFolders || []} userId={userId}
+              onOpenAlbum={setOpened} onOpenFolder={onOpenSharedFolder} />
             {collectionsSection}
 
           </> : currentGroup ? <>
@@ -1155,23 +1303,20 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
 }
 
 export default function AlbumDesktop({ currentUser, workspaceInfo, onOpen, onShare, sharingOpen, sort, dateFilter, toolbar, projectPreviews = [], importStatuses = {}, folderStyle = 'glass', footer, onSearchScopeChange, searchRequest }) {
+  const route = useNavigation();
   const [initial, setInitial] = React.useState(null);
   const [error, setError] = React.useState('');
   const [reload, setReload] = React.useState(0);
   const previousSharingOpen = React.useRef(sharingOpen);
-  const [sharedFolderId, setSharedFolderId] = React.useState(() => new URLSearchParams(window.location.search).get('sharedFolder'));
+  const sharedFolderId = new URL(route.url, window.location.origin).searchParams.get('sharedFolder');
   const openSharedFolder = id => {
     const url = new URL(window.location.href); url.searchParams.set('sharedFolder', String(id)); url.searchParams.delete('folder');
-    window.history.pushState(null, '', url); setSharedFolderId(String(id));
+    ['q', 'view', 'sharedPath'].forEach(key => url.searchParams.delete(key));
+    navigate(url);
   };
   const closeSharedFolder = () => {
-    const url = new URL(window.location.href); url.searchParams.delete('sharedFolder'); url.searchParams.delete('folder');
-    window.history.pushState(null, '', url); setSharedFolderId(null);
+    goBack(withoutParams(window.location.href, ['sharedFolder', 'sharedPath']));
   };
-  React.useEffect(() => {
-    const change = () => setSharedFolderId(new URLSearchParams(window.location.search).get('sharedFolder'));
-    window.addEventListener('popstate', change); return () => window.removeEventListener('popstate', change);
-  }, []);
   React.useEffect(() => {
     let active=true;setInitial(null);setError('');
     loadAlbumDesktop().then(data=>{if(active)setInitial(data)}).catch(err=>{if(active)setError(err?.message || '桌面加载失败')});
@@ -1194,7 +1339,7 @@ export default function AlbumDesktop({ currentUser, workspaceInfo, onOpen, onSha
     return () => { active = false; document.removeEventListener('visibilitychange', refresh); };
   }, [currentUser?.id, workspaceInfo?.activeUnitId, sharingOpen]);
   if(error)return <div className="desktop-load-state" role="alert"><p>{error}</p><Button onClick={()=>setReload(n=>n+1)}>重新加载</Button></div>;
-  if(!initial)return <div className="desktop-load-state" role="status">正在加载小组空间…</div>;
+  if(!initial)return <DesktopSkeleton />;
   if(sharedFolderId) return <SharedFolderView shareId={sharedFolderId} onOpen={onOpen} onBack={closeSharedFolder} folderStyle={folderStyle} />;
   const workspaceName=workspaceInfo?.units?.find(unit=>Number(unit.id)===Number(workspaceInfo.activeUnitId))?.name || '历史相册';
   return <DesktopContent footer={footer} key={`${currentUser.id}-${workspaceInfo?.activeUnitId || 'legacy'}-${reload}`} initial={initial} userId={String(currentUser.id)} workspaceName={workspaceName}

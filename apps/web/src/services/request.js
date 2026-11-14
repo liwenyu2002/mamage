@@ -202,6 +202,8 @@ function rewriteMediaUrlsDeep(value) {
 
 function resolveAssetUrl(src) {
   if (!src) return src;
+  // 防御：后端某些接口会把封面描述成对象（{path,id}），这里只处理字符串，避免整页崩掉。
+  if (typeof src !== 'string') return '';
   if (/^https?:\/\//i.test(src)) return src;
   const normalized = src.startsWith('/') ? src : `/${src}`;
   // Prefer an explicitly configured COS base for public assets if provided.

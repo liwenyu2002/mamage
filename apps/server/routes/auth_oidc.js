@@ -77,9 +77,15 @@ function createOidcAuthRouter({ db, config = oidcConfig, store = createSharedSto
       const info = await client.userinfo({ document, accessToken: token.access_token, timeoutMs: cfg.timeoutMs });
       if (info && info.sub != null && info.sub !== claims.sub) throw error('OIDC_SUBJECT_MISMATCH', 401);
       const profile = { ...claims, ...(info && typeof info === 'object' ? info : {}) };
+      if (process.env.IDP_PROFILE_DEBUG === '1') {
+        console.warn('[idp-profile:oidc]', JSON.stringify({ idToken: claims, userinfo: info }).slice(0, 4000));
+      }
+      const idpStore = require('../lib/idp_profile_store');
       let user;
       if (cfg.profileLoginMatching) {
         user = await require('../lib/iam_profile_links').resolveProfile(database(), cfg, profile, claims.sub);
+        void idpStore.saveIdpProfile(database(), { sourceKey: cfg.sourceKey, subjectId: claims.sub,
+          userId: user.id, provider: 'oidc', profile, claims: { name: profile.name, email: profile.email, studentNo: profile.preferred_username } });
       } else {
         // 关闭资料匹配时只放行已绑定身份，避免新 IdP 仅凭邮箱/学工号 claim 关联（甚至接管）存量账号。
         const [[bound]] = await database().query(

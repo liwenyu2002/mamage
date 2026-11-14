@@ -22,6 +22,13 @@ export default function UserAccessPanel({ currentUser }) {
   const [draft, setDraft] = React.useState(null);
   const [confirming, setConfirming] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
+  const [mergeSource, setMergeSource] = React.useState(null);
+  const [mergeUsers, setMergeUsers] = React.useState([]);
+  const [mergeTargetId, setMergeTargetId] = React.useState('');
+  const [mergePreview, setMergePreview] = React.useState(null);
+  const [mergeConfirm, setMergeConfirm] = React.useState('');
+  const [mergeBusy, setMergeBusy] = React.useState(false);
+  const [mergeError, setMergeError] = React.useState('');
   React.useEffect(() => { const timer = setTimeout(() => { setSearch(query); setPage(1); }, 250); return () => clearTimeout(timer); }, [query]);
   React.useEffect(() => {
     const controller = new AbortController();
@@ -39,6 +46,30 @@ export default function UserAccessPanel({ currentUser }) {
       collegeAdmin: user.collegeAdmin, facePermissions: { ...user.facePermissions } });
   };
   const close = () => { setEditing(null); setDraft(null); setConfirming(false); setError(''); };
+  const openMerge = async user => {
+    setMergeSource(user); setMergeTargetId(''); setMergePreview(null); setMergeConfirm(''); setMergeError(''); setNotice('');
+    try {
+      const list = await request('/api/users/all');
+      setMergeUsers((list.users || []).filter(item => Number(item.id) !== Number(user.id) && item.role !== 'superadmin'));
+    } catch (e) { setMergeError(e.message); }
+  };
+  const closeMerge = () => { setMergeSource(null); setMergePreview(null); setMergeConfirm(''); setMergeError(''); };
+  const chooseTarget = async value => {
+    setMergeTargetId(value); setMergePreview(null); setMergeConfirm(''); setMergeError('');
+    if (!value) return;
+    try {
+      setMergePreview(await request(`/api/users/merge/preview?sourceId=${mergeSource.id}&targetId=${value}`));
+    } catch (e) { setMergeError(e.message); }
+  };
+  const runMerge = async () => {
+    setMergeBusy(true); setMergeError('');
+    try {
+      const result = await request('/api/users/merge', { method: 'POST', data: {
+        sourceId: mergeSource.id, targetId: Number(mergeTargetId), confirmName: mergeConfirm } });
+      closeMerge(); setNotice(`已把「${result.source.name}」合并到「${result.target.name}」`); setReload(value => value + 1);
+    } catch (e) { setMergeError(e.message); }
+    finally { setMergeBusy(false); }
+  };
   const save = async () => {
     setSaving(true); setError('');
     try {
@@ -75,6 +106,8 @@ export default function UserAccessPanel({ currentUser }) {
           </div>
           <Button size="small" icon={<IconSliders />} disabled={loading || Boolean(editing) || Number(user.id) === Number(currentUser.id) || user.role === 'superadmin'} onClick={() => open(user)}>
             {Number(user.id) === Number(currentUser.id) ? '当前账号' : user.role === 'superadmin' ? '超级管理员' : '配置'}</Button>
+          {Number(user.id) !== Number(currentUser.id) && user.role !== 'superadmin'
+            ? <Button size="small" disabled={loading || Boolean(editing)} onClick={() => openMerge(user)}>合并</Button> : null}
         </div>
         {editing === user.id && draft ? <div className="user-access-editor" aria-label={`${user.name}的权限`}>
           <fieldset disabled={saving}><legend>组织与小组</legend>
@@ -108,6 +141,39 @@ export default function UserAccessPanel({ currentUser }) {
       {!loading && !error && !data?.users.length ? <p className="user-access-empty">{status === 'pending' ? '没有待分配的用户' : '没有符合条件的用户'}</p> : null}
       {loading && !data ? <p className="user-access-empty">加载中…</p> : null}
     </div>
+    {mergeSource ? <div className="user-merge-backdrop" role="dialog" aria-modal="true" aria-label="合并账号">
+      <div className="user-merge-dialog">
+        <header><h3>合并账号</h3><Button size="small" disabled={mergeBusy} onClick={closeMerge}>关闭</Button></header>
+        <p className="user-merge-hint">把「被合并账号」上的相册、照片、分享、成员关系与 IAM 身份，全部转到「保留账号」，然后停用被合并账号。</p>
+        <div className="user-merge-pick">
+          <div className="user-merge-side">
+            <span>被合并（会停用）</span>
+            <strong>{mergeSource.name}</strong>
+            <small>{mergeSource.email || '邮箱未提供'}{mergeSource.student_no ? ` · ${mergeSource.student_no}` : ''}</small>
+          </div>
+          <div className="user-merge-arrow" aria-hidden="true">→</div>
+          <div className="user-merge-side">
+            <span>保留账号</span>
+            <GlassSelect label="选择保留账号" value={mergeTargetId} disabled={mergeBusy}
+              options={[{ value: '', label: '未选择' }, ...mergeUsers.map(item => ({ value: String(item.id),
+                label: `${item.name}${item.email ? ' · ' + item.email : ''}${item.student_no ? ' · ' + item.student_no : ''}` }))]}
+              onChange={chooseTarget} />
+          </div>
+        </div>
+        {mergePreview ? <div className="user-merge-preview">
+          <strong>将转移 {Object.values(mergePreview.moving).reduce((a, b) => a + b, 0)} 条记录</strong>
+          <ul>{Object.entries(mergePreview.moving).map(([key, count]) => <li key={key}>{key}：{count}</li>)}</ul>
+        </div> : null}
+        {mergeError ? <p className="user-access-error" role="alert">{mergeError}</p> : null}
+        {mergePreview ? <label className="user-merge-confirm">输入保留账号姓名「{mergePreview.target.name}」确认
+          <Input value={mergeConfirm} disabled={mergeBusy} onChange={setMergeConfirm} placeholder={mergePreview.target.name} /></label> : null}
+        <footer>
+          <Button disabled={mergeBusy} onClick={closeMerge}>取消</Button>
+          <Button type="primary" theme="solid" loading={mergeBusy} disabled={!mergePreview || mergeConfirm.trim() !== mergePreview.target.name}
+            onClick={runMerge}>执行合并</Button>
+        </footer>
+      </div>
+    </div> : null}
     {data && data.total > data.pageSize ? <nav className="user-access-pagination" aria-label="用户分页">
       <Button icon={<IconChevronLeft />} title="上一页" aria-label="上一页" disabled={busy || page <= 1} onClick={() => setPage(n => n - 1)} />
       <span>{page} / {Math.ceil(data.total / data.pageSize)}</span>

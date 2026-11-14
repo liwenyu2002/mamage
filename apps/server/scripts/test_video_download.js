@@ -146,11 +146,14 @@ test('mixed originals stream together in a single flat directory with exact leng
 
 test('the mixed download route uses one directory for originals and adjusted photos without transcoding video', async () => {
   const source = fs.readFileSync(require.resolve('../routes/photos'), 'utf8');
+  const photoTone = require('../lib/photo_tone/engine.mjs');
+  const toneHelpers = source.slice(source.indexOf('function normalizePhotoAdjustments('), source.indexOf('async function getScopedPhotoSourceRow('));
   const handlerSource = source.slice(source.indexOf('async function handleZipRequest('), source.indexOf('// POST /api/photos/:id/rendered'));
   const { ZipFile } = require(path.join(path.dirname(require.resolve('playwright-core')), 'lib/server/utils/zipFile'));
-  for (const adjusted of [false, true]) {
+  for (const adjustments of [null, { version: 1, brightness: 50 }, { version: 2, shadows: 50 }, { version: 3, exposure: 1 }]) {
+    const adjusted = adjustments?.version === 3;
     const rows = [
-      { id: 1, type: 'normal', title: 'Same', projectId: 9, projectName: 'Campus', url: 'http://storage.test/uploads/1.jpg', adjustments: adjusted ? { brightness: 10 } : null },
+      { id: 1, type: 'normal', title: 'Same', projectId: 9, projectName: 'Campus', url: 'http://storage.test/uploads/1.jpg', adjustments },
       { id: 2, type: 'video', title: 'Same', projectId: 9, projectName: 'Campus', url: 'http://storage.test/uploads/2.mp4' },
     ];
     const calls = { renders: 0, reads: 0, auth: 0 };
@@ -166,10 +169,10 @@ test('the mixed download route uses one directory for originals and adjusted pho
       pool, cosStorage: storage, videoDownloads, mediaFilename, requirePhotosAccess, sendWorkspaceError: () => false,
       MAX_ZIP_PHOTOS: 1000, ZIP_MAX_REMOTE_BYTES: 5 * 1024 ** 3, ZIP_MAX_RENDER_SOURCE_BYTES: 128 * 1024 ** 2,
       ZIP_REMOTE_TIMEOUT_MS: 20000, uploadRoot: os.tmpdir(),
-      parsePhotoAdjustments: value => value, hasMeaningfulPhotoAdjustments: value => !!value?.brightness,
+      photoTone,
       renderAdjustedPhotoBuffer: async buffer => { calls.renders++; return Buffer.concat([Buffer.from('adjusted:'), buffer]); },
     };
-    vm.runInNewContext(handlerSource + '\nthis.handle = handleZipRequest;', globals);
+    vm.runInNewContext(toneHelpers + handlerSource + '\nthis.handle = handleZipRequest;', globals);
     const app = express(); app.use(express.json());
     app.use((req, _res, next) => { req.user = { id: 47, organization_id: 2 }; next(); });
     app.post('/zip', globals.handle);

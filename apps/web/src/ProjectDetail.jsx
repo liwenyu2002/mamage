@@ -35,6 +35,8 @@ import './ProjectDetail.css';
 import './mediaViewer.css';
 import { GlassReveal, ViewerDisplaySettings, useViewerAppearance } from './ui/Glass';
 import useMediaViewerDialog from './useMediaViewerDialog';
+import useNavigation, { useNavigationState } from './useNavigation';
+import { navigate, getNavigation, openMediaRoute, closeMediaRoute } from './utils/navigation';
 import { getProjectById, updateProject, deleteProject, createTimelineSection, updateTimelineSection, deleteTimelineSection, reorderTimelineSections } from './services/projectService';
 import { canEditMetadata } from './utils/metadataEditPermissions';
 import { getToken } from './services/authService';
@@ -55,9 +57,9 @@ import PermButton from './permissions/PermButton';
 import { canAny, getPermissions } from './permissions/permissionStore';
 import {
   DEFAULT_PHOTO_ADJUSTMENTS,
-  analyzePhotoTone,
   buildPhotoAdjustments,
   getPhotoAdjustmentStyle,
+  getToneAdjustmentKey,
   isDefaultPhotoAdjustments,
   normalizePhotoAdjustments,
   renderPhotoAdjustmentsToCanvas,
@@ -66,6 +68,8 @@ import { sectionTimeToInputValue, inputValueToSectionTime } from './utils/sectio
 import { getFaceBoxStyle } from './utils/faceGeometry';
 import { canDeletePhoto, getPhotoDeleteErrorMessage, isPhotoUploadedBy } from './utils/photoDeletePermissions';
 import ViewerToneImage, { requestRenderedToneBlob } from './ProjectTonePreview';
+import { rotatedSize, cropPixels, straightenedCrop, fitCropAspect } from '../../server/lib/photo_tone/geometry.mjs';
+import PhotoToneControls from './PhotoToneControls';
 import {
   createInitialUploadProgress,
   getUploadFileKey,
@@ -648,6 +652,9 @@ function ProjectDetail({
   shareUnitId,
   searchRequest,
 }) {
+  const route = useNavigation();
+  const routeParams = new URL(route.url, window.location.origin).searchParams;
+  const routePhotoId = routeParams.get('photoId');
   const DISABLE_UPLOAD_FEATURE = !!readOnly;
   const DISABLE_DELETE_FEATURE = !!readOnly;
 
@@ -771,7 +778,7 @@ function ProjectDetail({
   const [imageRatios, setImageRatios] = React.useState({});
   const ratioCacheRef = React.useRef({});
   const [galleryPrepared, setGalleryPrepared] = React.useState(false);
-  const [galleryRenderLimit, setGalleryRenderLimit] = React.useState(GALLERY_INITIAL_RENDER_LIMIT);
+  const [galleryRenderLimit, setGalleryRenderLimit] = useNavigationState('galleryLimit', GALLERY_INITIAL_RENDER_LIMIT);
   const galleryMoreRef = React.useRef(null);
   const [detailImageReadyMap, setDetailImageReadyMap] = React.useState({});
   const timelineDefaultModeProjectRef = React.useRef(null);
@@ -857,12 +864,23 @@ function ProjectDetail({
   const [viewerEditDescription, setViewerEditDescription] = React.useState('');
   const [photoAdjustmentsMap, setPhotoAdjustmentsMap] = React.useState({});
   const [viewerToneVisible, setViewerToneVisible] = React.useState(false);
+  const [viewerToneLoading, setViewerToneLoading] = React.useState(false);
+  const [viewerToneBaseRevision, setViewerToneBaseRevision] = React.useState(null);
+  const [viewerToneMode, setViewerToneMode] = React.useState('tone');
+  const [viewerToneAspect, setViewerToneAspect] = React.useState(undefined);
+  const [viewerToneSourceSize, setViewerToneSourceSize] = React.useState(null);
   const [viewerToneDraft, setViewerToneDraft] = React.useState(() => normalizePhotoAdjustments(DEFAULT_PHOTO_ADJUSTMENTS));
   const [viewerToneSaving, setViewerToneSaving] = React.useState(false);
   const [viewerToneAnalyzing, setViewerToneAnalyzing] = React.useState(false);
   const [viewerToneError, setViewerToneError] = React.useState('');
   const [viewerToneAnalysis, setViewerToneAnalysis] = React.useState(null);
-  const toneAnalysisSeqRef = React.useRef(0);
+  const [viewerToneComparison, setViewerToneComparison] = React.useState('adjusted');
+  const [viewerToneHoldingOriginal, setViewerToneHoldingOriginal] = React.useState(false);
+  const [viewerToneFacesLoading, setViewerToneFacesLoading] = React.useState(false);
+  const viewerToneComparing = viewerToneComparison === 'original';
+  const [viewerToneHistory, setViewerToneHistory] = React.useState({ past: [], future: [] });
+  const toneGestureRef = React.useRef(false);
+  const toneDraftsRef = React.useRef(new Map());
   const [internalGalleryMode, setInternalGalleryMode] = React.useState('masonry'); // 'grid' | 'masonry'
   const galleryMode = controlledGalleryMode || internalGalleryMode;
   const handleGalleryModeChange = React.useCallback((nextMode) => {
@@ -890,7 +908,13 @@ function ProjectDetail({
   const [viewerRescue, setViewerRescue] = React.useState(null);
   const [isMobile, setIsMobile] = React.useState(() => (typeof window !== 'undefined' ? window.innerWidth <= 768 : false));
   const viewerPointerRef = React.useRef({ active: false, pointerId: null, startX: 0, startY: 0 });
-  const [searchKeyword, setSearchKeyword] = React.useState('');
+  const searchKeyword = routeParams.get('q') || '';
+  const setSearchKeyword = value => {
+    const url = new URL(window.location.href);
+    const replacing = url.searchParams.has('q');
+    if (value) url.searchParams.set('q', value); else url.searchParams.delete('q');
+    navigate(url, { replace: replacing });
+  };
   const [searching, setSearching] = React.useState(false);
   const [searchError, setSearchError] = React.useState('');
   const [searchMeta, setSearchMeta] = React.useState(null);
@@ -903,9 +927,13 @@ function ProjectDetail({
   const [searchTotal, setSearchTotal] = React.useState(null);
   const searchResultsRef = React.useRef([]);
   const [actionSheetOpen, setActionSheetOpen] = React.useState(false);
-  const [mediaFilter, setMediaFilter] = React.useState('all'); // all | image | video
-  const [onlyOwnUploads, setOnlyOwnUploads] = React.useState(false);
-  React.useEffect(() => { setOnlyOwnUploads(false); }, [projectId, currentUser?.id]);
+  const [mediaFilter, setMediaFilter] = useNavigationState('albumMediaFilter', 'all');
+  const [onlyOwnUploads, setOnlyOwnUploads] = useNavigationState('albumOwnUploads', false);
+  const filterUserRef = React.useRef(currentUser?.id);
+  React.useEffect(() => {
+    if (filterUserRef.current !== currentUser?.id) setOnlyOwnUploads(false);
+    filterUserRef.current = currentUser?.id;
+  }, [currentUser?.id, setOnlyOwnUploads]);
   const searchReqSeqRef = React.useRef(0);
   const hasSearchedRef = React.useRef(false);
 
@@ -2322,7 +2350,7 @@ function ProjectDetail({
       } else if (status === 401) {
         try { localStorage.removeItem('mamage_jwt_token'); } catch (e) { }
         Toast.error('请重新登录管理员账号');
-        try { window.history.pushState({}, '', '/login'); } catch (e) { window.location.href = '/login'; }
+        navigate('/login');
       } else if (status === 404) {
         Toast.warning('相册已不存在');
         if (typeof onBack === 'function') onBack(true);
@@ -2615,7 +2643,7 @@ function ProjectDetail({
           if (status === 401 || status === 403) {
             try { localStorage.removeItem('mamage_jwt_token'); } catch (e) { }
             Toast.error('权限不足或登录已过期，请重新登录或联系管理员');
-            try { window.history.pushState({}, '', '/login'); } catch (e) { window.location.href = '/login'; }
+            navigate('/login');
           } else if (status === 404) {
             Toast.warning('相册已不存在');
             if (typeof onBack === 'function') onBack(true);
@@ -2797,7 +2825,7 @@ function ProjectDetail({
             // clear token and redirect to login
             try { localStorage.removeItem('mamage_jwt_token'); } catch (e) { }
             Toast.error('权限不足或登录已过期，请重新登录或联系管理员');
-            try { window.history.pushState({}, '', '/login'); } catch (e) { window.location.href = '/login'; }
+            navigate('/login');
           } else {
             Toast.error(getPhotoDeleteErrorMessage(err));
           }
@@ -2887,7 +2915,7 @@ function ProjectDetail({
   const downloadRenderedPhoto = React.useCallback(async (meta, index, options = {}) => {
     const url = meta?.originalSrc || meta?.url || meta?.thumbSrc || images[index];
     if (!url) throw new Error('无法获取媒体资源');
-    const adjustments = getDownloadAdjustmentForMeta(meta);
+    const adjustments = options.adjustments || getDownloadAdjustmentForMeta(meta);
     const baseName = buildDownloadBaseName(meta, index);
 
     if (isVideoMeta(meta) || options.forceOriginal || isDefaultPhotoAdjustments(adjustments)) {
@@ -2939,13 +2967,15 @@ function ProjectDetail({
     const url = meta.originalSrc || meta.url || meta.thumbSrc || images[idx];
     if (!url) return Toast.warning('无法获取媒体资源');
     try {
-      const result = await downloadRenderedPhoto(meta, idx);
+      const result = await downloadRenderedPhoto(meta, idx, viewerToneVisible ? {
+        adjustments: viewerToneDraft, forceOriginal: viewerToneComparing,
+      } : {});
       Toast.success(currentViewerIsVideo ? '已开始下载视频' : (result.rendered ? '已下载调色后的照片' : '已开始下载原图'));
     } catch (err) {
       console.error('downloadCurrentPhoto error', err);
       Toast.error(err?.message || '下载失败');
     }
-  }, [viewerIndex, photoMetas, images, downloadRenderedPhoto, currentViewerIsVideo]);
+  }, [viewerIndex, photoMetas, images, downloadRenderedPhoto, currentViewerIsVideo, viewerToneVisible, viewerToneDraft, viewerToneComparing]);
 
   // Expose a global getter so the floating TransferStation can read current selection
   React.useEffect(() => {
@@ -3192,9 +3222,15 @@ function ProjectDetail({
   const ownUploadCount = React.useMemo(() => (photoMetas || []).filter(meta => isPhotoUploadedBy(meta, currentUser?.id)).length,
     [photoMetas, currentUser?.id]);
 
+  const galleryFilterKey = JSON.stringify([projectId, searchKeyword, mediaFilter, onlyOwnUploads]);
+  const galleryFilterRef = React.useRef({ entryKey: route.entry.key, filter: galleryFilterKey });
   React.useEffect(() => {
-    setGalleryRenderLimit(GALLERY_INITIAL_RENDER_LIMIT);
-  }, [projectId, searchKeyword, mediaFilter, onlyOwnUploads]);
+    // 返回恢复的条目保留已加载的张数；仅同一个条目内改筛选才回退到初始批次。
+    if (galleryFilterRef.current.entryKey === route.entry.key && galleryFilterRef.current.filter !== galleryFilterKey) {
+      setGalleryRenderLimit(GALLERY_INITIAL_RENDER_LIMIT);
+    }
+    galleryFilterRef.current = { entryKey: route.entry.key, filter: galleryFilterKey };
+  }, [route.entry.key, galleryFilterKey, setGalleryRenderLimit]);
 
   const mediaFilteredIndexes = React.useMemo(() => getMediaFilteredIndexes(), [getMediaFilteredIndexes]);
   const visiblePhotoCount = Math.min(mediaFilteredIndexes.length, Math.max(GALLERY_INITIAL_RENDER_LIMIT, galleryRenderLimit));
@@ -3644,7 +3680,6 @@ function ProjectDetail({
     return normalizePhotoAdjustments((photoId && photoAdjustmentsMap[photoId]) || meta?.adjustments || DEFAULT_PHOTO_ADJUSTMENTS);
   }, [photoAdjustmentsMap]);
   const currentViewerAdjustment = React.useMemo(() => getAdjustmentForPhoto(photoMetas?.[viewerIndex]), [getAdjustmentForPhoto, photoMetas, viewerIndex]);
-  const currentViewerToneSrc = React.useMemo(() => getViewerTargetSrc(viewerIndex, false), [getViewerTargetSrc, viewerIndex]);
 
   const handleViewerImageLoad = React.useCallback((photoId, e) => {
     if (!photoId || !e?.target) return;
@@ -3658,122 +3693,162 @@ function ProjectDetail({
     });
   }, []);
 
-  const analyzeViewerTone = React.useCallback(async (adjustments) => {
-    if (!currentViewerToneSrc) throw new Error('缺少图片地址');
-    if (!currentViewerPhotoId) {
-      return analyzePhotoTone(currentViewerToneSrc, adjustments, { maxSize: 640 });
-    }
-    const token = getToken();
-    const pixelUrl = `${BASE_URL || ''}/api/photos/${encodeURIComponent(String(currentViewerPhotoId))}/pixel-source?variant=thumb`;
-    const response = await fetch(pixelUrl, {
-      method: 'GET',
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-      credentials: 'same-origin',
-    });
-    if (!response.ok) {
-      throw new Error(response.status === 401 || response.status === 403 ? '无权读取照片像素' : '无法读取照片像素');
-    }
-    const blob = await response.blob();
-    const objectUrl = URL.createObjectURL(blob);
-    try {
-      return await analyzePhotoTone(objectUrl, adjustments, { maxSize: 640 });
-    } finally {
-      URL.revokeObjectURL(objectUrl);
-    }
-  }, [currentViewerPhotoId, currentViewerToneSrc]);
-
   React.useEffect(() => {
     setViewerToneVisible(false);
+    setViewerToneComparison('adjusted');
+    setViewerToneHoldingOriginal(false);
     setViewerToneError('');
     setViewerToneAnalysis(null);
-    setViewerToneDraft(currentViewerAdjustment);
-  }, [currentViewerPhotoId, currentViewerAdjustment]);
+    setViewerToneHistory({ past: [], future: [] });
+    setViewerToneMode('tone');
+    setViewerToneSourceSize(null);
+    setViewerToneAspect(undefined);
+    toneGestureRef.current = false;
+  }, [currentViewerPhotoId]);
 
-  React.useEffect(() => {
-    if (!viewerToneVisible || !currentViewerToneSrc) return undefined;
-    const seq = toneAnalysisSeqRef.current + 1;
-    toneAnalysisSeqRef.current = seq;
-    setViewerToneAnalyzing(true);
+  const receiveToneAnalysis = React.useCallback((result) => {
+    setViewerToneAnalysis(result);
+    setViewerToneAnalyzing(false);
     setViewerToneError('');
-    const timer = setTimeout(() => {
-      analyzeViewerTone(viewerToneDraft)
-        .then((result) => {
-          if (toneAnalysisSeqRef.current !== seq) return;
-          setViewerToneAnalysis(result);
-        })
-        .catch((err) => {
-          if (toneAnalysisSeqRef.current !== seq) return;
-          setViewerToneAnalysis(null);
-          setViewerToneError(err?.message || '直方图计算失败');
-        })
-        .finally(() => {
-          if (toneAnalysisSeqRef.current === seq) setViewerToneAnalyzing(false);
-        });
-    }, 90);
-    return () => clearTimeout(timer);
-  }, [viewerToneVisible, currentViewerToneSrc, viewerToneDraft, analyzeViewerTone]);
+  }, []);
 
-  const patchPhotoAdjustmentState = React.useCallback((photoId, adjustments) => {
+  const receiveToneError = React.useCallback((message) => {
+    setViewerToneError(message);
+    setViewerToneAnalyzing(false);
+  }, []);
+
+  const patchPhotoAdjustmentState = React.useCallback((photoId, adjustments, data = {}) => {
     if (!photoId) return;
     const normalized = normalizePhotoAdjustments(adjustments);
+    const versioned = url => url ? `${url}${url.includes('?') ? '&' : '?'}edit=${encodeURIComponent(data.editRevision || '')}` : url;
+    data = { ...data, url: versioned(data.url), thumbUrl: versioned(data.thumbUrl) };
     setPhotoAdjustmentsMap((prev) => ({ ...(prev || {}), [photoId]: normalized }));
     setPhotoMetas((prev) => (Array.isArray(prev)
-      ? prev.map((meta) => (String(getPhotoRecordId(meta) || '') === String(photoId) ? { ...(meta || {}), adjustments: normalized } : meta))
+      ? prev.map((meta) => (String(getPhotoRecordId(meta) || '') === String(photoId) ? { ...(meta || {}), ...data, adjustments: normalized,
+        thumbSrc: data.thumbUrl || meta.thumbSrc, originalSrc: data.url || meta.originalSrc } : meta))
       : prev));
+    setDirectMediaUrlMap(previous => Object.fromEntries(Object.entries(previous).filter(([key]) => !key.startsWith(`${photoId}:`))));
+    clearDirectMediaUrlCache();
+    if (data.thumbUrl) setImages(previous => previous.map((url, index) => String(getPhotoRecordId(photoMetas?.[index])) === String(photoId) ? data.thumbUrl : url));
+  }, [photoMetas]);
+
+  const activeTonePhotoRef = React.useRef(currentViewerPhotoId);
+  activeTonePhotoRef.current = currentViewerPhotoId;
+  const toneDirty = !(isDefaultPhotoAdjustments(viewerToneDraft) && isDefaultPhotoAdjustments(currentViewerAdjustment))
+    && getToneAdjustmentKey(viewerToneDraft) !== getToneAdjustmentKey(currentViewerAdjustment);
+
+  const openToneEditor = React.useCallback(async () => {
+    if (viewerToneSaving || viewerToneLoading || !canEditItem(photoMetas?.[viewerIndex])) return;
+    if (!currentViewerPhotoId) return Toast.warning('无法获取照片 ID');
+    if (!viewerToneVisible) {
+      setViewerToneLoading(true);
+      try {
+        const data = await getPhotoById(currentViewerPhotoId);
+        if (activeTonePhotoRef.current !== currentViewerPhotoId) return;
+        if (!data.editRevision) throw new Error('服务器尚未支持原画质编辑保存');
+        const saved = normalizePhotoAdjustments(data.adjustments);
+        patchPhotoAdjustmentState(currentViewerPhotoId, saved, data);
+        setViewerToneDraft(saved);
+        setViewerToneBaseRevision(data.editRevision);
+      } catch (error) { Toast.error(error.message || '无法读取编辑信息'); return; }
+      finally { setViewerToneLoading(false); }
+      setViewerToneComparison('adjusted');
+      setViewerToneMode('tone');
+      setViewerToneSourceSize(null);
+      setViewerToneHistory({ past: [], future: [] });
+      setViewerToneHoldingOriginal(false);
+      setViewerToneAnalyzing(true);
+      setViewerToneError('');
+    }
+    setViewerToneVisible(prev => !prev);
+  }, [currentViewerPhotoId, canEditItem, photoMetas, viewerIndex, viewerToneVisible, viewerToneSaving, viewerToneLoading, patchPhotoAdjustmentState]);
+
+  const recordToneHistory = React.useCallback(() => {
+    if (toneGestureRef.current?.recorded) return;
+    if (toneGestureRef.current) toneGestureRef.current.recorded = true;
+    setViewerToneHistory(previous => ({ past: [...previous.past, viewerToneDraft].slice(-10), future: [] }));
+  }, [viewerToneDraft]);
+
+  const beginToneGesture = React.useCallback(() => {
+    if (!toneGestureRef.current) toneGestureRef.current = { recorded: false };
   }, []);
 
-  const openToneEditor = React.useCallback(() => {
-    if (!canEditItem(photoMetas?.[viewerIndex])) return;
-    if (!currentViewerPhotoId) return Toast.warning('无法获取照片 ID');
-    setViewerToneDraft(currentViewerAdjustment);
-    setViewerToneVisible((prev) => !prev);
-  }, [currentViewerAdjustment, currentViewerPhotoId, canEditItem, photoMetas, viewerIndex]);
+  const commitToneDraft = React.useCallback((input, record = true) => {
+    const next = buildPhotoAdjustments(input, input.source || 'manual');
+    if (getToneAdjustmentKey(next) === getToneAdjustmentKey(viewerToneDraft)) return;
+    if (record) recordToneHistory();
+    setViewerToneComparison(mode => mode === 'original' ? 'adjusted' : mode);
+    setViewerToneHoldingOriginal(false);
+    if (getToneAdjustmentKey({ ...next, rotation: 0, crop: null }) !== getToneAdjustmentKey({ ...viewerToneDraft, rotation: 0, crop: null })) setViewerToneAnalyzing(true);
+    toneDraftsRef.current.set(String(currentViewerPhotoId), next);
+    setViewerToneDraft(next);
+  }, [currentViewerPhotoId, recordToneHistory, viewerToneDraft]);
 
   const updateToneDraft = React.useCallback((key, value) => {
-    setViewerToneDraft((prev) => buildPhotoAdjustments({ ...normalizePhotoAdjustments(prev), [key]: Number(value) }, 'manual'));
-  }, []);
+    if (key === 'rotation' && viewerToneSourceSize) {
+      const { width, height } = viewerToneSourceSize;
+      const bounds = rotatedSize(width, height, Number(value));
+      commitToneDraft({ ...viewerToneDraft, rotation: Number(value), crop: fitCropAspect(bounds.width, bounds.height,
+        straightenedCrop(width, height, Number(value)), viewerToneAspect), source: 'manual' });
+    } else commitToneDraft({ ...viewerToneDraft, [key]: key === 'crop' ? value : Number(value), source: 'manual' });
+  }, [commitToneDraft, viewerToneDraft, viewerToneSourceSize, viewerToneAspect]);
 
-  const autoTuneCurrentPhoto = React.useCallback(async () => {
-    if (!currentViewerToneSrc) return;
-    const seq = toneAnalysisSeqRef.current + 1;
-    toneAnalysisSeqRef.current = seq;
-    setViewerToneAnalyzing(true);
-    setViewerToneError('');
-    try {
-      const result = await analyzeViewerTone(DEFAULT_PHOTO_ADJUSTMENTS);
-      if (toneAnalysisSeqRef.current !== seq) return;
-      setViewerToneAnalysis(result);
-      setViewerToneDraft(result.autoAdjustments);
-    } catch (err) {
-      if (toneAnalysisSeqRef.current !== seq) return;
-      setViewerToneError(err?.message || '自动调节失败');
-    } finally {
-      if (toneAnalysisSeqRef.current === seq) setViewerToneAnalyzing(false);
-    }
-  }, [analyzeViewerTone, currentViewerToneSrc]);
+  const setToneAspect = (aspect) => {
+    setViewerToneAspect(aspect);
+    if (!viewerToneSourceSize || !aspect) return;
+    const { width, height } = viewerToneSourceSize;
+    const bounds = rotatedSize(width, height, viewerToneDraft.rotation);
+    updateToneDraft('crop', fitCropAspect(bounds.width, bounds.height, straightenedCrop(width, height, viewerToneDraft.rotation), aspect));
+  };
+  const toneOutputSize = viewerToneSourceSize ? (() => {
+    const bounds = rotatedSize(viewerToneSourceSize.width, viewerToneSourceSize.height, viewerToneDraft.rotation);
+    return cropPixels(bounds.width, bounds.height, viewerToneDraft.crop);
+  })() : null;
+
+  const undoViewerTone = () => {
+    const previous = viewerToneHistory.past.at(-1);
+    if (!previous) return;
+    toneGestureRef.current = false;
+    setViewerToneHistory({ past: viewerToneHistory.past.slice(0, -1), future: [viewerToneDraft, ...viewerToneHistory.future].slice(0, 10) });
+    commitToneDraft(previous, false);
+  };
+  const redoViewerTone = () => {
+    const next = viewerToneHistory.future[0];
+    if (!next) return;
+    toneGestureRef.current = false;
+    setViewerToneHistory({ past: [...viewerToneHistory.past, viewerToneDraft].slice(-10), future: viewerToneHistory.future.slice(1) });
+    commitToneDraft(next, false);
+  };
+
+  const autoTuneCurrentPhoto = () => {
+    if (!viewerToneAnalysis?.autoAdjustments) return;
+    commitToneDraft({ ...viewerToneDraft, ...Object.fromEntries(['exposure', 'contrast', 'highlights', 'shadows', 'whites', 'blacks']
+      .map(key => [key, viewerToneAnalysis.autoAdjustments[key]])), source: 'auto' });
+  };
 
   const saveViewerTone = React.useCallback(async () => {
     if (!canEditItem(photoMetas?.[viewerIndex])) return Toast.warning('没有修改这张照片的权限');
     if (!currentViewerPhotoId) return Toast.warning('无法获取照片 ID');
     try {
       setViewerToneSaving(true);
-      const adjustments = buildPhotoAdjustments(viewerToneDraft, 'manual');
-      const data = await updatePhoto(currentViewerPhotoId, { adjustments });
+      const adjustments = buildPhotoAdjustments(viewerToneDraft, viewerToneDraft.source);
+      const data = await updatePhoto(currentViewerPhotoId, { adjustments, baseEditRevision: viewerToneBaseRevision });
       const saved = normalizePhotoAdjustments(data?.adjustments || adjustments);
-      patchPhotoAdjustmentState(currentViewerPhotoId, saved);
-      setViewerToneDraft(saved);
-      Toast.success('调色参数已保存');
+      if (getToneAdjustmentKey(saved) !== getToneAdjustmentKey(adjustments)) throw new Error('服务器未完整保存调色参数，请检查版本');
+      if (!isDefaultPhotoAdjustments(saved) && !saved.baked) throw new Error('服务器未生成编辑图片，请检查版本');
+      patchPhotoAdjustmentState(currentViewerPhotoId, saved, data);
+      toneDraftsRef.current.set(String(currentViewerPhotoId), saved);
+      if (activeTonePhotoRef.current === currentViewerPhotoId) { setViewerToneDraft(saved); setViewerToneBaseRevision(data.editRevision); }
+      Toast.success('编辑图片已保存');
     } catch (err) {
       console.error('saveViewerTone error', err);
       Toast.error(err?.body || err?.message || '保存调色参数失败');
     } finally {
       setViewerToneSaving(false);
     }
-  }, [currentViewerPhotoId, patchPhotoAdjustmentState, viewerToneDraft, canEditItem, photoMetas, viewerIndex]);
+  }, [currentViewerPhotoId, patchPhotoAdjustmentState, viewerToneDraft, viewerToneBaseRevision, canEditItem, photoMetas, viewerIndex]);
 
-  const resetViewerTone = React.useCallback(() => {
-    setViewerToneDraft(buildPhotoAdjustments(DEFAULT_PHOTO_ADJUSTMENTS, 'manual'));
-  }, []);
+  const resetViewerTone = () => commitToneDraft(DEFAULT_PHOTO_ADJUSTMENTS);
 
   const getViewerFaceBoxStyle = React.useCallback((face, photoId) => {
     return getFaceBoxStyle(face, photoId ? viewerImageNaturalMap?.[photoId] : null);
@@ -4291,6 +4366,7 @@ function ProjectDetail({
     const targetProjectId = targetProjectIdRaw ? String(targetProjectIdRaw).trim() : '';
     const hitIdx = targetId ? (photoMetas || []).findIndex((m) => String(getMetaPhotoId(m) || '') === targetId) : -1;
     if (hitIdx >= 0) {
+      if (!openMediaRoute(targetId)) return;
       closeFacePersonModal();
       if (targetId) setFocusPhotoId(targetId);
       setViewerEnableOpenZoom(false);
@@ -4310,12 +4386,8 @@ function ProjectDetail({
           url.searchParams.delete('photoId');
           url.searchParams.delete('focusPhotoId');
         }
-        window.history.pushState({}, '', url);
-        try {
-          window.dispatchEvent(new PopStateEvent('popstate'));
-        } catch (evtErr) {
-          window.dispatchEvent(new Event('popstate'));
-        }
+        url.searchParams.delete('q');
+        if (navigate(url)) closeFacePersonModal();
         return;
       } catch (e) {
         // fallback below
@@ -4384,6 +4456,34 @@ function ProjectDetail({
     viewerFaceFetchPromiseRef.current[sid] = task;
     return task;
   }, [viewerFaceMap, getStoredFacesByPhotoId, projectId]);
+
+  React.useEffect(() => {
+    if (!viewerToneVisible || !currentViewerPhotoId) return undefined;
+    const sid = String(currentViewerPhotoId);
+    if (Array.isArray(viewerFaceMap[sid])) { setViewerToneFacesLoading(false); return undefined; }
+    const stored = getStoredFacesByPhotoId(sid);
+    if (stored) {
+      setViewerFaceMap(previous => ({ ...previous, [sid]: stored }));
+      setViewerToneFacesLoading(false);
+      return undefined;
+    }
+    let active = true;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 2000);
+    setViewerToneFacesLoading(true);
+    // Read existing detections only. Missing/unavailable faces fall back to global
+    // metering; opening the tone editor must never start an inference job.
+    getPhotoFaces(sid, { projectId, signal: controller.signal }).then(payload => {
+      if (!active) return;
+      const faces = normalizeFaceDetections(payload);
+      if (faces.length) setViewerToneAnalyzing(true);
+      setViewerFaceMap(previous => ({ ...previous, [sid]: faces }));
+    }).catch(() => {}).finally(() => {
+      window.clearTimeout(timer);
+      if (active) setViewerToneFacesLoading(false);
+    });
+    return () => { active = false; window.clearTimeout(timer); controller.abort(); };
+  }, [viewerToneVisible, currentViewerPhotoId, projectId, getStoredFacesByPhotoId, viewerFaceMap]);
 
   const handleDetectViewerFaces = React.useCallback(async () => {
     const meta = photoMetas?.[viewerIndex] || null;
@@ -4502,12 +4602,16 @@ function ProjectDetail({
       nextIndex = normalizeViewerIndex(viewerIndex + direction);
     }
     if (nextIndex === viewerIndex) return;
+    const photoId = getMetaPhotoId(photoMetas[nextIndex]);
+    if (photoId && !openMediaRoute(photoId)) return;
     setViewerDirection(direction);
     setViewerIndex(nextIndex);
-  }, [viewerVisible, viewerCount, normalizeViewerIndex, viewerIndex, activeViewerSeq]);
+  }, [viewerVisible, viewerCount, normalizeViewerIndex, viewerIndex, activeViewerSeq, photoMetas, getMetaPhotoId]);
 
   const openViewerAt = React.useCallback((index, immediateSrc = '') => {
     if (index < 0) return;
+    const photoId = getMetaPhotoId(photoMetas[index]);
+    if (photoId && !openMediaRoute(photoId)) return;
     const warmSrc = immediateSrc || getViewerTargetSrc(index, false);
     setViewerEnableOpenZoom(true);
     if (warmSrc) {
@@ -4539,22 +4643,32 @@ function ProjectDetail({
 
   const lastAutoOpenedPhotoKeyRef = React.useRef('');
   React.useEffect(() => {
-    if (!initialOpenPhotoId && !initialOpenPhotoSrc) return;
+    if (!routePhotoId && !initialOpenPhotoSrc) {
+      if (lastAutoOpenedPhotoKeyRef.current) {
+        lastAutoOpenedPhotoKeyRef.current = '';
+        setViewerVisible(false); setViewerToneVisible(false);
+        setViewerEnableOpenZoom(false); setViewerShowOriginal(false);
+      }
+      return;
+    }
     if (loading) return;
     if (!Array.isArray(photoMetas) || !photoMetas.length) return;
-    const key = `${String(projectId || '')}:${initialOpenPhotoId || initialOpenPhotoSrc}`;
+    const key = `${String(projectId || '')}:${routePhotoId || initialOpenPhotoSrc}`;
     if (lastAutoOpenedPhotoKeyRef.current === key) return;
-    const idx = findProjectPreviewIndex(photoMetas, { photoId: initialOpenPhotoId, src: initialOpenPhotoSrc }, resolveAssetUrl);
+    const idx = findProjectPreviewIndex(photoMetas, { photoId: routePhotoId, src: initialOpenPhotoSrc }, resolveAssetUrl);
     if (idx < 0) return;
     const targetPhotoId = getMetaPhotoId(photoMetas[idx]);
     lastAutoOpenedPhotoKeyRef.current = key;
-    openViewerAt(idx, getViewerTargetSrc(idx, false));
+    if (!viewerVisible || viewerIndex !== idx) openViewerAt(idx, getViewerTargetSrc(idx, false));
     if (typeof onInitialOpenPhotoHandled === 'function') {
       onInitialOpenPhotoHandled(targetPhotoId);
     }
-  }, [initialOpenPhotoId, initialOpenPhotoSrc, loading, photoMetas, projectId, getMetaPhotoId, openViewerAt, getViewerTargetSrc, onInitialOpenPhotoHandled]);
+  }, [routePhotoId, initialOpenPhotoSrc, loading, photoMetas, projectId, getMetaPhotoId, openViewerAt, getViewerTargetSrc, onInitialOpenPhotoHandled, viewerVisible, viewerIndex]);
 
   const closeViewer = React.useCallback(() => {
+    if (new URLSearchParams(window.location.search).has('photoId')) {
+      closeMediaRoute(); return;
+    }
     setViewerVisible(false);
     setViewerToneVisible(false);
     setViewerEnableOpenZoom(false);
@@ -4580,6 +4694,7 @@ function ProjectDetail({
   }, [viewerVisible, closeViewer, navigateViewer]);
 
   const handleViewerPointerDown = React.useCallback((e) => {
+    if (viewerToneVisible) return;
     if (e.target instanceof Element && e.target.closest('video, button, input, a')) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     viewerPointerRef.current = {
@@ -4588,7 +4703,7 @@ function ProjectDetail({
       startX: e.clientX,
       startY: e.clientY,
     };
-  }, []);
+  }, [viewerToneVisible]);
 
   const handleViewerPointerUp = React.useCallback((e) => {
     const state = viewerPointerRef.current;
@@ -4632,6 +4747,19 @@ function ProjectDetail({
   }, [viewerVisible, currentViewerPhotoId, resetViewerPhotoEdit]);
   const viewerDraftTags = Array.from(new Set([...viewerEditTags, viewerEditTagInput.trim()].filter(Boolean)));
   const viewerEditDirty = viewerEditDescription !== viewerSavedDescription || JSON.stringify(viewerDraftTags) !== viewerSavedTagsKey;
+  React.useEffect(() => {
+    if (!viewerVisible || !(viewerEditDirty || (viewerToneVisible && toneDirty) || viewerToneSaving || viewerEditSaving)) return undefined;
+    const unblock = getNavigation().block(next => {
+      const current = new URL(window.location.origin + route.url), target = new URL(next, window.location.origin);
+      if (current.pathname === target.pathname && ['projectId', 'photoId'].every(key => current.searchParams.get(key) === target.searchParams.get(key))) return true;
+      if (viewerToneSaving || viewerEditSaving) { Toast.info('正在保存，请稍候再离开'); return false; }
+      return window.confirm('有尚未保存的照片修改，离开将丢弃这些修改。是否继续？');
+    });
+    const beforeUnload = event => { event.preventDefault(); event.returnValue = ''; };
+    window.addEventListener('beforeunload', beforeUnload);
+    return () => { unblock(); window.removeEventListener('beforeunload', beforeUnload); };
+  }, [viewerVisible, viewerEditDirty, viewerToneVisible, toneDirty, viewerToneSaving, viewerEditSaving, route.url]);
+
 
   const saveViewerPhotoEdit = React.useCallback(async () => {
     if (viewerEditSaving) return;
@@ -6797,7 +6925,7 @@ function ProjectDetail({
         {viewerVisible ? createPortal(
         <div className="viewer-overlay viewer-overlay--workspace is-open" {...viewerAppearance.surfaceProps} onClick={closeViewer} role="dialog" aria-modal="true" aria-label="媒体查看器">
             <div className="mamage-dynamic-backdrop viewer-backdrop" aria-hidden="true" />
-            <div className={`viewer-wrap${viewerDetailsVisible || viewerToneVisible ? ' has-details' : ''}`} style={{ '--viewer-direction': viewerDirection }}>
+            <div className={`viewer-wrap${viewerDetailsVisible || viewerToneVisible ? ' has-details' : ''}${viewerToneVisible ? ' has-tone-editor' : ''}`} style={{ '--viewer-direction': viewerDirection }}>
               {/* 顶部状态栏：关闭+计数+摄影师·环节 | AI 分+推荐+原图开关（只读状态集中于此） */}
               <div className="viewer-topbar" onClick={(e) => e.stopPropagation()}>
                 <div className="viewer-topbar-left">
@@ -6881,7 +7009,7 @@ function ProjectDetail({
                           const isSlideVideo = isVideoMeta(slideMeta);
                           const slidePhotoId = getMetaPhotoId(slideMeta);
                           const slideFaces = slidePhotoId ? (viewerFaceMap[slidePhotoId] || []) : [];
-                          const showFaceBoxes = !isSlideVideo && idx === viewerIndex && viewerFaceOverlayVisible && slideFaces.length > 0;
+                          const showFaceBoxes = !isSlideVideo && idx === viewerIndex && viewerFaceOverlayVisible && !viewerToneVisible && slideFaces.length > 0;
                           const slideAdjustments = idx === viewerIndex && viewerToneVisible ? viewerToneDraft : getAdjustmentForPhoto(slideMeta);
                           const slideAdjustmentStyle = getPhotoAdjustmentStyle(slideAdjustments);
                           const useExactTonePreview = !isSlideVideo && idx === viewerIndex && !isDefaultPhotoAdjustments(slideAdjustments);
@@ -6920,6 +7048,14 @@ function ProjectDetail({
                                     photoId={slidePhotoId}
                                     adjustments={slideAdjustments}
                                     exact={useExactTonePreview}
+                                    interactive={idx === viewerIndex && viewerToneVisible}
+                                    comparison={viewerToneHoldingOriginal ? 'original' : viewerToneComparison}
+                                    cropMode={viewerToneMode === 'crop'} cropAspect={viewerToneAspect} editingDisabled={viewerToneSaving}
+                                    onCropChange={crop => updateToneDraft('crop', crop)} onCropStart={beginToneGesture}
+                                    onCropEnd={() => { toneGestureRef.current = false; }} onSourceSize={setViewerToneSourceSize}
+                                    faces={idx === viewerIndex && viewerToneVisible ? slideFaces : undefined}
+                                    onAnalysis={receiveToneAnalysis}
+                                    onToneError={receiveToneError}
                                     maxSize={viewerShowOriginal ? 2600 : 1600}
                                     pixelVariant={viewerShowOriginal ? 'original' : 'thumb'}
                                     alt={`viewer-${idx}`}
@@ -6971,6 +7107,14 @@ function ProjectDetail({
                                 photoId={getMetaPhotoId(photoMetas?.[idx])}
                                 adjustments={fallbackAdjustments}
                                 exact={useExactTonePreview}
+                                interactive={idx === viewerIndex && viewerToneVisible}
+                                comparison={viewerToneHoldingOriginal ? 'original' : viewerToneComparison}
+                                cropMode={viewerToneMode === 'crop'} cropAspect={viewerToneAspect} editingDisabled={viewerToneSaving}
+                                onCropChange={crop => updateToneDraft('crop', crop)} onCropStart={beginToneGesture}
+                                onCropEnd={() => { toneGestureRef.current = false; }} onSourceSize={setViewerToneSourceSize}
+                                faces={idx === viewerIndex && viewerToneVisible ? currentViewerFaces : undefined}
+                                onAnalysis={receiveToneAnalysis}
+                                onToneError={receiveToneError}
                                 alt={`viewer-${idx}`}
                                 className={`viewer-carousel-img${idx === viewerIndex && viewerEnableOpenZoom ? ' viewer-img--open-zoom' : ''}`}
                                 style={fallbackAdjustmentStyle}
@@ -6986,65 +7130,26 @@ function ProjectDetail({
 
               {viewerToneVisible && !currentViewerIsVideo && (photoMetas && photoMetas[viewerIndex]) ? (
                 <GlassReveal open className="viewer-panel-slot">
-                <div className="viewer-tone-panel glass-reveal-surface" onClick={(e) => e.stopPropagation()}>
-                  <div className="viewer-tone-head">
-                    <div>
-                      <div className="viewer-tone-title">照片调色</div>
-                      <div className="viewer-tone-subtitle">非破坏式参数，原图不变</div>
-                    </div>
-                    <button type="button" className="viewer-tone-close" onClick={() => setViewerToneVisible(false)} aria-label="关闭调色">×</button>
-                  </div>
-
-                  <div className="viewer-tone-histogram">
-                    <HistogramView histogram={viewerToneAnalysis?.adjustedHistogram} />
-                    <div className="viewer-tone-histogram-scale">
-                      <span>暗部</span>
-                      <span>中间调</span>
-                      <span>高光</span>
-                    </div>
-                    {viewerToneError ? (
-                      <div className="viewer-tone-error">{viewerToneError}</div>
-                    ) : (
-                      <div className="viewer-tone-clipping">
-                        {viewerToneAnalyzing ? '计算直方图中' : `阴影溢出 ${Math.round((viewerToneAnalysis?.clipping?.shadows || 0) * 1000) / 10}% · 高光溢出 ${Math.round((viewerToneAnalysis?.clipping?.highlights || 0) * 1000) / 10}%`}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="viewer-tone-actions">
-                    <button type="button" onClick={autoTuneCurrentPhoto} disabled={viewerToneAnalyzing}>自动</button>
-                    <button type="button" onClick={resetViewerTone}>重置</button>
-                    <button type="button" className="is-primary" onClick={saveViewerTone} disabled={viewerToneSaving}>
-                      {viewerToneSaving ? '保存中' : '保存'}
-                    </button>
-                  </div>
-
-                  <div className="viewer-tone-sliders">
-                    {[
-                      ['brightness', '亮度', -100, 100],
-                      ['contrast', '对比度', -100, 100],
-                      ['highlights', '高光', -100, 100],
-                      ['shadows', '阴影', -100, 100],
-                      ['whites', '白色', -100, 100],
-                      ['blacks', '黑色', -100, 100],
-                      ['temperature', '白平衡', -100, 100],
-                      ['tint', '色调', -100, 100],
-                    ].map(([key, label, min, max]) => (
-                      <label className="viewer-tone-slider" key={key}>
-                        <span>{label}</span>
-                        <input
-                          type="range"
-                          min={min}
-                          max={max}
-                          step="1"
-                          value={Math.round(Number(viewerToneDraft[key] || 0))}
-                          onChange={(e) => updateToneDraft(key, e.target.value)}
-                        />
-                        <strong>{Math.round(Number(viewerToneDraft[key] || 0))}</strong>
-                      </label>
-                    ))}
-                  </div>
-                </div>
+                <PhotoToneControls
+                  draft={viewerToneDraft} analysis={viewerToneAnalysis}
+                  busy={viewerToneMode === 'crop' ? false : viewerToneAnalyzing} saving={viewerToneSaving}
+                  error={viewerToneMode === 'crop' ? '' : viewerToneError}
+                  facesLoading={viewerToneFacesLoading}
+                  mode={viewerToneMode} onMode={mode => { setViewerToneMode(mode);
+                    if (mode === 'crop') { setViewerToneComparison('adjusted'); setViewerToneAnalyzing(false); setViewerToneError(''); } }}
+                  aspect={viewerToneAspect} onAspect={setToneAspect}
+                  onRotate={degrees => updateToneDraft('rotation', degrees)}
+                  onResetCrop={() => commitToneDraft({ ...viewerToneDraft, rotation: 0, crop: null })}
+                  sourceSize={viewerToneSourceSize} outputSize={toneOutputSize}
+                  dirty={toneDirty} comparison={viewerToneComparison} holdingOriginal={viewerToneHoldingOriginal}
+                  onCompare={setViewerToneComparison} onHoldOriginal={setViewerToneHoldingOriginal} onChange={updateToneDraft}
+                  onGestureStart={beginToneGesture} onGestureEnd={() => { toneGestureRef.current = false; }}
+                  onAuto={autoTuneCurrentPhoto} onReset={resetViewerTone} onSave={saveViewerTone}
+                  onClose={() => setViewerToneVisible(false)}
+                  onUndo={undoViewerTone} onRedo={redoViewerTone}
+                  canUndo={viewerToneHistory.past.length > 0} canRedo={viewerToneHistory.future.length > 0}
+                  histogram={<HistogramView histogram={viewerToneAnalysis?.adjustedHistogram} />}
+                />
                 </GlassReveal>
               ) : null}
 
@@ -7387,7 +7492,8 @@ function ProjectDetail({
                   <button
                     type="button"
                     className="viewer-dock-btn viewer-dock-btn--primary"
-                    title={currentViewerIsVideo ? '下载该视频' : '下载该照片'}
+                    title={currentViewerIsVideo ? '下载该视频' : viewerToneVisible ? (viewerToneComparing ? '下载原图' : '下载当前调色') : '下载该照片'}
+                    disabled={viewerToneVisible && (viewerToneAnalyzing || Boolean(viewerToneError))}
                     onClick={(e) => { e.stopPropagation(); downloadCurrentPhoto(); }}
                   >
                     <IconDownload />

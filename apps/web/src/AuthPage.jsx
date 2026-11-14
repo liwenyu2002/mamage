@@ -72,6 +72,18 @@ export default function AuthPage({ onAuthenticated }) {
   const currentLoginMode = loginMode || (hasCampusLogin ? 'campus' : 'password');
   React.useEffect(() => {
     if (providersLoading || providersFailed || active !== 'login' || loginMode || initialLoginFailure.current) return;
+    // 扫码完成后浏览器回到本站却没拿到 code：说明 IAM 只建了会话、没走回调。
+    // 此时立刻走标准授权跳转即可免密完成登录，避免用户卡在二维码页。
+    try {
+      const pending = Number(window.sessionStorage.getItem('mamage_iam_qr_pending') || 0);
+      const handoff = /(?:iam|oidc)_(?:code|error)=/.test(window.location.hash || '');
+      if (pending > 0 && Date.now() - pending < 60000 && !handoff && authProviders.iam) {
+        window.sessionStorage.removeItem('mamage_iam_qr_pending');
+        setRedirecting(true);
+        window.location.replace('/api/auth/iam/login?returnTo=' + encodeURIComponent(window.location.pathname + window.location.search));
+        return;
+      }
+    } catch { /* 存储不可用时保持手动登录 */ }
     try {
       if (autoStartCampusLogin({ providers: authProviders, location: window.location,
         userAgent: navigator.userAgent, storage: window.sessionStorage })
@@ -386,7 +398,12 @@ export default function AuthPage({ onAuthenticated }) {
           currentLoginMode === 'campus' && hasCampusLogin ? (
           <div className="auth-campus-panel" id="campus-login-panel" role="tabpanel" aria-labelledby="campus-login-tab">
             <h2>{authProviders.oidc ? (authProviders.oidcLabel || '统一身份认证') : authProviders.iam ? '校园统一身份认证' : '使用钉钉扫码或点击头像授权登录'}</h2>
-            {authProviders.iam && !authProviders.oidc && authProviders.iamQr && !redirecting && !/DingTalk/i.test(navigator.userAgent) ? <CampusLoginQr /> : null}
+            {authProviders.iamQr && !redirecting && !/DingTalk/i.test(navigator.userAgent) ? (
+              <>
+                <CampusLoginQr />
+                {authProviders.oidc || authProviders.iam ? <div className="auth-campus-divider"><span>或</span></div> : null}
+              </>
+            ) : null}
             {authProviders.oidc ? (
               <Button className="auth-primary" loading={redirecting} onClick={beginOidcLogin}>
                 前往{authProviders.oidcLabel || '统一身份认证'}<IconChevronRight />

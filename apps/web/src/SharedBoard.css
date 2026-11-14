@@ -1,0 +1,15 @@
+/* 我分享的：两列紧凑行，和相册桌面同字号同圆角 */
+.share-sent-chips { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px; max-width: 1200px; }
+.share-sent-chip { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 12px 8px 8px;
+  border: 1px solid rgba(255, 255, 255, .9); border-radius: 12px; background: rgba(255, 255, 255, .62);
+  box-shadow: 0 1px 3px rgba(31, 45, 49, .04); text-align: left; cursor: pointer; color: inherit;
+  transition: background .15s ease, box-shadow .15s ease; }
+.share-sent-chip:hover { background: #fff; box-shadow: 0 4px 12px rgba(31, 45, 49, .07); }
+.share-sent-icon { display: grid; place-items: center; width: 28px; height: 28px; flex: 0 0 28px; border-radius: 8px;
+  background: rgba(20, 23, 19, .05); color: #4a5a51; }
+.share-sent-icon.is-folder { background: rgba(47, 107, 79, .12); color: #2f6b4f; }
+.share-sent-icon svg { width: 15px; height: 15px; }
+.share-sent-body { display: grid; gap: 2px; min-width: 0; flex: 1; }
+.share-sent-body strong { font-size: 12.5px; font-weight: 600; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.share-sent-body small { font-size: 11px; line-height: 1.35; color: var(--lg-muted, #6f776e); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 760px) { .share-sent-chips { grid-template-columns: minmax(0, 1fr); } }

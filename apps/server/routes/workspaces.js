@@ -2,6 +2,7 @@ const express = require('express');
 const { pool } = require('../db');
 const { requirePermission } = require('../lib/permissions');
 const { workspacePolicy, ROLE_LABELS } = require('../lib/access_policy');
+const { accessAdministrator } = require('../lib/user_access_admin');
 const {
   positiveId, resolveWorkspace, sendWorkspaceError, WorkspaceAccessError,
 } = require('../lib/workspace_access');
@@ -191,6 +192,9 @@ router.put('/:unitId/members/:userId', requirePermission('photos.view'), async (
     }
     const actorRole = await getUnitRole(workspace, unitId);
     if (actorRole !== 'manager' && actorRole !== 'collegeAdmin') throw new WorkspaceAccessError('UNIT_FORBIDDEN');
+    // 分配/变更成员角色属于权限管理，统一收口到超级管理员（历史实现允许小组 manager 越权分配）。
+    const admin = await accessAdministrator(conn, workspace.userId);
+    if (!admin.allowed) throw new WorkspaceAccessError('ACCESS_ADMIN_REQUIRED', 403);
     if (role === 'manager' && !workspace.collegeAdmin) throw new WorkspaceAccessError('COLLEGE_ADMIN_REQUIRED');
     if (!workspace.collegeAdmin) {
       const [previous] = await conn.query('SELECT role FROM organization_unit_memberships WHERE unit_id = ? AND user_id = ? AND removed_at IS NULL LIMIT 1', [unitId, userId]);
@@ -223,6 +227,9 @@ router.delete('/:unitId/members/:userId', requirePermission('photos.view'), asyn
     if (!unitId || !userId) throw new WorkspaceAccessError('INVALID_MEMBERSHIP', 400);
     const actorRole = await getUnitRole(workspace, unitId);
     if (actorRole !== 'manager' && actorRole !== 'collegeAdmin') throw new WorkspaceAccessError('UNIT_FORBIDDEN');
+    // 分配/变更成员角色属于权限管理，统一收口到超级管理员（历史实现允许小组 manager 越权分配）。
+    const admin = await accessAdministrator(conn, workspace.userId);
+    if (!admin.allowed) throw new WorkspaceAccessError('ACCESS_ADMIN_REQUIRED', 403);
     const [targetRows] = await conn.query(
       'SELECT role FROM organization_unit_memberships WHERE unit_id = ? AND user_id = ? AND removed_at IS NULL LIMIT 1',
       [unitId, userId]

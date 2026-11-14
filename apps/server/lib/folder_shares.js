@@ -82,7 +82,25 @@ async function listFolderShares(workspace, db, direction = 'received') {
             ELSE (SELECT COUNT(DISTINCT s.project_id) FROM internal_shares s JOIN projects p ON p.id = s.project_id
              WHERE s.folder_share_id = fs.id AND s.revoked_at IS NULL
                AND p.organization_id = fs.organization_id AND p.unit_id = fs.source_unit_id
-               AND p.restricted_to_user_id IS NULL) END AS albumCount
+               AND p.restricted_to_user_id IS NULL) END AS albumCount,
+            (SELECT COALESCE(SUM(pc.n), 0) FROM (
+                SELECT p.id, (SELECT COUNT(*) FROM photos ph WHERE ph.project_id = p.id AND ph.organization_id = p.organization_id) AS n
+                FROM internal_shares s JOIN projects p ON p.id = s.project_id
+                WHERE s.folder_share_id = fs.id AND s.revoked_at IS NULL
+                  AND p.organization_id = fs.organization_id AND p.unit_id = fs.source_unit_id
+                  AND p.restricted_to_user_id IS NULL
+             ) pc) AS photoCount,
+            (SELECT JSON_ARRAYAGG(JSON_OBJECT('path', cover.t, 'id', cover.pid)) FROM (
+                SELECT ph.thumb_url AS t, ph.id AS pid
+                FROM internal_shares s JOIN projects p2 ON p2.id = s.project_id
+                JOIN photos ph ON ph.id = (SELECT ph2.id FROM photos ph2
+                  WHERE ph2.project_id = p2.id AND ph2.organization_id = p2.organization_id
+                  ORDER BY ph2.created_at DESC, ph2.id DESC LIMIT 1)
+                WHERE s.folder_share_id = fs.id AND s.revoked_at IS NULL
+                  AND p2.organization_id = fs.organization_id AND p2.unit_id = fs.source_unit_id
+                  AND p2.restricted_to_user_id IS NULL
+                ORDER BY p2.updated_at DESC, p2.id DESC LIMIT 4
+             ) cover WHERE cover.t IS NOT NULL AND cover.t <> '') AS coverItems
      FROM folder_shares fs
      JOIN organization_units source ON source.id = fs.source_unit_id
      JOIN organizations org ON org.id = fs.organization_id
@@ -95,6 +113,12 @@ async function listFolderShares(workspace, db, direction = 'received') {
     [workspace.orgId, workspace.unitId, ...(received ? [workspace.userId] : [])]
   );
   return rows.map(row => ({ ...row, shareType: 'folder', id: Number(row.id), albumCount: Number(row.albumCount),
+    photoCount: Number(row.photoCount) || 0,
+    covers: (() => {
+      if (Array.isArray(row.coverItems)) return row.coverItems;
+      if (row.coverItems && typeof row.coverItems === 'object') return [row.coverItems];
+      try { const parsed = row.coverItems ? JSON.parse(row.coverItems) : []; return Array.isArray(parsed) ? parsed : []; } catch { return []; }
+    })(),
     originLabel: [row.sourceOrganizationName, row.sourceUnitName].filter(Boolean).join(' / ') }));
 }
 

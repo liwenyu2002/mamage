@@ -75,6 +75,15 @@ router.param('photoId', async (req, res, next, value) => {
   }
 });
 
+const safeJsonArray = value => {
+  if (!value) return [];
+  try { const data = typeof value === 'string' ? JSON.parse(value) : value; return Array.isArray(data) ? data : []; } catch { return []; }
+};
+const safeJsonObject = value => {
+  if (!value) return null;
+  try { const data = typeof value === 'string' ? JSON.parse(value) : value; return data && typeof data === 'object' ? data : null; } catch { return null; }
+};
+
 function appendOrgScope(sqlBase, alias, orgId, params) {
   if (orgId === null) {
     return `${sqlBase} AND ${alias}.organization_id IS NULL`;
@@ -525,6 +534,18 @@ async function buildFaceProfile({ faceId, personId, orgId, userId = null, worksp
         person_no AS personNo,
         name,
         note,
+        alias,
+        employee_no AS employeeNo,
+        department,
+        title,
+        email,
+        phone,
+        tags,
+        profile,
+        summary,
+        importance,
+        status,
+        merged_into AS mergedInto,
         CASE WHEN EXISTS (SELECT 1 FROM photo_faces cover
           WHERE cover.id = face_persons.cover_face_id AND cover.person_id = face_persons.id
             AND ${usableFaceSql('cover')}) THEN cover_face_id ELSE NULL END AS coverFaceId,
@@ -546,6 +567,19 @@ async function buildFaceProfile({ faceId, personId, orgId, userId = null, worksp
         name: p.name || null,
         personName: p.name || null,
         note: p.note || null,
+        alias: p.alias || null,
+        employeeNo: p.employeeNo || null,
+        department: p.department || null,
+        title: p.title || null,
+        email: p.email || null,
+        phone: p.phone || null,
+        tags: safeJsonArray(p.tags),
+        profile: safeJsonObject(p.profile),
+        summary: p.summary || null,
+        importance: Number(p.importance) || 0,
+        status: p.status || 'active',
+        mergedInto: p.mergedInto ? String(p.mergedInto) : null,
+        displayName: [p.name || null, p.department || p.title].filter(Boolean).join(' · ') || null,
         coverFaceId: p.coverFaceId ? String(p.coverFaceId) : null,
         createdAt: p.createdAt,
         updatedAt: p.updatedAt,
@@ -915,8 +949,9 @@ router.get('/persons', requirePermission('faces.view'), async (req, res) => {
     const params = [orgId];
     if (q) {
       const like = `%${q}%`;
-      where.push('(fp.name LIKE ? OR fp.note LIKE ? OR CAST(fp.id AS CHAR) LIKE ? OR CAST(fp.person_no AS CHAR) LIKE ?)');
-      params.push(like, like, like, like);
+      where.push(`(fp.name LIKE ? OR fp.note LIKE ? OR fp.alias LIKE ? OR fp.employee_no LIKE ?
+        OR fp.department LIKE ? OR fp.title LIKE ? OR CAST(fp.id AS CHAR) LIKE ? OR CAST(fp.person_no AS CHAR) LIKE ?)`);
+      params.push(like, like, like, like, like, like, like, like);
     }
 
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
@@ -932,17 +967,23 @@ router.get('/persons', requirePermission('faces.view'), async (req, res) => {
          fp.person_no AS personNo,
          fp.name,
          fp.note,
+         fp.alias,
+         fp.employee_no AS employeeNo,
+         fp.department,
+         fp.title,
+         fp.importance,
+         fp.status,
+         fp.tags,
+         fp.summary,
          CASE WHEN EXISTS (SELECT 1 FROM photo_faces cover
            WHERE cover.id = fp.cover_face_id AND cover.person_id = fp.id AND ${usableFaceSql('cover')})
            THEN fp.cover_face_id ELSE NULL END AS coverFaceId,
          fp.created_at AS createdAt,
          fp.updated_at AS updatedAt,
-         COUNT(pf.id) AS faceCount
+         (SELECT COUNT(*) FROM photo_faces pf WHERE pf.person_id = fp.id AND ${usableFaceSql('pf')}) AS faceCount
        FROM face_persons fp
-       LEFT JOIN photo_faces pf ON pf.person_id = fp.id AND ${usableFaceSql('pf')}
        ${whereSql}
-       GROUP BY fp.id, fp.person_no, fp.name, fp.note, fp.cover_face_id, fp.created_at, fp.updated_at
-       ORDER BY faceCount DESC, fp.updated_at DESC, fp.id DESC
+       ORDER BY fp.updated_at DESC, fp.id DESC
        LIMIT ? OFFSET ?`,
       [...params, pageSize, offset]
     );
@@ -953,6 +994,15 @@ router.get('/persons', requirePermission('faces.view'), async (req, res) => {
       personNo: r.personNo || null,
       name: r.name || null,
       note: r.note || null,
+      alias: r.alias || null,
+      employeeNo: r.employeeNo || null,
+      department: r.department || null,
+      title: r.title || null,
+      importance: Number(r.importance) || 0,
+      status: r.status || 'active',
+      tags: safeJsonArray(r.tags),
+      summary: r.summary || null,
+      displayName: [r.name, r.department || r.title].filter(Boolean).join(' · ') || null,
       coverFaceId: r.coverFaceId ? String(r.coverFaceId) : null,
       faceCount: Number(r.faceCount) || 0,
       createdAt: r.createdAt || null,
@@ -1462,30 +1512,73 @@ router.patch('/persons/:personId', requirePermission('faces.label'), async (req,
     const personId = Number(req.params.personId);
     if (!Number.isFinite(personId) || personId <= 0) return res.status(400).json({ error: 'invalid personId' });
 
-    const personNameRaw = req.body && req.body.personName;
-    const personName = personNameRaw === undefined || personNameRaw === null ? '' : String(personNameRaw).trim();
-    if (!personName) {
-      return res.status(400).json({ error: 'personName is required' });
+    const body = req.body || {};
+    const text = (value, max) => {
+      if (value === undefined) return undefined;
+      const out = value === null ? '' : String(value).trim();
+      if (out.length > max) throw Object.assign(new Error(`字段过长（最多 ${max} 字）`), { status: 400 });
+      return out;
+    };
+    const personName = text(body.personName, 120);
+    if (personName !== undefined && !personName) return res.status(400).json({ error: 'personName is required' });
+    const employeeNo = text(body.employeeNo, 64);
+    const department = text(body.department, 120);
+    const title = text(body.title, 120);
+    const alias = text(body.alias, 255);
+    const email = text(body.email, 255);
+    const phone = text(body.phone, 64);
+    const summary = text(body.summary, 4000);
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: '邮箱格式不正确' });
+    const importance = body.importance === undefined ? undefined : Number(body.importance);
+    if (importance !== undefined && (!Number.isInteger(importance) || importance < 0 || importance > 3)) {
+      return res.status(400).json({ error: 'importance 取值 0-3' });
     }
+    const cleanJson = (value, label) => {
+      if (value === undefined) return undefined;
+      if (value === null || value === '') return null;
+      const data = typeof value === 'string' ? (() => { try { return JSON.parse(value); } catch { return null; } })() : value;
+      if (data === null || typeof data !== 'object') throw Object.assign(new Error(label + '需要是 JSON'), { status: 400 });
+      return JSON.stringify(data);
+    };
+    const tags = body.tags === undefined ? undefined
+      : Array.isArray(body.tags) ? JSON.stringify(body.tags.map(t => String(t).trim()).filter(Boolean).slice(0, 20))
+        : cleanJson(body.tags, 'tags');
+    const profileJson = cleanJson(body.profile, 'profile');
 
-    const dupParams = [personName, personId];
-    // Retain retired profiles for audit history without reserving a visible person's name.
-    let dupSql = `SELECT id FROM face_persons WHERE name = ? AND id <> ?
-      AND EXISTS (SELECT 1 FROM photo_faces active
-        WHERE active.person_id = face_persons.id AND ${usableFaceSql('active')})`;
-    dupSql = appendOrgScope(dupSql, 'face_persons', orgId, dupParams);
-    dupSql += ' LIMIT 1';
-    const [dupRows] = await pool.query(dupSql, dupParams);
-    if (dupRows && dupRows.length) {
-      return res.status(409).json({
-        error: 'person name already exists',
-        message: '该姓名已被其他有效人物使用，请在合并人物中搜索该姓名并核对人脸。',
-        existingPersonId: String(dupRows[0].id),
+    // 同名不再直接拒绝：只有「同名且无法区分」（工号相同，或双方都没有工号/部门）时才拦截
+    if (personName) {
+      const dupParams = [personName, personId];
+      let dupSql = `SELECT id, employee_no AS employeeNo, department FROM face_persons WHERE name = ? AND id <> ?
+        AND EXISTS (SELECT 1 FROM photo_faces active WHERE active.person_id = face_persons.id AND ${usableFaceSql('active')})`;
+      dupSql = appendOrgScope(dupSql, 'face_persons', orgId, dupParams);
+      const [dupRows] = await pool.query(dupSql, dupParams);
+      const nextNo = employeeNo === undefined ? null : employeeNo;
+      const nextDept = department === undefined ? null : department;
+      const conflict = (dupRows || []).find(row => {
+        if (nextNo && row.employeeNo && row.employeeNo === nextNo) return true;
+        if (!nextNo && !row.employeeNo && (nextDept || row.department)) return !nextDept || nextDept === row.department;
+        return false;
       });
+      if (conflict) {
+        return res.status(409).json({
+          error: 'person identity already exists',
+          message: '同名且工号/部门相同的有效人物已存在，请先在合并人物里核对人脸；如需区分请补工号或部门。',
+          existingPersonId: String(conflict.id),
+        });
+      }
     }
 
-    const updParams = [personName, personId];
-    let updSql = 'UPDATE face_persons SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?';
+    const sets = [], updParams = [];
+    const push = (column, value) => { if (value !== undefined) { sets.push(`${column} = ?`); updParams.push(value); } };
+    push('name', personName); push('employee_no', employeeNo); push('department', department); push('title', title);
+    push('alias', alias); push('email', email); push('phone', phone); push('summary', summary);
+    push('tags', tags); push('profile', profileJson); push('importance', importance);
+    if (body.note !== undefined) push('note', text(body.note, 4000));
+    if (!sets.length) return res.status(400).json({ error: '没有可更新的字段' });
+    sets.push('updated_by = ?'); updParams.push(req.user.id);
+    sets.push('updated_at = CURRENT_TIMESTAMP');
+    updParams.push(personId);
+    let updSql = 'UPDATE face_persons SET ' + sets.join(', ') + ' WHERE id = ?';
     updSql = appendOrgScope(updSql, 'face_persons', orgId, updParams);
     const [upd] = await pool.query(updSql, updParams);
     if (!upd || !Number(upd.affectedRows)) {

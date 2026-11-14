@@ -279,7 +279,7 @@ export function AlbumShortcut({ album, group, groups, albums, onOpen, onSelect, 
   </article>;
 }
 
-export function AlbumDirectory({ groups, albums, sections, selected, view, isDesktop, activeSection, onView, onJump, onSelect, onCreate, getGroupDropProps, getFolderDragProps, dropTargetId, expandedFolders, onToggleFolder, desktopExpanded, onToggleDesktop, workspaceName, organizationName, canOrganize }) {
+export function AlbumDirectory({ groups, albums, sections, selected, view, isDesktop, activeSection, onView, onJump, onSelect, onCreate, getGroupDropProps, getFolderDragProps, dropTargetId, expandedFolders, onToggleFolder, desktopExpanded, onToggleDesktop, workspaceName, organizationName, canOrganize, onOpenShares, sharesCount }) {
   const treeId = React.useId();
   const selectedPath = folderPath(groups.find(group => group.id === selected), groups);
   const renderFolder = (group, level = 0) => {
@@ -316,7 +316,11 @@ export function AlbumDirectory({ groups, albums, sections, selected, view, isDes
         <span className="acp-directory-symbol"><Icon /></span><span>{name}</span></button>)}
       <ul className="acp-folder-tree" aria-label="多级文件夹">{groups.filter(group => !group.parentId).map(group => renderFolder(group))}</ul>
     </div>
-    <div className="acp-directory-links acp-directory-utility"><button className={selected === 'all' && view === 'unfiled' ? 'is-selected' : ''}
+    <div className="acp-directory-links acp-directory-utility">
+      {onOpenShares ? <button type="button" className={view === 'shared' ? 'is-selected' : ''}
+        aria-current={view === 'shared' ? 'page' : undefined} onClick={onOpenShares}>
+        <span className="acp-directory-symbol"><IconShare /></span><span>共享</span>{sharesCount ? <small>{sharesCount}</small> : null}</button> : null}
+      <button className={selected === 'all' && view === 'unfiled' ? 'is-selected' : ''}
       aria-current={selected === 'all' && view === 'unfiled' ? 'page' : undefined} onClick={() => onView('unfiled')}>
       <span className="acp-directory-symbol"><IconListView /></span><span>未归类</span><small>{albums.filter((album) => !album.groups.length).length}</small></button></div>
     <div className="acp-directory-foot"><span />当前小组织空间</div>

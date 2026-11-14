@@ -93,10 +93,16 @@ function createIamAuthRouter({ db, config = iamConfig, store = createSharedStore
       if (typeof token.access_token !== 'string' || !token.access_token || token.access_token.length > 16000) throw error('IAM_INVALID_RESPONSE');
       const url = new URL(cfg.profileUrl); url.searchParams.set('access_token', token.access_token);
       const profile = await request(url.href, { method: 'POST' });
+      if (process.env.IDP_PROFILE_DEBUG === '1') {
+        console.warn('[idp-profile:iam]', JSON.stringify(profile).slice(0, 4000));
+      }
+      const idpStore = require('../lib/idp_profile_store');
       const directory = createIamDirectory(database());
       const user = cfg.profileLoginMatching
         ? await require('../lib/iam_profile_links').resolveProfile(database(), cfg, profile, profileId(profile, cfg.profileIdPath))
         : await directory.resolveUser(cfg, profileId(profile, cfg.profileIdPath));
+      void idpStore.saveIdpProfile(database(), { sourceKey: cfg.sourceKey, subjectId: profileId(profile, cfg.profileIdPath),
+        userId: user.id, provider: 'iam', profile });
       const account = await assertSession(user.id, null, database()), handoff = random();
       await store.set(sha256(handoff), { kind: 'handoff', userId: user.id, version: Number(account.session_version), sourceKey: cfg.sourceKey, flowKey: cfg.flowKey,
         browserHash: state.browserHash, returnTo: state.returnTo, expiresAt: Date.now() + 120000 });

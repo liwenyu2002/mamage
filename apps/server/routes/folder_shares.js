@@ -21,11 +21,19 @@ function fail(res, error) {
 const validFolderId = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,80}$/.test(value);
 
 router.get('/received', async (req, res) => {
-  try { res.json(await listFolderShares(await resolveWorkspace(req), pool)); }
+  try {
+    const workspace = await resolveWorkspace(req);
+    const rows = await listFolderShares(workspace, pool);
+    res.json(rows.map(row => ({ ...row, coverUrls: (row.covers || []).map(cover => buildMediaUrl(cover.path, { userId: workspace.userId, photoId: cover.id })) })));
+  }
   catch (error) { fail(res, error); }
 });
 router.get('/sent', async (req, res) => {
-  try { res.json(await listFolderShares(await resolveWorkspace(req), pool, 'sent')); }
+  try {
+    const workspace = await resolveWorkspace(req);
+    const rows = await listFolderShares(workspace, pool, 'sent');
+    res.json(rows.map(row => ({ ...row, coverUrls: (row.covers || []).map(cover => buildMediaUrl(cover.path, { userId: workspace.userId, photoId: cover.id })) })));
+  }
   catch (error) { fail(res, error); }
 });
 router.get('/status/:folderId', async (req, res) => {

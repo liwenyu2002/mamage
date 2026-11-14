@@ -12,6 +12,7 @@ import {
   listReceivedFolderShares, listSentFolderShares, createFolderShare, revokeFolderShare, retryFolderCopy,
 } from './services/workspaceService';
 import { publicEntryUrl } from './services/networkService';
+import { copyText } from './utils/clipboard';
 import { buildAlbumUploadUrl } from './utils/albumUploadLink';
 import { memberRoleLabel } from './utils/accessRoles';
 import './WorkspacePanel.css';
@@ -262,10 +263,9 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
         mode: 'public', syncMode: options.syncMode, expiresInDays: Number(publicExpiry) }) : await createPublicShare(options);
       await refreshLists();
       const link = `${publicEntryUrl()}/share/${created.code}`;
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(link);
-        Toast.success('公开链接已创建并复制');
-      } else Toast.info(link);
+      // 内网是 http，navigator.clipboard 不可用；copyText 内部会退回到 execCommand 复制。
+      try { await copyText(link); Toast.success('公开链接已创建并复制'); }
+      catch { Toast.info('链接已创建，请手动复制：' + link); }
     } catch (err) { Toast.error(err.message || '创建公开链接失败'); }
     finally { setBusy(false); }
   };
@@ -546,12 +546,10 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
               <span>{share.syncMode === 'automatic' ? '自动同步' : '人工确认'} · {expiryLabel(share.expiresAt)}
                 {Number(share.pendingCount) > 0 ? ` · ${share.pendingCount} 张待确认` : ''}</span>
             </div>
-            <button type="button" onClick={() => {
+            <button type="button" onClick={async () => {
               const link = `${publicEntryUrl()}/share/${share.code}`;
-              if (navigator.clipboard?.writeText) {
-                navigator.clipboard.writeText(link).then(() => Toast.success('链接已复制'))
-                  .catch(() => Toast.info(link));
-              } else Toast.info(link);
+              try { await copyText(link); Toast.success('链接已复制'); }
+              catch { Toast.info('请手动复制：' + link); }
             }}>复制链接</button>
             {canManage && Number(share.pendingCount) > 0 && <button type="button" disabled={busy}
               onClick={() => openPending(share.code)}>确认照片</button>}

@@ -2,6 +2,7 @@ import React from 'react';
 import { Card, Input, Button, Toast, Typography, Select, Divider } from './ui';
 import * as authService from './services/authService';
 import { accessRoleLabel } from './utils/accessRoles';
+import { copyText } from './utils/clipboard';
 const OperationsPanel = React.lazy(() => import('./OperationsPanel'));
 const UserAccessPanel = React.lazy(() => import('./UserAccessPanel'));
 
@@ -315,7 +316,7 @@ export default function AccountPage({ currentUser, onUpdated }) {
               <div><Text strong>最新邀请码：</Text></div>
               <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
                 <div style={{ padding: '6px 10px', background: '#f6f6f6', borderRadius: 4, fontFamily: 'monospace' }}>{lastCreated.code || lastCreated.invite_code || lastCreated.token || JSON.stringify(lastCreated)}</div>
-                <Button onClick={() => { navigator.clipboard?.writeText(lastCreated.code || lastCreated.invite_code || ''); Toast.success('已复制邀请码'); }}>复制</Button>
+                <Button onClick={async () => { try { await copyText(lastCreated.code || lastCreated.invite_code || ''); Toast.success('已复制邀请码'); } catch { Toast.info(String(lastCreated.code || lastCreated.invite_code || '')); } }}>复制</Button>
               </div>
             </div>
           )}
@@ -339,7 +340,7 @@ export default function AccountPage({ currentUser, onUpdated }) {
                       <div style={{ color: '#999' }}>{it.expiresAt ? new Date(it.expiresAt).toLocaleString() : (it.expires_in_days ? `有效期 ${it.expires_in_days} 天` : '')}</div>
                     </div>
                     <div>
-                      <Button size="small" onClick={() => { navigator.clipboard?.writeText(it.code || it.invite_code || ''); Toast.success('已复制邀请码'); }}>复制</Button>
+                      <Button size="small" onClick={async () => { try { await copyText(it.code || it.invite_code || ''); Toast.success('已复制邀请码'); } catch { Toast.info(String(it.code || it.invite_code || '')); } }}>复制</Button>
                       <Button size="small" theme="borderless" disabled={Boolean(it.revoked)} onClick={() => handleRevoke(it.id || it._id)} style={{ marginLeft: 8 }}>{it.revoked ? '已撤销' : '撤销'}</Button>
                     </div>
                   </div>
