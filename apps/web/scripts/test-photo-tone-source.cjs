@@ -17,7 +17,7 @@ function loadClient() {
     Image: class { constructor() { this.naturalWidth = 5000; this.naturalHeight = 3333; } async decode() {} },
     document: { createElement(name) {
       assert.equal(name, 'canvas');
-      return { getContext: () => ({ fillRect() {}, drawImage() {}, getImageData: () => ({ data: [] }) }) };
+      return { getContext: () => ({ fillRect() {}, drawImage() {}, getImageData: () => ({ data: new Uint8ClampedArray([10, 20, 30, 255]) }) }) };
     } },
   };
   vm.runInNewContext(code, sandbox, { filename: 'photoAdjustments.js' });
@@ -35,12 +35,17 @@ test('saved edit metadata survives client normalization without entering render 
   }
 });
 
-test('original-quality editing does not reuse or downsize a cached preview', async () => {
+test('original-quality editing does not reuse downscaled or transferred pixel buffers', async () => {
   const client = loadClient();
   const preview = await client.loadTonePixels('fixture-original', { maxSize: 1280 });
   assert.deepEqual([preview.width, preview.height], [1280, 853]);
   const original = await client.loadTonePixels('fixture-original', { maxSize: 1280, fullResolution: true });
   assert.deepEqual([original.width, original.height], [5000, 3333]);
   assert.notEqual(original, preview);
-  assert.equal(await client.loadTonePixels('fixture-original', { fullResolution: true }), original);
+  structuredClone(original.data, { transfer: [original.data.buffer] });
+  assert.equal(original.data.byteLength, 0);
+  const reopened = await client.loadTonePixels('fixture-original', { fullResolution: true });
+  assert.notEqual(reopened, original);
+  assert.equal(reopened.data.byteLength, 4);
+  assert.deepEqual([reopened.width, reopened.height], [5000, 3333]);
 });

@@ -47,9 +47,11 @@ export function loadTonePixels(src, options = {}) {
       return { width, height, naturalWidth, naturalHeight, data: ctx.getImageData(0, 0, width, height).data };
     } finally { if (objectUrl) URL.revokeObjectURL(objectUrl); }
   })().catch(error => { if (sources.get(key) === promise) sources.delete(key); throw error; });
-  // At most four decoded previews, scoped to the current authenticated session.
-  if (sources.size >= 4) sources.delete(sources.keys().next().value);
-  sources.set(key, promise);
+  // The editor transfers full-resolution pixels to its worker, detaching them.
+  if (!fullResolution) {
+    if (sources.size >= 4) sources.delete(sources.keys().next().value);
+    sources.set(key, promise);
+  }
   return promise;
 }
 
