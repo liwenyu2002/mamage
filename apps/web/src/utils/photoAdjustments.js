@@ -1,9 +1,14 @@
 import {
-  DEFAULT_PHOTO_ADJUSTMENTS, normalizePhotoAdjustments, buildPhotoAdjustments,
+  DEFAULT_PHOTO_ADJUSTMENTS, normalizePhotoAdjustments as normalizePixels, buildPhotoAdjustments,
   isDefaultPhotoAdjustments, processTonePixels, analyzeTonePixels,
 } from '../../../server/lib/photo_tone/engine.mjs';
 
-export { DEFAULT_PHOTO_ADJUSTMENTS, normalizePhotoAdjustments, buildPhotoAdjustments, isDefaultPhotoAdjustments };
+export { DEFAULT_PHOTO_ADJUSTMENTS, buildPhotoAdjustments, isDefaultPhotoAdjustments };
+export function normalizePhotoAdjustments(input) {
+  let value = input;
+  if (typeof value === 'string') value = JSON.parse(value);
+  return { ...normalizePixels(value), ...(value?.baked ? { baked: value.baked } : {}) };
+}
 export { getToneAdjustmentKey } from '../../../server/lib/photo_tone/engine.mjs';
 
 // CSS brightness/sepia cannot represent the pixel pipeline. Keep the last exact
