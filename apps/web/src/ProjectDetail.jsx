@@ -45,7 +45,7 @@ import { resolveAssetUrl, BASE_URL, request } from './services/request';
 import { hydrateSimilarityPhotos } from './services/similarityPhotos';
 import { findProjectPreviewIndex } from './utils/projectPreviewPhotos';
 import { buildPhotoFocusUrl, readPhotoFocusIntent, consumePhotoFocusIntent, focusPhotoCard } from './utils/photoFocus';
-import { getDirectMediaUrl, downloadOriginalMedia } from './services/directStorage';
+import { getDirectMediaUrl, downloadOriginalMedia, clearDirectMediaUrlCache } from './services/directStorage';
 import { batchVideoDownload } from './services/batchVideoDownload';
 import FindMeModal from './FindMeModal';
 import FacePersonMerge from './FacePersonMerge';

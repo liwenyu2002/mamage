@@ -1,7 +1,7 @@
 const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),assert=require('node:assert/strict');
 const {test}=require('node:test');
 const {createRequire}=require('node:module'),runtime=createRequire(path.resolve(__dirname,'../package.json'));
-const {transformSync}=runtime('@babel/core');
+const {transformSync,parseSync,traverse,types,transformFromAstSync}=runtime('@babel/core');
 const code=transformSync(fs.readFileSync(path.resolve(__dirname,'../src/services/directStorage.js'),'utf8'),{
   filename:'directStorage.js',configFile:false,babelrc:false,plugins:[runtime.resolve('@babel/plugin-transform-modules-commonjs')],
 }).code;
@@ -64,4 +64,35 @@ test('changing the active workspace clears signed links only after the server ac
  }});
  await module.exports.setActiveWorkspace(2);assert.equal(clears,1);
  allowed=false;await assert.rejects(module.exports.setActiveWorkspace(3),/forbidden/);assert.equal(clears,1);
+});
+test('opening or saving a photo edit clears signed links through the page actual imports',async()=>{
+ let signed=0;
+ const f=fixture(async url=>url.endsWith('direct-status')?{eligible:true}:{url:'http://storage/'+(++signed),expiresIn:900});
+ assert.equal(await f.api.getDirectMediaUrl(11),'http://storage/1');
+ const ast=parseSync(fs.readFileSync(path.resolve(__dirname,'../src/ProjectDetail.jsx'),'utf8'),{
+  filename:'ProjectDetail.jsx',configFile:false,babelrc:false,parserOpts:{plugins:['jsx']},
+ });
+ let callback;
+ traverse(ast,{VariableDeclarator(p){if(p.node.id.name==='patchPhotoAdjustmentState')callback=p.node.init.arguments[0];}});
+ assert.ok(callback,'the edit state callback exists');
+ const bindings={};
+ for(const item of ast.program.body.filter(n=>n.type==='ImportDeclaration'&&n.source.value==='./services/directStorage')){
+  for(const spec of item.specifiers)bindings[spec.local.name]=f.api[spec.imported.name];
+ }
+ const photos=[{id:11,url:'/old.jpg',thumbUrl:'/old-thumb.jpg'},{id:12,url:'/other.jpg'}];
+ const state={metas:photos,direct:{'11:original':'stale','12:original':'keep'},images:['/old-thumb.jpg','/other-thumb.jpg'],adjustments:{}};
+ const sandbox={...bindings,photoMetas:photos,normalizePhotoAdjustments:value=>value,getPhotoRecordId:photo=>photo.id,
+  setPhotoAdjustmentsMap:update=>{state.adjustments=update(state.adjustments);},
+  setPhotoMetas:update=>{state.metas=update(state.metas);},setDirectMediaUrlMap:update=>{state.direct=update(state.direct);},
+  setImages:update=>{state.images=update(state.images);},encodeURIComponent};
+ const extracted=transformFromAstSync(types.file(types.program([
+  types.variableDeclaration('const',[types.variableDeclarator(types.identifier('patchPhotoAdjustmentState'),callback)]),
+ ])),null,{configFile:false,babelrc:false}).code;
+ vm.runInNewContext(extracted+'\nglobalThis.patchPhotoAdjustmentState=patchPhotoAdjustmentState;',sandbox);
+ sandbox.patchPhotoAdjustmentState(11,{version:3,exposure:0.7},{url:'/edited.jpg',thumbUrl:'/edited-thumb.jpg',editRevision:'new-revision'});
+ assert.equal(await f.api.getDirectMediaUrl(11),'http://storage/2','the signed URL is regenerated after an edit');
+ assert.equal(state.direct['11:original'],undefined);
+ assert.equal(state.direct['12:original'],'keep');
+ assert.equal(state.images[0],'/edited-thumb.jpg?edit=new-revision');
+ assert.equal(state.metas[0].adjustments.exposure,0.7);
 });

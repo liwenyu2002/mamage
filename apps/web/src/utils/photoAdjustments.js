@@ -13,7 +13,8 @@ export function getPhotoAdjustmentStyle() { return undefined; }
 const sources = new Map();
 export function loadTonePixels(src, options = {}) {
   const maxSize = Math.max(320, Math.min(4096, Number(options.maxSize || 1280)));
-  const key = JSON.stringify([src, maxSize, options.token || '']);
+  const fullResolution = options.fullResolution === true;
+  const key = JSON.stringify([src, maxSize, fullResolution, options.token || '']);
   if (sources.has(key)) return sources.get(key);
   const promise = (async () => {
     let objectUrl = '';
@@ -33,7 +34,7 @@ export function loadTonePixels(src, options = {}) {
       img.src = imageSrc;
       await img.decode();
       const naturalWidth = sourceWidth || img.naturalWidth, naturalHeight = sourceHeight || img.naturalHeight;
-      const scale = Math.min(1, maxSize / Math.max(img.naturalWidth, img.naturalHeight));
+      const scale = fullResolution ? 1 : Math.min(1, maxSize / Math.max(img.naturalWidth, img.naturalHeight));
       const width = Math.max(1, Math.round(img.naturalWidth * scale)), height = Math.max(1, Math.round(img.naturalHeight * scale));
       const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
       const ctx = canvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
