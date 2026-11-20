@@ -7,7 +7,8 @@ import SearchFeedback, { SearchSkeleton } from './SearchFeedback';
 import FolderStyleMenu, { useFolderStyle } from './folders/FolderStyleMenu';
 import ProjectLibraryToolbar from './ProjectLibraryToolbar';
 import * as authService from './services/authService';
-import { hasIamHandoff, finishIamLogin } from './services/iamLogin';
+import { clearExplicitLogout } from './services/logoutHold';
+import { hasIamHandoff, finishIamLogin, forwardIamRootCallback } from './services/iamLogin';
 import { hasOidcHandoff, finishOidcLogin } from './services/oidcLogin';
 import { buildAlbumUploadUrl, readAlbumUploadIntent, rememberAlbumUploadIntent, storedAlbumUploadIntent, clearAlbumUploadIntent } from './utils/albumUploadLink';
 import PrivacyPage from './PrivacyPage';
@@ -22,6 +23,8 @@ import UiZoomControl, { useUiZoom, applyDocumentZoom } from './UiZoomControl';
 import { IconFaceScan, IconSparkleAI, IconChevronLeft, IconChevronRight, IconPlus } from './ui/icons';
 import useNavigation, { useNavigationScroll } from './useNavigation';
 import { navigate, goBack, withoutParams, openMediaRoute, closeMediaRoute } from './utils/navigation';
+import useMembershipNotifications from './useMembershipNotifications';
+import './WorkspaceJoin.css';
 
 const lazyWithPreload = (loader) => {
   const Component = React.lazy(loader);
@@ -43,6 +46,7 @@ const AiNewsWriter = lazyWithPreload(() => import(/* webpackChunkName: "ai-news-
 const WechatComposer = lazyWithPreload(() => import(/* webpackChunkName: "wechat-workspace" */ './WechatWorkspace.jsx'));
 const VideoEditor = lazyWithPreload(() => import(/* webpackChunkName: "video-editor" */ './VideoEditor.jsx'));
 const WorkspacePanel = lazyWithPreload(() => import(/* webpackChunkName: "workspace-panel" */ './WorkspacePanel.jsx'));
+const PersonalWorkspace = lazyWithPreload(() => import(/* webpackChunkName: "personal-workspace" */ './PersonalWorkspace.jsx'));
 
 const PROJECT_PAGE_SIZE = 24;
 const SEARCH_SUGGESTIONS = ['拿话筒的邹欣', '刘铁岩单人照', '举奖杯的人', '王婧琦的单人照', '穿白衣服的人', '多人合影'];
@@ -139,6 +143,8 @@ function Card({ title, children }) {
   return <UiCard title={title}>{children}</UiCard>;
 }
 
+// IAM 若按站点根回调，先把 ?code&state 转交后端回调路由。
+forwardIamRootCallback(window.location);
 const iamLoginPending = hasIamHandoff(window.location) ? finishIamLogin() : null;
 const oidcLoginPending = hasOidcHandoff(window.location) ? finishOidcLogin() : null;
 // 钉钉 OAuth 把 JWT 挂在 fragment 上（不进服务器日志）；模块加载即落地并清理
@@ -195,10 +201,13 @@ function App() {
   const [showCreateModal, setShowCreateModal] = React.useState(false);
   const [functionPage, setFunctionPage] = React.useState(null);
   const [currentUser, setCurrentUser] = React.useState(null);
+  const personalOnly = Boolean(currentUser?.needsAssignment);
+  const personalView = selectedNav === 'personal' || (personalOnly && ['projects', 'scenery', 'function'].includes(selectedNav));
   const [folderStyle, setFolderStyle] = useFolderStyle(currentUser?.id);
   const [workspaceInfo, setWorkspaceInfo] = React.useState(null);
   const [workspaceSwitching, setWorkspaceSwitching] = React.useState(false);
   const [workspacePanelOpen, setWorkspacePanelOpen] = React.useState(false);
+  const [workspacePanelTab, setWorkspacePanelTab] = React.useState(null);
   const [workspacePanelPhotoIds, setWorkspacePanelPhotoIds] = React.useState([]);
   const [albumShareProject, setAlbumShareProject] = React.useState(null);
   const [authLoading, setAuthLoading] = React.useState(() => {
@@ -264,11 +273,12 @@ function App() {
       return false;
     }
   })();
+  const membershipSummary = useMembershipNotifications(isDemoPath ? null : currentUser?.id);
 
   // 整体界面缩放：仅在桌面端的主应用视图生效（分享/登录/加载页强制 1，避免它们被缩放却没有控件可复位）。
   // 用 layoutEffect 在绘制前应用，避免刷新时从 100% 跳到已保存缩放的闪烁。
   const inMainAppView = !isSharePath && !authLoading && (currentUser || isDemoPath);
-  const effectiveZoom = (inMainAppView && !isMobileHeader) ? uiZoom : 1;
+  const effectiveZoom = (inMainAppView && !isMobileHeader && !personalView) ? uiZoom : 1;
   React.useLayoutEffect(() => {
     applyDocumentZoom(effectiveZoom);
     return () => applyDocumentZoom(1);
@@ -329,6 +339,10 @@ function App() {
     setProjectQuery(normalizedKw);
     setLoading(true);
     setError(null);
+    if (!isDemoPath && (!currentUser || currentUser.needsAssignment)) {
+      setProjects([]); setProjectHasMore(false); setProjectTotal(0); setLoading(false);
+      return;
+    }
     try {
       // 后端分页接口：GET /api/projects/list?page=1&pageSize=24&keyword=xxx
       const response = await fetchProjectList({
@@ -362,7 +376,7 @@ function App() {
         setLoading(false);
       }
     }
-  }, [isDemoPath, projectSort, projectDateFilter]);
+  }, [isDemoPath, projectSort, projectDateFilter, currentUser?.id, currentUser?.needsAssignment]);
 
   const handleInitialUploadHandled = React.useCallback(() => {
     setAlbumUploadIntent(null);
@@ -822,8 +836,11 @@ function App() {
     setAlbumUploadIntent(intent);
     if (intent) rememberAlbumUploadIntent(window.sessionStorage, intent);
     if (url.pathname === '/login' && currentUser && !intent) { navigate('/', { replace: true }); return; }
+    if (currentUser?.needsAssignment && !['/personal', '/account', '/privacy', '/about'].includes(url.pathname)) {
+      navigate('/personal', { replace: true }); return;
+    }
     const platform = mediaPlatformFromPath(url.pathname);
-    const page = ({ '/about': 'about', '/account': 'account', '/privacy': 'privacy', '/scenery': 'scenery' })[url.pathname];
+    const page = ({ '/about': 'about', '/account': 'account', '/privacy': 'privacy', '/scenery': 'scenery', '/personal': 'personal' })[url.pathname];
     setSelectedNav(page || (platform ? 'function' : 'projects'));
     if (platform) setFunctionPage(platform.key);
     const projectId = !page && !platform ? params.get('projectId') : null;
@@ -1103,11 +1120,12 @@ function App() {
   }, []);
 
   const navItems = React.useMemo(() => ([
-    { key: 'projects', label: '项目', onClick: handleGoHome },
-    { key: 'scenery', label: '风景', onClick: handleNavigateScenery },
+    ...(!personalOnly ? [{ key: 'projects', label: '项目', onClick: handleGoHome },
+      { key: 'scenery', label: '风景', onClick: handleNavigateScenery }] : []),
+    { key: 'personal', label: '个人工具', onClick: () => navigate('/personal') },
     ...(canUseMediaStudio ? [{ key: 'function', label: '全媒体编辑台', onClick: handleNavigateFunction }] : []),
     { key: 'about', label: '关于', onClick: handleNavigateAbout },
-  ]), [canUseMediaStudio, handleGoHome, handleNavigateAbout, handleNavigateFunction, handleNavigateScenery]);
+  ]), [personalOnly, canUseMediaStudio, handleGoHome, handleNavigateAbout, handleNavigateFunction, handleNavigateScenery]);
 
   const renderNavItem = React.useCallback((item, mobile = false) => (
     <button
@@ -1215,9 +1233,9 @@ function App() {
     );
   }
 
-  const columnWorkspace = folderStyle === 'classic' && !currentProjectId && selectedNav === 'projects' && !photoSearchMode && currentUser && !isDemoPath;
+  const columnWorkspace = !personalView && folderStyle === 'classic' && !currentProjectId && selectedNav === 'projects' && !photoSearchMode && currentUser && !isDemoPath;
   const workspaceHasCreateDock = selectedNav === 'projects' && !photoSearchMode && Boolean(currentUser);
-  const showCreateAlbum = !isDemoPath && !currentProjectId && !workspaceHasCreateDock && canAll('projects.create');
+  const showCreateAlbum = !personalView && !isDemoPath && !currentProjectId && !workspaceHasCreateDock && canAll('projects.create');
   const uploadWorkspacePending = Boolean(albumUploadIntent?.unitId
     && Number(workspaceInfo?.activeUnitId) !== Number(albumUploadIntent.unitId));
   const appFooter = <footer className="mamage-footer" style={{ textAlign: 'center' }}>
@@ -1295,7 +1313,8 @@ function App() {
           </div>
 
           <div className="mamage-nav-actions">
-            <div className="mamage-nav-search-group" data-glass="clear">
+            <div className="mamage-nav-search-group" data-glass="clear" data-personal={personalView}>
+            {personalView ? <span className="mamage-personal-header-label">MaMage · 个人工具</span> : null}
             <div className="mamage-nav-search-field" data-has-keyword={Boolean(keyword)}>
               <input
                 ref={headerSearchRef}
@@ -1371,22 +1390,22 @@ function App() {
                 </button>
             ) : null}
 
-            <div className="mamage-account-group">
+            <div className={`mamage-account-group${membershipSummary?.total > 0 ? ' has-membership-notification' : ''}`}>
             <ViewerDisplaySettings appearance={displaySettings.appearance} onChange={displaySettings.update}
               compact={isMobileHeader} open={isMobileHeader ? mobileHeaderPanel === 'settings' : undefined}
               onOpenChange={open => { if (isMobileHeader) { setMobileHeaderPanel(current => open ? 'settings' : current === 'settings' ? null : current); if (open) setProjectInfoOpen(false); } }} />
             {currentUser ? (
-              <GlassAccountMenu label={`${userName}，账户菜单`} compactContent={isMobileHeader ? Array.from(userName)[0] : undefined}
+              <GlassAccountMenu label={`${userName}，账户菜单${membershipSummary?.total ? `，${membershipSummary.total} 条组织通知` : ''}`} compactContent={isMobileHeader ? Array.from(userName)[0] : undefined}
                 open={isMobileHeader ? mobileHeaderPanel === 'account' : undefined}
                 onOpenChange={open => { if (isMobileHeader) { setMobileHeaderPanel(current => open ? 'account' : current === 'account' ? null : current); if (open) setProjectInfoOpen(false); } }}
                 triggerContent={<>
                   <span className="mamage-user-name">{userName}</span>
                   {workspaceInfo ? <span className="mamage-user-email">
-                    {workspaceInfo.units.find((unit) => Number(unit.id) === Number(workspaceInfo.activeUnitId))?.name || '历史相册'}
+                    {personalView || personalOnly ? '个人工具' : workspaceInfo.units.find((unit) => Number(unit.id) === Number(workspaceInfo.activeUnitId))?.name || '历史相册'}
                   </span> : null}
                   <IconChevronRight className="mamage-user-chevron" />
                 </>}>
-                  {workspaceInfo ? (
+                  {workspaceInfo && !personalOnly ? (
                     <label className="mamage-workspace-control">
                       <span>当前工作空间</span>
                       <select
@@ -1410,8 +1429,17 @@ function App() {
                     }}>工作空间管理</button>
                   ) : null}
                   <FolderStyleMenu value={folderStyle} onChange={setFolderStyle} />
+                  <button type="button" onClick={() => navigate('/personal')}>个人工具</button>
                   <button type="button" onClick={handleNavigateAccount}>账户信息</button>
-                  {currentUser?.canManageUserAccess ? <button type="button" onClick={handleNavigateAccount}>用户与权限</button> : null}
+                  {currentUser?.canManageUserAccess || membershipSummary?.canReview || workspaceInfo?.access?.canManageMembers ? <button type="button" onClick={() => {
+                    if (!currentUser?.canManageUserAccess && workspaceInfo?.activeUnitId && workspaceInfo?.access?.canManageMembers) {
+                      setAlbumShareProject(null);
+                      setWorkspacePanelPhotoIds([]);
+                      setWorkspacePanelTab('members');
+                      setWorkspacePanelOpen(true);
+                    } else navigate('/account#membership-requests');
+                  }}>{currentUser?.canManageUserAccess ? '用户与权限' : '成员管理'}{membershipSummary?.pendingCount ? <span className="membership-menu-count">{membershipSummary.pendingCount}</span> : null}</button>
+                    : membershipSummary?.unreadCount ? <button type="button" onClick={handleNavigateAccount}>组织申请<span className="membership-menu-count">{membershipSummary.unreadCount}</span></button> : null}
                   <button type="button" onClick={handleLogout}>退出账号</button>
               </GlassAccountMenu>
             ) : (
@@ -1466,7 +1494,13 @@ function App() {
         <div className="project-page">
           {currentProjectId && !isDemoPath ? <AlbumSharingStatus
             projectId={currentProjectId} unitId={workspaceInfo?.activeUnitId} suspended={workspacePanelOpen} /> : null}
-          {currentProjectId ? (
+          {personalView ? <LazyPanel title="正在打开个人工具"><PersonalWorkspace currentUser={currentUser} membershipSummary={membershipSummary}
+            onEnterOrganization={async () => {
+              const user = await authService.me();
+              if (!user) return Toast.error('登录状态已失效，请重新登录');
+              if (user.needsAssignment) return Toast.warning('组织申请尚未通过');
+              setCurrentUser(user); navigate('/');
+            }} /></LazyPanel> : currentProjectId ? (
             <LazyPanel title="正在加载相册">
               {uploadWorkspacePending ? <AppLoadingState title="正在打开上传相册" /> : <ProjectDetail
                 key={`project-${currentProjectId}`}
@@ -1719,7 +1753,7 @@ function App() {
               </LazyPanel>
             ) : selectedNav === 'account' ? (
               <LazyPanel title="正在加载账户页">
-                <AccountPage currentUser={currentUser} onUpdated={(u) => { setCurrentUser(u); }} />
+                <AccountPage currentUser={currentUser} membershipSummary={membershipSummary} onUpdated={(u) => { setCurrentUser(u); }} />
               </LazyPanel>
             ) : selectedNav === 'function' ? (
               canUseMediaStudio ? (
@@ -1884,7 +1918,7 @@ function App() {
       ) : null}
       {mountTransferStation ? (
         <LazySilent>
-          <TransferStation hideLauncher={selectedNav === 'account'} onInternalShare={(photoIds) => {
+          <TransferStation hideLauncher={selectedNav === 'account' || personalView} onInternalShare={(photoIds) => {
             if (!workspaceInfo?.activeUnitId) return Toast.warning('请先切换到部门工作空间');
             setAlbumShareProject(null);
             setWorkspacePanelPhotoIds(photoIds);
@@ -1895,13 +1929,14 @@ function App() {
       {workspacePanelOpen ? (
         <LazySilent>
           <WorkspacePanel visible={workspacePanelOpen} workspaceInfo={workspaceInfo}
+            initialTab={workspacePanelTab}
             initialProjectId={albumShareProject?.id || (workspacePanelPhotoIds.length ? null : currentProjectId)}
             albumShareProject={albumShareProject?.kind === 'folder' ? null : albumShareProject}
             folderShareFolder={albumShareProject?.kind === 'folder' ? albumShareProject : null}
             initialPhotoIds={workspacePanelPhotoIds}
             onOpenProject={handleSelectProject}
             onOpenFolder={id => { window.location.href = `/?sharedFolder=${encodeURIComponent(id)}`; }}
-            onClose={() => { setWorkspacePanelOpen(false); setAlbumShareProject(null); }} />
+            onClose={() => { setWorkspacePanelOpen(false); setWorkspacePanelTab(null); setAlbumShareProject(null); }} />
         </LazySilent>
       ) : null}
       {showCreateModal ? (
@@ -1918,7 +1953,7 @@ function App() {
           />
         </LazySilent>
       ) : null}
-      {!isMobileHeader ? (
+      {!isMobileHeader && !personalView ? (
         <UiZoomControl value={uiZoom} onChange={setUiZoom} />
       ) : null}
     </div>

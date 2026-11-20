@@ -49,8 +49,8 @@ function selectPreviewRepresentatives(rows, embeddings, limit = PREVIEW_LIMIT, t
 
 function createProjectPreviewReader(db, now = Date.now) {
   const cache = new Map(), inFlight = new Map();
-  return async function readProjectPreviews(projectId, organizationId) {
-    const key = `${organizationId}:${projectId}`;
+  return async function readProjectPreviews(projectId, organizationId, photographerId = null) {
+    const key = `${organizationId}:${projectId}:${photographerId ?? 'all'}`;
     const cached = cache.get(key);
     if (cached && cached.expires > now()) return cached.value;
     if (inFlight.has(key)) return inFlight.get(key);
@@ -63,10 +63,11 @@ function createProjectPreviewReader(db, now = Date.now) {
             ROW_NUMBER() OVER (ORDER BY created_at DESC, id DESC) AS position,
             COUNT(*) OVER () AS total
           FROM photos WHERE project_id = ? AND organization_id <=> ?
+            ${photographerId == null ? '' : 'AND photographer_id = ?'}
             AND (type IS NULL OR type <> 'video')
         ) sampled
         WHERE position <= 24 OR MOD(position - 1, GREATEST(1, CEIL(total / 120))) = 0
-        ORDER BY position LIMIT ?`, [projectId, organizationId, CANDIDATE_LIMIT]);
+        ORDER BY position LIMIT ?`, [projectId, organizationId, ...(photographerId == null ? [] : [photographerId]), CANDIDATE_LIMIT]);
       let embeddings = [];
       if (rows.length) {
         [embeddings] = await db.query(`SELECT photo_id, embedding FROM ai_image_embeddings

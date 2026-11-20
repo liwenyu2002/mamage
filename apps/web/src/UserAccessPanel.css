@@ -7,25 +7,20 @@
 .user-access-panel svg { width: 18px; height: 18px; flex: 0 0 18px; }
 .user-access-filters > *, .user-access-summary > * { min-width: 0; }
 .user-access-row { border-bottom: 1px solid rgba(128, 133, 142, .2); }
-.user-access-summary { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(160px, 1fr) auto auto; gap: 10px 14px;
+.user-access-summary { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 10px 14px;
   align-items: center; padding: 15px 0; }
 .user-access-identity { display: flex; align-items: baseline; gap: 6px 10px; flex-wrap: wrap; overflow-wrap: anywhere; }
 .user-access-identity strong { font-size: 15px; }
 .user-access-identity small { flex-basis: 100%; }
 .user-access-memberships { display: flex; flex-direction: column; gap: 4px; font-size: 13px; overflow-wrap: anywhere; }
 .user-access-memberships .is-pending { color: #98651b; }
-.user-access-editor { border-top: 1px solid rgba(128, 133, 142, .16); padding: 16px; background: rgba(128, 133, 142, .04); }
-.user-access-editor fieldset { min-width: 0; margin: 0 0 18px; padding: 0; border: 0; }
-.user-access-editor legend { font-size: 13px; font-weight: 600; color: #6b7078; margin-bottom: 10px; }
-.user-access-editor label { display: flex; align-items: center; gap: 10px; min-height: 38px; font-size: 14px; overflow-wrap: anywhere; }
-.user-access-editor input[type=checkbox] { accent-color: #393b40; flex: 0 0 17px; width: 17px; height: 17px; margin: 0; }
-.user-access-unit { display: grid; grid-template-columns: minmax(0, 1fr) 170px; align-items: center; gap: 12px; min-height: 46px; }
-.user-access-editor footer { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; }
-.user-access-confirm { border-left: 3px solid #9a712c; padding: 8px 14px; margin: 8px 0 18px; font-size: 14px; }
-.user-access-confirm p { margin: 6px 0; overflow-wrap: anywhere; }
+.user-access-row-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px; }
+.user-access-row-actions small { font-size: 12px; color: var(--lg-muted, #60646c); }
 .user-access-error { color: #b23d3d; margin: 10px 0; }
 .user-access-notice { color: #3e6659; font-size: 14px; }
 .user-access-empty { padding: 24px 0; color: #70757e; text-align: center; }
+.user-access-iam-review { margin: 4px 0 18px; }
+.user-access-iam-review h3 { margin: 0; font-size: 14px; font-weight: 650; }
 .user-access-pagination { display: flex; justify-content: flex-end; gap: 12px; align-items: center; margin-top: 12px; font-size: 13px; }
 @media (max-width: 600px) {
   .user-access-filters { grid-template-columns: minmax(0, 1fr) 145px; }
@@ -33,13 +28,64 @@
   .user-access-heading h2 { font-size: 20px; }
   .user-access-summary { grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
   .user-access-identity { grid-column: 1; }
-  .user-access-memberships { grid-column: 1; grid-row: 2; }
-  /* 两个按钮原来都落在同一格互相遮挡：配置放右上，合并放第二行右侧 */
-  .user-access-summary > button:nth-of-type(1) { grid-column: 2; grid-row: 1; justify-self: end; }
-  .user-access-summary > button:nth-of-type(2) { grid-column: 1 / -1; grid-row: 3; justify-self: stretch; }
-  .user-access-summary > button:nth-of-type(2):only-of-type { grid-column: 2; grid-row: 1; }
-  .user-access-editor { padding: 12px 0; }
-  .user-access-unit { grid-template-columns: minmax(0, 1fr) 135px; gap: 8px; }
+  .user-access-memberships { grid-column: 1 / -1; grid-row: 2; }
+  .user-access-row-actions { grid-column: 2; grid-row: 1; }
+}
+
+.user-access-dialog {
+  --access-line: var(--app-line, rgba(34, 38, 42, .13));
+  --access-muted: var(--app-muted, #61656c);
+  --access-input: var(--app-raised, #fff);
+  box-sizing: border-box;
+  width: min(680px, calc(100% - 32px));
+  max-width: none;
+  max-height: min(720px, calc(100vh - 32px));
+  max-height: min(720px, calc(100dvh - 32px));
+  padding: 0;
+  border: 1px solid var(--liquid-glass-border, #fff);
+  border-radius: 8px;
+  color: var(--lg-text, #24262a);
+  background: var(--app-surface, #f7f8f8);
+  background-image: var(--liquid-glass-material-readable);
+  box-shadow: var(--liquid-glass-shadow, 0 16px 48px rgba(23, 31, 34, .22));
+  overflow: hidden;
+}
+.user-access-dialog::backdrop { background: rgba(14, 19, 22, .34); backdrop-filter: blur(4px); }
+.user-access-editor { display: flex; flex-direction: column; max-height: inherit; min-height: 0; }
+.user-access-editor-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 16px 22px; border-bottom: 1px solid var(--access-line); }
+.user-access-editor-head h3 { font-size: 18px; line-height: 1.4; margin: 0 0 3px; overflow-wrap: anywhere; }
+.user-access-editor-head > div { min-width: 0; }
+.user-access-editor-head > button { flex: none; width: 36px; height: 36px; padding: 0; }
+.user-access-editor-head small, .user-access-editor-muted { color: var(--access-muted); font-size: 12px; overflow-wrap: anywhere; }
+.user-access-editor-body { padding: 18px 22px; overflow: auto; overscroll-behavior: contain; min-height: 0; }
+.user-access-editor fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.user-access-editor legend { font-size: 13px; font-weight: 650; margin-bottom: 8px; padding: 0; }
+.user-access-editor legend span { margin-left: 5px; font-weight: 400; color: var(--access-muted); font-size: 12px; }
+.user-access-scope-options { width: fit-content; max-width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px; padding: 3px; border-radius: 8px; border: 1px solid var(--access-line); }
+.user-access-scope-options label { display: flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; padding: 4px 12px; text-align: center; font-size: 13px; cursor: pointer; border-radius: 5px; }
+.user-access-scope-options label:has(:checked) { background: var(--app-success-fill, #e0eeea); color: var(--app-success, #235e4e); font-weight: 600; }
+.user-access-editor input { margin: 0; accent-color: var(--app-success, #337461); flex: none; width: 16px; height: 16px; }
+.user-access-editor-columns { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 18px 24px; border-top: 1px solid var(--access-line); margin-top: 17px; padding-top: 17px; }
+.user-access-unit { display: grid; grid-template-columns: minmax(0, 1fr) 124px; align-items: center; gap: 10px; min-height: 44px; font-size: 13px; overflow-wrap: anywhere; }
+.user-access-role-control { display: block; position: relative; }
+.user-access-role-control > svg { position: absolute; top: 50%; right: 9px; transform: translateY(-50%); pointer-events: none; }
+.user-access-role-control select { box-sizing: border-box; appearance: none; width: 100%; min-height: 36px; padding: 4px 27px 4px 10px; color: inherit; background: var(--access-input); border: 1px solid var(--access-line); border-radius: 6px; font: inherit; cursor: pointer; }
+.user-access-role-control select:focus-visible, .user-access-editor input:focus-visible { outline: 2px solid var(--app-success, #337461); outline-offset: 2px; }
+.user-access-editor-grants label { display: flex; align-items: center; gap: 8px; min-height: 37px; font-size: 13px; overflow-wrap: anywhere; cursor: pointer; }
+.user-access-editor-grants label:has(:disabled) { color: var(--access-muted); cursor: default; }
+.user-access-editor-grants small { display: block; margin-top: 5px; line-height: 1.5; }
+.user-access-editor-footer { border-top: 1px solid var(--access-line); padding: 12px 22px; }
+.user-access-editor-footer p { margin: 0 0 9px; font-size: 13px; line-height: 1.5; }
+.user-access-editor-footer .user-access-error { color: var(--app-danger, #a52d39); }
+.user-access-editor-warning { color: var(--app-warning, #78541c); }
+.user-access-editor-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px 8px; }
+.user-access-editor-actions > span { margin-right: auto; }
+@media (max-width: 600px) {
+  .user-access-dialog { margin: auto auto 10px; width: calc(100% - 20px); max-height: calc(100dvh - 20px); }
+  .user-access-editor-head, .user-access-editor-body, .user-access-editor-footer { padding-inline: 14px; }
+  .user-access-editor-columns { grid-template-columns: minmax(0, 1fr); }
+  .user-access-scope-options { width: auto; }
+  .user-access-scope-options label { padding-inline: 5px; }
 }
 
 /* 账号合并对话框 */

@@ -2,6 +2,7 @@ const express = require('express');
 const { pool } = require('../db');
 const { buildMediaUrl } = require('../lib/media_access');
 const { requirePermission } = require('../lib/permissions');
+const { photoOwnerFilter } = require('../lib/access_policy');
 const {
   positiveId, resolveWorkspace, requireProjectAccess, requirePhotosAccess,
   sendWorkspaceError, WorkspaceAccessError,
@@ -39,6 +40,7 @@ router.post('/', requirePermission('photos.view'), async (req, res) => {
     let projectId = null;
     let photoIds = [];
     if (shareType === 'album') {
+      if (workspace.ownPhotosOnly) throw new WorkspaceAccessError('ORGANIZATION_PHOTO_ACCESS_REQUIRED');
       projectId = positiveId(body.projectId);
       if (!projectId) throw new WorkspaceAccessError('INVALID_PROJECT', 400);
       const project = await requireProjectAccess(req, projectId, 'read', conn);
@@ -147,16 +149,18 @@ router.get('/received', requirePermission('photos.view'), async (req, res) => {
   try {
     const workspace = await resolveWorkspace(req);
     if (!workspace.enabled || !workspace.unitId) return res.json([]);
+    const owner = photoOwnerFilter(workspace, 'ph');
     const [rows] = await pool.query(
       `SELECT s.id, s.share_type AS shareType, s.mode, s.project_id AS projectId,
               s.expires_at AS expiresAt, s.created_at AS createdAt,
               source.name AS sourceUnitName, org.name AS sourceOrganizationName,
               sharer.name AS sharedByName, p.name AS albumName,
-              (SELECT COUNT(*) FROM internal_share_items si WHERE si.share_id = s.id) AS snapshotCount,
+              (SELECT COUNT(*) FROM internal_share_items si JOIN photos ph ON ph.id = si.photo_id
+                WHERE si.share_id = s.id${owner.sql}) AS snapshotCount,
               (SELECT j.status FROM organization_copy_jobs j
                WHERE j.share_id = s.id AND j.system_initiated = 1 ORDER BY j.id DESC LIMIT 1) AS copyStatus,
-              (SELECT j.result_json FROM organization_copy_jobs j
-               WHERE j.share_id = s.id AND j.system_initiated = 1 ORDER BY j.id DESC LIMIT 1) AS copyResult
+              ${workspace.ownPhotosOnly ? 'NULL' : `(SELECT j.result_json FROM organization_copy_jobs j
+               WHERE j.share_id = s.id AND j.system_initiated = 1 ORDER BY j.id DESC LIMIT 1)`} AS copyResult
        FROM internal_shares s
        JOIN organization_units source ON source.id = s.source_unit_id
        JOIN organizations org ON org.id = s.organization_id
@@ -167,7 +171,7 @@ router.get('/received', requirePermission('photos.view'), async (req, res) => {
          AND (s.target_user_id IS NULL OR s.target_user_id = ?)
          AND s.revoked_at IS NULL AND (s.expires_at IS NULL OR s.expires_at > NOW())
        ORDER BY s.created_at DESC LIMIT 200`,
-      [workspace.orgId, workspace.unitId, workspace.userId]
+      [...owner.params, workspace.orgId, workspace.unitId, workspace.userId]
     );
     const withCover = rows.map(row => ({ ...row,
       coverUrl: row.coverThumb ? buildMediaUrl(row.coverThumb, { userId: workspace.userId, photoId: row.coverPhotoId }) : null }));
@@ -179,16 +183,17 @@ router.get('/sent', requirePermission('photos.view'), async (req, res) => {
   try {
     const workspace = await resolveWorkspace(req);
     if (!workspace.enabled || !workspace.unitId) return res.json([]);
+    const owner = photoOwnerFilter(workspace, 'ph');
     const [rows] = await pool.query(
       `SELECT s.id, s.share_type AS shareType, s.mode, s.project_id AS projectId,
               s.expires_at AS expiresAt, s.revoked_at AS revokedAt,
               s.created_at AS createdAt, target.name AS targetUnitName,
               recipient.name AS targetUserName, p.name AS albumName,
-              (SELECT ph.thumb_url FROM photos ph WHERE ph.project_id = p.id AND ph.organization_id = p.organization_id
+              (SELECT ph.thumb_url FROM photos ph WHERE ph.project_id = p.id AND ph.organization_id = p.organization_id${owner.sql}
                 ORDER BY ph.created_at DESC, ph.id DESC LIMIT 1) AS coverThumb,
-              (SELECT ph.id FROM photos ph WHERE ph.project_id = p.id AND ph.organization_id = p.organization_id
+              (SELECT ph.id FROM photos ph WHERE ph.project_id = p.id AND ph.organization_id = p.organization_id${owner.sql}
                 ORDER BY ph.created_at DESC, ph.id DESC LIMIT 1) AS coverPhotoId,
-              (SELECT COUNT(*) FROM photos ph WHERE ph.project_id = p.id AND ph.organization_id = s.organization_id) AS photoCount,
+              (SELECT COUNT(*) FROM photos ph WHERE ph.project_id = p.id AND ph.organization_id = s.organization_id${owner.sql}) AS photoCount,
               (SELECT j.status FROM organization_copy_jobs j
                WHERE j.share_id = s.id AND j.system_initiated = 1 ORDER BY j.id DESC LIMIT 1) AS copyStatus
        FROM internal_shares s
@@ -198,7 +203,7 @@ router.get('/sent', requirePermission('photos.view'), async (req, res) => {
        WHERE s.organization_id = ? AND s.source_unit_id = ?
          AND s.folder_share_id IS NULL
        ORDER BY s.created_at DESC LIMIT 200`,
-      [workspace.orgId, workspace.unitId]
+      [...owner.params, ...owner.params, ...owner.params, workspace.orgId, workspace.unitId]
     );
     res.json(rows.map(row => ({ ...row,
       coverUrl: row.coverThumb ? buildMediaUrl(row.coverThumb, { userId: workspace.userId, photoId: row.coverPhotoId }) : null })));
@@ -208,6 +213,7 @@ router.get('/sent', requirePermission('photos.view'), async (req, res) => {
 router.post('/:id/copy', requirePermission('photos.view'), async (req, res) => {
   try {
     const workspace = await resolveWorkspace(req);
+    if (workspace.ownPhotosOnly) throw new WorkspaceAccessError('ORGANIZATION_PHOTO_ACCESS_REQUIRED');
     const shareId = positiveId(req.params.id);
     if (!workspace.enabled || !workspace.unitId || !shareId) {
       throw new WorkspaceAccessError('SHARE_NOT_FOUND', 404);
@@ -318,7 +324,7 @@ router.get('/:id', requirePermission('photos.view'), async (req, res) => {
          WHERE share_id = ? AND system_initiated = 1 ORDER BY id DESC LIMIT 1`, [id]
       );
       copyStatus = jobs[0]?.status || null;
-      copyResult = jobs[0]?.result_json || null;
+      copyResult = workspace.ownPhotosOnly ? null : jobs[0]?.result_json || null;
       if (typeof copyResult === 'string') copyResult = JSON.parse(copyResult);
     }
     const copiedProjectId = copyStatus === 'ready' ? positiveId(copyResult?.projectId) : null;
@@ -347,6 +353,9 @@ router.get('/:id', requirePermission('photos.view'), async (req, res) => {
     let total = 0;
     let photos = [];
     if (source) {
+      const ownerFilter = photoOwnerFilter(workspace, 'ph');
+      source += ownerFilter.sql;
+      sourceParams.push(...ownerFilter.params);
       const [[count]] = await pool.query(`SELECT COUNT(*) AS total ${source}`, sourceParams);
       total = Number(count.total) || 0;
       [photos] = await pool.query(

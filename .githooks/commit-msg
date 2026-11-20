@@ -1,0 +1,17 @@
+#!/bin/sh
+# 提交信息规矩：type(scope): 说明
+# type: feat|fix|refactor|perf|docs|test|chore|build|ci|revert
+# scope: web|server|deploy|docs|iam|tone|share|nav ...（可省略）
+msg=$(head -c 400 "$1")
+case "$msg" in
+  "Merge "*|"Revert "*|"fixup!"*|"squash!"*) exit 0 ;;
+esac
+printf '%s' "$msg" | grep -Eq '^(feat|fix|refactor|perf|docs|test|chore|build|ci|revert)(\([a-z0-9._/-]+\))?: .{4,}' \
+  && exit 0
+cat <<'TXT'
+提交信息格式不对。示例：
+  feat(share): 共享卡片支持移动到小组空间第一级
+  fix(iam): 回调缺少 code 时记录 query 键便于排查
+格式：type(scope): 说明（说明至少 4 个字）
+TXT
+exit 1

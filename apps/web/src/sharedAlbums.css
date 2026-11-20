@@ -23,6 +23,7 @@
   border: 1px solid rgba(255,255,255,.9); border-radius: 8px; color: #435d54; background: rgba(239,245,242,.8); cursor: pointer;
   transition: background .18s ease; }
 .shared-album-add:hover { background: #e1ece6; }
+.shared-album-add[aria-pressed="true"] { background: var(--app-success-fill, #dbeae3); color: var(--app-success, #245e4c); }
 .shared-album-add:focus-visible { outline: 2px solid #53736b; outline-offset: 2px; }
 .shared-albums-compact { margin: 8px 0 16px; }
 .shared-albums-compact .shared-albums-heading { margin: 0 12px 7px; gap: 7px; }

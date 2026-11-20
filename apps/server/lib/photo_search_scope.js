@@ -20,21 +20,9 @@ function folderProjectIds(groups, folderId) {
     .map(Number).filter(id => Number.isSafeInteger(id) && id > 0))];
 }
 
-async function resolveWorkspaceSearchScope(workspace, db = pool) {
+function resolveWorkspaceSearchScope(workspace) {
   if (!workspace.enabled || !workspace.userId || !workspace.orgId || !workspace.unitId) return {};
-  const [rows] = await db.query(
-    'SELECT state FROM album_desktop_workspaces WHERE organization_id = ? AND unit_key = ?',
-    [workspace.orgId, workspace.unitId]
-  );
-  const storedGroups = json(rows[0]?.state, {}).groups;
-  const groups = (Array.isArray(storedGroups) ? storedGroups : []).filter(group => group && (!group.restrictedToUserId
-    || Number(group.restrictedToUserId) === workspace.userId || workspace.collegeAdmin));
-  const storedIds = new Set((Array.isArray(groups) ? groups : []).filter(group => group.kind !== 'smart')
-    .flatMap(group => Array.isArray(group.projectIds) ? group.projectIds : [])
-    .map(Number).filter(id => Number.isSafeInteger(id) && id > 0));
-  if (!storedIds.size) return {};
-  const sharedProjectIds = (await listSharedAlbums(workspace, db)).map(album => album.id).filter(id => storedIds.has(id));
-  return sharedProjectIds.length ? { sharedProjectIds, scope: { type: 'workspace' } } : {};
+  return { includeSharedAlbums: true, scope: { type: 'workspace' } };
 }
 
 async function resolveFolderSearchScope(workspace, folderId, db = pool) {

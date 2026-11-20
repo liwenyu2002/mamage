@@ -1,0 +1,40 @@
+.membership-requests-panel, .workspace-join-dialog { color: var(--mamage-text, #24262a); letter-spacing: 0; }
+.membership-requests-panel { margin-bottom: 28px; }
+.join-panel-heading, .join-panel-heading > div { display: flex; align-items: center; gap: 10px; }
+.join-panel-heading { justify-content: space-between; margin-bottom: 14px; }
+.join-panel-heading h2 { margin: 0; font-size: 19px; }
+.join-muted, .join-panel-heading span { color: var(--lg-muted, #747a80); font-size: 12px; }
+.join-view-tabs { display: flex; gap: 6px; border-bottom: 1px solid #80858e30; padding-bottom: 10px; }
+.join-view-tabs button { border: 0; border-radius: 6px; color: inherit; font: inherit; font-size: 13px; padding: 8px 14px; background: transparent; cursor: pointer; }
+.join-view-tabs button[aria-selected=true] { background: #80858e1a; font-weight: 600; }
+.join-review-row { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 18px 0; border-bottom: 1px solid #80858e26; }
+.join-review-identity { flex: 1; min-width: 150px; display: flex; flex-wrap: wrap; align-items: center; gap: 5px 10px; overflow-wrap: anywhere; }
+.join-review-identity strong { font-size: 15px; }
+.join-review-identity > span { font-size: 12px; color: var(--lg-muted, #747a80); }
+.join-review-identity small, .join-review-identity p, .join-review-identity time { flex-basis: 100%; margin: 0; font-size: 12px; color: var(--lg-muted, #747a80); }
+.join-review-identity p { color: inherit; line-height: 1.7; margin: 4px 0; }
+.join-review-identity time { font-size: 11px; }
+.join-review-actions, .join-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+.join-review-confirm { flex-basis: 100%; display: grid; gap: 12px; padding: 14px 0 0; border-top: 1px solid #80858e26; font-size: 13px; }
+.join-review-confirm label, .workspace-join-form > label { display: flex; flex-direction: column; gap: 7px; font-size: 13px; }
+.join-review-confirm label .join-muted, .workspace-join-form label .join-muted { font-size: 11px; }
+.join-review-confirm textarea, .workspace-join-form textarea { width: 100%; box-sizing: border-box; border: 1px solid #80858e40; border-radius: 6px; resize: vertical; min-height: 62px; padding: 10px; background: #80858e06; color: inherit; font: inherit; line-height: 1.6; }
+.workspace-join-form { display: grid; gap: 18px; }
+.join-my-requests { margin-top: 24px; border-top: 1px solid #80858e26; padding-top: 16px; }
+.join-my-requests h3 { font-size: 13px; margin: 0 0 12px; }
+.join-request-result { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid #80858e20; }
+.join-request-result > div { flex: 1; min-width: 0; font-size: 13px; overflow-wrap: anywhere; }
+.join-request-result p { color: var(--lg-muted, #747a80); font-size: 12px; margin: 4px 0 0; }
+.join-state { display: inline-flex; align-items: center; flex: 0 0 auto; gap: 5px; font-size: 12px; color: var(--lg-muted, #747a80); }
+.join-state.is-approved { color: #39816a; }
+.join-state.is-pending { color: #997529; }
+.join-state.is-rejected, .join-error { color: #bc4747; }
+.join-error { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; }
+.join-reviewed-note { margin: 0; flex-basis: 100%; font-size: 12px; color: var(--lg-muted, #747a80); }
+.join-empty { display: flex; gap: 12px; align-items: center; justify-content: center; min-height: 110px; color: var(--lg-muted, #747a80); font-size: 13px; }
+.mamage-account-group.has-membership-notification .mamage-user-chip { position: relative; overflow: visible; }
+.mamage-account-group.has-membership-notification .mamage-user-chip::after { content: ''; position: absolute; top: 2px; right: 2px; width: 8px; height: 8px; border-radius: 50%; background: #e34c53; box-shadow: 0 0 0 2px var(--mamage-bg, #f7f8f8); }
+.membership-menu-count { display: inline-flex; align-items: center; justify-content: center; margin-left: 8px; min-width: 18px; height: 18px; padding: 0 4px; box-sizing: border-box; border-radius: 50%; background: #e34c53; color: #fff; font-size: 11px; }
+:root .mamage-nav-search-group[data-personal=true] > :not(.mamage-personal-header-label) { display: none; }
+.mamage-personal-header-label { padding: 0 12px; font-size: 13px; color: var(--lg-muted, #747a80); overflow-wrap: anywhere; }
+@media (max-width: 480px) { .join-review-actions { flex-basis: 100%; } .workspace-join-form .join-actions { display: grid; grid-template-columns: minmax(0, 1fr); } .join-actions button { min-height: 38px; } }

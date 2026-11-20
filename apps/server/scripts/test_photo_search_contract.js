@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
+const { DatabaseSync } = require('node:sqlite');
 const ai = require('../lib/ai_photo_search');
 const { resolveSearchIntent, equivalents } = require('../lib/photo_search_intent');
 const people = [{ id: 11, name: '甲老师', photoCount: 5 }, { id: 12, name: '乙老师', photoCount: 3 }];
@@ -83,6 +84,20 @@ test('ordinary content search includes detailed descriptions without altering an
   assert.match(count.sql, /restricted_to_user_id/);
 });
 
+test('own-only search filters real photo rows and totals even with requested people access or shared albums', async () => {
+  reset({ mustTerms: ['活动'] }, { counts: [1] });
+  await searchPhotos({ ...options, ownPhotosOnly: true, q: '活动', includeSharedAlbums: true, scope: { type: 'workspace' } });
+  const count = queries.find(query => query.sql.startsWith('SELECT COUNT(*) AS total'));
+  const list = queries.find(query => query.sql.includes('AS relevanceScore'));
+  for (const query of [count, list]) {
+    assert.match(query.sql, /p\.photographer_id = \?/);
+    assert.match(query.sql, /p\.organization_id = \?/);
+    assert.match(query.sql, /FROM internal_shares s/);
+    assert.ok(query.params.includes(47));
+  }
+  assert.ok(queries.every(query => !query.sql.includes('FROM face_persons')));
+});
+
 test('generic single-person photos use an exact usable-face count, never literal caption keywords', async () => {
   for (const q of ['单人照', '单人照片', '请帮我找单人照', '照片里只有一个人', '独照']) {
     reset(ai.heuristicPhotoSearchPlan(q), { counts: [1] });
@@ -124,13 +139,62 @@ test('generic single-person filtering keeps face authorization and does not inve
   assert.deepEqual(aiProse.shouldTerms, []);
 });
 
-test('workspace search includes only server-resolved saved shared references, preserving own-unit scope', async () => {
-  reset({}, { counts: [1] });
-  await searchPhotos({ ...options, q: '', sharedProjectIds: [76], scope: { type: 'workspace' } });
-  const count = queries.find(query => query.sql.startsWith('SELECT COUNT(*) AS total'));
-  assert.match(count.sql, /\(COALESCE\(pr.unit_id, p.unit_id\) = \? OR p.project_id IN \(\?\)\)/);
-  assert.deepEqual(count.params.slice(0, 4), [2, 7, [76], 47]);
-  assert.ok(!count.sql.includes('AND p.project_id IN (?)'), 'own projectless media must remain searchable');
+test('workspace search matches unfiled live shares without matching expired, private or unrelated albums', async () => {
+  const q = 'CampusEvent42.JPG', scope = { type: 'workspace' };
+  reset({ mustTerms: [q] }, { counts: [4] });
+  await searchPhotos({ ...options, q, faceSearchAllowed: false, includeSharedAlbums: true, scope });
+  const { sql: count, params } = queries.find(query => query.sql.startsWith('SELECT COUNT(*) AS total'));
+  const db = new DatabaseSync(':memory:');
+  try {
+    db.function('NOW', () => 100);
+    db.function('JSON_UNQUOTE', value => value);
+    db.exec(`CREATE TABLE photos(id, photographer_id, project_id, unit_id, organization_id, timeline_section_id,
+      title, original_filename, description, detailed_description, ocr_text, tags, type);
+      CREATE TABLE users(id, name, nickname, student_no);
+      CREATE TABLE projects(id, name, unit_id, organization_id, restricted_to_user_id);
+      CREATE TABLE project_timeline_sections(id, name);
+      CREATE TABLE photo_video_semantics(photo_id, analysis_json);
+      CREATE TABLE internal_shares(id, project_id, organization_id, source_unit_id, target_unit_id, target_user_id,
+        share_type, mode, revoked_at, expires_at, folder_share_id);
+      CREATE TABLE folder_shares(id, organization_id, source_unit_id, target_unit_id, target_user_id, mode, revoked_at, expires_at);
+      INSERT INTO folder_shares VALUES (21,2,8,7,NULL,'read',NULL,NULL),(22,2,8,7,NULL,'read',99,NULL);
+      INSERT INTO internal_shares VALUES
+        (2,2,2,8,7,NULL,'album','read',NULL,NULL,NULL),
+        (3,3,2,8,7,47,'album','collaborate',NULL,101,NULL),
+        (4,4,2,8,7,NULL,'album','read',NULL,NULL,21),
+        (5,5,2,8,7,48,'album','read',NULL,NULL,NULL),
+        (6,6,2,8,7,NULL,'album','read',99,NULL,NULL),
+        (7,7,2,8,7,NULL,'album','read',NULL,100,NULL),
+        (8,8,2,8,7,NULL,'album','copy',NULL,NULL,NULL),
+        (9,9,2,8,6,NULL,'album','read',NULL,NULL,NULL),
+        (10,10,3,8,7,NULL,'album','read',NULL,NULL,NULL),
+        (11,11,2,8,7,NULL,'album','read',NULL,NULL,NULL),
+        (12,12,2,8,7,NULL,'album','read',NULL,NULL,22),
+        (13,13,2,6,7,NULL,'album','read',NULL,NULL,NULL),
+        (14,2,2,8,7,47,'album','read',NULL,NULL,NULL),
+        (15,15,2,8,7,NULL,'album','read',NULL,NULL,NULL);`);
+    const insertProject = db.prepare('INSERT INTO projects VALUES (?,NULL,?,?,?)');
+    const insertPhoto = db.prepare('INSERT INTO photos VALUES (?,?,?,?,?,NULL,NULL,?,NULL,NULL,NULL,NULL,?)');
+    for (let id = 1; id <= 15; id++) {
+      if (id !== 1) insertProject.run(id, 8, id === 10 ? 3 : 2, id === 11 ? 48 : null);
+      insertPhoto.run(id, id === 1 || id === 3 ? 47 : 48, id === 1 ? null : id,
+        id === 1 ? 7 : 8, id === 10 ? 3 : 2, id === 15 ? 'Unrelated.JPG' : q, 'image');
+    }
+    const ids = db.prepare(count.replace('COUNT(*) AS total', 'p.id AS id') + ' ORDER BY p.id');
+    assert.deepEqual(ids.all(...params).map(row => row.id), [1, 2, 3, 4]);
+    db.exec('UPDATE internal_shares SET revoked_at=100 WHERE project_id=2; UPDATE folder_shares SET revoked_at=100 WHERE id=21');
+    assert.deepEqual(ids.all(...params).map(row => row.id), [1, 3], 'Revocation is evaluated in the search itself');
+  } finally { db.close(); }
+});
+
+test('a request cannot expand a folder, album, legacy or anonymous search to other shared albums', async () => {
+  for (const scopeOptions of [{ scope: { type: 'folder' }, projectIds: [3] }, { projectId: 3 },
+    { unitId: null }, { userId: null }, { workspaceEnabled: false }]) {
+    reset({});
+    await searchPhotos({ ...options, q: '', scope: { type: 'workspace' }, includeSharedAlbums: true, ...scopeOptions });
+    const query = queries.find(query => query.sql.startsWith('SELECT COUNT(*) AS total'));
+    assert.doesNotMatch(query.sql, /FROM internal_shares/);
+  }
 });
 
 test('folder scope applies to counts, streamed batches and visual candidates without weakening person conditions', async () => {

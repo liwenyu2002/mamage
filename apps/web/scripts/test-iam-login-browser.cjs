@@ -2,10 +2,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs'), path = require('node:path'), http = require('node:http');
 const { createRequire } = require('node:module');
 const { chromium } = createRequire(path.resolve(__dirname, '../../server/package.json'))('playwright');
-const dist = path.resolve(__dirname, '../dist'), artifacts = process.env.MAMAGE_IAM_QA_DIR;
+const dist = path.resolve(process.env.MAMAGE_IAM_QA_DIST || path.resolve(__dirname, '../dist')), artifacts = process.env.MAMAGE_IAM_QA_DIR;
 const fixtures = [{name:'password',iam:false,dingtalk:false},{name:'campus',iam:true,dingtalk:false},{name:'dingtalk',iam:false,dingtalk:true},
-  {name:'oidc',iam:false,dingtalk:false,oidc:true,oidcLabel:'研究院统一身份认证'},
-  {name:'oidc-and-iam',iam:true,dingtalk:false,oidc:true,oidcLabel:'研究院统一身份认证'}];
+  {name:'campus-with-oidc-configured',iam:true,dingtalk:false,oidc:true,oidcAutoStart:true,oidcLabel:'研究院统一身份认证'},
+  {name:'password-with-oidc-configured',iam:false,dingtalk:false,oidc:true,oidcAutoStart:true,oidcLabel:'研究院统一身份认证'}];
 async function assertPrimaryVisible(page) {
   const button = page.locator('.auth-primary');
   for (const hover of [false, true]) {
@@ -37,11 +37,12 @@ async function main() {
     for (const width of [1440,390,320]) for (const provider of fixtures) {
       const context = await browser.newContext({ viewport: { width, height: 860 } });
       try {
-        const errors=[],writes=[];
+        const errors=[],writes=[],authorizations=[];
         await context.route('**/api/**', async route => {
           const req=route.request(),url=new URL(req.url());
           if(url.pathname==='/api/auth/iam/login'||url.pathname==='/api/auth/dingtalk/login'||url.pathname==='/api/auth/oidc/login') {
-            if(provider.iam||provider.oidc) assert.equal(url.searchParams.get('returnTo'),'/?projectId=102&upload=1');
+            authorizations.push(url.pathname);
+            if(url.pathname==='/api/auth/iam/login') assert.equal(url.searchParams.get('returnTo'),'/?projectId=102&upload=1');
             return route.fulfill({contentType:'text/plain',body:'Isolated authorization fixture'});
           }
           if(req.method()!=='GET') {
@@ -55,10 +56,12 @@ async function main() {
         const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
         await page.goto(base+'/?projectId=102&upload=1');
         await page.locator('.auth-provider-loading').waitFor({state:'hidden'});
-        await page.getByRole('heading',{name:'登录 MaMage',exact:true}).waitFor();
-        const sso=provider.iam||provider.dingtalk||provider.oidc;
-        const campusTabName=provider.oidc?(provider.oidcLabel||'统一身份认证'):provider.iam?'校园登录':'钉钉登录';
-        const campusActionName=provider.oidc?'前往'+(provider.oidcLabel||'统一身份认证'):provider.iam?'前往校园登录':'使用钉钉登录';
+        await page.locator('.auth-content .auth-primary').or(page.getByText('Isolated authorization fixture',{exact:true})).waitFor();
+        assert.equal(await page.getByText('研究院统一身份认证',{exact:false}).count(),0);
+        assert.deepEqual(authorizations,[],'opening the login page must not start research institute login');
+        const sso=provider.iam||provider.dingtalk;
+        const campusTabName=provider.iam?'校园登录':'钉钉登录';
+        const campusActionName=provider.iam?'前往校园登录':'使用钉钉登录';
         if(sso) {
           const campusTab=page.getByRole('tab',{name:campusTabName,exact:true});
           assert.equal(await campusTab.getAttribute('aria-selected'),'true');
@@ -96,15 +99,8 @@ async function main() {
           await page.goBack();
           const retry=page.getByRole('button',{name:campusActionName,exact:true});
           await retry.waitFor();assert.equal(await retry.isEnabled(),true,'returning from authorization does not leave a disabled button');
-          if(provider.oidc&&provider.iam) {
-            const secondary=page.getByRole('button',{name:'使用学校校园登录',exact:true});
-            await secondary.waitFor();
-            await secondary.click();
-            await page.getByText('Isolated authorization fixture',{exact:true}).waitFor();
-            await page.goBack();
-            await page.getByRole('button',{name:campusActionName,exact:true}).waitFor();
-          }
         }
+        assert.deepEqual(authorizations, sso ? [provider.iam?'/api/auth/iam/login':'/api/auth/dingtalk/login'] : []);
         assert.deepEqual(errors,[]);
       } finally {await context.close();}
     }
@@ -130,7 +126,7 @@ async function main() {
       const page=await failed.newPage();await page.goto(base+'/');
       await page.getByText('校园登录暂不可用',{exact:true}).waitFor();await page.getByLabel('密码',{exact:true}).waitFor();
     }finally{await failed.close();}
-    console.log('Login browser checks passed: three providers, desktop/mobile/narrow screens, keyboard/password errors, registration, redirects, container auto-entry and failure fallback.');
+    console.log('Login browser checks passed: campus IAM unaffected by OIDC config, desktop/mobile/narrow screens, password fallback, registration, redirects and DingTalk container entry.');
   }finally{if(browser) await browser.close();server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

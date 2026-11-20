@@ -6,6 +6,7 @@ const { expirationFor, requireSourceEditor, requireTarget } = require('../lib/in
 const { folderBranch, sourceGroups, syncFolderShares, listFolderShares } = require('../lib/folder_shares');
 const { folderSharingStatuses } = require('../lib/card_sharing_status');
 const { buildMediaUrl } = require('../lib/media_access');
+const { photoOwnerFilter } = require('../lib/access_policy');
 const crypto = require('crypto');
 const { createAlbumCopy, attachFolderCopy } = require('../lib/folder_share_copy');
 const copyWorker = require('../lib/organization_copy_worker');
@@ -52,6 +53,7 @@ router.post('/', async (req, res) => {
   try {
     conn = await pool.getConnection();
     const workspace = await resolveWorkspace(req, conn), body = req.body || {};
+    if (workspace.ownPhotosOnly) throw new WorkspaceAccessError('ORGANIZATION_PHOTO_ACCESS_REQUIRED');
     await requireSourceEditor(workspace, workspace.unitId);
     if (!validFolderId(body.folderId) || !['read', 'collaborate', 'copy', 'public'].includes(body.mode)) throw new WorkspaceAccessError('INVALID_FOLDER_SHARE', 400);
     const publicShare = body.mode === 'public';
@@ -138,19 +140,21 @@ router.get('/:id', async (req, res) => {
     }
     const branch = folderBranch(await sourceGroups(conn, workspace.orgId, share.sourceUnitId), share.folderId);
     if (!branch.length) throw new WorkspaceAccessError('SHARE_NOT_FOUND', 404);
+    const countOwner = photoOwnerFilter(workspace, 'c');
+    const coverOwner = photoOwnerFilter(workspace, 'i');
     const [rows] = await conn.query(
       `SELECT DISTINCT p.id, p.name, p.description, p.unit_id AS unitId,
               p.created_at AS createdAt, p.updated_at AS updatedAt,
-              (SELECT COUNT(*) FROM photos c WHERE c.project_id = p.id AND c.organization_id = p.organization_id) AS count,
+              (SELECT COUNT(*) FROM photos c WHERE c.project_id = p.id AND c.organization_id = p.organization_id${countOwner.sql}) AS count,
               ph.id AS photoId, ph.thumb_url AS coverThumb, ph.url AS coverUrl
        FROM internal_shares s JOIN projects p ON p.id = s.project_id
        LEFT JOIN photos ph ON ph.id = (SELECT i.id FROM photos i WHERE i.project_id = p.id
-         AND i.organization_id = p.organization_id AND (i.type IS NULL OR i.type <> 'video') ORDER BY i.id DESC LIMIT 1)
+         AND i.organization_id = p.organization_id${coverOwner.sql} AND (i.type IS NULL OR i.type <> 'video') ORDER BY i.id DESC LIMIT 1)
        WHERE s.folder_share_id = ? AND s.organization_id = ? AND s.source_unit_id = ?
          AND s.target_unit_id = ? AND (s.target_user_id IS NULL OR s.target_user_id = ?)
          AND s.revoked_at IS NULL AND (s.expires_at IS NULL OR s.expires_at > NOW())
          AND p.organization_id = ? AND p.unit_id = ? AND p.restricted_to_user_id IS NULL`,
-      [id, workspace.orgId, share.sourceUnitId, workspace.unitId, workspace.userId, workspace.orgId, share.sourceUnitId]
+      [...countOwner.params, ...coverOwner.params, id, workspace.orgId, share.sourceUnitId, workspace.unitId, workspace.userId, workspace.orgId, share.sourceUnitId]
     );
     const ids = new Set(rows.map(row => Number(row.id)));
     const groups = branch.map(group => ({ id: group.id, name: group.name, parentId: group.id === share.folderId ? null : group.parentId,
@@ -195,6 +199,7 @@ router.post('/:id/copy', async (req, res) => {
   try {
     conn = await pool.getConnection();
     const workspace = await resolveWorkspace(req, conn), id = positiveId(req.params.id);
+    if (workspace.ownPhotosOnly) throw new WorkspaceAccessError('ORGANIZATION_PHOTO_ACCESS_REQUIRED');
     if (!id) throw new WorkspaceAccessError('INVALID_SHARE', 400);
     await conn.beginTransaction();
     const [rows] = await conn.query(`SELECT * FROM folder_shares WHERE id = ? AND organization_id = ? AND mode = 'copy'

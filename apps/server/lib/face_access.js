@@ -2,7 +2,7 @@ const { pool } = require('../db');
 const { resolveWorkspace, WorkspaceAccessError } = require('./workspace_access');
 
 async function getFacePermissions(workspace, db = pool) {
-  if (!workspace.userId || !workspace.orgId) return { search: false, manage: false };
+  if (!workspace.userId || !workspace.orgId || workspace.ownPhotosOnly) return { search: false, manage: false };
   const [rows] = await db.query(
     `SELECT college_wide, can_manage FROM face_search_grants
      WHERE organization_id = ? AND user_id = ? LIMIT 1`, [workspace.orgId, workspace.userId]

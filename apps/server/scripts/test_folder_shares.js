@@ -24,7 +24,7 @@ function fixture() {
       type TEXT, event_date TEXT, created_at TEXT, updated_at TEXT);
     CREATE TABLE photos(id INTEGER PRIMARY KEY, uuid TEXT, organization_id INTEGER, unit_id INTEGER, project_id INTEGER,
       photographer_id INTEGER, type TEXT, title TEXT, description TEXT, tags TEXT, timeline_section_id INTEGER,
-      url TEXT, thumb_url TEXT, public_download_url TEXT, playback_url TEXT, created_at TEXT, updated_at TEXT);
+      url TEXT, thumb_url TEXT, public_download_url TEXT, playback_url TEXT, adjustments TEXT, created_at TEXT, updated_at TEXT);
     CREATE TABLE project_timeline_sections(id INTEGER, project_id INTEGER, name TEXT, section_time TEXT, sort_order INTEGER);
     CREATE TABLE folder_shares(id INTEGER PRIMARY KEY AUTOINCREMENT, organization_id INTEGER, source_unit_id INTEGER,
       source_folder_id TEXT, folder_name TEXT, target_unit_id INTEGER, target_user_id INTEGER, mode TEXT,
@@ -62,7 +62,8 @@ function fixture() {
   const query = async (raw, params = []) => {
     if (/^SET TRANSACTION/.test(raw)) return [[]];
     if (failure && raw.includes(failure)) throw Error('injected failure');
-    let sql = raw.replace(/\s+FOR (?:UPDATE|SHARE)\b/g, '').replace(/INSERT IGNORE/g, 'INSERT OR IGNORE').replace(/<=>/g, 'IS');
+    let sql = raw.replace(/\s+FOR (?:UPDATE|SHARE)\b/g, '').replace(/INSERT IGNORE/g, 'INSERT OR IGNORE').replace(/<=>/g, 'IS')
+      .replace(/JSON_ARRAYAGG\(/g, 'json_group_array(');
     const bound = [];
     sql = sql.replace(/\?/g, () => {
       const param = params[bound.parameterIndex || 0]; bound.parameterIndex = (bound.parameterIndex || 0) + 1;
@@ -97,22 +98,48 @@ function fixture() {
   const shareRouter = load(require.resolve('../routes/share'), { ...common, '../lib/public_folder_share': publicModule });
   const app = express(); app.use(express.json());
   app.use((req, _res, next) => { const userId = Number(req.get('x-user') || 7), unitId = Number(req.get('x-unit') || (userId === 7 ? 1 : 2));
-    req.workspace = { enabled: true, userId, orgId: userId === 90 ? 3 : 2, unitId, role: req.get('x-role') || 'editor', collegeAdmin: false };
+    req.workspace = { enabled: true, userId, orgId: userId === 90 ? 3 : 2, unitId, role: req.get('x-role') || 'editor', collegeAdmin: false,
+      ownPhotosOnly: req.get('x-own-only') === '1' };
     req.user = { id: userId, organization_id: req.workspace.orgId }; next(); });
   app.use('/folder-shares', folderRouter); app.use('/desktop', desktopRouter); app.use('/share', shareRouter);
   return { db, conn, pool, access, folders, shared, groups, app, mediaAcl, get wakes() { return wakes; }, inject: value => { failure = value; } };
 }
 async function serve(f, run) {
   const server = f.app.listen(0, '127.0.0.1'); await new Promise(resolve => server.once('listening', resolve));
-  try { await run(async (path, { method = 'GET', body, user = 7, unit, role } = {}) => {
+  try { await run(async (path, { method = 'GET', body, user = 7, unit, role, ownOnly } = {}) => {
     const response = await fetch(`http://127.0.0.1:${server.address().port}${path}`, { method,
-      headers: { 'Content-Type': 'application/json', 'x-user': String(user), ...(unit ? { 'x-unit': String(unit) } : {}), ...(role ? { 'x-role': role } : {}) },
+      headers: { 'Content-Type': 'application/json', 'x-user': String(user), ...(unit ? { 'x-unit': String(unit) } : {}), ...(role ? { 'x-role': role } : {}),
+        ...(ownOnly ? { 'x-own-only': '1' } : {}) },
       ...(body ? { body: JSON.stringify(body) } : {}) });
     return { status: response.status, headers: response.headers, body: await response.json() };
   }); } finally { await new Promise(resolve => server.close(resolve)); f.db.close(); }
 }
 const create = (call, patch = {}) => call('/folder-shares', { method: 'POST', body: { folderId: 'root', mode: 'read', targetUnitId: 2, ...patch } });
 const scope = (unitId, userId = unitId === 1 ? 7 : 67) => ({ enabled: true, orgId: 2, unitId, userId, role: 'editor', collegeAdmin: false });
+
+test('own-only covers and counts stay scoped in the desktop, shared album, and received folder', async () => {
+  const f = fixture();
+  f.db.exec(`INSERT INTO photos(id,organization_id,unit_id,project_id,photographer_id,type,title,url,thumb_url)
+    VALUES(10,2,1,76,67,'normal','Collaborative upload','/collab.jpg','/collab-thumb.jpg'),
+          (11,2,1,76,68,'normal','Peer upload','/peer.jpg','/peer-thumb.jpg');`);
+  await serve(f, async call => {
+    const desktop = await call('/desktop', { ownOnly: true });
+    assert.equal(desktop.status, 200);
+    assert.deepEqual(desktop.body.albums.filter(album => album.id === 76).map(album => [album.count, album.image]), [[1, '/uploads/units/1/thumb.jpg']]);
+    const created = await create(call, { mode: 'collaborate' });
+    assert.equal(created.status, 201);
+    const received = await call('/folder-shares/received', { user: 67, ownOnly: true });
+    assert.equal(received.status, 200);
+    assert.equal(received.body[0].photoCount, 1);
+    assert.deepEqual(received.body[0].coverUrls, ['/collab-thumb.jpg']);
+    const detail = await call('/folder-shares/' + created.body.id, { user: 67, ownOnly: true });
+    assert.equal(detail.status, 200);
+    assert.deepEqual(detail.body.albums.map(album => [album.id, album.count, album.image]).sort((a,b) => a[0]-b[0]), [[76, 1, '/collab-thumb.jpg'], [77, 0, null]]);
+    const shared = await f.shared.listSharedAlbums({ ...scope(2), ownPhotosOnly: true }, f.pool);
+    assert.deepEqual(shared.map(album => [album.id, album.count, album.image]).sort((a,b) => a[0]-b[0]), [[76, 1, '/collab-thumb.jpg'], [77, 0, null]]);
+    assert.equal((await call('/folder-shares', { ownOnly: true, method: 'POST', body: { folderId: 'root', mode: 'read', targetUnitId: 2 } })).status, 403);
+  });
+});
 
 test('photo originals require a live, correctly scoped share, including approved photo selections', async () => {
   const f = fixture();

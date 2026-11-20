@@ -78,6 +78,7 @@ export default function CampusLoginQr() {
           <span>{state.phase === 'loading' ? '正在获取二维码' : state.phase === 'ready' ? '已确认，正在登录' :
             state.phase === 'expired' ? '二维码已过期' : '二维码暂不可用'}</span>
           {!pending && <button className="auth-text-button" type="button" onClick={() => setRevision(value => value + 1)}>刷新二维码</button>}
+          {!pending && <a className="auth-text-button" href={`/api/auth/iam/login?returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`}>改用浏览器登录</a>}
         </div>}
     </div>
     <p className="auth-qr-caption">使用钉钉扫一扫登录</p>

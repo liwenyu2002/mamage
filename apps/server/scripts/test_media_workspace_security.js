@@ -2,16 +2,19 @@ const assert = require('node:assert/strict');
 process.env.ORGANIZATION_UNITS_ACTIVE = '1';
 process.env.MEDIA_URL_SECRET = 'isolated-media-acl-test';
 let activeUnit = 1;
+let viewOrganizationPhotos = 1;
+let role = 'member';
 let shareActive = true;
 const original = 'uploads/2025/10/01/private.jpg';
 const thumbnail = 'uploads/2025/10/01/thumb_private.jpg';
 const photo = { id: 77, photo_id: 77, project_id: 9, organization_id: 2, unit_id: 1,
+  photographer_id: 9,
   url: `/${original}`, thumb_url: `/${thumbnail}` };
 const db = { async query(sql) {
   if (sql.includes('FROM organization_units WHERE')) return [[{ id: 1 }]];
   if (sql.includes('organization_admin_grants')) return [[]];
-  if (sql.includes('SELECT active_unit_id')) return [[{ active_unit_id: activeUnit }]];
-  if (sql.includes('SELECT m.role')) return [[{ role: 'member' }]];
+  if (sql.includes('SELECT active_unit_id')) return [[{ active_unit_id: activeUnit, view_organization_photos: viewOrganizationPhotos }]];
+  if (sql.includes('SELECT m.role')) return [[{ role }]];
   if (sql.includes('FROM photos WHERE id')) return [[photo]];
   if (sql.includes('FROM photos ph LEFT JOIN projects')) return [[photo]];
   if (sql.includes('FROM users WHERE id')) return [[{ id: 7, organization_id: 2, role: 'photographer' }]];
@@ -44,6 +47,19 @@ const avatar = require('../lib/user_avatar');
   assert.equal(await media.authorizeMediaKey(original, null, db), false, 'global legacy signatures must not authorize private photos');
   const url = new URL(media.buildMediaUrl(`/${original}`, { userId: 7, photoId: 77 }));
   assert(url.searchParams.has('ma'), 'legacy keys also need a resource-scoped token');
+  assert.equal(await media.authorizeMediaKey(original, url.searchParams.get('ma'), db), true);
+  viewOrganizationPhotos = 0;
+  role = 'manager';
+  const request = () => ({ user: { id: 7, organization_id: 2, role: 'admin' }, get: () => undefined });
+  assert.equal(await media.authorizeMediaKey(original, url.searchParams.get('ma'), db), false, 'Changing the switch revokes delivery through an already issued proxy URL');
+  for (const action of ['read', 'metadata', 'delete']) {
+    await assert.rejects(access.requirePhotosAccess(request(), [77], action, db), { code: 'PHOTO_NOT_FOUND' });
+  }
+  photo.photographer_id = 7;
+  assert.equal(await media.authorizeMediaKey(original, url.searchParams.get('ma'), db), true, 'Owner keeps access');
+  assert.equal((await access.requirePhotosAccess(request(), [77], 'read', db))[0].id, 77);
+  photo.photographer_id = 9;
+  viewOrganizationPhotos = 1;
   assert.equal(await media.authorizeMediaKey(original, url.searchParams.get('ma'), db), true);
   activeUnit = 2;
   assert.equal(await media.authorizeMediaKey(original, url.searchParams.get('ma'), db), false, 'changing units must revoke old private access');

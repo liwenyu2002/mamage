@@ -257,7 +257,7 @@ async function searchPhotos(options = {}) {
   const projectId = Number(options.projectId) > 0 ? Number(options.projectId) : null;
   const orgId = options.orgId === null ? null : Number(options.orgId);
   const unitId = Number(options.unitId) > 0 ? Number(options.unitId) : null;
-  const faceSearchAllowed = options.faceSearchAllowed !== false;
+  const faceSearchAllowed = !options.ownPhotosOnly && options.faceSearchAllowed !== false;
   const filenameQuery = isMediaFilenameQuery(query);
   const peopleRows = faceSearchAllowed && !filenameQuery ? await findPeople(orgId, query) : [];
   checkActive();
@@ -309,6 +309,10 @@ async function searchPhotos(options = {}) {
 
   const where = [];
   const whereParams = [];
+  if (options.ownPhotosOnly) {
+    where.push('p.photographer_id = ?');
+    whereParams.push(options.userId);
+  }
   if (orgId === null || !Number.isFinite(orgId)) {
     where.push('p.organization_id IS NULL');
   } else {
@@ -317,13 +321,35 @@ async function searchPhotos(options = {}) {
   }
   if (options.workspaceEnabled) {
     if (unitId) {
-      const sharedIds = Array.isArray(options.sharedProjectIds)
-        && (options.scope?.type === 'workspace' || (options.scope?.type === 'folder' && Array.isArray(options.projectIds)))
-        ? [...new Set(options.sharedProjectIds.map(Number).filter(id => Number.isSafeInteger(id) && id > 0
-          && (options.scope.type === 'workspace' || options.projectIds.includes(id))))] : [];
-      where.push(sharedIds.length ? '(COALESCE(pr.unit_id, p.unit_id) = ? OR p.project_id IN (?))' : 'COALESCE(pr.unit_id, p.unit_id) = ?');
       whereParams.push(unitId);
-      if (sharedIds.length) whereParams.push(sharedIds);
+      if (options.includeSharedAlbums === true && options.scope?.type === 'workspace' && !projectId
+        && !Array.isArray(options.projectIds) && Number.isSafeInteger(options.userId) && options.userId > 0
+        && Number.isSafeInteger(orgId) && orgId > 0) {
+        // Evaluate the original grant inside each search query, not when a shortcut was saved.
+        where.push(`(COALESCE(pr.unit_id, p.unit_id) = ? OR EXISTS (
+          SELECT 1 FROM internal_shares s
+          WHERE s.project_id = pr.id AND s.organization_id = pr.organization_id AND s.organization_id = p.organization_id
+            AND s.source_unit_id = pr.unit_id AND s.target_unit_id = ?
+            AND (s.target_user_id IS NULL OR s.target_user_id = ?)
+            AND s.share_type = 'album' AND s.mode IN ('read', 'collaborate')
+            AND s.revoked_at IS NULL AND (s.expires_at IS NULL OR s.expires_at > NOW())
+            AND (s.folder_share_id IS NULL OR EXISTS (
+              SELECT 1 FROM folder_shares fs
+              WHERE fs.id = s.folder_share_id AND fs.organization_id = s.organization_id
+                AND fs.source_unit_id = s.source_unit_id AND fs.target_unit_id = s.target_unit_id
+                AND (fs.target_user_id IS NULL OR fs.target_user_id = s.target_user_id)
+                AND fs.mode IN ('read', 'collaborate')
+                AND fs.revoked_at IS NULL AND (fs.expires_at IS NULL OR fs.expires_at > NOW())
+            ))
+        ))`);
+        whereParams.push(unitId, options.userId);
+      } else {
+        const sharedIds = options.scope?.type === 'folder' && Array.isArray(options.projectIds) && Array.isArray(options.sharedProjectIds)
+          ? [...new Set(options.sharedProjectIds.map(Number).filter(id => Number.isSafeInteger(id) && id > 0
+            && options.projectIds.includes(id)))] : [];
+        where.push(sharedIds.length ? '(COALESCE(pr.unit_id, p.unit_id) = ? OR p.project_id IN (?))' : 'COALESCE(pr.unit_id, p.unit_id) = ?');
+        if (sharedIds.length) whereParams.push(sharedIds);
+      }
     } else {
       where.push('COALESCE(pr.unit_id, p.unit_id) IS NULL');
     }

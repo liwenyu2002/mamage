@@ -577,3 +577,7 @@
 /* 共享卡片上的分享说明 */
 .acp-share-meta { margin: 2px 2px 0; color: var(--lg-muted, #6f776e); font-size: 10.5px; line-height: 1.4;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* 共享相册：放到工作台第一级 */
+.shared-folder-root { display: flex; align-items: center; gap: 8px; margin: 4px 0 10px; font-size: 13px; }
+.shared-folder-root input { width: 16px; height: 16px; }

@@ -29,12 +29,19 @@ function workspacePolicy(workspace) {
   const canManage = validUser && (organizationAdmin || (hasSpace && role === 'manager'));
   return {
     role, label: ROLE_LABELS[role], metadataScope: scope, deleteScope: scope,
+    photoReadScope: workspace.ownPhotosOnly ? 'own' : 'workspace',
     canUpload: canContribute, canCreate: canContribute, canOrganize: canContribute,
     canDeleteContainers: canManage, canManageMembers: canManage,
-    canShare: canContribute, canPublishAutomatically: canManage,
+    canShare: canContribute, canPublishAutomatically: canManage && !workspace.ownPhotosOnly,
     canGrantFaces: Boolean(organizationAdmin),
     canManageAccounts: validUser && workspace.userRole === 'superadmin' && (legacy || organizationAdmin),
   };
+}
+
+function photoOwnerFilter(workspace, alias) {
+  return workspace.ownPhotosOnly
+    ? { sql: ` AND ${alias ? alias + '.' : ''}photographer_id = ?`, params: [workspace.userId] }
+    : { sql: '', params: [] };
 }
 
 function workspacePermission(workspace, permission, baseAllowed) {
@@ -71,4 +78,4 @@ function userAccessProfile(workspace, basePermissions, facePermissions = { searc
     metadataEditScope: access.metadataScope, permissions: [...permissions] };
 }
 
-module.exports = { ROLE_LABELS, unitRoleAllows, workspacePolicy, workspacePermission, userAccessProfile };
+module.exports = { ROLE_LABELS, unitRoleAllows, workspacePolicy, workspacePermission, userAccessProfile, photoOwnerFilter };

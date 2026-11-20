@@ -1,4 +1,6 @@
 const { createHash } = require('node:crypto');
+const { iamConfig } = require('./iam_config');
+const { isMergeReviewNumber } = require('./iam_profile_links');
 
 function fail(code, message, status = 400) {
   return Object.assign(new Error(message), { code, status });
@@ -7,6 +9,22 @@ const id = value => (typeof value === 'number' || (typeof value === 'string' && 
   && Number.isSafeInteger(Number(value)) && Number(value) > 0 ? Number(value) : null;
 const revision = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const displayStudentNo = value => /^(iam_|auto)/.test(value || '') ? null : value || null;
+const like = value => `%${value.replace(/[!%_]/g, '!$&')}%`;
+const IAM_PENDING_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
+
+async function searchPendingIam(db, cfg, orgId, q) {
+  if (!q || !cfg.loginReady || !cfg.profileLoginMatching || cfg.orgId !== orgId) return [];
+  const field = name => `JSON_UNQUOTE(JSON_EXTRACT(p.claims, '$.${name}'))`;
+  const columns = ['name', 'email', 'studentNo'];
+  const [rows] = await db.query(`SELECT ${columns.map(name => `${field(name)} AS ${name}`).join(', ')}, p.created_at AS createdAt
+    FROM iam_login_pending p WHERE p.source_key = ? AND p.created_at >= ?
+      AND p.reason IN ('IAM_ACCOUNT_LINK_REQUIRED', 'IAM_ACCOUNT_MATCH_CONFLICT')
+      AND (${columns.map(name => `${field(name)} LIKE ? ESCAPE '!'`).join(' OR ')})
+      AND NOT EXISTS (SELECT 1 FROM iam_login_identities i WHERE i.source_key = p.source_key AND i.subject_id = p.subject_id)
+    ORDER BY p.created_at DESC, p.subject_id LIMIT 25`,
+  [cfg.sourceKey, new Date(Date.now() - IAM_PENDING_MAX_AGE), ...columns.map(() => like(q))]);
+  return rows;
+}
 
 async function accessAdministrator(db, userId, lock = false) {
   const suffix = lock ? ' FOR UPDATE' : '';
@@ -20,7 +38,7 @@ async function accessAdministrator(db, userId, lock = false) {
 
 async function accountAccess(db, userId, lock = false) {
   const suffix = lock ? ' FOR UPDATE' : '';
-  const [[user]] = await db.query('SELECT id, role, organization_id, active_unit_id FROM users WHERE id = ?' + suffix, [userId]);
+  const [[user]] = await db.query('SELECT id, role, organization_id, active_unit_id, view_organization_photos FROM users WHERE id = ?' + suffix, [userId]);
   if (!user) throw fail('USER_NOT_FOUND', '用户不存在', 404);
   const [memberships] = await db.query(`SELECT unit_id AS unitId, role FROM organization_unit_memberships
     WHERE user_id = ? AND removed_at IS NULL ORDER BY unit_id` + suffix, [userId]);
@@ -29,12 +47,14 @@ async function accountAccess(db, userId, lock = false) {
   const snapshot = { user, memberships, admins, faces };
   const face = faces.find(row => Number(row.organization_id) === Number(user.organization_id));
   return { snapshot, revision: revision(snapshot), memberships,
+    viewOrganizationPhotos: user.role === 'superadmin' || Number(user.view_organization_photos) === 1,
     collegeAdmin: admins.some(row => Number(row.organization_id) === Number(user.organization_id)),
     facePermissions: { search: Number(face?.college_wide) === 1, manage: Number(face?.college_wide) === 1 && Number(face?.can_manage) === 1 } };
 }
 
 function validateAssignment(body) {
   if (!body || !Array.isArray(body.memberships) || body.memberships.length > 100
+    || (Object.hasOwn(body, 'viewOrganizationPhotos') && typeof body.viewOrganizationPhotos !== 'boolean')
     || typeof body.collegeAdmin !== 'boolean' || typeof body.facePermissions?.search !== 'boolean'
     || typeof body.facePermissions?.manage !== 'boolean' || !/^[a-f0-9]{64}$/.test(body.revision || '')) {
     throw fail('INVALID_ACCESS', '权限配置不完整，请重新加载');
@@ -79,6 +99,9 @@ async function saveAccountAccess(db, actorId, targetId, input) {
     const role = body.collegeAdmin || body.memberships.some(m => m.role === 'manager') ? 'admin'
       : body.memberships.some(m => m.role === 'editor') ? 'photographer' : 'visitor';
     await conn.query('UPDATE users SET role = ?, active_unit_id = ? WHERE id = ?', [role, activeUnit, targetId]);
+    if (Object.hasOwn(body, 'viewOrganizationPhotos')) {
+      await conn.query('UPDATE users SET view_organization_photos = ? WHERE id = ?', [body.viewOrganizationPhotos ? 1 : 0, targetId]);
+    }
     const after = await accountAccess(conn, Number(targetId));
     await conn.query(`INSERT INTO organization_access_audit (organization_id, unit_id, user_id, action, resource_type, resource_id, details)
       VALUES (?, ?, ?, ?, ?, ?, ?)`, [orgId, activeUnit, actorId, 'user.access.configure', 'user', targetId,
@@ -114,7 +137,7 @@ async function saveLegacyAccountRole(db, actorId, targetId, role) {
   finally { conn.release(); }
 }
 
-function registerUserAccessAdmin(router, { db, auth }) {
+function registerUserAccessAdmin(router, { db, auth, readIamConfig = iamConfig }) {
   const respondError = (res, error) => {
     if (!error.status) console.error('[user-access-admin]', error.code || error.name);
     return res.status(error.status || 500).json({ error: error.status ? error.code : 'INTERNAL_ERROR', message: error.status ? error.message : '操作失败，请稍后重试' });
@@ -135,10 +158,10 @@ function registerUserAccessAdmin(router, { db, auth }) {
       const pending = req.query.status === 'pending';
       const [organizations] = await db.query('SELECT id, name FROM organizations ORDER BY id');
       const [units] = await db.query('SELECT id, name FROM organization_units WHERE organization_id = ? AND archived_at IS NULL ORDER BY id', [orgId]);
-      const where = `u.organization_id = ? AND (u.name LIKE ? OR u.email LIKE ? OR u.student_no LIKE ?)
+      const where = `u.organization_id = ? ${q ? "AND (u.name LIKE ? ESCAPE '!' OR u.email LIKE ? ESCAPE '!' OR u.student_no LIKE ? ESCAPE '!')" : ''}
         ${pending ? `AND u.role <> 'superadmin' AND NOT EXISTS (SELECT 1 FROM organization_unit_memberships m WHERE m.user_id = u.id AND m.removed_at IS NULL)
           AND NOT EXISTS (SELECT 1 FROM organization_admin_grants a WHERE a.user_id = u.id AND a.organization_id = u.organization_id)` : ''}`;
-      const params = [orgId, ...Array(3).fill(`%${q}%`)];
+      const params = q ? [orgId, ...Array(3).fill(like(q))] : [orgId];
       const [[total]] = await db.query(`SELECT COUNT(*) AS count FROM users u WHERE ${where}`, params);
       const [rows] = await db.query(`SELECT u.id, u.name, u.email, u.student_no, u.department, u.role, u.created_at AS createdAt,
         EXISTS (SELECT 1 FROM iam_login_identities i WHERE i.user_id = u.id) AS iamLinked
@@ -146,9 +169,11 @@ function registerUserAccessAdmin(router, { db, auth }) {
       const users = [];
       for (const row of rows) {
         const { snapshot, ...access } = await accountAccess(db, row.id);
-        users.push({ ...row, student_no: displayStudentNo(row.student_no), iamLinked: Boolean(row.iamLinked), ...access });
+        users.push({ ...row, student_no: displayStudentNo(row.student_no), iamLinked: Boolean(row.iamLinked),
+          iamMergeReview: Boolean(row.iamLinked) && isMergeReviewNumber(row.student_no), ...access });
       }
-      res.set('Cache-Control', 'no-store').json({ organizations, organizationId: orgId, units, users, total: Number(total.count), page, pageSize: 50 });
+      const iamPending = q && !pending && page === 1 ? await searchPendingIam(db, readIamConfig(), orgId, q) : [];
+      res.set('Cache-Control', 'no-store').json({ organizations, organizationId: orgId, units, users, iamPending, total: Number(total.count), page, pageSize: 50 });
     } catch (error) { respondError(res, error); }
   });
   router.put('/:id/access', ...guard, async (req, res) => {

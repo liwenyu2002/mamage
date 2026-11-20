@@ -1,5 +1,6 @@
 // 账号合并：把「重复/临时账号」上的数据与身份链路并入保留账号，并退役来源账号。
 // 只在超级管理员后台使用；整个过程在一个事务里完成，来源账号保留行以便审计与追溯。
+const { isMergeReviewNumber, mergeReviewNumber } = require('./iam_profile_links');
 const fail = (code, message, status = 400) => Object.assign(new Error(message), { code, status });
 
 const positiveId = value => (typeof value === 'number' || (typeof value === 'string' && /^[1-9]\d*$/.test(value)))
@@ -46,6 +47,24 @@ const userRow = async (db, userId, lock = false) => {
   return row || null;
 };
 
+async function mergeBlock(db, from, to, lock = false) {
+  if (from.role === 'superadmin' || to.role === 'superadmin') {
+    return fail('PROTECTED_SUPERADMIN', '超级管理员账号不参与合并', 403);
+  }
+  if (isMergeReviewNumber(to.student_no)) {
+    return fail('IAM_MERGE_KEEP_LEGACY', '请把待合并账号选为被合并方，保留原账号', 409);
+  }
+  if (!isMergeReviewNumber(from.student_no)) return null;
+  const suffix = lock ? ' FOR UPDATE' : '';
+  const [identities] = await db.query('SELECT source_key FROM iam_login_identities WHERE user_id = ?' + suffix, [from.id]);
+  if (Number(from.organization_id) !== Number(to.organization_id)
+    || !identities.some(identity => mergeReviewNumber(identity.source_key, to.id) === from.student_no)) {
+    return fail('IAM_MERGE_TARGET_MISMATCH', '请选择与此校园身份匹配的原账号', 409);
+  }
+  const [[state]] = await db.query('SELECT disabled FROM iam_user_state WHERE user_id = ?' + suffix, [to.id]);
+  return Number(state?.disabled) ? fail('IAM_MERGE_TARGET_DISABLED', '原账号已停用，不能合并', 409) : null;
+}
+
 async function summary(db, userId) {
   const counts = {};
   for (const [table, column] of [...OWNED, ...RECIPIENTS, ...UNIQUE_OWNED, ...MEMBERSHIPS]) {
@@ -67,13 +86,13 @@ async function preview(db, sourceId, targetId) {
   if (source === target) throw fail('SAME_ACCOUNT', '不能把账号合并到自己');
   const rows = { source: await userRow(db, source), target: await userRow(db, target) };
   if (!rows.source || !rows.target) throw fail('USER_NOT_FOUND', '账号不存在', 404);
+  const blocked = await mergeBlock(db, rows.source, rows.target);
   return {
     source: { id: rows.source.id, name: rows.source.name, email: rows.source.email, student_no: rows.source.student_no, role: rows.source.role },
     target: { id: rows.target.id, name: rows.target.name, email: rows.target.email, student_no: rows.target.student_no, role: rows.target.role },
     moving: await summary(db, source),
     targetExisting: await summary(db, target),
-    blocked: rows.source.role === 'superadmin' ? '超级管理员账号不能作为被合并方'
-      : rows.target.role === 'superadmin' ? '超级管理员账号不能作为合并目标' : null,
+    blocked: blocked?.message || null, blockedCode: blocked?.code || null,
   };
 }
 
@@ -88,7 +107,8 @@ async function mergeAccounts(db, actorId, sourceId, targetId) {
     const from = await userRow(conn, source, true);
     const to = await userRow(conn, target, true);
     if (!from || !to) throw fail('USER_NOT_FOUND', '账号不存在', 404);
-    if (from.role === 'superadmin' || to.role === 'superadmin') throw fail('PROTECTED_SUPERADMIN', '超级管理员账号不参与合并', 403);
+    const blocked = await mergeBlock(conn, from, to, true);
+    if (blocked) throw blocked;
 
     for (const [table, column] of OWNED) {
       const [result] = await conn.query(`UPDATE ${table} SET ${column} = ? WHERE ${column} = ?`, [target, source]);
@@ -117,7 +137,13 @@ async function mergeAccounts(db, actorId, sourceId, targetId) {
     }
 
     // IAM 身份链路：登录身份、账号映射、状态都转到保留账号
-    const [identities] = await conn.query('UPDATE IGNORE iam_login_identities SET user_id = ? WHERE user_id = ?', [target, source]);
+    let identities;
+    try {
+      [identities] = await conn.query('UPDATE iam_login_identities SET user_id = ? WHERE user_id = ?', [target, source]);
+    } catch (error) {
+      if (error.code === 'ER_DUP_ENTRY') throw fail('IAM_MERGE_IDENTITY_CONFLICT', '保留账号已关联同一身份源，不能覆盖原有绑定', 409);
+      throw error;
+    }
     if (identities.affectedRows) moved['iam_login_identities.user_id'] = identities.affectedRows;
     await conn.query('UPDATE IGNORE iam_accounts SET user_id = ? WHERE user_id = ?', [target, source]).catch(() => null);
     await conn.query('DELETE FROM iam_user_state WHERE user_id = ?', [source]).catch(() => null);

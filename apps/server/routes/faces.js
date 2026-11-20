@@ -1776,11 +1776,13 @@ router.post('/faces/find-me', requirePermission('photos.view'), (req, res) => {
       const projectId = Number(req.body && req.body.projectId);
       if (!Number.isFinite(projectId) || projectId <= 0) return res.status(400).json({ error: 'projectId is required' });
       const project = await requireProjectAccess(req, projectId, 'read');
+      const workspace = await resolveWorkspace(req);
       const orgId = getOrgIdFromReq(req);
       const result = await findMe(req.file && req.file.buffer,
         { projectId, orgId, unitId: project.unit_id || null,
+          photographerId: workspace.ownPhotosOnly ? workspace.userId : null,
           mediaContext: { userId: req.user.id } });
-      if ((await resolveWorkspace(req)).enabled && result?.person) {
+      if (workspace.enabled && result?.person) {
         result.person = { matched: true, bestSim: result.person.bestSim };
       }
       return res.json(result);

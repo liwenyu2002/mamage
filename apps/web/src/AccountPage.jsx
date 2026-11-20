@@ -3,12 +3,16 @@ import { Card, Input, Button, Toast, Typography, Select, Divider } from './ui';
 import * as authService from './services/authService';
 import { accessRoleLabel } from './utils/accessRoles';
 import { copyText } from './utils/clipboard';
+import MembershipRequestsPanel from './MembershipRequestsPanel';
+import WorkspaceJoinChooser from './WorkspaceJoinChooser';
 const OperationsPanel = React.lazy(() => import('./OperationsPanel'));
 const UserAccessPanel = React.lazy(() => import('./UserAccessPanel'));
 
 const { Text } = Typography;
 
-export default function AccountPage({ currentUser, onUpdated }) {
+export default function AccountPage({ currentUser, onUpdated, membershipSummary }) {
+  const [joinOpen, setJoinOpen] = React.useState(false);
+  React.useEffect(() => { if (membershipSummary?.unreadCount > 0 && !membershipSummary?.canReview) setJoinOpen(true); }, [membershipSummary?.unreadCount, membershipSummary?.canReview]);
   const [inviteCode, setInviteCode] = React.useState('');
   const [loading, setLoading] = React.useState(false);
   const [message, setMessage] = React.useState('');
@@ -241,13 +245,17 @@ export default function AccountPage({ currentUser, onUpdated }) {
   return (
     <div style={{ maxWidth: 920, margin: '0 auto' }}>
       {currentUser?.canManageUserAccess ? <React.Suspense fallback={<div>加载用户管理…</div>}><UserAccessPanel currentUser={currentUser} /></React.Suspense> : null}
+      {!currentUser?.canManageUserAccess && membershipSummary?.canReview ? <MembershipRequestsPanel /> : null}
+      <WorkspaceJoinChooser visible={joinOpen} onClose={() => setJoinOpen(false)} />
       {currentUser?.permissions?.includes('users.view_all') ? <React.Suspense fallback={null}><OperationsPanel /></React.Suspense> : null}
       <Card title="账户信息" style={{ marginBottom: 16 }}>
+        <Button size="small" onClick={() => setJoinOpen(true)}>组织申请{membershipSummary?.unreadCount ? ` · ${membershipSummary.unreadCount} 条新通知` : ''}</Button>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div><Text strong>姓名：</Text> {currentUser?.name}</div>
           <div><Text strong>邮箱：</Text> {currentUser?.email || '未填写'}</div>
           {currentUser?.iamManaged ? <><div><Text strong>学工号：</Text> {currentUser.campusStudentNo || 'IAM 未提供'}</div><div><Text strong>资料来源：</Text> 校园 IAM</div></> : null}
           <div><Text strong>身份：</Text> {accessRoleLabel(currentUser)}</div>
+          {currentUser?.access?.photoReadScope ? <div><Text strong>照片可见范围：</Text> {currentUser.access.photoReadScope === 'own' ? '仅本人上传' : '已授权组织内的照片'}</div> : null}
           <div><Text strong>人物检索：</Text> {currentUser?.facePermissions?.search ? '已授权' : '未授权'}</div>
           <div><Text strong>人物档案维护：</Text> {currentUser?.facePermissions?.manage ? '已授权' : '未授权'}</div>
         </div>

@@ -1,7 +1,15 @@
+function copyStatusLabel(status) {
+  return status === 'failed' ? '复制失败' : status === 'ready' ? '副本已就绪' : '正在复制';
+}
+
+export function receivedFolderSharing({ originLabel, mode, copyStatus }) {
+  return { direction: 'received', originLabel, mode, copyStatus };
+}
+
 export function sharingStatusText(sharing) {
   if (!sharing) return '';
   if (sharing.direction === 'received') return [sharing.originLabel ? `来自 ${sharing.originLabel}` : '来自共享',
-    sharing.mode === 'collaborate' ? '共同编辑' : '只读', '实时共享'].join(' · ');
+    ...(sharing.mode === 'copy' ? [copyStatusLabel(sharing.copyStatus)] : [sharing.mode === 'collaborate' ? '共同编辑' : '只读', '实时共享'])].join(' · ');
   if (sharing.direction !== 'sent') return '';
   const targets = [...new Set((sharing.targetUnitNames || []).filter(Boolean))];
   return [targets.length ? `已共享至 ${targets.join('、')}` : '', targets.length ? '实时共享' : '',
@@ -15,7 +23,7 @@ export function cardSharingStatus(item) {
 
 export function cardSharingLabel(sharing) {
   if (!sharingStatusText(sharing)) return '';
-  if (sharing.direction === 'received') return sharing.mode === 'collaborate' ? '协作共享' : '只读共享';
+  if (sharing.direction === 'received') return sharing.mode === 'copy' ? copyStatusLabel(sharing.copyStatus) : sharing.mode === 'collaborate' ? '协作共享' : '只读共享';
   const internal = sharing.targetUnitNames?.some(Boolean);
   return sharing.public ? internal ? '共享 · 外链' : '公开外链' : '已共享';
 }

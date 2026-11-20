@@ -41,6 +41,7 @@ const { searchPhotos: runPhotoSearch } = require('../lib/photo_search');
 const { recordSearchTelemetry } = require('../lib/search_telemetry');
 const { createPhotoSearchStream } = require('../lib/photo_search_stream');
 const { resolveFolderSearchScope, resolveWorkspaceSearchScope } = require('../lib/photo_search_scope');
+const { photoOwnerFilter } = require('../lib/access_policy');
 const {
   resolveWorkspace, requireProjectAccess, requirePhotoAccess, requirePhotosAccess, sendWorkspaceError,
   assertNoActiveCopySource, WorkspaceAccessError,
@@ -642,6 +643,10 @@ router.get('/', requirePermission('photos.view'), async (req, res) => {
     `;
     const conds = [];
     const params = [];
+    if (workspace.ownPhotosOnly) {
+      conds.push('p.photographer_id = ?');
+      params.push(workspace.userId);
+    }
 
     if (type) {
       conds.push('p.type = ?');
@@ -833,6 +838,9 @@ router.get('/scenery/random', requirePermission('photos.view'), async (req, res)
       params.push(workspace.userId);
     }
 
+    const owner = photoOwnerFilter(workspace, 'p');
+    sql += owner.sql;
+    params.push(...owner.params);
     if (random) {
       sql += ' ORDER BY RAND()';
     } else {
@@ -924,7 +932,7 @@ router.get('/search', async (req, res) => {
     const hasFolderIdParam = req.query.folderId !== undefined;
     if (hasFolderIdParam && hasProjectIdParam) return res.status(400).json({ error: 'SEARCH_SCOPE_CONFLICT' });
     const searchScope = hasFolderIdParam ? await resolveFolderSearchScope(workspace, req.query.folderId)
-      : !hasProjectIdParam ? await resolveWorkspaceSearchScope(workspace) : null;
+      : !hasProjectIdParam ? resolveWorkspaceSearchScope(workspace) : null;
     const scopedProject = projectId && workspace.enabled
       ? await requireProjectAccess(req, projectId, 'read') : null;
     const faceSearchAllowed = (await require('../lib/face_access').getFacePermissions(workspace)).search;
@@ -946,6 +954,7 @@ router.get('/search', async (req, res) => {
       related: req.query.related === '1',
       orgId,
       userId,
+      ownPhotosOnly: workspace.ownPhotosOnly,
       unitId: scopedProject ? scopedProject.unit_id : workspace.unitId,
       workspaceEnabled: workspace.enabled || process.env.ORGANIZATION_UNITS_ACTIVE === '1',
       collegeAdmin: workspace.collegeAdmin,
@@ -1166,7 +1175,8 @@ router.post('/assign-section', requirePermission('photos.edit'), async (req, res
 // 兼容旧版 body { photoIds: [..] }（自动选最高分为基底）。异步任务，返回 { jobId }
 router.post('/group-rescue', requirePermission('photos.edit'), async (req, res) => {
   try {
-    if ((await resolveWorkspace(req)).enabled) {
+    const workspace = await resolveWorkspace(req);
+    if (workspace.enabled || workspace.ownPhotosOnly) {
       return res.status(403).json({ error: 'GROUP_RESCUE_UNAVAILABLE_IN_WORKSPACE' });
     }
     const body = req.body || {};
@@ -1200,6 +1210,9 @@ router.post('/group-rescue', requirePermission('photos.edit'), async (req, res) 
 
 // GET /api/photos/group-rescue/:jobId — 轮询任务进度
 router.get('/group-rescue/:jobId', requirePermission('photos.edit'), async (req, res) => {
+  if ((await resolveWorkspace(req)).ownPhotosOnly) {
+    return res.status(403).json({ error: 'GROUP_RESCUE_UNAVAILABLE_IN_WORKSPACE' });
+  }
   const job = require('../lib/group_rescue').getJob(req.params.jobId);
   if (!job) return res.status(404).json({ error: 'JOB_NOT_FOUND' });
   return res.json(job);
@@ -1416,6 +1429,7 @@ router.get('/zip-direct/:jobId', requirePermission('photos.view'), async (req, r
   try {
     return res.json(await getDirectZipResponse(job, req));
   } catch (err) {
+    if (sendWorkspaceError(res, err)) return;
     console.error('[photos.zip-direct] sign download failed:', job.id, err && err.stack ? err.stack : err);
     return res.status(500).json({ error: 'DIRECT_ZIP_SIGN_FAILED' });
   }
@@ -2007,7 +2021,7 @@ router.get('/:id/pixel-source', requirePermission('photos.view'), async (req, re
 
     const contentLength = response.headers.get('content-length');
     res.setHeader('Content-Type', contentType);
-    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.setHeader('Cache-Control', 'private, no-store');
     if (contentLength) res.setHeader('Content-Length', contentLength);
     response.body.on('error', (err) => {
       console.error('pixel-source stream error:', err && err.message ? err.message : err);

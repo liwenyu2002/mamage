@@ -1,21 +1,25 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const { mergeAccounts, preview } = require('../lib/account_merge');
+const { mergeReviewNumber } = require('../lib/iam_profile_links');
 
 const user = (id, extra = {}) => ({ id, name: '用户' + id, email: `u${id}@example.edu`, student_no: 'v-' + id,
   role: 'admin', organization_id: 2, active_unit_id: null, password_hash: 'hash', ...extra });
 
-function fake({ users = {}, faces = [], dedupe = 0 } = {}) {
+function fake({ users = {}, faces = [], dedupe = 0, identityConflict = false, reviewSource = '', disabled = false } = {}) {
   const calls = [];
   const query = async (sql, params = []) => {
     calls.push({ sql, params });
     if (/SELECT COUNT\(\*\) AS n/.test(sql)) return [[{ n: 3 }]];
     if (/FROM users WHERE id = \?/.test(sql)) { const row = users[params[0]]; return [row ? [row] : []]; }
+    if (sql.startsWith('SELECT source_key FROM iam_login_identities')) return [reviewSource ? [{ source_key: reviewSource }] : []];
+    if (sql.startsWith('SELECT disabled FROM iam_user_state')) return [[{ disabled: Number(disabled) }]];
     if (/FROM face_search_grants WHERE user_id = \?$/.test(sql)) return [faces.filter(f => f.user_id === params[0])];
     if (/FROM face_search_grants WHERE user_id = \? AND organization_id = \?/.test(sql)) {
       return [faces.filter(f => f.user_id === params[0] && f.organization_id === params[1])];
     }
     if (/^UPDATE IGNORE/.test(sql)) return [{ affectedRows: 1 }];
+    if (identityConflict && sql.startsWith('UPDATE iam_login_identities')) throw Object.assign(new Error('duplicate'), { code: 'ER_DUP_ENTRY' });
     if (/^DELETE/.test(sql)) return [{ affectedRows: dedupe }];
     return [{ affectedRows: 1 }];
   };
@@ -39,12 +43,35 @@ test('合并把归属、成员关系、IAM 身份转到保留账号并退役来�
   assert.ok(result.moved['projects.admin_id'] >= 1);
   assert.ok(calls.some(c => c.sql === 'COMMIT'));
   assert.ok(calls.some(c => /UPDATE IGNORE organization_unit_memberships/.test(c.sql)), '成员关系需要去重转移');
-  assert.ok(calls.some(c => /UPDATE IGNORE iam_login_identities/.test(c.sql)), 'IAM 登录身份需要改绑');
+  assert.ok(calls.some(c => /UPDATE iam_login_identities/.test(c.sql)), 'IAM 登录身份需要改绑');
   const retire = calls.find(c => /UPDATE users SET student_no = CONCAT\('merged-'/.test(c.sql));
   assert.ok(retire, '来源账号需要退役');
   assert.deepEqual(retire.params, [1]);
   assert.ok(calls.some(c => /disabled = 1/.test(c.sql)), '来源账号需要停用');
   assert.equal(result.moved['user_favorites.user_id.deduped'], 2);
+});
+
+test('a conflicting IAM target aborts the entire merge and does not retire the source', async () => {
+  const { db, calls } = fake({ users: { 1: user(1), 2: user(2) }, identityConflict: true });
+  await assert.rejects(mergeAccounts(db, 9, 1, 2), { code: 'IAM_MERGE_IDENTITY_CONFLICT', status: 409 });
+  assert.ok(calls.some(c => c.sql === 'ROLLBACK'));
+  assert.ok(!calls.some(c => c.sql === 'COMMIT' || c.sql.includes("CONCAT('merged-'")));
+});
+
+test('a review account can only be merged into the verified original account', async () => {
+  const reviewSource = 'fixture-campus';
+  const users = { 1: user(1, { student_no: mergeReviewNumber(reviewSource, 2), role: 'visitor' }),
+    2: user(2), 3: user(3) };
+  const { db, calls } = fake({ users, reviewSource });
+  assert.equal((await preview(db, 1, 3)).blockedCode, 'IAM_MERGE_TARGET_MISMATCH');
+  assert.equal((await preview(db, 2, 1)).blockedCode, 'IAM_MERGE_KEEP_LEGACY');
+  await assert.rejects(mergeAccounts(db, 9, 1, 3), { code: 'IAM_MERGE_TARGET_MISMATCH' });
+  assert.ok(!calls.some(c => c.sql.startsWith('UPDATE')));
+  const blocked = fake({ users, reviewSource, disabled: true });
+  await assert.rejects(mergeAccounts(blocked.db, 9, 1, 2), { code: 'IAM_MERGE_TARGET_DISABLED' });
+  const result = await mergeAccounts(db, 9, 1, 2);
+  assert.equal(result.target.id, 2);
+  assert.equal(result.moved['iam_login_identities.user_id'], 1);
 });
 
 test('预览返回转移条数并标出被阻止的原因', async () => {

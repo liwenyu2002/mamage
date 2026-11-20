@@ -1,4 +1,5 @@
 const { json } = require('./album_desktop');
+const { photoOwnerFilter } = require('./access_policy');
 
 function folderBranch(groups, folderId) {
   if (!Array.isArray(groups) || !groups.some(group => group.id === folderId && group.kind !== 'smart' && !group.restrictedToUserId)) return [];
@@ -66,6 +67,8 @@ async function syncFolderShares(db, orgId, unitId, groups) {
 async function listFolderShares(workspace, db, direction = 'received') {
   if (!workspace.enabled || !workspace.unitId || !workspace.orgId || !workspace.userId) return [];
   const received = direction === 'received';
+  const countOwner = photoOwnerFilter(workspace, 'ph');
+  const coverOwner = photoOwnerFilter(workspace, 'ph2');
   const [rows] = await db.query(
     `SELECT fs.id, fs.source_folder_id AS folderId, fs.folder_name AS albumName,
             fs.mode, fs.expires_at AS expiresAt, fs.revoked_at AS revokedAt, fs.created_at AS createdAt,
@@ -84,7 +87,7 @@ async function listFolderShares(workspace, db, direction = 'received') {
                AND p.organization_id = fs.organization_id AND p.unit_id = fs.source_unit_id
                AND p.restricted_to_user_id IS NULL) END AS albumCount,
             (SELECT COALESCE(SUM(pc.n), 0) FROM (
-                SELECT p.id, (SELECT COUNT(*) FROM photos ph WHERE ph.project_id = p.id AND ph.organization_id = p.organization_id) AS n
+                SELECT p.id, (SELECT COUNT(*) FROM photos ph WHERE ph.project_id = p.id AND ph.organization_id = p.organization_id${countOwner.sql}) AS n
                 FROM internal_shares s JOIN projects p ON p.id = s.project_id
                 WHERE s.folder_share_id = fs.id AND s.revoked_at IS NULL
                   AND p.organization_id = fs.organization_id AND p.unit_id = fs.source_unit_id
@@ -94,7 +97,7 @@ async function listFolderShares(workspace, db, direction = 'received') {
                 SELECT ph.thumb_url AS t, ph.id AS pid
                 FROM internal_shares s JOIN projects p2 ON p2.id = s.project_id
                 JOIN photos ph ON ph.id = (SELECT ph2.id FROM photos ph2
-                  WHERE ph2.project_id = p2.id AND ph2.organization_id = p2.organization_id
+                  WHERE ph2.project_id = p2.id AND ph2.organization_id = p2.organization_id${coverOwner.sql}
                   ORDER BY ph2.created_at DESC, ph2.id DESC LIMIT 1)
                 WHERE s.folder_share_id = fs.id AND s.revoked_at IS NULL
                   AND p2.organization_id = fs.organization_id AND p2.unit_id = fs.source_unit_id
@@ -110,7 +113,7 @@ async function listFolderShares(workspace, db, direction = 'received') {
        ${received ? `AND (fs.target_user_id IS NULL OR fs.target_user_id = ?)
        AND fs.revoked_at IS NULL AND (fs.expires_at IS NULL OR fs.expires_at > NOW())` : ''}
      ORDER BY fs.created_at DESC, fs.id DESC`,
-    [workspace.orgId, workspace.unitId, ...(received ? [workspace.userId] : [])]
+    [...countOwner.params, ...coverOwner.params, workspace.orgId, workspace.unitId, ...(received ? [workspace.userId] : [])]
   );
   return rows.map(row => ({ ...row, shareType: 'folder', id: Number(row.id), albumCount: Number(row.albumCount),
     photoCount: Number(row.photoCount) || 0,

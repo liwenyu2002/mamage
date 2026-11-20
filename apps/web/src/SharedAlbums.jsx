@@ -1,9 +1,9 @@
 import React from 'react';
-import { IconShare, IconSimilarStack, IconChevronRight, IconPlus, IconListView } from './ui/icons';
+import { IconShare, IconSimilarStack, IconChevronRight, IconPlus, IconListView, IconStar } from './ui/icons';
 import { resolveAssetUrl } from './services/request';
 import './sharedAlbums.css';
 
-export default function SharedAlbums({ albums = [], onOpen, onAdd, savedIds = [], compact = false }) {
+export default function SharedAlbums({ albums = [], onOpen, onAdd, onPin, pins = [], savedIds = [], compact = false }) {
   albums = albums.filter(album => !album.viaFolderOnly);
   if (!albums.length) return null;
   return <section className={`shared-albums${compact ? ' shared-albums-compact' : ''}`} aria-label="与我共享"
@@ -19,6 +19,8 @@ export default function SharedAlbums({ albums = [], onOpen, onAdd, savedIds = []
       aria-label={`${savedIds.includes(album.id) ? '整理共享相册' : '添加到本组织文件夹'} ${album.name}`}
       title={savedIds.includes(album.id) ? '整理共享相册' : '添加到本组织文件夹'} onClick={() => onAdd(album)}>
       {savedIds.includes(album.id) ? <IconListView /> : <IconPlus />}
-    </button>}</div>)}</div>
+    </button>}{onPin && <button className="shared-album-add" type="button" title="置顶共享相册"
+      aria-label={`置顶共享相册 ${album.name}`} aria-pressed={pins.includes(`album:${album.id}`)}
+      onClick={() => onPin(`album:${album.id}`)}><IconStar /></button>}</div>)}</div>
   </section>;
 }

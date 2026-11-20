@@ -7,6 +7,7 @@ import { IconChevronLeft, IconChevronRight, IconPlus, IconMoreStroked, IconStar,
 import SharedAlbums from '../SharedAlbums';
 import { SharedFolders } from '../SharedFolderView';
 import { goBack } from '../utils/navigation';
+import { receivedFolderSharing, sharingStatusText } from '../utils/sharingStatus';
 import { useNavigationState } from '../useNavigation';
 import './folderColumns.css';
 import './folderViewport.css';
@@ -15,7 +16,8 @@ function FolderGlyph({ color }) {
   return <span className="acp-column-folder-glyph" style={color && color !== '#ffffff' ? { '--folder-row-color': color } : undefined} aria-hidden="true" />;
 }
 
-export default function FolderColumns({ groups, albums, sharedAlbums, sharedFolders, onOpenSharedFolder, savedSharedIds, onAddSharedAlbum, path, onSelect, onOpen, onCreate,
+export default function FolderColumns({ groups, albums, sharedAlbums = [], sharedFolders = [], rootPlacedFolders = [], sharedFolderLocations = {}, onPlaceSharedFolder,
+  onOpenSharedFolder, savedSharedIds, onAddSharedAlbum, path, onSelect, onOpen, onCreate,
   onShareAlbum, onShareFolder,
   onPin, pins, onAppearance, onMove, onOrganize, onOrder, colors, getFolderDragProps, getAlbumDragProps,
   getGroupDropProps, dropTargetId, maxDepth, query, draftQuery, onSearch, onDraftQuery,
@@ -38,13 +40,18 @@ export default function FolderColumns({ groups, albums, sharedAlbums, sharedFold
   const chosenAlbum = albumChoice?.scope === scope ? albums.find(album => album.id === albumChoice.id) : null;
   const columns = virtualGroup ? [null, virtualGroup] : [null, ...path];
   const pathKey = virtualGroup?.id || path.map(group => group.id).join('/');
+  const directSharedAlbums = sharedAlbums.filter(album => !album.viaFolderOnly);
   const pinEntries = pins.map(key => {
     const [type, id] = key.split(':');
-    const item = type === 'group' ? groups.find(group => group.id === id) : albums.find(album => String(album.id) === id);
+    const sharedAlbum = type === 'album' && directSharedAlbums.find(album => String(album.id) === id);
+    const item = type === 'group' ? groups.find(group => group.id === id)
+      : type === 'album' ? albums.find(album => String(album.id) === id)
+        || (sharedAlbum && { ...sharedAlbum, groups: [], isShared: true }) : null;
     return item ? { kind: type === 'group' ? 'folder' : 'album', item } : null;
   }).filter(Boolean);
   const unfiledCount = albums.filter(album => !album.groups.length).length;
   const openFolder = id => { setAlbumChoice(null); setMenu(null); onSelect(id || 'all'); };
+  const openSharedFolder = id => { setAlbumChoice(null); setMenu(null); onOpenSharedFolder?.(id); };
   const selectable = entry => (entry.kind === 'folder' ? selectableFolderIds : selectableAlbumIds).includes(entry.item.id);
   const checked = entry => (entry.kind === 'folder' ? selectedFolderIds : selectedAlbumIds).includes(entry.item.id);
   const toggle = entry => { if (selectable(entry)) (entry.kind === 'folder' ? onToggleFolder : onToggleAlbum)?.(entry.item.id); };
@@ -52,6 +59,7 @@ export default function FolderColumns({ groups, albums, sharedAlbums, sharedFold
   const choose = (entry, columnIndex) => {
     if (selecting) { toggle(entry); return; }
     if (entry.kind === 'folder') openFolder(entry.item.id);
+    else if (entry.kind === 'shared-folder') openSharedFolder(entry.item.id);
     else {
       const group = columns[columnIndex];
       if (!group?.virtual) onSelect(group?.id || 'all');
@@ -62,6 +70,7 @@ export default function FolderColumns({ groups, albums, sharedAlbums, sharedFold
     if (selecting) { toggle(entry); return; }
     if (entry.kind === 'folder') openFolder(entry.item.id);
     else {
+      if (entry.item.isShared && !entry.item.groups.length) { onOpen(entry.item); return; }
       const groupId = entry.item.groups[0];
       if (groupId) onSelect(groupId); else onView('unfiled');
       setAlbumChoice({ id: entry.item.id, scope: groupId || 'unfiled' });
@@ -154,7 +163,7 @@ export default function FolderColumns({ groups, albums, sharedAlbums, sharedFold
     if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(key)) {
       const index = key === 'Home' ? 0 : key === 'End' ? entries.length - 1 : Math.max(0, Math.min(entries.length - 1, rowIndex + (key === 'ArrowDown' ? 1 : -1)));
       panelRefs.current[columnIndex]?.querySelectorAll('.acp-column-row-main')[index]?.focus();
-      if (!selecting) choose(entries[index], columnIndex);
+      if (!selecting && entries[index].kind !== 'shared-folder') choose(entries[index], columnIndex);
     } else if (key === 'ArrowLeft' && columnIndex > 0) {
       pendingFocus.current = { column: columnIndex - 1, id: columns[columnIndex]?.id };
       openFolder(columns[columnIndex - 1]?.id);
@@ -166,8 +175,11 @@ export default function FolderColumns({ groups, albums, sharedAlbums, sharedFold
     else if (key !== 'ArrowLeft') choose(entry, columnIndex);
   };
   const menuEntry = menu?.entry;
-  const menuFolder = menuEntry?.kind === 'folder';
-  const pinKey = menuEntry ? `${menuFolder ? 'group' : 'album'}:${menuEntry.item.id}` : '';
+  const menuLocalFolder = menuEntry?.kind === 'folder';
+  const menuSharedFolder = menuEntry?.kind === 'shared-folder';
+  const menuFolder = menuLocalFolder || menuSharedFolder;
+  const pinKey = menuEntry ? `${menuSharedFolder ? 'shared-folder' : menuLocalFolder ? 'group' : 'album'}:${menuEntry.item.id}` : '';
+  const placedRootIds = new Set(rootPlacedFolders.map(folder => folder.id));
 
   return <section className="acp-column-browser" id="collections" data-desktop-section="collections" aria-label="文件夹分栏浏览">
     <span className="acp-section-spotlight" aria-hidden="true" />
@@ -185,11 +197,14 @@ export default function FolderColumns({ groups, albums, sharedAlbums, sharedFold
     </div>
     {searchResults ? <div className="acp-column-search-results">{searchResults}</div> : <div className="acp-column-rail" ref={railRef}>
       {columns.map((group, columnIndex) => {
+        const placedFolders = selecting || group?.virtual ? [] : group
+          ? sharedFolders.filter(folder => sharedFolderLocations[folder.id] === group.id) : rootPlacedFolders;
         const entries = group?.virtual ? [
           ...(query ? searchGroups.map(item => ({ kind: 'folder', item })) : []),
           ...searchAlbums.map(item => ({ kind: 'album', item })),
         ] : [
           ...groups.filter(item => (item.parentId || null) === (group?.id || null)).map(item => ({ kind: 'folder', item })),
+          ...placedFolders.map(folder => ({ kind: 'shared-folder', item: { ...folder, name: folder.albumName, sharing: receivedFolderSharing(folder) } })),
           ...(group ? albums.filter(album => album.groups.includes(group.id)).map(item => ({ kind: 'album', item })) : []),
         ];
         return <section key={group?.id || 'root'} className={`acp-folder-column${dropTargetId === (group?.id || 'folder-root') ? ' is-drop-target' : ''}`}
@@ -210,23 +225,31 @@ export default function FolderColumns({ groups, albums, sharedAlbums, sharedFold
                   {!selecting && <button className="acp-column-more" type="button" aria-label={`置顶操作 ${entry.item.name}`} title="更多操作" aria-haspopup="menu" onClick={event => showMenu(event, entry)}><IconMoreStroked /></button>}
                 </div>)}
               </div>}
-              <SharedAlbums albums={sharedAlbums} onOpen={onOpen} onAdd={onAddSharedAlbum} savedIds={savedSharedIds} compact />
-              <SharedFolders folders={sharedFolders} onOpen={onOpenSharedFolder} compact />
+              <SharedAlbums albums={sharedAlbums} onOpen={onOpen} onAdd={onAddSharedAlbum} savedIds={savedSharedIds}
+                onPin={selecting ? undefined : onPin} pins={pins} compact />
+              {!selecting && <SharedFolders folders={sharedFolders.filter(folder => pins.includes(`shared-folder:${folder.id}`))}
+                onOpen={onOpenSharedFolder} onPlace={onPlaceSharedFolder} onPin={onPin} pins={pins} title="置顶共享文件夹" compact />}
+              <SharedFolders folders={sharedFolders.filter(folder => !placedRootIds.has(folder.id))} onOpen={onOpenSharedFolder} onPlace={onPlaceSharedFolder} onPin={onPin} pins={pins} compact />
               <div className="acp-column-section-label"><span>小组文件夹</span></div>
             </>}
             {entries.map((entry, rowIndex) => {
               const { kind, item } = entry;
-              const folder = kind === 'folder';
-              const selected = selecting ? checked(entry) : folder ? path[columnIndex]?.id === item.id : chosenAlbum?.id === item.id && albumChoice?.scope === group?.id;
-              const pinned = pins.includes(`${folder ? 'group' : 'album'}:${item.id}`);
-              const count = folder ? groups.filter(child => child.parentId === item.id).length + albums.filter(album => album.groups.includes(item.id)).length : item.count;
-              return <div key={`${kind}:${item.id}`} className={`acp-column-row${selected ? ' is-selected' : ''}${folder && (path[columnIndex + 1] || chosenAlbum) ? ' is-ancestor' : ''}${dropTargetId === item.id ? ' is-drop-target' : ''}`}
-                {...(folder ? getGroupDropProps(item) : {})} onContextMenu={event => showMenu(event, entry)}>
-                <button type="button" className="acp-column-row-main" data-entry-id={item.id} {...(selecting ? {} : folder ? getFolderDragProps(item) : getAlbumDragProps(item))}
+              const localFolder = kind === 'folder';
+              const sharedFolder = kind === 'shared-folder';
+              const folder = localFolder || sharedFolder;
+              const selected = !sharedFolder && (selecting ? checked(entry) : localFolder ? path[columnIndex]?.id === item.id : chosenAlbum?.id === item.id && albumChoice?.scope === group?.id);
+              const pinned = pins.includes(`${sharedFolder ? 'shared-folder' : localFolder ? 'group' : 'album'}:${item.id}`);
+              const count = sharedFolder ? item.albumCount : localFolder ? groups.filter(child => child.parentId === item.id).length + albums.filter(album => album.groups.includes(item.id)).length : item.count;
+              const shareDescription = sharedFolder ? sharingStatusText(item.sharing) : '';
+              return <div key={`${kind}:${item.id}`} className={`acp-column-row${selected ? ' is-selected' : ''}${localFolder && (path[columnIndex + 1] || chosenAlbum) ? ' is-ancestor' : ''}${!sharedFolder && dropTargetId === item.id ? ' is-drop-target' : ''}`}
+                {...(localFolder ? getGroupDropProps(item) : {})} onContextMenu={event => showMenu(event, entry)}>
+                <button type="button" className="acp-column-row-main" data-entry-id={sharedFolder ? `shared-folder:${item.id}` : item.id}
+                  {...(selecting || sharedFolder ? {} : localFolder ? getFolderDragProps(item) : getAlbumDragProps(item))}
                   disabled={selecting && !selectable(entry)} aria-label={`${selecting ? folder ? '选择文件夹' : '选择相册' : folder ? '浏览文件夹' : '预览相册'} ${item.name}`} aria-pressed={selected}
-                  title={`${item.name} · ${count} ${folder ? '项' : '张照片'}`} onClick={() => choose(entry, columnIndex)}
+                  aria-description={shareDescription || undefined}
+                  title={`${item.name} · ${count} ${sharedFolder ? '个相册' : folder ? '项' : '张照片'}${shareDescription ? `\n${shareDescription}` : ''}`} onClick={() => choose(entry, columnIndex)}
                   onDoubleClick={() => { if (!selecting && !folder) onOpen(item); }} onKeyDown={event => onRowKeyDown(event, entry, columnIndex, rowIndex, entries)}>
-                  {folder ? <FolderGlyph color={colors[item.id]} /> : <span className="acp-column-album-thumb">{item.image ? <img src={item.image} alt="" loading="lazy" decoding="async" draggable={false} /> : <IconSimilarStack />}</span>}
+                  {folder ? <FolderGlyph color={localFolder ? colors[item.id] : undefined} /> : <span className="acp-column-album-thumb">{item.image ? <img src={item.image} alt="" loading="lazy" decoding="async" draggable={false} /> : <IconSimilarStack />}</span>}
                   <span className="acp-column-row-copy"><span className="acp-column-row-name">{item.name}</span><CardSharingStatus item={item} type={folder ? '文件夹' : '相册'} /></span>
                   {pinned && <span className="acp-column-pin" aria-label="已置顶"><IconStar /></span>}
                   {folder && <IconChevronRight className="acp-column-chevron" />}
@@ -238,7 +261,7 @@ export default function FolderColumns({ groups, albums, sharedAlbums, sharedFold
             {!group && <div className="acp-column-utility"><button type="button" className={`acp-column-unfiled${view === 'unfiled' ? ' is-selected' : ''}`} onClick={() => { setAlbumChoice(null); onView('unfiled'); }}><IconSimilarStack /><span>未归类</span><small>{unfiledCount}</small><IconChevronRight /></button></div>}
             {!entries.length && <div className="acp-column-empty"><FolderGlyph /><span>{query ? '没有匹配的结果' : group?.virtual ? '没有未归类的相册' : '空文件夹'}</span>{!creationInDock && canOrganize && !group?.virtual && <button type="button" onClick={() => onCreate(group?.id || null)}><IconPlus />新建文件夹</button>}</div>}
           </div>
-          <footer>{entries.filter(entry => entry.kind === 'folder').length} 个文件夹{group && ` · ${entries.filter(entry => entry.kind === 'album').length} 个相册`}</footer>
+          <footer>{entries.filter(entry => entry.kind !== 'album').length} 个文件夹{group && ` · ${entries.filter(entry => entry.kind === 'album').length} 个相册`}</footer>
         </section>;
       })}
       {chosenAlbum ? <aside className="acp-column-inspector" ref={element => { panelRefs.current[columns.length] = element; }} aria-label="选中相册预览">
@@ -263,10 +286,10 @@ export default function FolderColumns({ groups, albums, sharedAlbums, sharedFold
         const index = buttons.indexOf(document.activeElement);
         buttons[event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length]?.focus();
       }}>
-      <button role="menuitem" onClick={() => run(() => menuFolder ? openFolder(menuEntry.item.id) : onOpen(menuEntry.item))}><IconChevronRight /><span>打开{menuFolder ? '文件夹' : '相册'}</span></button>
-      {(menuFolder ? onShareFolder : onShareAlbum && !menuEntry.item.isShared) && <button role="menuitem" onClick={() => run(() => menuFolder ? onShareFolder(menuEntry.item) : onShareAlbum(menuEntry.item))}><IconShare /><span>共享{menuFolder ? '文件夹' : '相册'}</span></button>}
+      <button role="menuitem" onClick={() => run(() => menuSharedFolder ? openSharedFolder(menuEntry.item.id) : menuLocalFolder ? openFolder(menuEntry.item.id) : onOpen(menuEntry.item))}><IconChevronRight /><span>打开{menuFolder ? '文件夹' : '相册'}</span></button>
+      {!menuSharedFolder && (menuLocalFolder ? onShareFolder : onShareAlbum && !menuEntry.item.isShared) && <button role="menuitem" onClick={() => run(() => menuFolder ? onShareFolder(menuEntry.item) : onShareAlbum(menuEntry.item))}><IconShare /><span>共享{menuFolder ? '文件夹' : '相册'}</span></button>}
       <button role="menuitemcheckbox" aria-checked={pins.includes(pinKey)} onClick={() => run(() => onPin(pinKey))}><IconStar /><span>{pins.includes(pinKey) ? '取消置顶' : '加入我的置顶'}</span></button>
-      {menuFolder ? <>
+      {menuSharedFolder ? onPlaceSharedFolder && <button role="menuitem" onClick={() => run(() => onPlaceSharedFolder(menuEntry.item))}><IconListView /><span>移动到…</span></button> : menuLocalFolder ? <>
         {canOrganize && <button role="menuitem" onClick={() => run(() => onCreate(menuEntry.item.id))}><IconPlus /><span>新建子文件夹</span></button>}
         {canEditFolder(menuEntry.item) && <button role="menuitem" onClick={() => run(() => onMove(menuEntry.item))}><IconListView /><span>移动到…</span></button>}
         {canEditFolder(menuEntry.item) && <button role="menuitem" onClick={() => run(() => onEditFolder(menuEntry.item))}><IconSliders /><span>编辑文件夹</span></button>}

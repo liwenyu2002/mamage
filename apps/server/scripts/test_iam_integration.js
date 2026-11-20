@@ -342,6 +342,98 @@ const campusConfig = () => iamConfig({...env,IAM_AUTO_PROVISION:'1',IAM_PROFILE_
   IAM_PROFILE_EMAIL_PATH:'attributes.appAccount.attributes.orgemail',
   IAM_PROFILE_STUDENT_PATH:'attributes.appAccount.attributes.employeeNum'});
 
+test('IAM callback lets an alias collision log in without the legacy account privileges', async () => {
+  const f = fixture(), config = campusConfig(), app = express();
+  try {
+    f.sql.exec("UPDATE users SET name='legacy-alias', student_no='legacy-alias' WHERE id=7");
+    const legacy = f.sql.prepare('SELECT * FROM users WHERE id=7').get();
+    app.use('/api/auth/iam', createIamAuthRouter({
+      db: f.pool, config: () => config, secret: () => secret,
+      store: createSharedStore('iam-alias-callback', { enabled: false }),
+      rate: { take: async () => ({ allowed: true }) },
+      request: async url => url === config.tokenUrl
+        ? { access_token: 'synthetic-provider-token' } : campusProfile({ employeeNum: '92001003' }),
+    }));
+    await serve(app, async base => {
+      const login = await fetch(base + '/api/auth/iam/login', { redirect: 'manual' });
+      const state = new URL(login.headers.get('location')).searchParams.get('state');
+      const cookie = login.headers.get('set-cookie').split(';')[0];
+      const callback = await fetch(base + '/api/auth/iam/callback?' + new URLSearchParams({ code: 'synthetic-code', state }), {
+        redirect: 'manual', headers: { cookie },
+      });
+      const handoff = /^\/login#iam_code=([\w-]{43})$/.exec(callback.headers.get('location'));
+      assert.ok(handoff, 'alias collision must finish authentication with a separate account');
+      const response = await fetch(base + '/api/auth/iam/session', {
+        method: 'POST', headers: { cookie, origin: config.publicOrigin, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: handoff[1] }),
+      });
+      assert.equal(response.status, 200);
+      const { id, role } = jwt.verify((await response.json()).token, secret);
+      assert.notEqual(id, legacy.id);
+      assert.equal(role, 'visitor');
+      assert.deepEqual(f.sql.prepare('SELECT * FROM users WHERE id=?').get(legacy.id), legacy);
+      assert.equal(f.sql.prepare('SELECT COUNT(*) n FROM organization_unit_memberships WHERE user_id=?').get(id).n, 0);
+      assert.equal(f.sql.prepare('SELECT photographer_id FROM photos').get().photographer_id, legacy.id);
+    });
+  } finally { f.close(); }
+});
+
+test('a verified legacy alias collision creates one mergeable, unprivileged IAM account without taking the mailbox', async () => {
+  const { resolveProfile, isMergeReviewNumber } = require('../lib/iam_profile_links'), f = fixture(), config = campusConfig();
+  try {
+    f.sql.exec("UPDATE users SET name='legacy-alias', student_no='legacy-alias' WHERE id=7");
+    const profile = campusProfile({ employeeNum: '92001003' });
+    const subject = 'unbound-verified-teacher';
+    const legacy = f.sql.prepare('SELECT * FROM users WHERE id=7').get();
+    const first = await resolveProfile(f.pool, config, profile, subject);
+    const again = await resolveProfile(f.pool, config, profile, subject);
+    assert.deepEqual(again, first);
+    assert.notEqual(first.id, 7);
+    assert.equal(first.role, 'visitor');
+    const temporary = f.sql.prepare('SELECT * FROM users WHERE id=?').get(first.id);
+    assert.equal(temporary.name, 'Original owner');
+    assert.equal(temporary.email, null);
+    assert.equal(isMergeReviewNumber(temporary.student_no), true);
+    assert.deepEqual(f.sql.prepare('SELECT * FROM users WHERE id=7').get(), legacy);
+    assert.equal(f.sql.prepare('SELECT COUNT(*) n FROM organization_unit_memberships WHERE user_id=?').get(first.id).n, 0);
+    assert.equal(f.sql.prepare('SELECT COUNT(*) n FROM iam_identity_audit WHERE action=?').get('profile_account_pending_merge').n, 1);
+    const other = campusProfile({ employeeNum: '92001003' });
+    other.attributes.mainAccount.name = 'Another campus account';
+    // Another IAM subject may not reuse the legacy account's existing temporary login.
+    await assert.rejects(resolveProfile(f.pool, config, other, 'second-subject'), /IAM_ACCOUNT_MATCH_CONFLICT/);
+    f.sql.exec('INSERT INTO iam_user_state(user_id,disabled) VALUES(7,1)');
+    await assert.rejects(resolveProfile(f.pool, config, profile, subject), /IAM_ACCOUNT_MATCH_CONFLICT/);
+    f.sql.exec('DELETE FROM iam_user_state WHERE user_id=7');
+    // The existing merge flow moves this link, so the next scan must resolve the original account.
+    f.sql.prepare('UPDATE iam_login_identities SET user_id=7 WHERE user_id=?').run(first.id);
+    assert.equal((await resolveProfile(f.pool, config, profile, subject)).id, 7);
+    assert.equal(f.sql.prepare('SELECT student_no FROM users WHERE id=7').get().student_no, '92001003');
+    assert.equal(f.sql.prepare('SELECT photographer_id FROM photos').get().photographer_id, 7);
+  } finally { f.close(); }
+});
+
+test('the legacy alias fallback never provisions around disabled, protected or already bound accounts', async () => {
+  const { resolveProfile } = require('../lib/iam_profile_links');
+  const config = campusConfig(), profile = campusProfile({ employeeNum: '92001003' });
+  for (const block of [
+    f => f.sql.exec('INSERT INTO iam_user_state(user_id,disabled) VALUES(7,1)'),
+    f => f.sql.exec("UPDATE users SET role='superadmin' WHERE id=7"),
+    f => f.sql.prepare('INSERT INTO iam_login_identities VALUES(?,?,7)').run(config.sourceKey,'prior-identity'),
+    f => f.sql.prepare(`INSERT INTO iam_accounts(source_key,external_id,principal_id,organization_id,status)
+      VALUES(?,?,?,2,1)`).run(config.sourceKey,'new-campus-user','disabled-campus'),
+    f => f.sql.exec("INSERT INTO users VALUES(9,'92001003','Other person','other@example.edu','visitor',2)"),
+  ]) {
+    const f = fixture();
+    try {
+      f.sql.exec("UPDATE users SET name='legacy-alias', student_no='legacy-alias' WHERE id=7");
+      block(f);
+      const before = f.sql.prepare('SELECT COUNT(*) n FROM users').get().n;
+      await assert.rejects(resolveProfile(f.pool, config, profile, 'new-campus-user'), /IAM_ACCOUNT_MATCH_CONFLICT/);
+      assert.equal(f.sql.prepare('SELECT COUNT(*) n FROM users').get().n, before);
+    } finally { f.close(); }
+  }
+});
+
 test('school nested profile fields bind by verified identifiers, not display name or a mobile subject',async()=>{
   const {resolveProfile,claimsFromProfile}=require('../lib/iam_profile_links'),{profileId}=require('../routes/auth_iam'),f=fixture(),config=campusConfig();
   try {
@@ -586,10 +678,12 @@ test('two people with the same name and distinct verified school identifiers nev
   }finally{f.close();}
 });
 
-test('OAuth callback reads the actual nested profile shape and issues a session for the existing account',async()=>{
+for (const legacyAlias of [false, true]) test(`OAuth callback issues a session for the ${legacyAlias ? 'merge account on legacy alias conflict' : 'existing account'}`,async()=>{
   const f=fixture(),config=campusConfig(),app=express();
+  if (legacyAlias) f.sql.exec("UPDATE users SET name='legacy-alias', student_no='legacy-alias' WHERE id=7");
   app.use('/api/auth/iam',createIamAuthRouter({db:f.pool,config:()=>config,store:createSharedStore('nested-profile',{enabled:false}),
-    secret:()=>secret,rate:{take:async()=>({allowed:true})},request:async url=>url===config.tokenUrl?{access_token:'private-token'}:campusProfile()}));
+    secret:()=>secret,rate:{take:async()=>({allowed:true})},request:async url=>url===config.tokenUrl?{access_token:'private-token'}
+      :campusProfile(legacyAlias ? {employeeNum:'92001003'} : {})}));
   try{await serve(app,async base=>{
     const login=await fetch(base+'/api/auth/iam/login',{redirect:'manual'}),cookie=login.headers.get('set-cookie').split(';')[0];
     const state=new URL(login.headers.get('location')).searchParams.get('state');
@@ -597,8 +691,9 @@ test('OAuth callback reads the actual nested profile shape and issues a session 
     const location=callback.headers.get('location');assert.match(location,/^\/login#iam_code=/);
     const response=await fetch(base+'/api/auth/iam/session',{method:'POST',headers:{cookie,origin:config.publicOrigin,'Content-Type':'application/json'},body:JSON.stringify({code:location.split('iam_code=')[1]})});
     assert.equal(response.status,200);
-    const payload=jwt.verify((await response.json()).token,secret);assert.equal(payload.id,7);assert.equal(payload.role,'admin');
-    assert.equal(f.sql.prepare('SELECT COUNT(*) n FROM users').get().n,2);
+    const payload=jwt.verify((await response.json()).token,secret);
+    assert.equal(payload.id,legacyAlias ? 9 : 7);assert.equal(payload.role,legacyAlias ? 'visitor' : 'admin');
+    assert.equal(f.sql.prepare('SELECT COUNT(*) n FROM users').get().n,legacyAlias ? 3 : 2);
   });}finally{f.close();}
 });
 

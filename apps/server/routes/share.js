@@ -88,6 +88,7 @@ router.post('/', requirePermission('photos.view'), async (req, res) => {
         const createdBy = req.user && req.user.id ? Number(req.user.id) : null;
         if (!createdBy) return res.status(401).json({ error: 'UNAUTHORIZED' });
         const workspace = await resolveWorkspace(req);
+        if (workspace.ownPhotosOnly && shareType === 'project') throw new WorkspaceAccessError('ORGANIZATION_PHOTO_ACCESS_REQUIRED');
         if (workspace.enabled && (!workspace.unitId || (!workspace.collegeAdmin && !['editor', 'manager'].includes(workspace.role)))) {
             throw new WorkspaceAccessError('UNIT_EDITOR_REQUIRED');
         }
@@ -154,7 +155,7 @@ router.post('/', requirePermission('photos.view'), async (req, res) => {
                 conn.release(); conn = null;
                 return res.status(400).json({ error: 'INVALID_PARAM', message: 'photoIds must be a non-empty array for collection share' });
             }
-            if (workspace.enabled) {
+            if (workspace.enabled || workspace.ownPhotosOnly) {
                 const sourcePhotos = await requirePhotosAccess(req, photoIds, 'read', conn);
                 if (sourcePhotos.some((photo) => Number(photo.unit_id) !== workspace.unitId)) {
                     throw new WorkspaceAccessError('SOURCE_UNIT_REQUIRED');
@@ -288,9 +289,12 @@ router.get('/mine', requirePermission('photos.view'), async (req, res) => {
              FROM share_links s LEFT JOIN projects p ON p.id = s.project_id
              LEFT JOIN folder_shares folder ON folder.id = s.folder_share_id
              WHERE s.organization_id = ? AND s.unit_id = ? AND s.revoked_at IS NULL
+               ${workspace.ownPhotosOnly ? `AND s.share_type = 'collection' AND s.folder_share_id IS NULL AND s.created_by = ?
+                 AND NOT EXISTS (SELECT 1 FROM share_link_items si JOIN photos ph ON ph.id = si.photo_id
+                   WHERE si.share_id = s.id AND NOT (ph.photographer_id <=> ?))` : ''}
                AND (s.expires_at IS NULL OR s.expires_at > NOW())
              ORDER BY s.created_at DESC LIMIT 100`,
-            [workspace.orgId, workspace.unitId]
+            [workspace.orgId, workspace.unitId, ...(workspace.ownPhotosOnly ? [workspace.userId, workspace.userId] : [])]
         );
         res.json(rows);
     } catch (err) {
@@ -300,6 +304,7 @@ router.get('/mine', requirePermission('photos.view'), async (req, res) => {
 
 async function requireShareManager(req, code) {
     const workspace = await resolveWorkspace(req);
+    if (workspace.ownPhotosOnly) throw new WorkspaceAccessError('ORGANIZATION_PHOTO_ACCESS_REQUIRED');
     if (!workspace.enabled || !workspace.unitId
         || (!workspace.collegeAdmin && workspace.role !== 'manager')) {
         throw new WorkspaceAccessError('UNIT_MANAGER_REQUIRED');

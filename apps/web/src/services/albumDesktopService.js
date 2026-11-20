@@ -1,6 +1,8 @@
 import { request } from './request';
 
-const desktopPreferences = ({ pins, recentItems, colors } = {}) => ({ pins, recentItems, colors });
+const desktopPreferences = ({ pins, recentItems, colors, sharedFolderLocations = {}, sharedRootAlbums = [], sharedRootFolders = [] } = {}) => ({
+  pins, recentItems, colors, sharedFolderLocations, sharedRootAlbums, sharedRootFolders,
+});
 
 export const loadAlbumDesktop = async () => {
   const data = await request('/api/album-desktop', { timeoutMs: 20000 });

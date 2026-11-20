@@ -100,6 +100,7 @@ export default function ViewerToneImage({
   faces,
   onAnalysis,
   onToneError,
+  onPaintCanvas,
   alt,
   className,
   style,
@@ -119,6 +120,8 @@ export default function ViewerToneImage({
   const [canvasReady, setCanvasReady] = React.useState(false);
   const [renderedSrc, setRenderedSrc] = React.useState('');
   const normalizedRef = React.useRef(normalized);
+  const paintRef = React.useRef(onPaintCanvas);
+  paintRef.current = onPaintCanvas;
   const onLoadRef = React.useRef(onLoad);
   const localRef = React.useRef(null);
   const frameRef = React.useRef(null);
@@ -135,6 +138,8 @@ export default function ViewerToneImage({
     const { mode, split, cropMode: cropping } = comparisonRef.current;
     drawPhotoGeometry(mode === 'original' ? frame.original : frame.adjusted, canvas,
       mode === 'original' ? {} : normalizedRef.current, cropping);
+    if (mode !== 'original') paintRef.current?.(canvas, { width: frame.original.width, height: frame.original.height,
+      adjustments: normalizedRef.current, uncropped: cropping });
     if (mode === 'split' && split > 0 && !cropping) {
       const before = document.createElement('canvas');
       drawPhotoGeometry(frame.original, before, normalizedRef.current);
@@ -149,7 +154,7 @@ export default function ViewerToneImage({
       rotation: normalizedRef.current.rotation, crop: normalizedRef.current.crop });
   }, []);
 
-  React.useLayoutEffect(() => { if (interactive) paintComparison(); }, [interactive, comparison, cropMode, adjustmentKey, splitPosition, paintComparison]);
+  React.useLayoutEffect(() => { if (interactive) paintComparison(); }, [interactive, comparison, cropMode, adjustmentKey, splitPosition, paintComparison, onPaintCanvas]);
 
   React.useEffect(() => {
     if (!interactive || !src) return undefined;

@@ -1,3 +1,14 @@
+// 兼容 IAM 里按站点根登记的回调：把 /?code=…&state=… 原样交给后端回调路由处理。
+export function forwardIamRootCallback(location = window.location) {
+  try {
+    const params = new URLSearchParams(location.search || '');
+    if (!params.has('code') || !params.has('state')) return false;
+    if (!['/', '/login', '/demo'].includes(location.pathname)) return false;
+    location.replace('/api/auth/iam/callback' + location.search + (location.hash || ''));
+    return true;
+  } catch { return false; }
+}
+
 export function hasIamHandoff(location) {
   return /(?:^#|&)iam_(?:code|error)=/.test(location.hash || '');
 }

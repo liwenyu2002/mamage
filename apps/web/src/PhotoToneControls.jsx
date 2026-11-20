@@ -6,7 +6,8 @@ import './PhotoToneControls.css';
 export default function PhotoToneControls({ draft, analysis, busy, facesLoading, saving, error, dirty,
   comparison, holdingOriginal, onCompare, onHoldOriginal, onChange, onGestureStart, onGestureEnd, onAuto, onReset,
   onSave, onClose, onUndo, onRedo, canUndo, canRedo, histogram,
-  mode = 'tone', onMode, aspect, onAspect, onRotate, onResetCrop, sourceSize, outputSize }) {
+  mode = 'tone', onMode, aspect, onAspect, onRotate, onResetCrop, sourceSize, outputSize,
+  saveLabel = '保存', savedLabel = '已保存', dirtyLabel = '未保存' }) {
   React.useEffect(() => {
     const release = () => onHoldOriginal(false);
     const onVisibility = () => { if (document.hidden) release(); };
@@ -32,7 +33,7 @@ export default function PhotoToneControls({ draft, analysis, busy, facesLoading,
   return (
     <section className="viewer-tone-panel glass-reveal-surface tone-editor" aria-label="照片调色" onClick={e => e.stopPropagation()}>
       <header className="tone-editor-head">
-        <div className="tone-editor-title"><h2>编辑照片</h2><span>{dirty ? '未保存' : '已保存'}</span></div>
+        <div className="tone-editor-title"><h2>编辑照片</h2><span>{dirty ? dirtyLabel : savedLabel}</span></div>
         <div className="tone-head-chart" aria-label="亮度直方图">{histogram}</div>
         <button type="button" className="tone-icon" aria-label="关闭调色" title="关闭调色" onClick={onClose}><IconClose /></button>
       </header>
@@ -116,7 +117,7 @@ export default function PhotoToneControls({ draft, analysis, busy, facesLoading,
       <footer className="tone-editor-footer">
         <button type="button" onClick={onAuto} disabled={busy || facesLoading || saving || !analysis}>自动明暗</button>
         <button type="button" onClick={onReset} disabled={saving}>重置</button>
-        <button type="button" className="tone-save" onClick={onSave} disabled={saving || busy || !dirty || Boolean(error)}>{saving ? '保存中' : '保存'}</button>
+        <button type="button" className="tone-save" onClick={onSave} disabled={saving || busy || !dirty || Boolean(error)}>{saving ? `${saveLabel}中` : saveLabel}</button>
       </footer>
     </section>
   );

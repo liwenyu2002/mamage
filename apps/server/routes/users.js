@@ -455,6 +455,8 @@ router.post('/login', async (req, res) => {
 });
 
 // 获取当前用户信息
+require('../lib/workspace_join').registerWorkspaceJoin(router, { db: pool, auth: authMiddleware });
+
 router.get('/me', authMiddleware, async (req, res) => {
   try {
     const { resolveWorkspace } = require('../lib/workspace_access');
@@ -694,7 +696,8 @@ router.post('/merge', authMiddleware, async (req, res) => {
   try {
     if (!await requireAccessAdmin(req, res)) return;
     const preview = await accountMerge.preview(pool, req.body?.sourceId, req.body?.targetId);
-    if (preview.blocked) return res.status(403).json({ error: 'PROTECTED_SUPERADMIN', message: preview.blocked });
+    if (preview.blocked) return res.status(preview.blockedCode === 'PROTECTED_SUPERADMIN' ? 403 : 409)
+      .json({ error: preview.blockedCode, message: preview.blocked });
     if (String(req.body?.confirmName || '').trim() !== preview.target.name) {
       return res.status(400).json({ error: 'CONFIRM_REQUIRED', message: '请输入保留账号的姓名以确认合并' });
     }

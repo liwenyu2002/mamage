@@ -35,7 +35,7 @@
     "test:iam": "node --test scripts/test_iam_integration.js scripts/test_iam_qr.js scripts/test_user_access_admin.js",
     "test:iam-mysql": "node --test scripts/test_iam_mysql.js",
     "pretest:audit": "npm run test:iam && npm run test:oidc",
-    "test:permissions": "node --test scripts/test_access_policy.js scripts/test_face_access_policy.js scripts/test_invitation_management.js",
+    "test:permissions": "node --test scripts/test_access_policy.js scripts/test_face_access_policy.js scripts/test_invitation_management.js scripts/test_workspace_member_roles.js",
     "test:video-download": "node --test scripts/test_video_download.js scripts/test_direct_read_cache.js",
     "test:media-proxy": "node --test scripts/test_image_proxy_lifecycle.js",
     "test:runtime": "node --test scripts/test_runtime_lifecycle.js scripts/test_legacy_media_guard.js scripts/test_container_config.js scripts/test_runtime_app.js scripts/test_mail_transport.js scripts/test_worker_shutdown.js scripts/test_migration_files.js scripts/test_remote_transcription.js scripts/test_runtime_concurrency.js scripts/test_background_capacity.js scripts/test_event_loop_monitor.js scripts/test_public_download_efficiency.js scripts/test_background_task_failure.js",
@@ -85,6 +85,7 @@
     "onnxruntime-node": "^1.15.0"
   },
   "devDependencies": {
+    "eslint": "^9.39.5",
     "yaml": "2.9.1"
   }
 }

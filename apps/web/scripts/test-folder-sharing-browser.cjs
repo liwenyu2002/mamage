@@ -8,7 +8,7 @@ const artifacts = process.env.MAMAGE_FOLDER_SHARE_QA_DIR;
   const statusModule = {exports:{}};
   const transformed = require('@babel/core').transformFileSync(path.join(__dirname,'../src/utils/sharingStatus.js'),{presets:[require.resolve('@babel/preset-env')]}).code;
   new Function('module','exports',transformed)(statusModule,statusModule.exports);
-  const {sharingStatusText,cardSharingStatus,cardSharingLabel}=statusModule.exports;
+  const {sharingStatusText,cardSharingStatus,cardSharingLabel,receivedFolderSharing}=statusModule.exports;
   assert.equal(sharingStatusText(null),'');assert.equal(sharingStatusText({direction:'copy'}),'');
   assert.equal(sharingStatusText({direction:'sent',targetUnitNames:['部门','部门'],public:true}),'已共享至 部门 · 实时共享 · 公开分享已开启');
   assert.equal(sharingStatusText({direction:'sent',public:true}),'公开分享已开启');
@@ -18,6 +18,9 @@ const artifacts = process.env.MAMAGE_FOLDER_SHARE_QA_DIR;
   assert.equal(cardSharingLabel({direction:'sent',public:true}),'公开外链');
   assert.equal(cardSharingLabel({direction:'sent',targetUnitNames:['部门'],public:true}),'共享 · 外链');
   assert.equal(cardSharingLabel({direction:'received',originLabel:'来源',mode:'collaborate'}),'协作共享');
+  const copySharing = receivedFolderSharing({ originLabel:'来源', mode:'copy', copyStatus:'ready' });
+  assert.equal(sharingStatusText(copySharing), '来自 来源 · 副本已就绪');
+  assert.equal(cardSharingLabel(copySharing), '副本已就绪');
   if (artifacts) fs.mkdirSync(artifacts, { recursive: true });
   const image = await sharp({ create: { width: 800, height: 600, channels: 3, background: '#61988c' } }).jpeg().toBuffer();
   const server = http.createServer((req, res) => {
@@ -39,16 +42,28 @@ const artifacts = process.env.MAMAGE_FOLDER_SHARE_QA_DIR;
         const photo = { id: 1001, projectId: 76, type: 'normal', url: '/api/image/fixture.jpg', thumbUrl: '/api/image/fixture.jpg', title: '原片', photographerId: 7, aiStatus: 'done' };
         const albums = [76,77,78].map((id, i) => ({ id, name: ['原相册','子层相册','未共享相册'][i], title: ['原相册','子层相册','未共享相册'][i],
           count: 1, unitId: 1, createdAt: '2026-10-01', updatedAt: '2026-10-22', image: '/api/image/fixture.jpg', canEdit: true }));
-        const groups = [{ id:'root', name:'测试共享文件夹', kind:'manual', parentId:null, projectIds:[76,78], createdBy:7, canEdit:true, color:'#516575', tint:'#e3ecef' },
+        const originalGroups = [{ id:'root', name:'测试共享文件夹', kind:'manual', parentId:null, projectIds:[76,78], createdBy:7, canEdit:true, color:'#516575', tint:'#e3ecef' },
           { id:'child', name:'子文件夹', kind:'manual', parentId:'root', projectIds:[77], createdBy:7, canEdit:true }];
-        const received = { id:6, folderId:'root', albumName:'收到的文件夹', mode:'read', albumCount:2, originLabel:'学院 / 来源部门' };
-        const sharedData = { share: received, groups, albums: albums.slice(0,2).map(a => ({ ...a, isShared:true,originLabel:'学院 / 来源部门',shareMode:'read',groups: groups.filter(g => g.projectIds.includes(a.id)).map(g => g.id) })) };
+        const received = { id:6, folderId:'root', albumName:'收到的文件夹', mode:'read', albumCount:2, photoCount:28,
+          coverUrls:['/api/image/fixture.jpg'], originLabel:'学院 / 来源部门' };
+        const direct = { ...albums[0], id: 79, name: '收到的相册', title: '收到的相册', isShared: true, canEdit: false,
+          originLabel: received.originLabel, shareMode: 'read' };
+        const sharedData = { share: received, groups: originalGroups, albums: albums.slice(0,2).map(a => ({ ...a, isShared:true,originLabel:'学院 / 来源部门',shareMode:'read',groups: originalGroups.filter(g => g.projectIds.includes(a.id)).map(g => g.id) })) };
+        const originalPreferences = { pins: ['group:root','album:76'], recentItems: [], colors: {}, dismissed: [] };
+        let groups = originalGroups, preferences = originalPreferences, workspaceRevision = 1, userRevision = 1, sharedActive = true;
         let created = false, sharingVisible = true, desktopReads = 0, statusReads = 0;
         const sentStatus = {direction:'sent',targetUnitNames:['接收部门','另一个名称比较长的部门'],public:true};
         await context.route('**/api/**', async route => {
           const req = route.request(), url = new URL(req.url()), p = url.pathname;
           if (/\/sharing-status$|\/folder-shares\/status\//.test(p)) statusReads++;
           if (p.startsWith('/api/image/')) return route.fulfill({ contentType:'image/jpeg', body:image });
+          if (p === '/api/album-desktop/state' && req.method() === 'PUT') {
+            const body = req.postDataJSON();
+            assert.deepEqual(body.scope, {userId:7,organizationId:2,unitId:1});
+            if (body.groups) { assert.equal(body.workspaceRevision, workspaceRevision++); groups = body.groups; }
+            if (body.preferences) { assert.equal(body.userRevision, userRevision++); preferences = body.preferences; }
+            return route.fulfill({ json: { workspaceRevision, userRevision } });
+          }
           if (req.method() === 'POST') {
             posts.push({ p, body:req.postDataJSON() });
             if (p === '/api/folder-shares') { created = true; return route.fulfill({ json:{ id:10, code:'folder-public' } }); }
@@ -58,15 +73,19 @@ const artifacts = process.env.MAMAGE_FOLDER_SHARE_QA_DIR;
           let data = {};
           if (p === '/api/users/me') data = { id:7, role:'admin', name:'验收', activeUnitId:1, metadataEditScope:'unit', permissions:['projects.view','photos.view','projects.update','upload.photo','photos.edit','photos.zip'] };
           else if (p === '/api/workspaces') data = { enabled:true, activeUnitId:1, units:[{id:1,name:'测试部门',role:'manager'}], shareTargets:[{id:1,name:'测试部门'},{id:2,name:'接收部门'}] };
-          else if (p === '/api/album-desktop') { desktopReads++; data = { albums, groups, sharedAlbums:[], sharedFolders:[received], preferences:{pins:['group:root','album:76'],recentItems:[],colors:{},dismissed:[]},
+          else if (p === '/api/album-desktop') { desktopReads++; data = { albums: [...albums, ...(sharedActive && groups.some(g => g.projectIds.includes(direct.id)) ? [direct] : [])],
+            groups, sharedAlbums:sharedActive ? [direct] : [], sharedFolders:sharedActive ? [received] : [], preferences,
             sharingStatuses:sharingVisible ? {albums:{76:sentStatus,77:{direction:'received',originLabel:'学院 / 来源部门',mode:'read'}},folders:{root:sentStatus,child:sentStatus}} : {albums:{},folders:{}},
-            scope:{userId:7,organizationId:2,unitId:1}, workspaceRevision:1,userRevision:1,canOrganize:true,canDeleteFolders:true }; }
+            scope:{userId:7,organizationId:2,unitId:1}, workspaceRevision,userRevision,canOrganize:true,canDeleteFolders:true }; }
           else if (p === '/api/projects/list') data = { list:albums,total:albums.length,hasMore:false };
           else if (p === '/api/projects') data = albums;
           else if (p === '/api/projects/import-status') data = {statuses:{}};
           else if (/^\/api\/projects\/\d+\/sharing-status$/.test(p)) data = {sharing:p.includes('/78/') ? null : {direction:'received',originLabel:'学院 / 来源部门',mode:'collaborate'}};
           else if (/^\/api\/projects\/\d+\/previews$/.test(p)) data = {list:[photo]};
-          else if (/^\/api\/projects\/\d+$/.test(p)) data = {...albums.find(a=>a.id===Number(p.split('/').at(-1))),projectName:albums.find(a=>a.id===Number(p.split('/').at(-1)))?.name,photos:[photo]};
+          else if (/^\/api\/projects\/\d+$/.test(p)) {
+            const item = [...albums, direct].find(a => a.id === Number(p.split('/').at(-1)));
+            data = { ...item, projectName: item?.name, photos: [{ ...photo, projectId: item?.id }] };
+          }
           else if (p === '/api/folder-shares/6') data = sharedData;
           else if (p.startsWith('/api/folder-shares/status/')) data = {sharing:created ? {direction:'sent',targetUnitNames:['接收部门']} : null};
           else if (p === '/api/folder-shares/sent') data = created ? [{id:10,folderId:'root',shareType:'folder',mode:'read',albumName:groups[0].name,targetUnitName:'接收部门'}] : [];
@@ -84,6 +103,144 @@ const artifacts = process.env.MAMAGE_FOLDER_SHARE_QA_DIR;
           ? page.locator('.acp-collection[aria-label="测试共享文件夹"] .acp-collection-caption.is-visible .card-sharing-status')
           : page.getByRole('button',{name:'浏览文件夹 测试共享文件夹',exact:true}).locator('.card-sharing-status');
         await folderBadge().waitFor();assert.match(await folderBadge().getAttribute('title'),/已共享至 接收部门、另一个名称比较长的部门.*实时共享.*公开分享已开启/);
+        if (style === 'glass') {
+          if (width < 800) await page.getByRole('button', { name: '打开相册目录' }).click();
+          const directory = page.getByRole('navigation', { name: '相册目录' });
+          await directory.getByRole('button', { name: /^共享\s*2$/ }).click();
+          await page.waitForURL(url => url.searchParams.get('view') === 'shared', { timeout: 2500 });
+          const receivedTab = page.getByRole('tab', { name: /^分享给我的/ });
+          await receivedTab.waitFor();
+          assert.equal(await page.getByRole('button', { name: '新建相册或文件夹', exact: true }).count(), 0);
+          assert.equal(await receivedTab.getAttribute('aria-selected'), 'true');
+          if (width >= 800) assert.equal(await directory.getByRole('button', { name: /^共享\s*2$/ }).getAttribute('aria-current'), 'page');
+          await page.getByRole('tab', { name: /^我分享的/ }).click();
+          await page.getByText('你还没有把文件分享给其他小组').waitFor();
+          await receivedTab.click();
+          await page.getByRole('button', { name: '打开文件夹 收到的文件夹', exact: true }).click();
+          await page.getByRole('region', { name: '共享文件夹内容' }).waitFor();
+          await page.getByRole('navigation', { name: '共享文件夹位置' }).getByRole('button', { name: '返回', exact: true }).click();
+          await page.waitForURL(url => url.searchParams.get('view') === 'shared' && !url.searchParams.has('sharedFolder'));
+          await receivedTab.waitFor();
+          await page.reload();
+          await receivedTab.waitFor();
+          await page.goBack();
+          await folderBadge().waitFor();
+        } else {
+          await page.goto(base+'/?view=shared');
+          await page.getByRole('tab', { name: /^分享给我的/ }).waitFor();
+          await page.goto(base);
+          await folderBadge().waitFor();
+        }
+        await page.goto(base+'/?view=shared');
+        const action = name => page.getByRole('button', { name: `更多操作 ${name}`, exact: true }).click();
+        const saveDesktop = async click => {
+          const changed = page.waitForResponse(response => response.url().endsWith('/api/album-desktop/state') && response.request().method() === 'PUT');
+          await click();
+          assert.equal((await changed).status(), 200);
+        };
+        await action('收到的相册');
+        await saveDesktop(() => page.getByRole('menuitemcheckbox', { name: '置顶相册', exact: true }).click());
+        await action('收到的文件夹');
+        await saveDesktop(() => page.getByRole('menuitemcheckbox', { name: '置顶 收到的文件夹', exact: true }).click());
+        assert.ok(preferences.pins.includes('album:79') && preferences.pins.includes('shared-folder:6'));
+        assert.deepEqual(groups, originalGroups, 'Pinning must not organize or move an original');
+        await action('收到的相册');
+        await page.getByRole('menuitem', { name: '移动到…', exact: true }).click();
+        let picker = page.getByRole('dialog');
+        const destination = picker.getByRole('checkbox', { name: '测试共享文件夹', exact: true });
+        await destination.press('Space');
+        assert.equal(await destination.isChecked(), true);
+        await saveDesktop(() => picker.getByRole('button', { name: '保存', exact: true }).click());
+        await picker.waitFor({ state: 'hidden' });
+        assert.ok(groups.find(g => g.id === 'root').projectIds.includes(79));
+        await action('收到的文件夹');
+        await page.getByRole('menuitem', { name: '移动到… 收到的文件夹', exact: true }).click();
+        picker = page.getByRole('dialog', { name: '移动到…', exact: true });
+        await picker.getByRole('button', { name: '放入文件夹', exact: true }).click();
+        await page.getByRole('option', { name: '测试共享文件夹', exact: true }).click();
+        await saveDesktop(() => picker.getByRole('button', { name: '保存', exact: true }).click());
+        await picker.waitFor({ state: 'hidden' });
+        assert.deepEqual(preferences.sharedFolderLocations, { 6: 'root' });
+        assert.equal(groups.length, originalGroups.length, 'A folder shortcut is not a cloned or moved folder');
+        await page.goto(base);
+        const pins = style === 'glass' ? page.locator('#desktop-pins') : page.getByRole('region', { name: '置顶共享文件夹', exact: true });
+        await pins.getByText('收到的文件夹', { exact: true }).waitFor();
+        await page.getByRole('button', { name: style === 'glass' ? '打开 收到的相册' : '打开置顶 收到的相册', exact: true }).waitFor();
+        assert.equal(statusReads, 0, 'Opening shared lists and home pins must not request status individually');
+        await page.goto(base+'/?folder=root');
+        const folderRegion = page.getByRole('region', { name: style === 'glass' ? '子文件夹' : '测试共享文件夹内容', exact: true });
+        const folderButton = (region, name) => region.getByRole('button', { name: `${style === 'glass' ? '打开' : '浏览'}文件夹 ${name}`, exact: true });
+        const folderItem = (region, name) => region.locator(style === 'glass' ? '.acp-collection' : '.acp-column-row')
+          .filter({ has: folderButton(page, name) });
+        const placed = folderButton(folderRegion, '收到的文件夹');
+        await placed.waitFor({ timeout: 3500 });
+        assert.equal(await page.getByRole('region', { name: '共享文件夹快捷方式', exact: true }).count(), 0);
+        const placedItem = folderItem(folderRegion, '收到的文件夹');
+        const siblingItem = folderItem(folderRegion, '子文件夹');
+        await siblingItem.waitFor();
+        assert.equal(await placedItem.evaluate((card, selector) => card.parentElement.matches(selector),
+          style === 'glass' ? '.acp-all-collections' : '.acp-column-list'), true);
+        const bounds = await Promise.all([placedItem.boundingBox(), siblingItem.boundingBox()]);
+        assert.ok(Math.abs(bounds[0].width - bounds[1].width) < 1, 'Placed and local folders use the same size');
+        const placedBadge = placed.locator('.card-sharing-status');
+        assert.equal(await placedBadge.innerText(), '只读共享');
+        assert.match(await placedBadge.getAttribute('title'), /来自 学院 \/ 来源部门.*实时共享/);
+        if (style === 'glass') {
+          const cover = placedItem.locator('.acp-fan-cover img').first();
+          await cover.scrollIntoViewIfNeeded();
+          await page.waitForFunction(element => element.naturalWidth > 0, await cover.elementHandle());
+        } else {
+          assert.equal(await placed.locator('.acp-column-folder-glyph').count(), 1);
+          await siblingItem.getByRole('button', {name:'浏览文件夹 子文件夹', exact:true}).press('ArrowDown');
+          assert.equal(await placed.evaluate(element => element === document.activeElement), true);
+          assert.equal(new URL(page.url()).searchParams.get('folder'), 'root', 'Focusing a shared folder must not open it');
+        }
+        await placed.scrollIntoViewIfNeeded();
+        if (artifacts) await page.screenshot({path:path.join(artifacts,`placed-folder-${style}-${width}.png`),animations:'disabled'});
+        await placed.press('Enter');
+        await page.getByRole('region', { name: '共享文件夹内容', exact: true }).waitFor();
+        assert.equal(new URL(page.url()).searchParams.get('sharedFolder'), '6');
+        await page.getByRole('navigation', { name: '共享文件夹位置' }).getByRole('button', { name: '返回', exact: true }).click();
+        await placed.waitFor();
+        assert.equal(new URL(page.url()).searchParams.get('folder'), 'root');
+        sharedActive = false;
+        await page.reload();
+        await page.locator('.album-desktop:not(.acp-skeleton)').waitFor();
+        assert.equal(await placed.count(), 0, 'Revoked folders cannot be reopened through their cached placement');
+        sharedActive = true;
+        await page.reload();
+        const openPlacementMenu = async region => {
+          await region.getByRole('button', { name: `${style === 'glass' ? '更多操作' : '文件操作'} 收到的文件夹`, exact: true }).click();
+          const menu = page.getByRole('menu', { name: /收到的文件夹/ });
+          await menu.waitFor();
+          return menu;
+        };
+        const placedMenu = await openPlacementMenu(folderRegion);
+        assert.equal(await placedMenu.getByRole('menuitem', { name: /共享文件夹|编辑文件夹|新建子文件夹/ }).count(), 0,
+          'A placement cannot change the source folder');
+        await placedMenu.getByRole('menuitem', { name: /^移动到…/ }).click();
+        await picker.getByRole('button', { name: '放入文件夹', exact: true }).click();
+        await page.getByRole('option', { name: '小组空间（顶层）', exact: true }).click();
+        await saveDesktop(() => picker.getByRole('button', { name: '保存', exact: true }).click());
+        assert.deepEqual(preferences.sharedFolderLocations, {});
+        assert.deepEqual(preferences.sharedRootFolders, [6]);
+        await placed.waitFor({ state: 'detached' });
+        await page.goto(base);
+        const rootRegion = page.getByRole('region', { name: style === 'glass' ? '文件夹' : '小组空间内容', exact: true });
+        await folderItem(rootRegion, '收到的文件夹').waitFor({ timeout: 3500 });
+        assert.ok(await folderItem(rootRegion, '测试共享文件夹').isVisible());
+        await (await openPlacementMenu(rootRegion)).getByRole('menuitem', { name: /^移动到…/ }).click();
+        await picker.getByRole('button', { name: '放入文件夹', exact: true }).click();
+        await page.getByRole('option', { name: '不放入工作台', exact: true }).click();
+        await saveDesktop(() => picker.getByRole('button', { name: '保存', exact: true }).click());
+        assert.deepEqual(preferences.sharedRootFolders, []);
+        assert.ok(preferences.pins.includes('shared-folder:6'), 'Removing the placement does not unpin the folder');
+        await page.reload();
+        await folderButton(rootRegion, '测试共享文件夹').waitFor();
+        assert.equal(await folderItem(rootRegion, '收到的文件夹').count(), 0);
+        statusReads = 0;
+        groups = originalGroups; preferences = originalPreferences;
+        await page.goto(base); await folderBadge().waitFor();
         if (style === 'glass' && width === 1440) {
           const directory = page.getByRole('navigation', { name: '相册目录' });
           const tree = directory.getByRole('list', { name: '多级文件夹' });
@@ -194,7 +351,7 @@ const artifacts = process.env.MAMAGE_FOLDER_SHARE_QA_DIR;
         assert.equal(await page.locator('.share-photo').count(),1);
         assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'No mobile overflow');
         assert.deepEqual(errors,[]);assert.deepEqual(unexpected,[]);
-        cases.push({style,width,parentCardSharing:true,folderModes:4,sharedStatus:true,unsharedHidden:true,liveFolderBrowse:true,publicFolderBrowse:true,captionClosesFan:style==='glass',cardStatus:true,pinnedCardStatus:true,batchRefresh:true,noStatusPersistence:true});
+        cases.push({style,width,parentCardSharing:true,folderModes:4,sharedStatus:true,unsharedHidden:true,liveFolderBrowse:true,publicFolderBrowse:true,captionClosesFan:style==='glass',cardStatus:true,pinnedCardStatus:true,batchRefresh:true,noStatusPersistence:true,nativeFolderPlacements:true});
       }catch(error){
         if(artifacts && context.pages()[0]) await context.pages()[0].screenshot({path:path.join(artifacts,`failure-${style}-${width}.png`),fullPage:true}).catch(()=>{});
         throw error;

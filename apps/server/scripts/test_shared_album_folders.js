@@ -6,7 +6,7 @@ const express = require('express');
 
 async function fixture(run) {
   const state = { groups: [{ id: 'business', name: 'Business', createdBy: 67, projectIds: [81], parentId: null }],
-    revision: 1, userRevision: 1, preferences: {}, active: true, named: false, mode: 'read', count: 88, title: 'Original', writes: [] };
+    revision: 1, userRevision: 1, preferences: {}, active: true, folderActive: true, named: false, mode: 'read', count: 88, title: 'Original', writes: [] };
   const owner = { id: 81, name: 'Original (copy)', count: 37, createdAt: '2026-09-01' };
   const conn = {
     async query(sql, params = []) {
@@ -35,7 +35,8 @@ async function fixture(run) {
       userId: Number(req.get('x-test-user') || 67), orgId: 2, unitId: 2, role: req.get('x-test-role') || 'editor', collegeAdmin: false }) },
     '../lib/media_access': { buildMediaUrl: value => value },
     '../lib/shared_albums': { listSharedAlbums: async scope => live(scope) },
-    '../lib/folder_shares': { listFolderShares: async () => [], syncFolderShares: async () => {} },
+    '../lib/folder_shares': { listFolderShares: async scope => state.folderActive && scope.userId === 67
+      ? [{ id: 12, albumName: 'Source folder' }] : [], syncFolderShares: async () => {} },
   };
   vm.runInNewContext(fs.readFileSync(file, 'utf8'), { module, exports: module.exports, console, Buffer,
     require: key => Object.hasOwn(deps, key) ? deps[key] : actual(key) }, { filename: file });
@@ -102,4 +103,58 @@ test('viewers, peer folder edits, forged IDs, copy grants and stale scopes canno
   assert.equal((await save(proposed(), { scope: { userId: 67, organizationId: 2, unitId: 3 } })).status, 409);
   state.mode = 'copy'; assert.equal((await save(proposed())).status, 403);
   assert.deepEqual(state.groups[0].projectIds, [81]);
+}));
+
+test('received folder shortcuts are personal, scoped, and do not change any shared folder definition', () => fixture(async ({ state, call }) => {
+  const viewer = { 'x-test-role': 'viewer' };
+  const save = (preferences, headers = viewer) => call('PUT', { preferences, userRevision: state.userRevision }, headers);
+  const own = { pins: ['album:76','shared-folder:12','shared-folder:999'], sharedFolderLocations: { 12: 'business', 999: 'business' } };
+  assert.equal((await save(own)).status, 200);
+  assert.equal(state.revision, 1);
+  assert.equal(state.writes.some(query => query.startsWith('UPDATE album_desktop_workspaces')), false);
+  let data = (await call()).data;
+  assert.deepEqual(data.preferences.pins, ['album:76','shared-folder:12']);
+  assert.deepEqual(data.preferences.sharedFolderLocations, { 12: 'business' });
+  assert.deepEqual(data.albums.map(album => album.id), [81], 'A pin does not add a received album to the owned catalog');
+  assert.equal((await save({ pins: data.preferences.pins })).status, 200, 'Older clients may omit the location map');
+  assert.deepEqual(state.preferences.sharedFolderLocations, { 12: 'business' });
+  const peer = { 'x-test-user': '68', 'x-test-role': 'viewer' };
+  assert.equal((await call('GET', undefined, peer)).data.preferences.sharedFolderLocations, undefined);
+  assert.equal((await call('GET', undefined, peer)).data.preferences.pins.includes('shared-folder:12'), false);
+  state.folderActive = false;
+  data = (await call()).data;
+  assert.equal(data.preferences.sharedFolderLocations, undefined);
+  assert.deepEqual(data.preferences.pins, ['album:76']);
+  assert.equal((await save(own)).status, 200);
+  assert.equal(state.preferences.sharedFolderLocations, undefined);
+}));
+
+test('unpinned root placements survive reload and older clients, and are filtered by current access', () => fixture(async ({ state, call }) => {
+  const viewer = { 'x-test-role': 'viewer' };
+  const save = preferences => call('PUT', { preferences, userRevision: state.userRevision }, viewer);
+  assert.equal((await save({ pins: [], sharedRootFolders: [12, 999], sharedRootAlbums: [76, 999] })).status, 200);
+  let data = (await call()).data;
+  assert.deepEqual(data.preferences.sharedRootFolders, [12]);
+  assert.deepEqual(data.preferences.sharedRootAlbums, [76]);
+  assert.deepEqual(data.albums.map(album => album.id), [81, 76]);
+  assert.equal(state.revision, 1);
+
+  assert.equal((await save({ pins: [] })).status, 200);
+  assert.deepEqual(state.preferences.sharedRootFolders, [12]);
+  assert.deepEqual(state.preferences.sharedRootAlbums, [76]);
+
+  state.named = true;
+  data = (await call('GET', undefined, { 'x-test-user': '68', 'x-test-role': 'viewer' })).data;
+  assert.equal(data.preferences.sharedRootFolders, undefined);
+  assert.equal(data.preferences.sharedRootAlbums, undefined);
+  assert.deepEqual(data.albums.map(album => album.id), [81]);
+  state.folderActive = false;
+  assert.equal((await call()).data.preferences.sharedRootFolders, undefined);
+
+  state.folderActive = true;
+  assert.equal((await save({ pins: [], sharedRootFolders: [], sharedRootAlbums: [] })).status, 200);
+  data = (await call()).data;
+  assert.equal(data.preferences.sharedRootFolders, undefined);
+  assert.equal(data.preferences.sharedRootAlbums, undefined);
+  assert.deepEqual(data.albums.map(album => album.id), [81]);
 }));

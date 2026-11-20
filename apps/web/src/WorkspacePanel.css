@@ -377,6 +377,12 @@
   min-width: 0;
 }
 
+.workspace-row > .workspace-select {
+  flex: 0 0 132px;
+  width: 132px;
+  max-width: 100%;
+}
+
 .workspace-select select,
 .workspace-member-add input,
 .workspace-selected-count {

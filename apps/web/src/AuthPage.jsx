@@ -2,7 +2,6 @@ import React from 'react';
 import { Input, Button, Toast } from './ui';
 import { IconChevronRight } from './ui/icons';
 import { campusLoginUrl, autoStartCampusLogin } from './services/iamLogin';
-import { autoStartOidcLogin, oidcLoginUrl } from './services/oidcLogin';
 import './AuthPage.css';
 import * as authService from './services/authService';
 import CampusLoginQr from './CampusLoginQr';
@@ -25,7 +24,7 @@ function validateLoginInput({ email, password }) {
 }
 
 export default function AuthPage({ onAuthenticated }) {
-  const [authProviders, setAuthProviders] = React.useState({ password: true, dingtalk: false, iam: false, oidc: false });
+  const [authProviders, setAuthProviders] = React.useState({ dingtalk: false, iam: false, iamQr: false });
   const [providersLoading, setProvidersLoading] = React.useState(true);
   const [providersFailed, setProvidersFailed] = React.useState(false);
   const [providerRetry, setProviderRetry] = React.useState(0);
@@ -45,9 +44,7 @@ export default function AuthPage({ onAuthenticated }) {
     setProvidersLoading(true); setProvidersFailed(false);
     fetch('/api/auth/providers', { signal: controller.signal })
       .then((r) => { if (!r.ok) throw Error('Providers unavailable'); return r.json(); })
-      .then((d) => { if (!canceled) setAuthProviders({ password: true, iam: d.iam === true, iamQr: d.iamQr === true, dingtalk: d.dingtalk === true,
-        oidc: d.oidc === true, oidcLabel: typeof d.oidcLabel === 'string' ? d.oidcLabel : null,
-        oidcAutoStart: d.oidcAutoStart === true }); })
+      .then((d) => { if (!canceled) setAuthProviders({ iam: d.iam === true, iamQr: d.iamQr === true, dingtalk: d.dingtalk === true }); })
       .catch(() => { if (!canceled) setProvidersFailed(true); })
       .finally(() => { clearTimeout(timeout); if (!canceled) setProvidersLoading(false); });
     // 钉钉回调失败时错误信息挂在 hash 上
@@ -68,7 +65,7 @@ export default function AuthPage({ onAuthenticated }) {
     return () => { canceled = true; clearTimeout(timeout); controller.abort(); };
   }, [providerRetry]);
   const [active, setActive] = React.useState('login');
-  const hasCampusLogin = authProviders.iam || authProviders.dingtalk || authProviders.oidc;
+  const hasCampusLogin = authProviders.iam || authProviders.dingtalk;
   const currentLoginMode = loginMode || (hasCampusLogin ? 'campus' : 'password');
   React.useEffect(() => {
     if (providersLoading || providersFailed || active !== 'login' || loginMode || initialLoginFailure.current) return;
@@ -86,19 +83,13 @@ export default function AuthPage({ onAuthenticated }) {
     } catch { /* 存储不可用时保持手动登录 */ }
     try {
       if (autoStartCampusLogin({ providers: authProviders, location: window.location,
-        userAgent: navigator.userAgent, storage: window.sessionStorage })
-        || autoStartOidcLogin({ providers: authProviders, location: window.location, storage: window.sessionStorage })) setRedirecting(true);
+        userAgent: navigator.userAgent, storage: window.sessionStorage })) setRedirecting(true);
     } catch { /* Manual login remains available when browser storage is unavailable. */ }
   }, [providersLoading, providersFailed, active, loginMode, authProviders]);
   const beginCampusLogin = () => {
     const url = campusLoginUrl(authProviders, window.location);
     if (!url || redirecting) return;
     setRedirecting(true); window.location.assign(url);
-  };
-  // 学院 Keycloak（OIDC）优先；芯盾/钉钉入口在同时配置时保留为次选，互不覆盖。
-  const beginOidcLogin = () => {
-    if (!authProviders.oidc || redirecting) return;
-    setRedirecting(true); window.location.assign(oidcLoginUrl(window.location));
   };
   const [loading, setLoading] = React.useState(false);
   // controlled fields
@@ -382,7 +373,7 @@ export default function AuthPage({ onAuthenticated }) {
             setLoginMode(index === 0 ? 'campus' : 'password'); event.currentTarget.querySelectorAll('[role="tab"]')[index].focus();
           }}>
             <button type="button" role="tab" id="campus-login-tab" aria-controls="campus-login-panel" aria-selected={currentLoginMode === 'campus'} tabIndex={currentLoginMode === 'campus' ? 0 : -1}
-              onClick={() => setLoginMode('campus')}>{authProviders.oidc ? (authProviders.oidcLabel || '统一身份认证') : authProviders.iam ? '校园登录' : '钉钉登录'}</button>
+              onClick={() => setLoginMode('campus')}>{authProviders.iam ? '校园登录' : '钉钉登录'}</button>
             <button type="button" role="tab" id="password-login-tab" aria-controls="password-login-panel" aria-selected={currentLoginMode === 'password'} tabIndex={currentLoginMode === 'password' ? 0 : -1}
               onClick={() => setLoginMode('password')}>账号密码</button>
           </div>
@@ -397,28 +388,16 @@ export default function AuthPage({ onAuthenticated }) {
           providersLoading && !loginMode ? <div className="auth-provider-loading" role="status"><span className="mamage-button-spinner" />正在连接登录服务</div> :
           currentLoginMode === 'campus' && hasCampusLogin ? (
           <div className="auth-campus-panel" id="campus-login-panel" role="tabpanel" aria-labelledby="campus-login-tab">
-            <h2>{authProviders.oidc ? (authProviders.oidcLabel || '统一身份认证') : authProviders.iam ? '校园统一身份认证' : '使用钉钉扫码或点击头像授权登录'}</h2>
-            {authProviders.iamQr && !redirecting && !/DingTalk/i.test(navigator.userAgent) ? (
+            <h2>{authProviders.iam ? '校园统一身份认证' : '使用钉钉扫码或点击头像授权登录'}</h2>
+            {authProviders.iam && authProviders.iamQr && !redirecting && !/DingTalk/i.test(navigator.userAgent) ? (
               <>
                 <CampusLoginQr />
-                {authProviders.oidc || authProviders.iam ? <div className="auth-campus-divider"><span>或</span></div> : null}
+                <div className="auth-campus-divider"><span>或</span></div>
               </>
             ) : null}
-            {authProviders.oidc ? (
-              <Button className="auth-primary" loading={redirecting} onClick={beginOidcLogin}>
-                前往{authProviders.oidcLabel || '统一身份认证'}<IconChevronRight />
-              </Button>
-            ) : null}
-            {authProviders.oidc && (authProviders.iam || authProviders.dingtalk) ? (
-              <button type="button" className="auth-secondary-link" disabled={redirecting} onClick={beginCampusLogin}>
-                {authProviders.iam ? '使用学校校园登录' : '使用钉钉登录'}
-              </button>
-            ) : null}
-            {!authProviders.oidc ? (
-              <Button className="auth-primary" loading={redirecting} onClick={beginCampusLogin}>
-                {authProviders.iam ? '前往校园登录' : '使用钉钉登录'}<IconChevronRight />
-              </Button>
-            ) : null}
+            <Button className="auth-primary" loading={redirecting} onClick={beginCampusLogin}>
+              {authProviders.iam ? '前往校园登录' : '使用钉钉登录'}<IconChevronRight />
+            </Button>
           </div>
           ) : (
           <form className="auth-login-form" id="password-login-panel" role={hasCampusLogin ? 'tabpanel' : undefined}

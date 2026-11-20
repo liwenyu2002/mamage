@@ -24,13 +24,19 @@ async function main() {
         role: identity === 'manager' ? 'manager' : identity === 'viewer' ? 'viewer' : 'editor', collegeAdmin: identity === 'organization_admin' };
       const access = userAccessProfile(workspace, ['projects.view', 'photos.view', 'photos.zip', 'users.invitations.create'],
         { search: identity !== 'viewer', manage: identity === 'organization_admin' });
-      const grants = new Map([[20, false], [44, true]]), writes = [], unexpected = [], errors = [];
-      let rejectNextGrant = false;
+      const grants = new Map([[20, false], [44, true]]), writes = [], roleWrites = [], unexpected = [], errors = [];
+      let rejectNextGrant = false, memberRole = 'editor';
       try {
         await context.addInitScript(() => localStorage.setItem('mamage_jwt_token', 'isolated-permission-fixture'));
         await context.route('**/api/**', async route => {
           const req = route.request(), p = new URL(req.url()).pathname, method = req.method();
           const send = json => route.fulfill({ json });
+          if (p === '/api/workspaces/1/members/46' && method === 'PUT') {
+            assert.equal(identity, 'manager');
+            memberRole = req.postDataJSON().role;
+            roleWrites.push(memberRole);
+            return send({ unitId: 1, userId: 46, role: memberRole });
+          }
           if (p.startsWith('/api/workspaces/face-search/') && method !== 'GET') {
             const id = Number(p.split('/').at(-1));
             writes.push({ method, id, body: req.postDataJSON() });
@@ -50,7 +56,8 @@ async function main() {
           if (p === '/api/projects/import-status') return send({ statuses: {} });
           if (p === '/api/workspaces/face-search/grants') return send([...grants].map(([userId, canManage]) => ({ userId, canManage: Number(canManage), collegeWide: 1 })));
           if (p === '/api/workspaces/1/members') return send([{ id: 20, name: '只检索同学', role: 'editor' },
-            { id: 44, name: '维护同学', role: 'manager' }, { id: 46, name: '新同学', role: 'editor' }]);
+            { id: 44, name: '维护同学', role: 'manager', canChangeRole: false },
+            { id: 46, name: '新同学', role: memberRole, canChangeRole: identity === 'manager' }]);
           if (p === '/api/workspaces/stats/ai') return send({ rows: [] });
           if (p.endsWith('/candidates')) return send([{ id: 46, name: '新同学' }]);
           return send([]);
@@ -68,14 +75,25 @@ async function main() {
         if (artifacts) await page.screenshot({ path: path.join(artifacts, `account-${identity}-${width}.png`), fullPage: true });
         assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `Account overflow: ${identity}-${width}`);
         await page.locator('.mamage-user-chip').click();
-        await page.getByRole('button', { name: '工作空间管理', exact: true }).click();
+        await page.getByRole('button', { name: identity === 'manager' ? '成员管理' : '工作空间管理', exact: true }).click();
         const dialog = page.getByRole('dialog'); await dialog.waitFor();
         assert.equal(await dialog.getByRole('tab', { name: '成员', exact: true }).count(), access.access.canManageMembers ? 1 : 0);
         if (access.access.canManageMembers) {
-          await dialog.getByRole('tab', { name: '成员', exact: true }).click();
+          if (identity !== 'manager') await dialog.getByRole('tab', { name: '成员', exact: true }).click();
           await dialog.getByText('新同学', { exact: true }).waitFor();
           assert.ok((await dialog.innerText()).includes('协作者'));
           assert.equal(await dialog.getByRole('checkbox').count(), identity === 'organization_admin' ? 6 : 0);
+          if (identity === 'manager') {
+            const groupRole = dialog.getByRole('combobox', { name: '新同学的小组角色', exact: true });
+            assert.deepEqual(await groupRole.locator('option').evaluateAll(options => options.map(option => option.value)), ['viewer', 'editor']);
+            assert.equal(await dialog.getByRole('combobox', { name: '维护同学的小组角色', exact: true }).count(), 0);
+            assert.equal(await dialog.getByRole('button', { name: '添加', exact: true }).count(), 0);
+            assert.equal(await dialog.getByRole('button', { name: '移除', exact: true }).count(), 0);
+            await groupRole.selectOption('viewer');
+            await page.getByText('组内角色已更新', { exact: true }).waitFor();
+            assert.equal(await groupRole.inputValue(), 'viewer');
+            assert.deepEqual(roleWrites, ['viewer']);
+          }
           if (identity === 'organization_admin') {
             const search = dialog.getByRole('checkbox', { name: '人物检索 新同学', exact: true });
             const manage = dialog.getByRole('checkbox', { name: '人物档案维护 新同学', exact: true });

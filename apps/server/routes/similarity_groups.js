@@ -6,6 +6,7 @@ const keys = require('../config/keys');
 const JWT_SECRET = keys.JWT_SECRET;
 const { requirePermission, hasPermissionForUserId } = require('../lib/permissions');
 const { resolveWorkspace, requireProjectAccess, sendWorkspaceError } = require('../lib/workspace_access');
+const { photoOwnerFilter } = require('../lib/access_policy');
 const { createSimilarityGroupReader } = require('../lib/similarity_group_cache');
 const readSimpleGroups = createSimilarityGroupReader(pool, raw => {
     try { return l2Normalize(tryParseEmbedding(raw) || []); } catch { return []; }
@@ -93,6 +94,7 @@ router.get('/groups', requirePermission('photos.view'), async (req, res) => {
         const project = await requireProjectAccess(req, projectId, 'read');
         const workspace = await resolveWorkspace(req);
         const unitId = workspace.enabled ? Number(project.unit_id) || null : null;
+        const owner = photoOwnerFilter(workspace, 'p');
 
         const threshold = req.query.threshold ? Number(req.query.threshold) : 0.6;
         const minSize = req.query.minSize ? Math.max(1, Number(req.query.minSize)) : 2;
@@ -107,9 +109,10 @@ router.get('/groups', requirePermission('photos.view'), async (req, res) => {
             JOIN photos p ON e.photo_id = p.id
             WHERE p.project_id = ? AND e.model_name = ? AND p.organization_id = ?
               ${workspace.enabled ? (unitId ? 'AND p.unit_id = ?' : 'AND p.unit_id IS NULL') : ''}
+              ${owner.sql}
         `;
         const [rows] = await pool.query(sql, [projectId, modelName, workspace.orgId,
-            ...(unitId ? [unitId] : [])]);
+            ...(unitId ? [unitId] : []), ...owner.params]);
 
         if (!rows || rows.length === 0) return res.json({ groups: [] });
 
@@ -235,6 +238,7 @@ router.get('/pairs', requirePermission('photos.view'), async (req, res) => {
         const project = await requireProjectAccess(req, projectId, 'read');
         const workspace = await resolveWorkspace(req);
         const unitId = workspace.enabled ? Number(project.unit_id) || null : null;
+        const owner = photoOwnerFilter(workspace, 'p');
         const modelName = req.query.modelName || 'resnet50';
         const minScore = req.query.minScore ? Number(req.query.minScore) : 0.0;
 
@@ -244,9 +248,10 @@ router.get('/pairs', requirePermission('photos.view'), async (req, res) => {
             JOIN photos p ON e.photo_id = p.id
             WHERE p.project_id = ? AND e.model_name = ? AND p.organization_id = ?
               ${workspace.enabled ? (unitId ? 'AND p.unit_id = ?' : 'AND p.unit_id IS NULL') : ''}
+              ${owner.sql}
         `;
         const [rows] = await pool.query(sql, [projectId, modelName, workspace.orgId,
-            ...(unitId ? [unitId] : [])]);
+            ...(unitId ? [unitId] : []), ...owner.params]);
         if (!rows || rows.length === 0) return res.json({ pairs: [] });
 
         const ids = [];
@@ -312,6 +317,7 @@ router.get('/groups/simple', async (req, res) => {
 
         const groups = await readSimpleGroups({ projectId, orgId, modelName,
           unitId: project?.unit_id || null,
+          photographerId: workspace.ownPhotosOnly ? workspace.userId : null,
           scoped: workspace.enabled || (!isAuthed && process.env.ORGANIZATION_UNITS_ACTIVE === '1') });
         res.set('Cache-Control', 'private, no-store');
         res.json({ modelName, threshold, minSize, mode, groups });

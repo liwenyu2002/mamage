@@ -108,6 +108,7 @@ async function findMe(fileBuffer, scope) {
                WHERE p.project_id = ?`;
     if (scope.orgId !== undefined && scope.orgId !== null) { sql += ' AND f.organization_id = ?'; params.push(Number(scope.orgId)); }
     if (scope.unitId !== undefined && scope.unitId !== null) { sql += ' AND p.unit_id = ?'; params.push(Number(scope.unitId)); }
+    if (scope.photographerId != null) { sql += ' AND p.photographer_id = ?'; params.push(scope.photographerId); }
     sql += ` AND f.model_name = ? AND f.model_version <=> ? AND ${usableFaceSql('f')}`;
     params.push(space.modelName, space.modelVersion);
     sql += ' ORDER BY f.updated_at DESC, f.id DESC';

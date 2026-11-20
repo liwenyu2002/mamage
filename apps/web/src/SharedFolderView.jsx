@@ -1,6 +1,6 @@
 import React from 'react';
 import { Button } from './ui';
-import { IconChevronLeft, IconChevronRight, IconShare, IconGridView } from './ui/icons';
+import { IconChevronLeft, IconChevronRight, IconShare, IconGridView, IconListView, IconStar } from './ui/icons';
 import { getFolderShare } from './services/workspaceService';
 import { resolveAssetUrl } from './services/request';
 import { CollectionCard } from './folders/GlassFolders';
@@ -15,10 +15,10 @@ import './AlbumDesktop.css';
 import './folders/folders.css';
 import './folders/folderColumns.css';
 
-export function SharedFolders({ folders = [], onOpen, compact = false }) {
+export function SharedFolders({ folders = [], onOpen, onPlace, onPin, pins = [], compact = false, title = '与我共享的文件夹' }) {
   if (!folders.length) return null;
-  return <section className={`shared-albums${compact ? ' shared-albums-compact' : ''}`} aria-label="与我共享的文件夹">
-    <div className="shared-albums-heading"><IconShare /><h2>与我共享的文件夹</h2><span>{folders.length}</span></div>
+  return <section className={`shared-albums${compact ? ' shared-albums-compact' : ''}`} aria-label={title}>
+    <div className="shared-albums-heading"><IconShare /><h2>{title}</h2><span>{folders.length}</span></div>
     <div className="shared-albums-list">{folders.map(folder => <div className="shared-album-entry" key={folder.id}>
       <button className="shared-album-link" onClick={() => onOpen(folder.id)} aria-label={`打开共享文件夹 ${folder.albumName}`}>
         <span className="shared-album-cover"><span className="acp-column-folder-glyph" aria-hidden="true" /></span>
@@ -26,6 +26,11 @@ export function SharedFolders({ folders = [], onOpen, compact = false }) {
           <span className="shared-album-meta">{folder.albumCount} 个相册 · {folder.mode === 'collaborate' ? '共同编辑' : folder.mode === 'copy' ? folder.copyStatus === 'failed' ? '复制失败' : folder.copyStatus === 'ready' ? '副本已就绪' : '正在复制' : '只读'}{folder.mode !== 'copy' ? ' · 实时共享' : ''}</span></span>
         <IconChevronRight className="shared-album-arrow" />
       </button>
+      {onPlace && <button className="shared-album-add" type="button" title="整理快捷方式"
+        aria-label={`整理共享文件夹 ${folder.albumName}`} onClick={() => onPlace(folder)}><IconListView /></button>}
+      {onPin && <button className="shared-album-add" type="button" title="置顶共享文件夹"
+        aria-label={`置顶共享文件夹 ${folder.albumName}`} aria-pressed={pins.includes(`shared-folder:${folder.id}`)}
+        onClick={() => onPin(`shared-folder:${folder.id}`)}><IconStar /></button>}
     </div>)}</div>
   </section>;
 }

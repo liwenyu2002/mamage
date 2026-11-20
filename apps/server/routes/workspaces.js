@@ -15,12 +15,12 @@ function fail(res, err) {
   res.status(500).json({ error: 'INTERNAL_ERROR' });
 }
 
-async function getUnitRole(workspace, unitId) {
-  const [rows] = await pool.query(
+async function getUnitRole(workspace, unitId, db = pool, lock = false) {
+  const [rows] = await db.query(
     `SELECT m.role FROM organization_units ou
      LEFT JOIN organization_unit_memberships m
        ON m.unit_id = ou.id AND m.user_id = ? AND m.removed_at IS NULL
-     WHERE ou.id = ? AND ou.organization_id = ? AND ou.archived_at IS NULL LIMIT 1`,
+     WHERE ou.id = ? AND ou.organization_id = ? AND ou.archived_at IS NULL LIMIT 1${lock ? ' FOR UPDATE' : ''}`,
     [workspace.userId, unitId, workspace.orgId]
   );
   if (!rows.length) return null;
@@ -126,14 +126,22 @@ router.get('/:unitId/members', requirePermission('photos.view'), async (req, res
     const unitId = positiveId(req.params.unitId);
     const role = unitId && await getUnitRole(workspace, unitId);
     if (role !== 'manager' && role !== 'collegeAdmin') throw new WorkspaceAccessError('UNIT_FORBIDDEN');
+    const admin = await accessAdministrator(pool, workspace.userId);
+    const managesGroup = role === 'manager' || (!admin.allowed && role === 'collegeAdmin'
+      && await getUnitRole({ ...workspace, collegeAdmin: false }, unitId) === 'manager');
     const [rows] = await pool.query(
-      `SELECT u.id, u.name, u.email, m.role, m.created_at AS joinedAt
+      `SELECT u.id, u.name, u.email, u.role AS accountRole, m.role, m.created_at AS joinedAt
        FROM organization_unit_memberships m JOIN users u ON u.id = m.user_id
        WHERE m.unit_id = ? AND m.removed_at IS NULL AND u.organization_id = ?
        ORDER BY FIELD(m.role, 'manager', 'editor', 'member', 'viewer'), u.name ASC`,
       [unitId, workspace.orgId]
     );
-    res.json(rows.map(member => ({ ...member, accessRoleLabel: ROLE_LABELS[member.role === 'manager' ? 'manager' : member.role === 'viewer' ? 'viewer' : 'contributor'] })));
+    res.json(rows.map(({ accountRole, ...member }) => ({
+      ...member, accessRoleLabel: ROLE_LABELS[member.role === 'manager' ? 'manager' : member.role === 'viewer' ? 'viewer' : 'contributor'],
+      canChangeRole: Number(member.id) !== workspace.userId && accountRole !== 'superadmin'
+        && (admin.allowed || (managesGroup && member.role !== 'manager')),
+      canRemove: admin.allowed && Number(member.id) !== workspace.userId && accountRole !== 'superadmin',
+    })));
   } catch (err) { fail(res, err); }
 });
 
@@ -182,6 +190,7 @@ router.get('/:unitId/recipients', requirePermission('photos.view'), async (req, 
 router.put('/:unitId/members/:userId', requirePermission('photos.view'), async (req, res) => {
   const conn = await pool.getConnection();
   try {
+    await conn.beginTransaction();
     const workspace = await resolveWorkspace(req, conn);
     const unitId = positiveId(req.params.unitId);
     const userId = positiveId(req.params.userId);
@@ -190,26 +199,32 @@ router.put('/:unitId/members/:userId', requirePermission('photos.view'), async (
     if (!unitId || !userId || !['viewer', 'editor', 'manager'].includes(role)) {
       throw new WorkspaceAccessError('INVALID_MEMBERSHIP', 400);
     }
-    const actorRole = await getUnitRole(workspace, unitId);
+    if (userId === workspace.userId) throw new WorkspaceAccessError('SELF_ACCESS_CHANGE');
+    const admin = await accessAdministrator(conn, workspace.userId, true);
+    const actorRole = await getUnitRole({ ...workspace, collegeAdmin: admin.allowed }, unitId, conn, true);
     if (actorRole !== 'manager' && actorRole !== 'collegeAdmin') throw new WorkspaceAccessError('UNIT_FORBIDDEN');
-    // 分配/变更成员角色属于权限管理，统一收口到超级管理员（历史实现允许小组 manager 越权分配）。
-    const admin = await accessAdministrator(conn, workspace.userId);
-    if (!admin.allowed) throw new WorkspaceAccessError('ACCESS_ADMIN_REQUIRED', 403);
-    if (role === 'manager' && !workspace.collegeAdmin) throw new WorkspaceAccessError('COLLEGE_ADMIN_REQUIRED');
-    if (!workspace.collegeAdmin) {
-      const [previous] = await conn.query('SELECT role FROM organization_unit_memberships WHERE unit_id = ? AND user_id = ? AND removed_at IS NULL LIMIT 1', [unitId, userId]);
-      if (previous[0]?.role === 'manager') throw new WorkspaceAccessError('COLLEGE_ADMIN_REQUIRED');
-    }
-    const [users] = await conn.query('SELECT id FROM users WHERE id = ? AND organization_id = ? LIMIT 1',
+    if (!admin.allowed && role === 'manager') throw new WorkspaceAccessError('COLLEGE_ADMIN_REQUIRED');
+    const [users] = await conn.query('SELECT id, role FROM users WHERE id = ? AND organization_id = ? LIMIT 1 FOR UPDATE',
       [userId, workspace.orgId]);
     if (!users.length) throw new WorkspaceAccessError('USER_NOT_FOUND', 404);
-    await conn.beginTransaction();
-    await conn.query(
-      `INSERT INTO organization_unit_memberships (unit_id, user_id, role)
-       VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE role = VALUES(role), removed_at = NULL`,
-      [unitId, userId, role]
-    );
-    await writeAudit(conn, workspace, 'membership.grant', unitId, 'user', userId, { role });
+    if (users[0].role === 'superadmin') throw new WorkspaceAccessError('PROTECTED_SUPERADMIN');
+    const [[previous]] = await conn.query('SELECT role FROM organization_unit_memberships WHERE unit_id = ? AND user_id = ? AND removed_at IS NULL LIMIT 1 FOR UPDATE',
+      [unitId, userId]);
+    if (!admin.allowed && (!previous || previous.role === 'manager')) throw new WorkspaceAccessError('COLLEGE_ADMIN_REQUIRED');
+    if (previous) {
+      if (previous.role !== role) {
+        await conn.query('UPDATE organization_unit_memberships SET role = ? WHERE unit_id = ? AND user_id = ? AND removed_at IS NULL',
+          [role, unitId, userId]);
+        await writeAudit(conn, workspace, 'membership.role.configure', unitId, 'user', userId, { before: previous.role, role });
+      }
+    } else {
+      await conn.query(
+        `INSERT INTO organization_unit_memberships (unit_id, user_id, role)
+         VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE role = VALUES(role), removed_at = NULL`,
+        [unitId, userId, role]
+      );
+      await writeAudit(conn, workspace, 'membership.grant', unitId, 'user', userId, { role });
+    }
     await conn.commit();
     res.json({ unitId, userId, role });
   } catch (err) {

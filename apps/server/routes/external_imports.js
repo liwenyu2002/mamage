@@ -3,6 +3,7 @@ const { pool } = require('../db');
 const { requirePermission, hasPermissionForUserId } = require('../lib/permissions');
 const { requireProjectAccess, resolveWorkspace, sendWorkspaceError } = require('../lib/workspace_access');
 const { buildMediaUrl } = require('../lib/media_access');
+const { photoOwnerFilter } = require('../lib/access_policy');
 const { createJob } = require('../lib/external_import_jobs');
 const worker = require('../lib/external_import_worker');
 
@@ -62,6 +63,9 @@ async function findJob(req, id) {
   const [rows] = await pool.query('SELECT * FROM external_import_jobs WHERE id = ? LIMIT 1', [id]);
   if (!rows.length) throw Object.assign(new Error('转存任务不存在'), { status: 404 });
   const access = await permissions(req, rows[0].project_id);
+  if ((await resolveWorkspace(req)).ownPhotosOnly && Number(rows[0].requested_by) !== Number(req.user.id)) {
+    throw Object.assign(new Error('转存任务不存在'), { status: 404 });
+  }
   access.userId = req.user.id;
   return { job: rows[0], access };
 }
@@ -82,16 +86,19 @@ router.get('/jobs', requirePermission('photos.view'), async (req, res) => {
   try {
     const access = await permissions(req, projectId);
     access.userId = req.user.id;
+    const workspace = await resolveWorkspace(req);
+    const jobOwner = workspace.ownPhotosOnly ? ' AND requested_by = ?' : '';
+    const args = [projectId, ...(workspace.ownPhotosOnly ? [workspace.userId] : [])];
     const [rows] = await pool.query(
-      'SELECT * FROM external_import_jobs WHERE project_id = ? ORDER BY id DESC LIMIT 8', [projectId]
+      `SELECT * FROM external_import_jobs WHERE project_id = ?${jobOwner} ORDER BY id DESC LIMIT 8`, args
     );
     const [sourceRows] = await pool.query(
       `SELECT MAX(j.id) AS id, j.source_url, MAX(j.source_title) AS source_title,
               MIN(j.created_at) AS started_at, COUNT(DISTINCT i.photo_id) AS photo_count
        FROM external_import_jobs j
        LEFT JOIN external_import_items i ON i.job_id = j.id AND i.status = 'done'
-       WHERE j.project_id = ? AND j.attribution_visible = 1
-       GROUP BY j.source_url ORDER BY MAX(j.id) DESC LIMIT 30`, [projectId]
+       WHERE j.project_id = ?${workspace.ownPhotosOnly ? ' AND j.requested_by = ?' : ''} AND j.attribution_visible = 1
+       GROUP BY j.source_url ORDER BY MAX(j.id) DESC LIMIT 30`, args
     );
     const sources = sourceRows.map((row) => {
       let domain = '';
@@ -134,6 +141,7 @@ router.get('/jobs/:id/updates', requirePermission('photos.view'), async (req, re
   if (!id || !Number.isSafeInteger(afterPhotoId) || afterPhotoId < 0) return res.status(400).json({ error: 'INVALID_CURSOR' });
   try {
     const { job } = await findJob(req, id);
+    const owner = photoOwnerFilter(await resolveWorkspace(req), 'ph');
     const [rows] = await pool.query(
       `SELECT ph.id, ph.url, ph.thumb_url AS thumbUrl, ph.title, ph.description,
               ph.tags, ph.ai_status AS aiStatus, ph.type, ph.photographer_id AS photographerId,
@@ -142,8 +150,8 @@ router.get('/jobs/:id/updates', requirePermission('photos.view'), async (req, re
        FROM external_import_items i
        JOIN photos ph ON ph.id = i.photo_id AND ph.project_id = ?
        LEFT JOIN project_timeline_sections pts ON pts.id = ph.timeline_section_id
-       WHERE i.job_id = ? AND i.status = 'done' AND i.photo_id > ?
-       ORDER BY i.photo_id LIMIT 101`, [job.project_id, id, afterPhotoId]
+       WHERE i.job_id = ? AND i.status = 'done' AND i.photo_id > ?${owner.sql}
+       ORDER BY i.photo_id LIMIT 101`, [job.project_id, id, afterPhotoId, ...owner.params]
     );
     const page = rows.slice(0, 100).map((row) => ({
       ...row,

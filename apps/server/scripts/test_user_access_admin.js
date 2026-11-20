@@ -8,13 +8,15 @@ const { accountAccess, accessAdministrator, saveAccountAccess, registerUserAcces
 
 function fixture() {
   const sql = new DatabaseSync(':memory:');
+  sql.function('JSON_UNQUOTE', value => value);
   sql.exec(`CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT, email TEXT, student_no TEXT, department TEXT, role TEXT, organization_id INTEGER, active_unit_id INTEGER, created_at TEXT);
     CREATE TABLE organizations(id INTEGER PRIMARY KEY, name TEXT);
     CREATE TABLE organization_units(id INTEGER PRIMARY KEY, organization_id INTEGER, name TEXT, archived_at TEXT);
     CREATE TABLE organization_unit_memberships(unit_id INTEGER, user_id INTEGER, role TEXT, removed_at TEXT, PRIMARY KEY(unit_id,user_id));
     CREATE TABLE organization_admin_grants(organization_id INTEGER, user_id INTEGER, granted_by INTEGER, PRIMARY KEY(organization_id,user_id));
     CREATE TABLE face_search_grants(organization_id INTEGER,user_id INTEGER,college_wide INTEGER,can_manage INTEGER,granted_by INTEGER);
-    CREATE TABLE iam_login_identities(user_id INTEGER,subject_id TEXT);
+    CREATE TABLE iam_login_identities(user_id INTEGER,subject_id TEXT,source_key TEXT);
+    CREATE TABLE iam_login_pending(source_key TEXT,subject_id TEXT,claims TEXT,reason TEXT,created_at TEXT);
     CREATE TABLE role_permissions(role TEXT,permission TEXT);
     INSERT INTO role_permissions VALUES('visitor','photos.view'),('photographer','photos.view'),('admin','photos.view'),('superadmin','users.manage_roles');
     CREATE TABLE organization_access_audit(id INTEGER PRIMARY KEY,organization_id INTEGER,unit_id INTEGER,user_id INTEGER,action TEXT,resource_type TEXT,resource_id INTEGER,details TEXT);
@@ -27,10 +29,11 @@ function fixture() {
       (5,'Manager','manager@example.edu','manager-no',NULL,'admin',2,1,'2026');
     INSERT INTO organization_admin_grants VALUES(2,1,1),(2,2,1);
     INSERT INTO organization_unit_memberships VALUES(1,2,'manager',NULL),(1,5,'manager',NULL);
-    INSERT INTO iam_login_identities VALUES(3,'stable-new');`);
+    INSERT INTO iam_login_identities VALUES(3,'stable-new','school-iam');
+    ALTER TABLE users ADD COLUMN view_organization_photos INTEGER NOT NULL DEFAULT 0;`);
   const query = async (text, values = []) => {
     const statement = sql.prepare(text.replace(/\s+FOR UPDATE/g, ''));
-    if (/^\s*SELECT/i.test(text)) return [statement.all(...values)];
+    if (/^\s*SELECT/i.test(text)) return [statement.all(...values.map(value => value instanceof Date ? value.toISOString() : value))];
     const result = statement.run(...values);
     return [{ insertId: Number(result.lastInsertRowid), affectedRows: result.changes }];
   };
@@ -57,6 +60,28 @@ test('second superadministrator can assign groups and independent face permissio
   }finally{f.close();}
 });
 
+test('photo visibility is an audited independent switch with strict booleans and revision checks', async () => {
+  const f = fixture();
+  try {
+    const before = await f.body();
+    assert.equal((await accountAccess(f.db, 3)).viewOrganizationPhotos, false);
+    await assert.rejects(saveAccountAccess(f.db, 2, 3, { ...before, viewOrganizationPhotos: 'false' }), { code: 'INVALID_ACCESS' });
+    await assert.rejects(saveAccountAccess(f.db, 5, 3, { ...before, viewOrganizationPhotos: true }), { code: 'ACCESS_ADMIN_REQUIRED' });
+    await saveAccountAccess(f.db, 2, 3, { ...before, viewOrganizationPhotos: true });
+    assert.equal((await accountAccess(f.db, 3)).viewOrganizationPhotos, true);
+    await assert.rejects(saveAccountAccess(f.db, 2, 3, { ...before, viewOrganizationPhotos: false }), { code: 'ACCESS_CHANGED' });
+    await saveAccountAccess(f.db, 2, 3, await f.body());
+    assert.equal((await accountAccess(f.db, 3)).viewOrganizationPhotos, true, 'Older clients preserve the stored switch');
+    await saveAccountAccess(f.db, 2, 3, { ...await f.body(), viewOrganizationPhotos: false });
+    const after = await accountAccess(f.db, 3);
+    assert.equal(after.viewOrganizationPhotos, false);
+    assert.equal(after.memberships.length, 2);
+    const audit = JSON.parse(f.sql.prepare('SELECT details FROM organization_access_audit ORDER BY id DESC LIMIT 1').get().details);
+    assert.equal(audit.before.user.view_organization_photos, 1);
+    assert.equal(audit.after.user.view_organization_photos, 0);
+  } finally { f.close(); }
+});
+
 test('assignment IDs reject coercible booleans, arrays and non-decimal strings', async () => {
   const f = fixture();
   try {
@@ -71,7 +96,7 @@ test('assignment IDs reject coercible booleans, arrays and non-decimal strings',
 function legacyRoleApp(f) {
   const router = express.Router(), app = express();
   const source = fs.readFileSync(require.resolve('../routes/users'), 'utf8');
-  vm.runInNewContext(source.slice(source.indexOf("router.get('/all',"), source.indexOf('module.exports = router;')), {
+  vm.runInNewContext(source.slice(source.indexOf("router.get('/all',"), source.indexOf('const accountMerge =')), {
     router, pool: f.db, console: { error() {} },
     require: name => { assert.equal(name, '../lib/user_access_admin'); return require(name); },
     authMiddleware: (req, _res, next) => { req.user = { id: Number(req.get('x-test-user')), role: 'superadmin' }; next(); },
@@ -231,4 +256,46 @@ test('HTTP lists pending IAM users across schools and rejects unprivileged reads
     assert.equal((await fetchAs('/3/access',2,{method:'PUT',body:JSON.stringify(await f.body())})).status,200);
     assert.equal((await(await fetchAs('/access?status=pending',2)).json()).users.length,0);
   }finally{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));f.close();}
+});
+
+test('user search finds current school IAM claims without turning unresolved identities into accounts', async () => {
+  const f = fixture(), app = express(), router = express.Router();
+  const now = new Date(), expired = new Date(now.getTime() - 8 * 86400000);
+  const config = { loginReady: true, profileLoginMatching: true, orgId: 2, sourceKey: 'school-iam' };
+  const claims = { name: '校园姓名', email: 'manager@example.edu', studentNo: '90000123', secretField: 'not returned' };
+  const add = f.sql.prepare('INSERT INTO iam_login_pending VALUES (?,?,?,?,?)');
+  for (const [source, subject, date] of [
+    ['school-iam', 'unlinked-profile', now], ['school-iam', 'stable-new', now],
+    ['previous-provider', 'other-provider', now], ['school-iam', 'expired-profile', expired],
+  ]) add.run(source, subject, JSON.stringify(claims), 'IAM_ACCOUNT_MATCH_CONFLICT', date.toISOString());
+  registerUserAccessAdmin(router, { db: f.db, readIamConfig: () => config,
+    auth: (req, _res, next) => { req.user = { id: Number(req.get('x-test-user')), organization_id: 2 }; next(); } });
+  app.use('/users', router);
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise(resolve => server.once('listening', resolve));
+  try {
+    const search = (q, extra = {}, actor = 2) => fetch(`http://127.0.0.1:${server.address().port}/users/access?` +
+      new URLSearchParams({ q, ...extra }), { headers: { 'x-test-user': String(actor) } });
+    const response = await search('校园姓名');
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    const result = await response.json();
+    assert.deepEqual(result.users, []);
+    const expected = { name: claims.name, email: claims.email, studentNo: claims.studentNo, createdAt: now.toISOString() };
+    assert.deepEqual(result.iamPending, [expected]);
+    const emailSearch = await (await search(claims.email)).json();
+    assert.deepEqual(emailSearch.iamPending, [expected]);
+    assert.deepEqual(emailSearch.users.map(u => u.id), [5], 'Legacy account is discoverable by the claimed mailbox');
+    assert.deepEqual((await (await search(claims.studentNo)).json()).iamPending, [expected]);
+    for (const [q, extra] of [['%', {}], ['', {}], ['校园姓名', { organizationId: 3 }],
+      ['校园姓名', { status: 'pending' }], ['校园姓名', { page: 2 }]]) {
+      assert.deepEqual((await (await search(q, extra)).json()).iamPending, []);
+    }
+    assert.equal((await search('校园姓名', {}, 5)).status, 403);
+    f.sql.prepare('INSERT INTO iam_login_identities VALUES (?,?,?)').run(5, 'unlinked-profile', 'school-iam');
+    assert.deepEqual((await (await search('校园姓名')).json()).iamPending, []);
+  } finally {
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+    f.close();
+  }
 });

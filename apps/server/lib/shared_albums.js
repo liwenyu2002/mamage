@@ -1,16 +1,19 @@
 const { pool } = require('../db');
 const { buildMediaUrl } = require('./media_access');
 const { metadataEditScope } = require('./workspace_access');
+const { photoOwnerFilter } = require('./access_policy');
 const { desktopSharingStatuses } = require('./card_sharing_status');
 
 async function listSharedAlbums(workspace, db = pool) {
   if (!workspace.enabled || !workspace.unitId || !workspace.userId || !workspace.orgId) return [];
+  const countOwner = photoOwnerFilter(workspace, 'c');
+  const coverOwner = photoOwnerFilter(workspace, 'i');
   const [rows] = await db.query(
     `SELECT p.id, p.name, p.unit_id AS unitId, p.created_at AS createdAt, p.updated_at AS updatedAt,
             grants.shareId, grants.canCollaborate, grants.sharedAt, grants.hasDirectShare,
             source.name AS sourceUnitName, org.name AS sourceOrganizationName,
             (SELECT COUNT(*) FROM photos c WHERE c.project_id = p.id
-             AND c.organization_id = p.organization_id) AS count,
+             AND c.organization_id = p.organization_id${countOwner.sql}) AS count,
             ph.id AS photoId, ph.thumb_url AS coverThumb, ph.url AS coverUrl
      FROM projects p
      JOIN (
@@ -28,12 +31,12 @@ async function listSharedAlbums(workspace, db = pool) {
      JOIN organizations org ON org.id = p.organization_id
      LEFT JOIN photos ph ON ph.id = (
        SELECT i.id FROM photos i WHERE i.project_id = p.id AND i.organization_id = p.organization_id
-         AND (i.type IS NULL OR i.type <> 'video') ORDER BY i.created_at DESC, i.id DESC LIMIT 1
+         ${coverOwner.sql} AND (i.type IS NULL OR i.type <> 'video') ORDER BY i.created_at DESC, i.id DESC LIMIT 1
      )
      WHERE p.organization_id = ? AND p.unit_id <> ?
        AND (p.restricted_to_user_id IS NULL OR p.restricted_to_user_id = ? OR ? = 1)
      ORDER BY grants.sharedAt DESC, p.id DESC`,
-    [workspace.orgId, workspace.unitId, workspace.userId,
+    [...countOwner.params, workspace.orgId, workspace.unitId, workspace.userId, ...coverOwner.params,
       workspace.orgId, workspace.unitId, workspace.userId, workspace.collegeAdmin ? 1 : 0]
   );
   return rows.map(row => ({

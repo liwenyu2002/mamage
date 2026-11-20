@@ -48,10 +48,12 @@ function validateGroups(value, albumIds) {
   return groups;
 }
 
-function validatePreferences(value, groups, albumIds) {
+function validatePreferences(value, groups, albumIds, sharedFolderIds = new Set(), sharedAlbumIds = new Set()) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw invalid('个人桌面设置不正确');
   const groupIds = new Set(groups.map(g => g.id));
-  const keys = new Set([...albumIds].map(id => `album:${id}`).concat(groups.map(g => `group:${g.id}`)));
+  const keys = new Set([...albumIds].map(id => `album:${id}`).concat(
+    groups.map(g => `group:${g.id}`), [...sharedFolderIds].map(id => `shared-folder:${id}`),
+  ));
   const pins = [...new Set(Array.isArray(value.pins) ? value.pins.filter(key => keys.has(key)) : [])];
   const recentItems = [];
   const seen = new Set();
@@ -66,7 +68,16 @@ function validatePreferences(value, groups, albumIds) {
   for (const [id, color] of Object.entries(value.colors || {})) {
     if (groupIds.has(id) && /^#[a-fA-F0-9]{6}$/.test(color)) colors[id] = color;
   }
-  return { pins, recentItems, colors };
+  const targets = new Set(groups.filter(group => group.kind !== 'smart').map(group => group.id));
+  const locations = Object.entries(value.sharedFolderLocations || {}).filter(([shareId, folderId]) =>
+    /^[1-9]\d*$/.test(shareId) && sharedFolderIds.has(Number(shareId)) && targets.has(folderId));
+  // 共享内容放在「小组空间第一级」：不属于任何文件夹，单独记一份根级清单。
+  const sharedRootAlbums = [...new Set((Array.isArray(value.sharedRootAlbums) ? value.sharedRootAlbums : [])
+    .map(Number).filter(id => sharedAlbumIds.has(id)))];
+  const sharedRootFolders = [...new Set((Array.isArray(value.sharedRootFolders) ? value.sharedRootFolders : [])
+    .map(Number).filter(id => sharedFolderIds.has(id)))];
+  return { pins, recentItems, colors, ...(locations.length ? { sharedFolderLocations: Object.fromEntries(locations) } : {}),
+    ...(sharedRootAlbums.length ? { sharedRootAlbums } : {}), ...(sharedRootFolders.length ? { sharedRootFolders } : {}) };
 }
 
 function authorizeFolderChanges(stored, submitted, { userId, canManage, canDelete }) {

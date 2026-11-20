@@ -40,9 +40,9 @@ async function groupCliques(rows, normalize, threshold = 0.6, minSize = 2) {
 function createSimilarityGroupReader(db, normalize, { now = Date.now, ttl = 15 * 60 * 1000 } = {}) {
   const cache = new Map(), inFlight = new Map();
   let tail = Promise.resolve(), cachedIds = 0;
-  return async function readGroups({ projectId, orgId, unitId, scoped, modelName = 'resnet50' }) {
-    const scope = `p.project_id = ? AND p.organization_id <=> ? AND e.model_name = ?${scoped ? ' AND p.unit_id <=> ?' : ''}`;
-    const args = [projectId, orgId, modelName, ...(scoped ? [unitId] : [])];
+  return async function readGroups({ projectId, orgId, unitId, scoped, photographerId = null, modelName = 'resnet50' }) {
+    const scope = `p.project_id = ? AND p.organization_id <=> ? AND e.model_name = ?${scoped ? ' AND p.unit_id <=> ?' : ''}${photographerId == null ? '' : ' AND p.photographer_id = ?'}`;
+    const args = [projectId, orgId, modelName, ...(scoped ? [unitId] : []), ...(photographerId == null ? [] : [photographerId])];
     // saveEmbedding replaces rows (new IDs). This manifest detects additions,
     // deletions, moves and reanalysis without transferring megabytes of vectors.
     const [manifest] = await db.query(`SELECT e.id, p.id AS photo_id FROM ai_image_embeddings e

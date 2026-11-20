@@ -16,6 +16,7 @@ import { copyText } from './utils/clipboard';
 import { buildAlbumUploadUrl } from './utils/albumUploadLink';
 import { memberRoleLabel } from './utils/accessRoles';
 import './WorkspacePanel.css';
+import MembershipRequestsPanel from './MembershipRequestsPanel';
 
 const MODES = [
   { value: 'read', label: '只读', detail: '实时同步，可查看和下载原片' },
@@ -57,7 +58,7 @@ function expiryLabel(value) {
   return value ? `${shortDate(value)}到期` : '永久有效';
 }
 
-export default function WorkspacePanel({ visible, onClose, workspaceInfo, initialProjectId,
+export default function WorkspacePanel({ visible, onClose, workspaceInfo, initialProjectId, initialTab,
   initialPhotoIds = [], albumShareProject = null, folderShareFolder = null, onOpenProject, onOpenFolder }) {
   const activeUnitId = workspaceInfo?.activeUnitId;
   const activeUnit = workspaceInfo?.units?.find((unit) => Number(unit.id) === Number(activeUnitId));
@@ -66,6 +67,7 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
   const itemShare = Boolean(albumShareProjectId || folderShareFolderId);
   const modes = MODES;
   const canManage = workspaceInfo?.access?.canManageMembers ?? Boolean(workspaceInfo?.collegeAdmin || activeUnit?.role === 'manager');
+  const canManageAccounts = workspaceInfo?.access?.canManageAccounts === true;
   const canShare = workspaceInfo?.access?.canShare ?? Boolean(workspaceInfo?.collegeAdmin || ['editor', 'manager'].includes(activeUnit?.role));
   const [tab, setTab] = React.useState('received');
   const [received, setReceived] = React.useState([]);
@@ -122,7 +124,8 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
     if (!visible || !activeUnitId) return undefined;
     let live = true;
     setTab(itemShare ? (canShare ? 'create' : 'sent')
-      : (initialPhotoIds.length || initialProjectId ? 'create' : 'received'));
+      : initialTab === 'members' && canManage ? 'members'
+        : (initialPhotoIds.length || initialProjectId ? 'create' : 'received'));
     setProjectId(albumShareProjectId ? String(albumShareProjectId) : (initialProjectId ? String(initialProjectId) : ''));
     setDetail(null);
     Promise.all([
@@ -135,7 +138,7 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
       !itemShare && workspaceInfo?.collegeAdmin ? listFaceGrants().then((rows) => { if (live) setFaceGrants(rows || []); }) : null,
     ]).catch((err) => { if (live) Toast.error(err.message || '工作空间加载失败'); });
     return () => { live = false; };
-  }, [visible, activeUnitId, initialProjectId, initialPhotoIds.length, albumShareProjectId, folderShareFolderId, itemShare, canManage, canShare,
+  }, [visible, activeUnitId, initialProjectId, initialTab, initialPhotoIds.length, albumShareProjectId, folderShareFolderId, itemShare, canManage, canShare,
     workspaceInfo?.collegeAdmin, refreshLists]);
 
   const visibleSent = folderShareFolderId ? sent.filter(share => share.folderId === folderShareFolderId && share.mode !== 'public') : albumShareProjectId
@@ -154,7 +157,7 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
   }, [visible, targetUnitId]);
 
   React.useEffect(() => {
-    if (!visible || !canManage || candidateQuery.trim().length < 2) {
+    if (!visible || !canManageAccounts || candidateQuery.trim().length < 2) {
       setCandidates([]);
       return undefined;
     }
@@ -165,7 +168,7 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
         .catch(() => { if (live) setCandidates([]); });
     }, 250);
     return () => { live = false; clearTimeout(timer); };
-  }, [visible, canManage, activeUnitId, candidateQuery]);
+  }, [visible, canManageAccounts, activeUnitId, candidateQuery]);
 
   React.useEffect(() => {
     if (!visible || !received.some((share) => share.mode === 'copy' && !['ready', 'failed'].includes(share.copyStatus))) {
@@ -245,6 +248,16 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
       setCandidateId('');
       setCandidateQuery('');
       Toast.success('成员已更新');
+    } catch (err) { Toast.error(err.message || '更新成员失败'); }
+    finally { setBusy(false); }
+  };
+
+  const changeMemberRole = async (member, role) => {
+    setBusy(true);
+    try {
+      await setUnitMember(activeUnitId, member.id, role);
+      setMembers(current => current.map(person => person.id === member.id ? { ...person, role } : person));
+      Toast.success('组内角色已更新');
     } catch (err) { Toast.error(err.message || '更新成员失败'); }
     finally { setBusy(false); }
   };
@@ -579,13 +592,16 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
         </div>}
 
         {tab === 'members' && canManage && <div className="workspace-section">
+          <MembershipRequestsPanel unitId={activeUnitId} onUpdated={() => {
+            listUnitMembers(activeUnitId).then(setMembers).catch(() => {});
+          }} />
           {aiStats.length > 0 && <div className="workspace-stats">
             <strong>近 30 天 AI 使用</strong>
             {aiStats.map((item) => <span key={item.unitId || 'legacy'}>
               {item.unitName || '历史'}：{item.jobCount} 次 · {item.tokensUsed} tokens
             </span>)}
           </div>}
-          <div className="workspace-member-add">
+          {canManageAccounts && <div className="workspace-member-add">
             <input value={candidateQuery} onChange={(event) => { setCandidateQuery(event.target.value); setCandidateId(''); }}
               placeholder="搜索姓名或邮箱" aria-label="搜索学院成员" />
             <WorkspaceSelect value={candidateId} onChange={(event) => setCandidateId(event.target.value)} aria-label="选择成员">
@@ -593,16 +609,23 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
               {candidates.map((person) => <option key={person.id} value={person.id}>{person.name} · {person.email}</option>)}
             </WorkspaceSelect>
             <WorkspaceSelect value={candidateRole} onChange={(event) => setCandidateRole(event.target.value)} aria-label="部门角色">
-              <option value="viewer">访客</option><option value="editor">协作者</option>
+              <option value="viewer">只读成员</option><option value="editor">协作者</option>
               {workspaceInfo?.collegeAdmin && <option value="manager">小组管理员</option>}
             </WorkspaceSelect>
             <button type="button" disabled={busy || !candidateId} onClick={addMember}>添加</button>
             {workspaceInfo?.collegeAdmin && candidateId && <button type="button" disabled={busy}
               onClick={() => changeFaceGrant(candidateId, true,
                 faceGrants.some(grant => Number(grant.userId) === Number(candidateId) && Boolean(grant.canManage)))}>授权人物检索</button>}
-          </div>
+          </div>}
           {members.map((member) => <div className="workspace-row" key={member.id}>
             <div className="workspace-row-main"><strong>{member.name}</strong><span>{member.email} · {memberRoleLabel(member.role)}</span></div>
+            {member.canChangeRole && <WorkspaceSelect
+              value={member.role === 'manager' || member.role === 'viewer' ? member.role : 'editor'}
+              aria-label={`${member.name}的小组角色`} disabled={busy}
+              onChange={event => changeMemberRole(member, event.target.value)}>
+              <option value="viewer">只读成员</option><option value="editor">协作者</option>
+              {canManageAccounts && <option value="manager">小组管理员</option>}
+            </WorkspaceSelect>}
             {workspaceInfo?.collegeAdmin && <div className="workspace-face-permissions">
               <label><input type="checkbox" disabled={busy}
                 aria-label={`人物检索 ${member.name}`}
@@ -614,14 +637,14 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
                 checked={faceGrants.some(grant => Number(grant.userId) === Number(member.id) && Boolean(grant.canManage))}
                 onChange={event => changeFaceGrant(member.id, true, event.target.checked)} />人物档案维护</label>
             </div>}
-            <button type="button" disabled={busy || (member.role === 'manager' && !workspaceInfo?.collegeAdmin)}
+            {member.canRemove && <button type="button" disabled={busy}
               onClick={async () => {
                 if (!window.confirm(`移除 ${member.name} 吗？`)) return;
                 setBusy(true);
                 try { await removeUnitMember(activeUnitId, member.id); setMembers(await listUnitMembers(activeUnitId)); Toast.success('已移除成员'); }
                 catch (err) { Toast.error(err.message || '移除失败'); }
                 finally { setBusy(false); }
-              }}>移除</button>
+              }}>移除</button>}
           </div>)}
         </div>}
       </>}

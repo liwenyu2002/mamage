@@ -1,6 +1,8 @@
 const { error, sha256 } = require('./iam_protocol');
 const name = value => typeof value === 'string' ? value.normalize('NFKC').trim() : '';
 const email = value => name(value).toLowerCase();
+const mergeReviewNumber = (sourceKey, targetId) => 'iam_review_' + sha256(`${sourceKey}\n${targetId}`).slice(0, 21);
+const isMergeReviewNumber = value => /^iam_review_[a-f0-9]{21}$/.test(value || '');
 function scalar(value) {
   if (Array.isArray(value)) return value.length === 1 ? scalar(value[0]) : '';
   return typeof value === 'string' ? value.trim() : '';
@@ -60,6 +62,23 @@ async function matchUser(conn, cfg, claims) {
   if (bound) throw error('IAM_ACCOUNT_MATCH_CONFLICT', 403);
   return Number(user.id);
 }
+
+async function mergeReviewTarget(conn, cfg, claims, subject) {
+  if (!cfg.profileEmailPath || !cfg.profileStudentPath || !claims.name || !claims.email || !claims.studentNo) return null;
+  const [rows] = await conn.query(`SELECT id, name, email, student_no, role, organization_id FROM users
+    WHERE (email = ? AND email <> '') OR (student_no = ? AND student_no <> '') FOR UPDATE`, [claims.email, claims.studentNo]);
+  if (rows.length !== 1) return null;
+  const local = rows[0], alias = email(local.student_no);
+  if (Number(local.organization_id) !== cfg.orgId || local.role === 'superadmin' || email(local.email) !== claims.email
+    || !/^[a-z][a-z0-9._-]*$/.test(alias) || name(local.student_no) === claims.studentNo
+    || ![email(local.name), claims.email.split('@')[0]].includes(alias)) return null;
+  const [[state]] = await conn.query('SELECT disabled FROM iam_user_state WHERE user_id = ? FOR UPDATE', [local.id]);
+  const [[linked]] = await conn.query('SELECT user_id FROM iam_login_identities WHERE source_key = ? AND user_id = ? FOR UPDATE',
+    [cfg.sourceKey, local.id]);
+  const [directory] = await conn.query('SELECT status FROM iam_accounts WHERE source_key = ? AND (external_id = ? OR user_id = ?) FOR UPDATE',
+    [cfg.sourceKey, subject, local.id]);
+  return !linked && !Number(state?.disabled) && directory.every(account => Number(account.status) === 0) ? local.id : null;
+}
 async function syncProfile(conn, cfg, subject, userId, profile) {
   const claims = claimsFromProfile(profile, cfg);
   const [[user]] = await conn.query('SELECT name, email, student_no FROM users WHERE id = ? FOR UPDATE', [userId]);
@@ -87,7 +106,7 @@ async function resolveProfile(db, cfg, profile, subject) {
   try {
     await conn.beginTransaction();
     const [[linked]] = await conn.query('SELECT user_id FROM iam_login_identities WHERE source_key = ? AND subject_id = ? FOR UPDATE', [cfg.sourceKey, subject]);
-    let userId = Number(linked?.user_id);
+    let userId = Number(linked?.user_id), reviewTargetId = null;
     if (!userId) {
       let claims = {}, reason;
       try {
@@ -105,6 +124,19 @@ async function resolveProfile(db, cfg, profile, subject) {
         }
       }
       catch (e) { if (!/^IAM_/.test(e.code || '')) throw e; reason = e.code; }
+      if (reason === 'IAM_ACCOUNT_MATCH_CONFLICT' && cfg.autoProvision) {
+        const targetId = await mergeReviewTarget(conn, cfg, claims, subject);
+        if (targetId) {
+          const placeholder = mergeReviewNumber(cfg.sourceKey, targetId);
+          const [[existingReview]] = await conn.query('SELECT id FROM users WHERE student_no = ? FOR UPDATE', [placeholder]);
+          if (!existingReview) {
+            const [created] = await conn.query("INSERT INTO users (student_no, name, email, role, organization_id) VALUES (?, ?, NULL, 'visitor', ?)",
+              [placeholder, claims.name, cfg.orgId]);
+            userId = Number(created.insertId);
+            reviewTargetId = targetId;
+          }
+        }
+      }
       if (!userId) {
         reason ||= 'IAM_ACCOUNT_LINK_REQUIRED';
         await conn.query('DELETE FROM iam_login_pending WHERE source_key = ? AND subject_id = ?', [cfg.sourceKey, subject]);
@@ -114,15 +146,24 @@ async function resolveProfile(db, cfg, profile, subject) {
       } else {
         await conn.query('INSERT INTO iam_login_identities (source_key, subject_id, user_id) VALUES (?, ?, ?)', [cfg.sourceKey, subject, userId]);
         await conn.query('INSERT INTO iam_identity_audit (source_key, identity_hash, user_id, action) VALUES (?, ?, ?, ?)',
-          [cfg.sourceKey, sha256(subject), userId, 'profile_account_linked']);
+          [cfg.sourceKey, sha256(subject), userId, reviewTargetId ? 'profile_account_pending_merge' : 'profile_account_linked']);
         await conn.query('DELETE FROM iam_login_pending WHERE source_key = ? AND subject_id = ?', [cfg.sourceKey, subject]);
       }
     }
     if (!result?.error) {
-      const [[user]] = await conn.query('SELECT id, role, organization_id FROM users WHERE id = ? FOR UPDATE', [userId]);
+      const [[user]] = await conn.query('SELECT id, role, organization_id, student_no FROM users WHERE id = ? FOR UPDATE', [userId]);
       if (!user || Number(user.organization_id) !== cfg.orgId) throw error('IAM_ACCOUNT_LINK_INVALID', 403);
-      await syncProfile(conn, cfg, subject, userId, profile);
-      result = { user };
+      // The mailbox still belongs to the legacy account until a human merges them.
+      if (isMergeReviewNumber(user.student_no)) {
+        const targetId = reviewTargetId || await mergeReviewTarget(conn, cfg, claimsFromProfile(profile, cfg), subject);
+        if (!targetId || user.student_no !== mergeReviewNumber(cfg.sourceKey, targetId)) {
+          throw error('IAM_ACCOUNT_MATCH_CONFLICT', 403);
+        }
+      } else {
+        await syncProfile(conn, cfg, subject, userId, profile);
+      }
+      const { student_no, ...identity } = user;
+      result = { user: identity };
     }
     await conn.commit();
   } catch (e) { await conn.rollback(); throw e; }
@@ -143,4 +184,4 @@ async function auditExisting(db, cfg, names) {
     }
     return report;
 }
-module.exports = { claimsFromProfile, matchUser, resolveProfile, auditExisting };
+module.exports = { claimsFromProfile, matchUser, resolveProfile, auditExisting, isMergeReviewNumber, mergeReviewNumber };

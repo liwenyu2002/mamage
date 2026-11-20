@@ -4,8 +4,8 @@ function load(file,deps){const module={exports:{}},actual=createRequire(file);vm
   module,exports:module.exports,process,console,Buffer,require:key=>Object.hasOwn(deps,key)?deps[key]:actual(key),
 },{filename:file});return module.exports;}
 class AccessError extends Error{constructor(message,status=403){super(message);this.status=status;}}
-function fixture({search=true,manage=false,enabled=true,collegeAdmin=false}={}){
- const workspace={userId:7,orgId:2,unitId:1,userRole:'admin',role:'editor',enabled,collegeAdmin};
+function fixture({search=true,manage=false,enabled=true,collegeAdmin=false,superAdmin=false,ownPhotosOnly=false}={}){
+ const workspace={userId:7,orgId:2,unitId:1,userRole:superAdmin?'superadmin':'admin',role:'editor',enabled,collegeAdmin,ownPhotosOnly};
  const writes=[],queries=[],roles=new Map([[20,'editor'],[21,'manager']]);let grant=search?{college_wide:1,can_manage:manage?1:0}:null;
  const db={query:async(sql,params)=>{
   queries.push(sql);
@@ -16,8 +16,13 @@ function fixture({search=true,manage=false,enabled=true,collegeAdmin=false}={}){
   if(sql.includes('SELECT COUNT(*) AS total'))return [[{total:0}]];
   if(sql.includes('FROM face_persons fp'))return [[]];
   if(sql.includes('SELECT g.user_id'))return [grant?[{userId:20,collegeWide:grant.college_wide,canManage:grant.can_manage}]:[]];
+  if(sql.startsWith('SELECT id, role, organization_id FROM users'))return [[{id:7,role:workspace.userRole,organization_id:2}]];
+  if(sql.startsWith('SELECT organization_id FROM organization_admin_grants'))return [collegeAdmin?[{organization_id:2}]:[]];
+  if(sql.includes('SELECT id, role FROM users'))return [roles.has(params[0])||[22,23].includes(params[0])
+    ? [{id:params[0],role:params[0]===23?'superadmin':'visitor'}]:[]];
   if(sql.includes('SELECT id FROM users'))return [roles.has(params[0])?[{id:params[0]}]:[]];
   if(sql.includes('INSERT INTO organization_unit_memberships')){writes.push(sql);roles.set(params[1],params[2]);return [{}];}
+  if(sql.includes('UPDATE organization_unit_memberships SET role =')){writes.push(sql);roles.set(params[2],params[0]);return [{}];}
   if(sql.includes('UPDATE organization_unit_memberships')){writes.push(sql);roles.delete(params[1]);return [{}];}
   if(sql.includes('UPDATE users SET active_unit_id'))return [{}];
   if(sql.startsWith('INSERT INTO face_search_grants')){writes.push(sql);grant={college_wide:1,can_manage:params[2]};return [{}];}
@@ -62,6 +67,12 @@ test('grant-required reads apply to legacy spaces too, even when the old account
 test('explicit maintenance retains access to mutation validation, never bypassing validation',async()=>{
  const f=fixture({manage:true});await serve(f,async call=>{assert.equal((await call('/api/persons/merge','POST',{})).status,400);});
 });
+test('own-only users cannot use a previously granted organization-wide people index',async()=>{
+ const f=fixture({manage:true,ownPhotosOnly:true});await serve(f,async call=>{
+  assert.equal((await call('/api/persons')).body.error,'FACE_SEARCH_GRANT_REQUIRED');
+  assert.equal((await call('/api/persons/merge','POST',{})).body.error,'FACE_MANAGEMENT_GRANT_REQUIRED');
+ });assert.equal(f.queries.length,0);
+});
 test('new grants default to search-only; maintenance needs an explicit boolean and remains independent',async()=>{
  const f=fixture({collegeAdmin:true,search:false});await serve(f,async call=>{
   assert.equal((await call('/api/workspaces/face-search/20','PUT',{})).status,200);assert.equal(f.grant().can_manage,0);
@@ -77,7 +88,7 @@ test('an admin-labelled contributor cannot grant or revoke any face ability',asy
  const f=fixture();await serve(f,async call=>{for(const method of ['PUT','DELETE'])assert.equal((await call('/api/workspaces/face-search/20',method,{canManage:true,collegeAdmin:true})).status,403);});assert.equal(f.writes.length,0);
 });
 
-test('group managers can assign contributors and viewers but cannot change managers or other groups',async()=>{
+test('group managers can change the role of existing ordinary members only in their own groups',async()=>{
  const f=fixture();f.workspace.role='manager';await serve(f,async call=>{
   for(const role of ['viewer','editor','member','contributor']){
    const r=await call('/api/workspaces/1/members/20','PUT',{role});assert.equal(r.status,200);
@@ -87,14 +98,17 @@ test('group managers can assign contributors and viewers but cannot change manag
    ['/api/workspaces/1/members/20','PUT',{role:'manager'}],
    ['/api/workspaces/1/members/21','PUT',{role:'viewer'}],
    ['/api/workspaces/1/members/21','DELETE'],
+   ['/api/workspaces/1/members/22','PUT',{role:'editor'}],
+   ['/api/workspaces/1/members/23','PUT',{role:'editor'}],
+   ['/api/workspaces/1/members/7','PUT',{role:'editor'}],
    ['/api/workspaces/2/members/20','PUT',{role:'viewer'}],
   ])assert.equal((await call(path,method,body)).status,403);
-  assert.equal((await call('/api/workspaces/1/members/20','DELETE')).status,200);assert.equal(f.roles.has(20),false);
- });assert.equal(f.roles.get(21),'manager');
+  assert.equal((await call('/api/workspaces/1/members/20','DELETE')).status,403);assert.equal(f.roles.has(20),true);
+ });assert.equal(f.roles.get(21),'manager');assert.equal(f.roles.has(22),false);
 });
 
-test('organization administrators can appoint managers but cannot add foreign organization accounts',async()=>{
- const f=fixture({collegeAdmin:true});await serve(f,async call=>{
+test('authorized superadministrators can appoint managers but cannot add foreign organization accounts',async()=>{
+ const f=fixture({collegeAdmin:true,superAdmin:true});await serve(f,async call=>{
   assert.equal((await call('/api/workspaces/1/members/20','PUT',{role:'manager'})).status,200);
   assert.equal(f.roles.get(20),'manager');
   assert.equal((await call('/api/workspaces/1/members/999','PUT',{role:'editor'})).status,404);

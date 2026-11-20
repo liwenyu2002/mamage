@@ -1,9 +1,9 @@
 const fs = require('node:fs'), vm = require('node:vm'), path = require('node:path');
 const assert = require('node:assert/strict'), { test } = require('node:test');
 
-async function albumSnapshot() {
+async function albumSnapshot(ownPhotosOnly = false) {
   const photos = [
-    { id: 11, projectId: 9, type: 'video', url: '/raw-new.mov', thumbUrl: null, playbackUrl: null },
+    { id: 11, projectId: 9, type: 'video', url: '/raw-new.mov', thumbUrl: null, playbackUrl: null, photographerId: 7 },
     { id: 12, projectId: 9, type: 'video', url: '/legacy.mp4', thumbUrl: null, playbackUrl: null },
     { id: 13, projectId: 9, type: 'video', url: '/ready.mov', playbackUrl: '/ready.mp4' },
     { id: 14, projectId: 9, type: 'video', url: '/failed.mov', playbackUrl: null },
@@ -11,8 +11,13 @@ async function albumSnapshot() {
   const tasks = [{ dedupe_key: '11', status: 'running' }, { dedupe_key: '14', status: 'failed' }];
   let handler, body, status = 200;
   const pool = { query: async (sql, params) => {
-    if (sql.includes('FROM projects p')) return [[{ id: 9, organization_id: 2, unit_id: 1, meta: {} }]];
-    if (sql.includes('FROM photos ph')) return [photos.map(p => ({ ...p }))];
+    if (sql.includes('FROM projects p')) return [[{ id: 9, organization_id: 2, unit_id: 1, meta: {}, photoIds: '[11,12,13,14]' }]];
+    if (sql.includes('FROM photos ph')) {
+      if (!ownPhotosOnly) return [photos.map(p => ({ ...p }))];
+      assert.match(sql, /ph\.photographer_id = \?/);
+      assert.deepEqual(Array.from(params), [9, 2, 7]);
+      return [photos.filter(p => p.photographerId === 7).map(p => ({ ...p }))];
+    }
     if (sql.includes('runtime_tasks')) return [tasks];
     throw Error('Unexpected read query: ' + sql);
   } };
@@ -26,7 +31,10 @@ async function albumSnapshot() {
     populateReqUserFromAuthIfPresent: async () => {}, getScopedOrgIdFromReq: () => 2,
     parseMeta: value => value, parseTags: value => value, parsePhotoAdjustments: value => value,
     attachTimelineToProject: async () => {}, mediaUrl: (_req, value) => value,
-    resolveWorkspace: async () => ({ enabled: true, userId: 7, orgId: 2, unitId: 1 }),
+    resolveWorkspace: async () => ({ enabled: true, userId: 7, orgId: 2, unitId: 1, ownPhotosOnly }),
+    photoOwnerFilter: require('../lib/access_policy').photoOwnerFilter,
+    sendWorkspaceError: (_res, err) => { throw err; },
+    require: name => { assert.equal(name, '../lib/photo_tone/artifacts.cjs'); return require(name); },
     requireProjectAccess: async () => ({ id: 9, organization_id: 2, unit_id: 1 }),
     canAccessProject: async () => true, metadataEditScope: () => 'organization', hasInternalShare: async () => false,
     chooseCoverFromPhotos: () => ({}),
@@ -51,4 +59,10 @@ test('a failed processing task stays visible, but missing playback alone does no
   assert.equal(album.photos.find(photo => photo.id === 14).processingStatus, 'failed');
   assert.ok(!album.photos.find(photo => photo.id === 12).processingStatus);
   assert.ok(!album.photos.find(photo => photo.id === 13).processingStatus);
+});
+
+test('own-only album details scope photos before serialization and omit the unfiltered stored ID list', async () => {
+  const album = await albumSnapshot(true);
+  assert.deepEqual(album.photos.map(photo => photo.id), [11]);
+  assert.equal(album.photoIds, undefined);
 });

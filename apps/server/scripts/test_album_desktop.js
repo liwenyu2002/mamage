@@ -19,6 +19,14 @@ assert.deepEqual(preferences.pins,['album:1','group:campus']);
 assert.deepEqual(preferences.recentItems,[{id:1,visitedAt:1}]);
 assert.deepEqual(preferences.colors,{campus:'#fafafa'});
 assert.equal(Object.hasOwn(preferences, 'dismissed'), false, 'retired suggestion preferences are ignored');
+const shortcuts = validatePreferences({
+  pins: ['album:76', 'shared-folder:12', 'shared-folder:13'],
+  sharedFolderLocations: { 12: 'campus', 13: 'campus', 14: 'hidden', 15: 'smart' },
+}, [...groups, { id: 'smart', kind: 'smart' }], new Set([76]), new Set([12, 14, 15]));
+assert.deepEqual(shortcuts.pins, ['album:76', 'shared-folder:12']);
+assert.deepEqual(shortcuts.sharedFolderLocations, { 12: 'campus' });
+assert.deepEqual(validatePreferences(shortcuts, groups, new Set(), new Set()), { pins: [], recentItems: [], colors: {} },
+  'Revoked shares cannot be read back through saved pins or folder locations');
 
 // Route integration with isolated SQL doubles: no production database is used.
 const shared = { state: { groups }, revision: 2 };
@@ -35,7 +43,10 @@ const db = { async query(sql, params) {
   if(sql.startsWith('INSERT'))return [{}];
   if(sql.startsWith('SELECT p.id')) {
     assert(sql.includes('p.organization_id = ? AND p.unit_id = ?'));
-    assert.deepEqual(params,[7,9]);
+    const full = sql.includes('p.name');
+    const scoped = sql.includes('photographer_id = ?');
+    if (scoped) assert.equal(sql.match(/photographer_id = \?/g).length, 2);
+    assert.deepEqual(params, full ? (scoped ? [7,12,7,12,7,9] : [7,7,7,9]) : [7,9]);
     const rows=(sql.includes('p.name') ? readSnapshot.ids : catalogIds).map(id=>({id,createdAt:'2026-10-01'}));
     if(concurrentCatalog && sql.includes('p.name')) {
       concurrentCatalog=false;catalogIds.push(4);
@@ -57,7 +68,8 @@ stub('../lib/shared_albums',{listSharedAlbums:async()=>[]});
 stub('../lib/folder_shares',{listFolderShares:async()=>[],syncFolderShares:async()=>{}});
 stub('../lib/workspace_access',{
   resolveWorkspace:async req=>({enabled:req.get('x-test-legacy')!=='1',userId:12,orgId:7,unitId:9,
-    userRole:req.get('x-test-account-role') || 'admin',collegeAdmin:req.get('x-test-college-admin')==='1',role:req.get('x-test-role') || 'editor'}),
+    userRole:req.get('x-test-account-role') || 'admin',collegeAdmin:req.get('x-test-college-admin')==='1',role:req.get('x-test-role') || 'editor',
+    ownPhotosOnly:req.get('x-test-own-photos')==='1'}),
   projectListScope:()=>({sql:'p.unit_id = ?',params:[9]}),
   metadataEditScope:workspace=>workspace.collegeAdmin?'organization':workspace.role==='manager'?'unit':'own',
   unitRoleAllows:(role,action)=>action==='manage'?role==='manager':['editor','manager'].includes(role),sendWorkspaceError:()=>false,
@@ -78,6 +90,8 @@ const server=app.listen(0,'127.0.0.1',async()=>{
   assert.deepEqual(desktop.preferences,preferences,'legacy suggestion fields must not be exposed by the API');
   assert.deepEqual(personal.state.dismissed,[1],'reading desktop state must not migrate stored data');
   assert.equal(desktop.canOrganize,true);assert.equal(desktop.canDeleteFolders,false);
+  assert.equal((await fetch(endpoint.replace('/state',''),{headers:{'x-test-own-photos':'1'}})).status,200);
+  assert(calls.some(call=>call.sql.includes('photographer_id = ?')),'own-only catalog must filter covers and counts');
   assert.equal((await put({groups:[],workspaceRevision:2},{'x-test-role':'manager'})).status,200);
   assert.equal((await put({groups:[],workspaceRevision:2},{'x-test-college-admin':'1'})).status,200);
   assert.equal((await put({groups:[],workspaceRevision:2},{'x-test-legacy':'1','x-test-account-role':'editor'})).status,403);

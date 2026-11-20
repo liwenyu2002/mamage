@@ -121,7 +121,11 @@ function createIamQrGateway({ transport = fetch } = {}) {
         if (service.searchParams.get(key) !== authorization.searchParams.get(key)) throw fail();
       }
       stage = 'init';
-      const init = await postUntil(cfg, page.href, 'init', { sp: { type: 'IAM_TICKET', callbackUrl: service.href } },
+      const sp = { type: 'IAM_TICKET', callbackUrl: service.href };
+      // 票根目标排障：记录 IAM 侧看到的 callbackUrl（不含密钥），便于比对注册信息。
+      console.warn('[iam-qr] init sp', JSON.stringify({ type: sp.type, host: service.origin, path: service.pathname,
+        params: [...service.searchParams.keys()] }));
+      const init = await postUntil(cfg, page.href, 'init', { sp },
         result => result.status === 1000 && !result.responseBody?.deny, cookies);
       if (init.status !== 1000 || init.responseBody?.deny) {
         console.warn('[iam-qr] init rejected', init.status, String(init.msg || '').slice(0, 80));
@@ -189,7 +193,9 @@ function createIamQrGateway({ transport = fetch } = {}) {
       let go;
       try { go = completionUrl(ticket.go, cfg); }
       catch (e) { console.warn('[iam-qr] ticket go rejected', String(ticket.go || '').slice(0, 120)); throw e; }
-      console.warn('[iam-qr] poll ready', result.status);
+      console.warn('[iam-qr] poll ready', result.status, 'go=' + (() => {
+        try { const u = new URL(ticket.go); return u.origin + u.pathname + ' params=' + [...u.searchParams.keys()].join(','); } catch { return 'invalid'; }
+      })());
       return { ...updated, ...keep, phase: 'ready', go };
     },
   };

@@ -43,8 +43,12 @@ async function resolveWorkspace(req, db = pool) {
   const [units] = await db.query(
     'SELECT id FROM organization_units WHERE organization_id = ? LIMIT 1', [orgId]
   );
+  const [userRows] = await db.query('SELECT active_unit_id, view_organization_photos FROM users WHERE id = ? AND organization_id = ? LIMIT 1', [userId, orgId]);
+  if (!userRows.length) throw new WorkspaceAccessError('USER_NOT_FOUND', 401);
+  const ownOnly = Number(userRows[0].view_organization_photos) !== 1;
   if (!units.length) {
-    req.workspace = { enabled: false, userId, orgId, userRole, unitId: null, role: null, collegeAdmin: false };
+    req.workspace = { enabled: false, userId, orgId, userRole, unitId: null, role: null, collegeAdmin: false,
+      ownPhotosOnly: ownOnly && userRole !== 'superadmin' };
     return req.workspace;
   }
   if (process.env.ORGANIZATION_UNITS_ACTIVE !== '1') {
@@ -56,9 +60,8 @@ async function resolveWorkspace(req, db = pool) {
     [orgId, userId]
   );
   const collegeAdmin = adminRows.length > 0;
+  const ownPhotosOnly = ownOnly && !(collegeAdmin && userRole === 'superadmin');
   const rawHeader = req.get('x-mamage-unit-id');
-  const [userRows] = await db.query('SELECT active_unit_id FROM users WHERE id = ? AND organization_id = ? LIMIT 1', [userId, orgId]);
-  if (!userRows.length) throw new WorkspaceAccessError('USER_NOT_FOUND', 401);
   const explicitLegacy = rawHeader === 'legacy';
   const requestedId = rawHeader === undefined || rawHeader === null
     ? positiveId(userRows[0].active_unit_id)
@@ -78,12 +81,12 @@ async function resolveWorkspace(req, db = pool) {
     );
     if (!rows.length || (!rows[0].role && !collegeAdmin)) {
       if (rawHeader) throw new WorkspaceAccessError('UNIT_FORBIDDEN');
-      req.workspace = { enabled: true, userId, orgId, userRole, unitId: null, role: null, collegeAdmin };
+      req.workspace = { enabled: true, userId, orgId, userRole, unitId: null, role: null, collegeAdmin, ownPhotosOnly };
       return req.workspace;
     }
     role = rows[0].role || null;
   }
-  req.workspace = { enabled: true, userId, orgId, userRole, unitId, role, collegeAdmin };
+  req.workspace = { enabled: true, userId, orgId, userRole, unitId, role, collegeAdmin, ownPhotosOnly };
   return req.workspace;
 }
 
@@ -159,7 +162,7 @@ async function requirePhotoAccess(req, photoId, action = 'read', db = pool) {
   }
   const workspace = await resolveWorkspace(req, db);
   const [rows] = await db.query(
-    `SELECT ph.id AS photo_id, ph.project_id, ph.organization_id,
+    `SELECT ph.id AS photo_id, ph.project_id, ph.organization_id, ph.photographer_id,
             COALESCE(p.unit_id, ph.unit_id) AS unit_id,
             p.restricted_to_user_id
      FROM photos ph LEFT JOIN projects p ON p.id = ph.project_id
@@ -169,6 +172,9 @@ async function requirePhotoAccess(req, photoId, action = 'read', db = pool) {
     throw new WorkspaceAccessError('PHOTO_NOT_FOUND', 404);
   }
   const photo = rows[0];
+  if (workspace.ownPhotosOnly && positiveId(photo.photographer_id) !== workspace.userId) {
+    throw new WorkspaceAccessError('PHOTO_NOT_FOUND', 404);
+  }
   if (!workspace.enabled) {
     if (positiveId(photo.unit_id)) throw new WorkspaceAccessError('PHOTO_NOT_FOUND', 404);
     return photo;
@@ -197,6 +203,9 @@ async function requirePhotosAccess(req, photoIds, action = 'read', db = pool) {
      WHERE ph.id IN (?)`, [ids]
   );
   if (rows.length !== ids.length || rows.some((row) => positiveId(row.organization_id) !== workspace.orgId)) {
+    throw new WorkspaceAccessError('PHOTO_NOT_FOUND', 404);
+  }
+  if (workspace.ownPhotosOnly && rows.some(row => positiveId(row.photographer_id) !== workspace.userId)) {
     throw new WorkspaceAccessError('PHOTO_NOT_FOUND', 404);
   }
   if (action === 'metadata' && metadataEditScope(workspace) === 'none') throw new WorkspaceAccessError('PHOTO_EDIT_FORBIDDEN');

@@ -363,10 +363,10 @@ function GlassSelect({ label, value, options = [], onChange, placeholder = 'è¯·é
     closeTimer.current = window.setTimeout(() => setMenuMounted(false), 160);
   }, []);
 
-  const openMenu = () => {
-    if (disabled || !triggerRef.current) return;
-    clearTimeout(closeTimer.current);
+  const updatePosition = React.useCallback(() => {
+    if (!triggerRef.current) return false;
     const rect = triggerRef.current.getBoundingClientRect();
+    if (rect.bottom < 0 || rect.top > window.innerHeight) return false;
     const desiredHeight = Math.min(240, options.length * 39 + 16);
     const below = window.innerHeight - rect.bottom - 12;
     const above = rect.top - 12;
@@ -384,6 +384,13 @@ function GlassSelect({ label, value, options = [], onChange, placeholder = 'è¯·é
       zIndex: (Number.isFinite(layerZ) ? layerZ : 1000) + 2,
       '--mamage-menu-offset': placeAbove ? '6px' : '-6px',
     });
+    return true;
+  }, [options.length, upward]);
+
+  const openMenu = () => {
+    if (disabled || !triggerRef.current) return;
+    clearTimeout(closeTimer.current);
+    if (!updatePosition()) return;
     setMenuMounted(true);
     setExpanded(true);
   };
@@ -401,7 +408,12 @@ function GlassSelect({ label, value, options = [], onChange, placeholder = 'è¯·é
       closeMenu();
       triggerRef.current?.focus();
     };
-    const onScroll = (event) => { if (!menuRef.current?.contains(event.target)) closeMenu(); };
+    let frame = 0;
+    // Mobile focus can scroll the trigger immediately after it opens.
+    const onScroll = (event) => {
+      if (menuRef.current?.contains(event.target) || frame) return;
+      frame = requestAnimationFrame(() => { frame = 0; if (!updatePosition()) closeMenu(); });
+    };
     document.addEventListener('pointerdown', onPointerDown);
     document.addEventListener('keydown', onKeyDown, true);
     window.addEventListener('scroll', onScroll, true);
@@ -411,8 +423,9 @@ function GlassSelect({ label, value, options = [], onChange, placeholder = 'è¯·é
       document.removeEventListener('keydown', onKeyDown, true);
       window.removeEventListener('scroll', onScroll, true);
       window.removeEventListener('resize', closeMenu);
+      cancelAnimationFrame(frame);
     };
-  }, [expanded, closeMenu]);
+  }, [expanded, closeMenu, updatePosition]);
 
   React.useEffect(() => () => clearTimeout(closeTimer.current), []);
 

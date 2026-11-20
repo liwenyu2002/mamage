@@ -26,6 +26,7 @@ const fakePool = {
     if (/^INSERT INTO photos/i.test(String(sql).trim())) return [{ insertId: 4321 }, null];
     if (/SELECT role FROM users/i.test(sql)) return [[{ role: 'admin' }], null];
     if (/SELECT organization_id FROM users/i.test(sql)) return [[{ organization_id: 1 }], null];
+    if (/SELECT active_unit_id, view_organization_photos FROM users/i.test(sql)) return [[{ active_unit_id: null, view_organization_photos: 1 }], null];
     if (/role_permissions/i.test(sql)) return [[{ 1: 1 }], null];
     if (/^SELECT name FROM users/i.test(String(sql).trim())) return [{ name: 'Tester' }, null];
     if (/FOR UPDATE/i.test(sql)) return [[{ photo_ids: null }], null];

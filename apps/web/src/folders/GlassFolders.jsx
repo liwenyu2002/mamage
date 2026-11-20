@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { IconSearch, IconPlus, IconChevronLeft, IconChevronRight, IconGridView, IconListView, IconClose, IconStar, IconSparkleAI, IconSimilarStack, IconTimelineFlow, IconSliders, IconMoreStroked, IconGroupRescue, IconShare } from '../ui/icons';
 import { folderPath, groupAlbums, folderPreviewItems, ROOT_DROP_ID } from './folderTree';
 import CardSharingStatus from '../CardSharingStatus';
+import { sharingStatusText } from '../utils/sharingStatus';
 const DEFAULT_COLLECTION_COLOR = '#ffffff';
 const SUPPORTS_FAN_DEPTH = typeof CSS !== 'undefined' && CSS.supports('translate', '0 0 1px');
 const SUPPORTS_CONTAINER_UNITS = typeof CSS !== 'undefined' && CSS.supports('width', '1cqi');
@@ -31,13 +32,16 @@ const CollectionCaption = React.memo(function CollectionCaption({ group, entry, 
 
 export function CollectionCard({ group, groups = [], albums, onSelect, onOpen, pinned, onPin, onAppearance, onMove, onManage, onShare, surfaceColor = DEFAULT_COLLECTION_COLOR, folderColors = {}, preview = false,
   getAlbumDragProps, getFolderDragProps, dropProps, sortDragProps, dropActive = false, isAlbumDragging = false, dropMessage,
-  selecting = false, selected = false, onToggle }) {
+  selecting = false, selected = false, onToggle, moveLabel = '移动文件夹', summary }) {
   const items = React.useMemo(() => groupAlbums(group, albums, groups), [group, albums, groups]);
   const childCount = groups.filter(item => item.parentId === group.id).length;
-  const previewItems = React.useMemo(() => folderPreviewItems(group, albums, groups), [group, albums, groups]);
+  const previewItems = React.useMemo(() => summary
+    ? summary.covers.map((image, id) => ({ kind: 'cover', item: { id, image } }))
+    : folderPreviewItems(group, albums, groups), [group, albums, groups, summary]);
   const covers = React.useMemo(() => previewItems.slice(0, 9), [previewItems]);
   const directAlbumCount = previewItems.length - childCount;
-  const photoCount = React.useMemo(() => items.reduce((sum, album) => sum + album.count, 0), [items]);
+  const photoCount = React.useMemo(() => summary?.photoCount ?? items.reduce((sum, album) => sum + album.count, 0), [items, summary?.photoCount]);
+  const shareDescription = summary ? sharingStatusText(group.sharing) : undefined;
   const [expanded, setExpanded] = React.useState(false);
   const [folderTarget, setFolderTarget] = React.useState(false);
   const [activeIndex, setActiveIndex] = React.useState(0);
@@ -163,6 +167,7 @@ export function CollectionCard({ group, groups = [], albums, onSelect, onOpen, p
   };
   const openCover = (event, index) => {
     if (preview) return;
+    if (summary) { onSelect(group.id); return; }
     if (pointerType.current === 'touch' && event.detail !== 0 && (!expanded || activeIndex !== index)) {
       if (!expanded) fitFanToViewport();
       selectIndex(index); setExpanded(true); return;
@@ -196,9 +201,9 @@ export function CollectionCard({ group, groups = [], albums, onSelect, onOpen, p
         const { item, kind } = entry;
         const folder = kind === 'folder';
         const position = covers.length === 1 ? 0 : (index / (covers.length - 1)) * 2 - 1;
-        return <button {...(!preview && (folder ? getFolderDragProps?.(item) : getAlbumDragProps?.(item)))} key={`${kind}:${item.id}`} ref={(element) => { coverRefs.current[index] = element; }}
-          className={`acp-fan-cover${folder ? ' acp-fan-folder' : ''}${expanded && index === activeIndex ? ' is-active' : ''}`} disabled={preview} tabIndex={selecting ? -1 : undefined}
-          aria-label={`${folder ? '进入子文件夹' : '预览相册'} ${item.name}`} aria-pressed={expanded && index === activeIndex}
+        return <button {...(!preview && !summary && (folder ? getFolderDragProps?.(item) : getAlbumDragProps?.(item)))} key={`${kind}:${item.id}`} ref={(element) => { coverRefs.current[index] = element; }}
+          className={`acp-fan-cover${folder ? ' acp-fan-folder' : ''}${expanded && index === activeIndex ? ' is-active' : ''}`} disabled={preview} tabIndex={selecting || summary ? -1 : undefined}
+          aria-label={summary ? `打开共享文件夹 ${group.name}` : `${folder ? '进入子文件夹' : '预览相册'} ${item.name}`} aria-pressed={summary ? undefined : expanded && index === activeIndex}
           style={{ '--fan-position': position, '--fan-arc': Math.abs(position), '--fan-depth': 10 + covers.length - index,
             '--child-folder-surface': folder ? folderColors[item.id] || DEFAULT_COLLECTION_COLOR : undefined,
             '--child-folder-accent': folder ? item.color : undefined,
@@ -210,7 +215,7 @@ export function CollectionCard({ group, groups = [], albums, onSelect, onOpen, p
               <strong title={item.name}>{item.name}</strong><span className="acp-fan-folder-foot"><span>文件夹</span><IconChevronRight /></span></span>
           </> : <>
             <img src={item.image} alt="" loading="lazy" draggable={false} />
-            <span className="acp-fan-album-stamp" aria-hidden="true"><IconSimilarStack /><span>{item.count}</span></span></>}</button>;
+            {!summary && <span className="acp-fan-album-stamp" aria-hidden="true"><IconSimilarStack /><span>{item.count}</span></span>}</>}</button>;
       })}
       {!covers.length && <span className="acp-fan-empty"><GroupSymbol group={group} /></span>}
     </div></div>
@@ -222,12 +227,12 @@ export function CollectionCard({ group, groups = [], albums, onSelect, onOpen, p
       <div className="acp-collection-frost" aria-hidden="true">{covers.slice(0, 3).map(({ kind, item }) => kind === 'folder'
         ? <span key={`folder:${item.id}`} style={{ background: folderColors[item.id] || DEFAULT_COLLECTION_COLOR }} /> : <img src={item.image} alt="" key={`album:${item.id}`} loading="lazy" draggable={false} />)}</div>
       <button {...sortDragProps} ref={footerRef} className="acp-collection-label" disabled={preview}
-        aria-label={`打开文件夹 ${group.name}`}
+        aria-label={`打开文件夹 ${group.name}`} aria-description={shareDescription || undefined} title={shareDescription || undefined}
         onPointerEnter={event => { if (event.pointerType === 'mouse') { cancelScrub(); setExpanded(false); } }}
         onFocus={() => { cancelScrub(); setExpanded(false); }}
         onClick={() => { cancelScrub(); setExpanded(false); onSelect(group.id); }}>
-        <CollectionCaption group={group} albumCount={items.length} photoCount={photoCount} childCount={childCount} directAlbumCount={directAlbumCount} visible={!expanded || !active} />
-        {covers.map((entry, index) => <CollectionCaption key={`${entry.kind}:${entry.item.id}`} group={group} entry={entry} index={index}
+        <CollectionCaption group={group} albumCount={summary?.albumCount ?? items.length} photoCount={photoCount} childCount={childCount} directAlbumCount={directAlbumCount} visible={Boolean(summary) || !expanded || !active} />
+        {!summary && covers.map((entry, index) => <CollectionCaption key={`${entry.kind}:${entry.item.id}`} group={group} entry={entry} index={index}
           coverCount={covers.length} visible={expanded && index === activeIndex} />)}
       </button>
     </div>
@@ -255,7 +260,7 @@ export function CollectionCard({ group, groups = [], albums, onSelect, onOpen, p
         {onPin && <button role="menuitemcheckbox" aria-checked={pinned} className={pinned ? 'is-pinned' : ''} aria-label={`${pinned ? '取消置顶' : '置顶'} ${group.name}`}
           onClick={() => runAction(() => onPin(`group:${group.id}`))}><IconStar /><span>{pinned ? '取消置顶' : '置顶文件夹'}</span></button>}
         {onAppearance && <button role="menuitem" aria-label={`调整外观 ${group.name}`} onClick={() => runAction(() => onAppearance(group))}><IconSliders /><span>我的外观</span></button>}
-        {onMove && <button role="menuitem" aria-label={`移动文件夹 ${group.name}`} onClick={() => runAction(() => onMove(group))}><IconListView /><span>移动文件夹</span></button>}
+        {onMove && <button role="menuitem" aria-label={`${moveLabel} ${group.name}`} onClick={() => runAction(() => onMove(group))}><IconListView /><span>{moveLabel}</span></button>}
         {onManage && <button role="menuitem" onClick={() => runAction(() => onManage(group))}><IconSliders /><span>编辑文件夹</span></button>}
       </div>, document.body)}
     </div>

@@ -33,6 +33,7 @@ async function query(sql, params = []) {
   if (statement.startsWith('INSERT INTO face_person_separations')) { feedback.pairs.push(params); return [{ affectedRows: 1 }]; }
   if (statement.includes('SELECT role FROM users')) return [[{ role: Number(params[0]) === 42 ? 'photographer' : 'admin' }]];
   if (statement.includes('SELECT organization_id FROM users')) return [[{ organization_id: 1 }]];
+  if (statement.startsWith('SELECT active_unit_id, view_organization_photos FROM users')) return [[{ active_unit_id: null, view_organization_photos: 1 }]];
   if (statement.includes('role_permissions')) {
     return [params[0] === 'photographer' && params[1] === 'faces.merge' ? [] : [{ 1: 1 }]];
   }

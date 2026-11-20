@@ -634,7 +634,7 @@ function normalizeFacePerson(payload, sourceFace) {
   };
 }
 
-function ProjectDetail({
+function ProjectDetailInner({
   projectId,
   initialProject,
   onBack,
@@ -3417,10 +3417,6 @@ function ProjectDetail({
       </div>
     );
   };
-
-  if (!projectId) {
-    return null;
-  }
 
   const handleImageLoad = React.useCallback((src, event) => {
     const { naturalWidth, naturalHeight } = event.target;
@@ -7601,6 +7597,12 @@ function ProjectDetail({
       </div>
     </div>
   );
+}
+
+// 守卫必须在 hooks 之前：直接在主组件里提前 return 会让 hooks 变成条件调用。
+function ProjectDetail(props) {
+  if (!props.projectId) return null;
+  return <ProjectDetailInner {...props} />;
 }
 
 export default ProjectDetail;

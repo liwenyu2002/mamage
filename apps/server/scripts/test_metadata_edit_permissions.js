@@ -24,7 +24,7 @@ function fixture({role='editor',collegeAdmin=false,shared=false,readShare=false,
     if(sql.includes('SELECT DISTINCT ph.id')&&sql.includes('JOIN internal_shares'))return [shared?params.at(-1).map(id=>({id})):[]];
     if(sql.includes('FROM projects WHERE id = ?')||sql.includes('FROM projects p')&&sql.includes('p.id = ?'))return [state.projects.filter(p=>p.id===params[0]).map(p=>({...p}))];
     if(sql.startsWith('SELECT p.id')&&sql.includes('FROM projects'))return [state.projects.filter(p=>p.unit_id===1).map(p=>({...p,createdAt:'2026-10-16'}))];
-    if(sql.startsWith('SELECT id FROM photos WHERE id =')){
+    if(sql.startsWith('SELECT id, url, adjustments FROM photos WHERE id =')){
       if(race&&sql.endsWith('FOR UPDATE'))state.photos.find(p=>p.id===11).photographer_id=8;
       return [state.photos.filter(p=>p.id===params[0]).map(p=>({...p}))];
     }
@@ -52,12 +52,15 @@ function fixture({role='editor',collegeAdmin=false,shared=false,readShare=false,
   const app=express();app.use(express.json());app.use((req,_res,next)=>{req.user={id:7,organization_id:2,role:'admin'};req.workspace={...workspace};next();});
   const router=express.Router(),source=fs.readFileSync(require.resolve('../routes/photos'),'utf8');
   const globals={router,pool,...access,requirePermission:permissions.requirePermission,populateReqUserFromAuthIfPresent:async()=>{},console,
-    normalizePhotoAdjustments:value=>value,parsePhotoAdjustments:value=>value,buildMediaUrl:value=>value};
+    normalizePhotoAdjustments:value=>value,parsePhotoAdjustments:value=>value,buildMediaUrl:value=>value,
+    editRevision:()=>null, getScopedPhotoSourceRow:async(_req,id)=>state.photos.find(photo=>photo.id===id),
+    cosStorage:{}, preparePhotoEdit:async({adjustments})=>({saved:adjustments,assertCurrent(){},async committed(){},async discard(){}})};
   vm.runInNewContext(source.slice(source.indexOf("router.param('id'"),source.indexOf('const AI_SEARCH_RATE_WINDOW_MS')),globals);
   vm.runInNewContext(source.slice(source.indexOf("router.patch('/:id'"),source.indexOf('module.exports = router;')),globals);app.use('/photos',router);
   vm.runInNewContext(source.slice(source.indexOf("router.post('/assign-section'"),source.indexOf('// POST /api/photos/group-rescue')),globals);
   const albums=express.Router(),albumSource=fs.readFileSync(require.resolve('../routes/projects'),'utf8');
   const albumGlobals={...globals,router:albums,parseMeta:value=>value||{},parseTags:value=>value||[],normalizeTagsInput:value=>value,
+    photoOwnerFilter:require('../lib/access_policy').photoOwnerFilter,
     getTimelineConfigFromBody:()=>null,attachTimelineToProject:async()=>{},chooseCoverFromPhotos:()=>({}),mediaUrl:(_req,value)=>value};
   vm.runInNewContext(albumSource.slice(albumSource.indexOf("router.param('id'"),albumSource.indexOf('// 小工具：安全解析 meta JSON')),albumGlobals);
   vm.runInNewContext(albumSource.slice(albumSource.indexOf("router.post('/:id/update'"),albumSource.indexOf('// 时间线环节单条 CRUD')),albumGlobals);

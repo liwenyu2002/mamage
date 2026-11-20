@@ -14,20 +14,12 @@ const groups = [
   { id: 'empty', parentId: 'root', name: '空文件夹', projectIds: [], kind: 'manual' },
 ];
 
-test('workspace search includes saved authorized shared references only, and checks live access on every call', async () => {
+test('workspace search opts into live album grants independently of desktop placement', () => {
   const workspace = { enabled: true, orgId: 7, unitId: 9, userId: 11 };
-  const db = { query: async (sql, params) => {
-    assert.match(sql, /album_desktop_workspaces/);
-    assert.deepEqual(params, [7, 9]);
-    return [[{ state: { groups } }]];
-  } };
-  liveSharedAlbums = [{ id: 3 }, { id: 99 }];
-  try {
-    assert.deepEqual(await resolveWorkspaceSearchScope(workspace, db), { sharedProjectIds: [3], scope: { type: 'workspace' } });
-    liveSharedAlbums = [];
-    assert.deepEqual(await resolveWorkspaceSearchScope(workspace, db), {});
-    assert.deepEqual(await resolveWorkspaceSearchScope({}, { query: async () => { throw Error('no anonymous DB access'); } }), {});
-  } finally { liveSharedAlbums = []; }
+  assert.deepEqual(resolveWorkspaceSearchScope(workspace), { includeSharedAlbums: true, scope: { type: 'workspace' } });
+  for (const forbidden of [{ unitId: null }, { enabled: false }, { userId: null }, { orgId: null }]) {
+    assert.deepEqual(resolveWorkspaceSearchScope({ ...workspace, ...forbidden }), {});
+  }
 });
 
 test('folders include their descendants once, but not siblings or ancestors', () => {

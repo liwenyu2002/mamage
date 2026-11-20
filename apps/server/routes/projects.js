@@ -85,9 +85,10 @@ const { requirePermission } = require('../lib/permissions');
 const { PENDING_IMPORT_TITLE_KEY, sourceFromUrl, insertJob } = require('../lib/external_import_jobs');
 const externalImportWorker = require('../lib/external_import_worker');
 const {
-  resolveWorkspace, projectListScope, requireProjectAccess, canAccessProject, metadataEditScope, hasInternalShare, assertNoActiveCopySource, sendWorkspaceError,
+  resolveWorkspace, projectListScope, requireProjectAccess, canAccessProject, metadataEditScope, hasInternalShare, assertNoActiveCopySource, sendWorkspaceError, WorkspaceAccessError,
 } = require('../lib/workspace_access');
 const { getAlbumSharingStatus } = require('../lib/shared_albums');
+const { photoOwnerFilter } = require('../lib/access_policy');
 
 router.param('id', async (req, res, next, value) => {
   try {
@@ -182,7 +183,7 @@ function mediaUrl(req, path, photoId) {
   return path ? buildMediaUrl(path, { userId: req.user && req.user.id, photoId }) : null;
 }
 
-async function fetchProjectPreviewPhotos(projectIds, orgId, latestLimit = 6) {
+async function fetchProjectPreviewPhotos(projectIds, orgId, workspace, latestLimit = 6) {
   const ids = (Array.isArray(projectIds) ? projectIds : [])
     .map((id) => Number(id))
     .filter((id) => Number.isFinite(id) && id > 0);
@@ -234,6 +235,9 @@ async function fetchProjectPreviewPhotos(projectIds, orgId, latestLimit = 6) {
     sql += ' AND ph.organization_id = ?';
     params.push(orgId);
   }
+  const owner = photoOwnerFilter(workspace, 'ph');
+  sql += owner.sql;
+  params.push(...owner.params);
   sql += `
     ) ranked
     WHERE ranked.latestRank <= ? OR ranked.coverRank = 1
@@ -256,7 +260,9 @@ async function fetchProjectPreviewPhotos(projectIds, orgId, latestLimit = 6) {
       fallbackSql += ' AND organization_id = ?';
       fallbackParams.push(orgId);
     }
-    fallbackSql += ' ORDER BY created_at DESC, id DESC';
+    const fallbackOwner = photoOwnerFilter(workspace);
+    fallbackSql += fallbackOwner.sql + ' ORDER BY created_at DESC, id DESC';
+    fallbackParams.push(...fallbackOwner.params);
     const [rows] = await pool.query(fallbackSql, fallbackParams);
     return rows || [];
   }
@@ -456,23 +462,7 @@ router.get('/', async (req, res) => {
         p.admin_id AS adminId,
         p.unit_id AS unitId,
         p.created_at AS createdAt,
-        p.updated_at AS updatedAt,
-        (
-          SELECT ph.thumb_url
-          FROM photos ph
-          WHERE ph.project_id = p.id
-            AND (ph.type IS NULL OR ph.type <> 'video')
-          ORDER BY ph.created_at DESC, ph.id DESC
-          LIMIT 1
-        ) AS coverThumbUrl,
-        (
-          SELECT ph.url
-          FROM photos ph
-          WHERE ph.project_id = p.id
-            AND (ph.type IS NULL OR ph.type <> 'video')
-          ORDER BY ph.created_at DESC, ph.id DESC
-          LIMIT 1
-        ) AS coverUrl
+        p.updated_at AS updatedAt
       FROM projects p
     `;
     const mainParams = [];
@@ -491,6 +481,7 @@ router.get('/', async (req, res) => {
 
     const list = rows.map((r) => ({
       ...r,
+      ...(workspace.ownPhotosOnly ? { photoIds: undefined } : {}),
       meta: parseMeta(r.meta),
       tags: parseTags(r.tags),
       // cover URL 会在下方统一计算（优先 '合影' + '推荐' 的最新照片）
@@ -502,7 +493,7 @@ router.get('/', async (req, res) => {
     try {
       const projIds = rows.map(r => r.id).filter(Boolean);
       if (projIds.length) {
-        const photos = await fetchProjectPreviewPhotos(projIds, orgId, 6);
+        const photos = await fetchProjectPreviewPhotos(projIds, orgId, workspace);
 
         const byProj = {};
         for (const ph of photos) {
@@ -617,7 +608,9 @@ router.get('/scenery', async (req, res) => {
         photoSql += ' AND organization_id = ?';
         photoParams.push(orgId);
       }
-      photoSql += ' ORDER BY created_at DESC, id DESC';
+      const owner = photoOwnerFilter(workspace);
+      photoSql += owner.sql + ' ORDER BY created_at DESC, id DESC';
+      photoParams.push(...owner.params);
       const [rows] = await pool.query(photoSql, photoParams);
       photos = rows || [];
     }
@@ -630,6 +623,7 @@ router.get('/scenery', async (req, res) => {
 
     const result = projRows.map(p => ({
       ...p,
+      ...(workspace.ownPhotosOnly ? { photoIds: undefined } : {}),
       meta: parseMeta(p.meta),
       tags: parseTags(p.tags),
       photos: (byProj[p.id] || []).map(ph => ({
@@ -748,43 +742,18 @@ router.get('/list', async (req, res) => {
         p.admin_id AS adminId,
         p.unit_id AS unitId,
         p.created_at AS createdAt,
-        p.updated_at AS updatedAt,
-        (
-          SELECT ph.thumb_url
-          FROM photos ph
-          WHERE ph.project_id = p.id
-          ${orgId === null ? 'AND ph.organization_id IS NULL' : 'AND ph.organization_id = ?'}
-          AND (ph.type IS NULL OR ph.type <> 'video')
-          ORDER BY ph.created_at DESC, ph.id DESC
-          LIMIT 1
-        ) AS coverThumbUrl,
-        (
-          SELECT ph.url
-          FROM photos ph
-          WHERE ph.project_id = p.id
-          ${orgId === null ? 'AND ph.organization_id IS NULL' : 'AND ph.organization_id = ?'}
-          AND (ph.type IS NULL OR ph.type <> 'video')
-          ORDER BY ph.created_at DESC, ph.id DESC
-          LIMIT 1
-        ) AS coverUrl
+        p.updated_at AS updatedAt
       FROM projects p
       ${whereSql}
       ORDER BY ${orderBySql}
       LIMIT ? OFFSET ?
     `;
 
-    // 占位符绑定顺序必须与 SQL 文本一致：封面子查询的 org 在 SELECT 列表里（最前），
-    // 其次才是 WHERE（keyword/日期/组织），最后 LIMIT/OFFSET。历史上 WHERE 只有 org
-    // 一个值时与子查询同值，错位被掩盖；加日期筛选后必须严格对齐。
-    const selectParams = [];
-    if (orgId !== null) {
-      selectParams.push(orgId, orgId);
-    }
-    selectParams.push(...params, pageSize, offset);
-    const [rows] = await pool.query(selectSql, selectParams);
+    const [rows] = await pool.query(selectSql, [...params, pageSize, offset]);
 
     const list = rows.map((r) => ({
       ...r,
+      ...(workspace.ownPhotosOnly ? { photoIds: undefined } : {}),
       meta: parseMeta(r.meta),
       tags: parseTags(r.tags)
     }));
@@ -795,7 +764,7 @@ router.get('/list', async (req, res) => {
     try {
       const projIds = rows.map(r => r.id).filter(Boolean);
       if (projIds.length) {
-        const photos = await fetchProjectPreviewPhotos(projIds, orgId, 6);
+        const photos = await fetchProjectPreviewPhotos(projIds, orgId, workspace);
 
         const byProj = {};
         for (const ph of photos) {
@@ -842,7 +811,8 @@ router.get('/import-status', async (req, res) => {
   try {
     await populateReqUserFromAuthIfPresent(req);
     const orgId = getScopedOrgIdFromReq(req);
-    const unitScope = projectListScope(await resolveWorkspace(req));
+    const workspace = await resolveWorkspace(req);
+    const unitScope = projectListScope(workspace);
     const [rows] = await pool.query(
       `SELECT p.id AS projectId, j.status, j.scan_status AS scanStatus,
               j.discovered_count AS discoveredCount, j.reported_total AS reportedTotal,
@@ -851,13 +821,13 @@ router.get('/import-status', async (req, res) => {
                WHERE i.job_id = j.id AND i.status = 'done') AS doneCount
        FROM projects p
        JOIN external_import_jobs j ON j.id = (
-         SELECT MAX(id) FROM external_import_jobs WHERE project_id = p.id
+         SELECT MAX(id) FROM external_import_jobs WHERE project_id = p.id${workspace.ownPhotosOnly ? ' AND requested_by = ?' : ''}
        )
        WHERE p.id IN (?)
          AND ${orgId === null ? 'p.organization_id IS NULL' : 'p.organization_id = ?'}
          ${unitScope.sql ? `AND ${unitScope.sql}` : ''}
          AND j.status <> 'completed'`,
-      [ids, ...(orgId === null ? [] : [orgId]), ...unitScope.params]
+      [...(workspace.ownPhotosOnly ? [workspace.userId] : []), ids, ...(orgId === null ? [] : [orgId]), ...unitScope.params]
     );
     return res.json({ statuses: Object.fromEntries(rows.map((row) => [row.projectId, {
       status: row.status,
@@ -883,7 +853,9 @@ router.get('/:id/previews', requirePermission('photos.view'), async (req, res) =
     if (!Number.isSafeInteger(projectId) || projectId <= 0) return res.status(400).json({ error: 'INVALID_PROJECT_ID' });
     // Always recheck access before serving cached rows; no signed URLs are cached.
     const project = await requireProjectAccess(req, projectId, 'read');
-    const { photos, ...summary } = await readProjectPreviews(projectId, project.organization_id);
+    const workspace = await resolveWorkspace(req);
+    const { photos, ...summary } = await readProjectPreviews(projectId, project.organization_id,
+      workspace.ownPhotosOnly ? workspace.userId : null);
     res.set('Cache-Control', 'private, no-store');
     return res.json({ ...summary, list: photos.map(photo => ({
       id: photo.id, thumbUrl: mediaUrl(req, photo.thumbUrl || photo.url, photo.id),
@@ -951,6 +923,8 @@ router.get('/:id', async (req, res) => {
     }
 
     const project = projRows[0];
+    const workspace = await resolveWorkspace(req);
+    if (workspace.ownPhotosOnly) delete project.photoIds;
     project.meta = parseMeta(project.meta);
     project.tags = parseTags(project.tags);
     await attachTimelineToProject(project);
@@ -997,7 +971,9 @@ router.get('/:id', async (req, res) => {
       photoSql += ' AND ph.organization_id = ?';
       photoParams.push(orgId);
     }
-    photoSql += ' ORDER BY ph.created_at ASC, ph.id ASC';
+    const owner = photoOwnerFilter(workspace, 'ph');
+    photoSql += owner.sql + ' ORDER BY ph.created_at ASC, ph.id ASC';
+    photoParams.push(...owner.params);
     let photoRows;
     try {
       [photoRows] = await pool.query(photoSql, photoParams);
@@ -1028,7 +1004,6 @@ router.get('/:id', async (req, res) => {
     }));
 
     project.photos = await attachVideoProcessingState(project.photos, { db: pool });
-    const workspace = await resolveWorkspace(req);
     const accessProject = workspace.userId && workspace.orgId === orgId
       ? await requireProjectAccess(req, id, 'read') : null;
     project.canEdit = accessProject ? await canAccessProject(workspace, accessProject, 'metadata') : false;
@@ -1103,6 +1078,7 @@ router.get('/:id', async (req, res) => {
 
     res.json(project);
   } catch (err) {
+    if (sendWorkspaceError(res, err)) return;
     console.error('[GET /api/projects/:id] error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
@@ -1358,10 +1334,13 @@ router.post('/:id/update', requirePermission('projects.update'), async (req, res
     await attachTimelineToProject(project);
 
     // 计算封面（保持与列表/详情一致的行为）
+    const workspace = await resolveWorkspace(req);
+    if (workspace.ownPhotosOnly) delete project.photoIds;
+    const owner = photoOwnerFilter(workspace);
     try {
       const [photos] = await pool.query(
-        `SELECT id, project_id AS projectId, url, thumb_url AS thumbUrl, tags, type, created_at FROM photos WHERE project_id = ? ORDER BY created_at DESC, id DESC`,
-        [id]
+        `SELECT id, project_id AS projectId, url, thumb_url AS thumbUrl, tags, type, created_at FROM photos WHERE project_id = ?${owner.sql} ORDER BY created_at DESC, id DESC`,
+        [id, ...owner.params]
       );
       const cover = chooseCoverFromPhotos(photos);
       project.coverFullUrl = mediaUrl(req, cover.url, cover.id);
@@ -1584,6 +1563,11 @@ router.delete('/:id', requirePermission('projects.delete'), async (req, res) => 
       }
 
       await requireProjectAccess(req, id, 'manage', conn);
+      const workspace = await resolveWorkspace(req, conn);
+      if (workspace.ownPhotosOnly) {
+        const [otherPhotos] = await conn.query('SELECT id FROM photos WHERE project_id = ? AND NOT (photographer_id <=> ?) LIMIT 1 FOR UPDATE', [id, workspace.userId]);
+        if (otherPhotos.length) throw new WorkspaceAccessError('ORGANIZATION_PHOTO_ACCESS_REQUIRED');
+      }
 
       const [photoRows] = await conn.query(
         `SELECT id, url, thumb_url AS thumbUrl, public_download_url AS publicDownloadUrl, playback_url AS playbackUrl, adjustments

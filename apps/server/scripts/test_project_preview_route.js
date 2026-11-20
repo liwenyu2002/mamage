@@ -2,16 +2,19 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const express = require('express');
-let queries = 0, revoked = false;
+let queries = 0, revoked = false, ownOnly = false;
 const moduleFixture = { exports: {} };
-const db = { query: async sql => {
+const db = { query: async (sql, params) => {
   queries++;
-  if (sql.includes('FROM photos')) return [[{ id: 11, thumbUrl: '/private-thumb.jpg' }]];
+  if (sql.includes('FROM photos')) {
+    if (ownOnly) { assert.match(sql, /photographer_id = \?/); assert.equal(params[2], 1); return [[]]; }
+    return [[{ id: 11, thumbUrl: '/private-thumb.jpg' }]];
+  }
   if (sql.includes('ai_image_embeddings')) return [[{ photo_id: 11, embedding: [1, 0] }]];
   throw new Error(`Unexpected fixture query: ${sql}`);
 } };
 const workspace = {
-  resolveWorkspace: async () => ({ enabled: true }),
+  resolveWorkspace: async req => ({ enabled: true, ownPhotosOnly: ownOnly, userId: req.user?.id }),
   requireProjectAccess: async (req, id, action) => {
     assert.equal(action, 'read');
     if (revoked || !req.user || req.user.organization_id !== 2 || id !== 1) {
@@ -57,6 +60,10 @@ new Function('require', 'module', 'exports', '__dirname', source)(name => {
     const second = await fetch(url, { headers: { 'x-test-user': '3' } });
     assert.equal((await second.json()).list[0].thumbUrl, '/signed/11?viewer=3');
     assert.equal(queries, 2, 'cache rows, never user-specific signatures');
+    ownOnly = true;
+    const restricted = await fetch(url, { headers: { 'x-test-user': '1' } });
+    assert.deepEqual((await restricted.json()).list, [], 'Revoked users never reuse the full workspace preview cache');
+    assert.equal(queries, 3);
     revoked = true;
     assert.equal((await fetch(url, { headers: { 'x-test-user': '1' } })).status, 404);
     console.log('PASS: private preview route, organization/permission guards, fresh per-user signatures and revocation before cache');

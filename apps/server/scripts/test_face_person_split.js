@@ -56,6 +56,7 @@ const feedback = { events: [], samples: [], pairs: [] };
 
 function rowsFor(sql, params) {
   sql = String(sql);
+  if (sql.startsWith('SELECT active_unit_id, view_organization_photos FROM users')) return [[{ active_unit_id: null, view_organization_photos: 1 }]];
   if (sql.includes('FROM face_search_grants')) return [[{college_wide:1,can_manage:Number(params?.[1])===42?0:1}]];
   if (sql.startsWith('INSERT INTO face_feedback_events')) { feedback.events.push(params); return [{ insertId: 8 }]; }
   if (sql.trim().startsWith('INSERT INTO face_identity_feedback')) { feedback.samples.push(...params[0]); return [{ affectedRows: params[0].length }]; }

@@ -3,6 +3,7 @@ const { pool } = require('../db');
 const { requirePermission } = require('../lib/permissions');
 const { resolveWorkspace, projectListScope, unitRoleAllows, metadataEditScope, sendWorkspaceError } = require('../lib/workspace_access');
 const { buildMediaUrl } = require('../lib/media_access');
+const { photoOwnerFilter } = require('../lib/access_policy');
 const { listSharedAlbums } = require('../lib/shared_albums');
 const { syncFolderShares, listFolderShares } = require('../lib/folder_shares');
 const { desktopSharingStatuses } = require('../lib/card_sharing_status');
@@ -31,22 +32,23 @@ async function catalog(workspace, db = pool, full = true) {
     return rows;
   }
   // 每本相册的封面/张数用一次聚合 + 窗口函数算出，避免逐行相关子查询（45 本相册时从 ~600ms 降到 ~2ms）。
+  const owner = photoOwnerFilter(workspace);
   const [rows] = await db.query(`SELECT p.id, p.name, p.description, p.meta, p.admin_id AS adminId,
     p.created_at AS createdAt, p.updated_at AS updatedAt, p.event_date AS eventDate,
     COALESCE(cn.count, 0) AS count,
     ph.id AS photoId, ph.thumb_url AS coverThumb, ph.url AS coverUrl
     FROM projects p
-    LEFT JOIN (SELECT project_id, COUNT(*) count FROM photos WHERE organization_id = ? GROUP BY project_id) cn
+    LEFT JOIN (SELECT project_id, COUNT(*) count FROM photos WHERE organization_id = ?${owner.sql} GROUP BY project_id) cn
       ON cn.project_id = p.id
     LEFT JOIN (
       SELECT id, project_id, thumb_url, url FROM (
         SELECT id, project_id, thumb_url, url,
           ROW_NUMBER() OVER (PARTITION BY project_id ORDER BY created_at DESC, id DESC) rn
-        FROM photos WHERE organization_id = ? AND (type IS NULL OR type <> 'video')
+        FROM photos WHERE organization_id = ?${owner.sql} AND (type IS NULL OR type <> 'video')
       ) ranked WHERE rn = 1
     ) ph ON ph.project_id = p.id
     WHERE ${where} ORDER BY COALESCE(p.updated_at, p.created_at) DESC, p.id DESC`,
-    [workspace.orgId, workspace.orgId, ...params]);
+    [workspace.orgId, ...owner.params, workspace.orgId, ...owner.params, ...params]);
   const editScope = metadataEditScope(workspace);
   return rows.map(row => ({ id: Number(row.id), name: row.name, title: row.name, adminId: row.adminId || null,
     canEdit: ['unit', 'organization'].includes(editScope) || (editScope === 'own' && Number(row.adminId) === workspace.userId),
@@ -73,21 +75,28 @@ router.get('/', async (req, res) => {
     await conn.beginTransaction();
     const ownedAlbums = await catalog(workspace, conn);
     const sharedAlbums = await listSharedAlbums(workspace, conn);
-    const sharedFolders = (await listFolderShares(workspace, conn)).map(folder => ({ ...folder,
+    const sharedFolderRows = await listFolderShares(workspace, conn);
+    const sharedFolders = sharedFolderRows.map(folder => ({ ...folder,
       coverUrls: (folder.covers || []).map(cover => buildMediaUrl(cover.path, { userId: workspace.userId, photoId: cover.id })) }));
     const [shared] = await conn.query('SELECT state, revision FROM album_desktop_workspaces WHERE organization_id = ? AND unit_key = ?', [workspace.orgId, workspace.unitKey]);
     const [personal] = await conn.query('SELECT state, revision FROM album_desktop_users WHERE user_id = ? AND organization_id = ? AND unit_key = ?', [workspace.userId, workspace.orgId, workspace.unitKey]);
     const storedGroups = json(shared[0]?.state, {}).groups || [];
     const referencedIds = new Set(storedGroups.flatMap(g => g.kind === 'smart' ? [] : g.projectIds || []).map(Number));
     const ownedIds = new Set(ownedAlbums.map(a => a.id));
-    const albums = [...ownedAlbums, ...sharedAlbums.filter(a => referencedIds.has(a.id) && !ownedIds.has(a.id))];
+    const storedPreferences = json(personal[0]?.state, {});
+    const sharedRootAlbumIds = new Set((Array.isArray(storedPreferences.sharedRootAlbums) ? storedPreferences.sharedRootAlbums : []).map(Number));
+    const albums = [...ownedAlbums, ...sharedAlbums.filter(a => (referencedIds.has(a.id) || sharedRootAlbumIds.has(Number(a.id)))
+      && !ownedIds.has(a.id))];
     const ids = new Set(albums.map(a => a.id));
     const groups = storedGroups.filter(g => !g.restrictedToUserId || Number(g.restrictedToUserId) === workspace.userId || workspace.collegeAdmin)
       .map(g => ({ ...g, canEdit: workspace.canOrganize && (workspace.canDeleteFolders || Number(g.createdBy) === workspace.userId),
       projectIds: (g.projectIds || []).filter(id => ids.has(Number(id))) }));
     const sharingStatuses = await desktopSharingStatuses(workspace, ownedAlbums, sharedAlbums, groups, conn);
+    const pinnableAlbums = new Set([...ids, ...sharedAlbums.filter(album => !album.viaFolderOnly).map(album => Number(album.id))]);
     await conn.commit();
-    res.json({ albums, sharedAlbums, sharedFolders, groups, sharingStatuses, preferences: validatePreferences(json(personal[0]?.state, {}), groups, ids),
+    res.json({ albums, sharedAlbums, sharedFolders, groups, sharingStatuses, preferences: validatePreferences(
+      storedPreferences, groups, pinnableAlbums, new Set(sharedFolders.map(folder => Number(folder.id))),
+      new Set(sharedAlbums.map(album => Number(album.id)))),
       scope: { userId: workspace.userId, organizationId: workspace.orgId, unitId: workspace.unitId },
       workspaceRevision: Number(shared[0]?.revision || 0), userRevision: Number(personal[0]?.revision || 0),
       canOrganize: workspace.canOrganize, canDeleteFolders: workspace.canDeleteFolders });
@@ -144,7 +153,21 @@ router.put('/state', async (req, res) => {
     if (changesGroups) await conn.query('UPDATE album_desktop_workspaces SET state = ?, revision = revision + 1 WHERE organization_id = ? AND unit_key = ?', [JSON.stringify({ groups }), workspace.orgId, workspace.unitKey]);
     if (changesGroups) await syncFolderShares(conn, workspace.orgId, workspace.unitKey, groups);
     if (body.preferences) {
-      const preferences = validatePreferences(body.preferences, groups, ids);
+      const previous = json(personal[0].state, {});
+      const input = body.preferences;
+      if (!input || typeof input !== 'object' || Array.isArray(input)) throw invalid('个人桌面设置不正确');
+      // Older clients omit placement keys; an explicit empty map or list clears them.
+      const submitted = { sharedFolderLocations: previous.sharedFolderLocations, sharedRootAlbums: previous.sharedRootAlbums,
+        sharedRootFolders: previous.sharedRootFolders, ...input };
+      const needsFolderShares = (Array.isArray(submitted.pins) && submitted.pins.some(key => typeof key === 'string' && key.startsWith('shared-folder:')))
+        || Object.keys(submitted.sharedFolderLocations || {}).length > 0
+        || (Array.isArray(submitted.sharedRootFolders) && submitted.sharedRootFolders.length > 0);
+      const folderIds = new Set(needsFolderShares ? (await listFolderShares(workspace, conn)).map(folder => Number(folder.id)) : []);
+      const needsSharedAlbums = Array.isArray(submitted.sharedRootAlbums) && submitted.sharedRootAlbums.length > 0;
+      const sharedAlbumIds = new Set(needsSharedAlbums
+        ? (await listSharedAlbums(workspace, conn)).map(album => Number(album.id)) : []);
+      const visibleGroups = groups.filter(group => !group.restrictedToUserId || Number(group.restrictedToUserId) === workspace.userId || workspace.collegeAdmin);
+      const preferences = validatePreferences(submitted, visibleGroups, ids, folderIds, sharedAlbumIds);
       await conn.query('UPDATE album_desktop_users SET state = ?, revision = revision + 1 WHERE user_id = ? AND organization_id = ? AND unit_key = ?', [JSON.stringify(preferences), workspace.userId, workspace.orgId, workspace.unitKey]);
     }
     await conn.commit();

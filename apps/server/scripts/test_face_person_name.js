@@ -9,7 +9,7 @@ const people = [
   { id: 20, organization_id: 1, name: '空档案姓名' },
   { id: 10, organization_id: 1, name: null },
   { id: 30, organization_id: 1, name: '停用档案姓名' },
-  { id: 40, organization_id: 1, name: '已有有效人物' },
+  { id: 40, organization_id: 1, name: '已有有效人物', employee_no: 'sample-40' },
   { id: 50, organization_id: 2, name: '其他学院姓名' },
   { id: 60, organization_id: 1, name: '失效档案姓名' },
 ];
@@ -33,8 +33,9 @@ async function query(sql, params = []) {
   if (statement.startsWith('SELECT id FROM organization_units')) return [[]];
   if (statement.includes('SELECT role FROM users')) return [[{ role: 'admin' }]];
   if (statement.includes('SELECT organization_id FROM users')) return [[{ organization_id: 1 }]];
+  if (statement.startsWith('SELECT active_unit_id, view_organization_photos FROM users')) return [[{ active_unit_id: null, view_organization_photos: 1 }]];
   if (statement.includes('role_permissions')) return [[{ 1: 1 }]];
-  if (statement.startsWith('SELECT id FROM face_persons WHERE name = ?')) {
+  if (/^SELECT id(?:, employee_no AS employeeNo, department)? FROM face_persons WHERE name = \?/.test(statement)) {
     const duplicate = statement.includes('id <> ?');
     const org = params[duplicate ? 2 : 1];
     let rows = people.filter((person) => person.name === params[0] && person.organization_id === org
@@ -43,7 +44,7 @@ async function query(sql, params = []) {
     const order = statement.indexOf('ORDER BY');
     if (exists >= 0 && (order < 0 || exists < order)) rows = rows.filter((person) => activeCount(person.id) > 0);
     if (order >= 0 && exists > order) rows.sort((a, b) => activeCount(b.id) - activeCount(a.id));
-    return [rows.slice(0, 1).map(({ id }) => ({ id }))];
+    return [rows.slice(0, 1).map(({ id, employee_no: employeeNo, department }) => ({ id, employeeNo, department }))];
   }
   if (statement.includes('FROM face_persons fp') && statement.includes('fp.name LIKE ?')) {
     const term = String(params[1]).slice(1, -1);
@@ -53,7 +54,7 @@ async function query(sql, params = []) {
     return [rows.map((person) => ({ ...person, faceCount: activeCount(person.id), personNo: person.id }))];
   }
   if (statement.startsWith('UPDATE face_persons SET name = ?')) {
-    const person = people.find((row) => row.id === params[1] && row.organization_id === params[2]);
+    const person = people.find((row) => row.id === params.at(-2) && row.organization_id === params.at(-1));
     if (!person) return [{ affectedRows: 0 }];
     person.name = params[0];
     return [{ affectedRows: 1 }];
@@ -118,7 +119,7 @@ async function main() {
       assert.equal(renamed.body.person.name, personName);
     }
     assert.equal(JSON.stringify(faces), snapshot, 'renaming must not restore or move any faces');
-    const conflict = await call('PATCH', '/persons/10', { personName: '已有有效人物' });
+    const conflict = await call('PATCH', '/persons/10', { personName: '已有有效人物', employeeNo: 'sample-40' });
     assert.equal(conflict.status, 409);
     assert.match(conflict.body.message, /姓名|人物/);
     const search = await call('GET', `/persons?q=${encodeURIComponent('已有有效人物')}`);
