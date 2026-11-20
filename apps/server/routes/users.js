@@ -646,7 +646,6 @@ router.patch('/:id/role', authMiddleware, requirePermission('users.manage_roles'
 // ==============================
 // 账号合并（超级管理员）
 // ==============================
-require('../lib/user_access_admin').registerUserAccessAdmin(router, { db: pool, auth: authMiddleware });
 const accountMerge = require('../lib/account_merge');
 
 async function requireAccessAdmin(req, res) {
