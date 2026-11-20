@@ -170,7 +170,7 @@ test('the mixed download route uses one directory for originals and adjusted pho
       pool, cosStorage: storage, videoDownloads, mediaFilename, requirePhotosAccess, sendWorkspaceError: () => false,
       MAX_ZIP_PHOTOS: 1000, ZIP_MAX_REMOTE_BYTES: 5 * 1024 ** 3, ZIP_MAX_RENDER_SOURCE_BYTES: 128 * 1024 ** 2,
       ZIP_REMOTE_TIMEOUT_MS: 20000, uploadRoot: os.tmpdir(),
-      photoTone, getBakedEdit, publicAdjustments,
+      photoTone, getBakedEdit, publicAdjustments, photosDao: require('../lib/queries/photos'),
       renderAdjustedPhotoBuffer: async buffer => { calls.renders++; return Buffer.concat([Buffer.from('adjusted:'), buffer]); },
     };
     vm.runInNewContext(toneHelpers + handlerSource + '\nthis.handle = handleZipRequest;', globals);

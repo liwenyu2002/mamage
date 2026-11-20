@@ -3,6 +3,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
+const videoDao = require('../lib/queries/video_projects');
 const { pool } = require('../db');
 const { requirePermission } = require('../lib/permissions');
 const { resolveWorkspace, requirePhotosAccess, sendWorkspaceError } = require('../lib/workspace_access');
@@ -409,22 +410,19 @@ router.post('/', requirePermission('ai.generate'), async (req, res) => {
   if (!project || typeof project !== 'object') return res.status(400).json({ error: 'VIDEO_PROJECT_REQUIRED' });
   const name = String(req.body.name || project.name || '未命名视频工程').trim().slice(0, 160) || '未命名视频工程';
   const ratio = String(req.body.aspectRatio || project.aspectRatio || (project.canvas && project.canvas.aspectRatio) || '16:9').slice(0, 16);
-  const [result] = await pool.query(
-    'INSERT INTO video_projects (user_id, org_id, unit_id, name, aspect_ratio, project_json, duration_seconds) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    [req.user.id, req.user.organization_id || null, workspace.enabled ? workspace.unitId : null,
-      name, ratio, JSON.stringify(project), projectDuration(project)]
-  );
-  const [rows] = await pool.query('SELECT * FROM video_projects WHERE id = ? LIMIT 1', [result.insertId]);
-  res.status(201).json({ project: projectDto(rows[0], true) });
+  const result = await videoDao.insertProject(pool, { userId: req.user.id, orgId: req.user.organization_id,
+    unitId: workspace.enabled ? workspace.unitId : null, name, aspectRatio: ratio, project,
+    durationSeconds: projectDuration(project) });
+  const created = await videoDao.findProjectById(pool, result.insertId);
+  res.status(201).json({ project: projectDto(created, true) });
 });
 
 router.get('/:id', requirePermission('ai.generate'), async (req, res, next) => {
   if (!/^\d+$/.test(req.params.id)) return next();
   const scope = projectUnitScope(await resolveWorkspace(req));
-  const [rows] = await pool.query(`SELECT * FROM video_projects WHERE id = ? AND user_id = ?${scope.sql} LIMIT 1`,
-    [req.params.id, req.user.id, ...scope.params]);
-  if (!rows.length) return res.status(404).json({ error: 'VIDEO_PROJECT_NOT_FOUND' });
-  res.json({ project: projectDto(rows[0], true) });
+  const row = await videoDao.findOwnedProject(pool, { id: req.params.id, userId: req.user.id, scope });
+  if (!row) return res.status(404).json({ error: 'VIDEO_PROJECT_NOT_FOUND' });
+  res.json({ project: projectDto(row, true) });
 });
 
 router.put('/:id', requirePermission('ai.generate'), async (req, res) => {
@@ -433,21 +431,17 @@ router.put('/:id', requirePermission('ai.generate'), async (req, res) => {
   if (!project || typeof project !== 'object') return res.status(400).json({ error: 'VIDEO_PROJECT_REQUIRED' });
   const name = String(req.body.name || project.name || '未命名视频工程').trim().slice(0, 160) || '未命名视频工程';
   const ratio = String(req.body.aspectRatio || project.aspectRatio || (project.canvas && project.canvas.aspectRatio) || '16:9').slice(0, 16);
-  const [result] = await pool.query(
-    `UPDATE video_projects SET name = ?, aspect_ratio = ?, project_json = ?, duration_seconds = ?, version = version + 1
-     WHERE id = ? AND user_id = ?${scope.sql}`,
-    [name, ratio, JSON.stringify(project), projectDuration(project), req.params.id, req.user.id, ...scope.params]
-  );
-  if (!result.affectedRows) return res.status(404).json({ error: 'VIDEO_PROJECT_NOT_FOUND' });
-  const [rows] = await pool.query('SELECT * FROM video_projects WHERE id = ? AND user_id = ? LIMIT 1', [req.params.id, req.user.id]);
-  res.json({ project: projectDto(rows[0], true) });
+  const affected = await videoDao.updateProject(pool, { id: req.params.id, userId: req.user.id, scope,
+    name, aspectRatio: ratio, project, durationSeconds: projectDuration(project) });
+  if (!affected) return res.status(404).json({ error: 'VIDEO_PROJECT_NOT_FOUND' });
+  const row = await videoDao.findOwnedProject(pool, { id: req.params.id, userId: req.user.id, scope: { sql: '', params: [] } });
+  res.json({ project: projectDto(row, true) });
 });
 
 router.delete('/:id', requirePermission('ai.generate'), async (req, res) => {
   const scope = projectUnitScope(await resolveWorkspace(req));
-  const [result] = await pool.query(`DELETE FROM video_projects WHERE id = ? AND user_id = ?${scope.sql}`,
-    [req.params.id, req.user.id, ...scope.params]);
-  if (!result.affectedRows) return res.status(404).json({ error: 'VIDEO_PROJECT_NOT_FOUND' });
+  const affected = await videoDao.deleteProject(pool, { id: req.params.id, userId: req.user.id, scope });
+  if (!affected) return res.status(404).json({ error: 'VIDEO_PROJECT_NOT_FOUND' });
   res.json({ ok: true });
 });
 
@@ -638,17 +632,8 @@ function enqueueRender(task) {
 }
 
 async function recoverInterruptedRenders() {
-  await pool.query(
-    "UPDATE video_render_jobs SET status = 'queued', progress = 0, stage = '服务重启后重新排队', started_at = NULL WHERE status = 'running'"
-  );
-  const [rows] = await pool.query(
-    `SELECT j.id AS job_id, j.user_id AS job_user_id, j.render_options, p.*
-       FROM video_render_jobs j
-       INNER JOIN video_projects p ON p.id = j.project_id AND p.user_id = j.user_id
-      WHERE j.status = 'queued'
-      ORDER BY j.created_at ASC
-      LIMIT 100`
-  );
+  await videoDao.requeueInterruptedRenders(pool);
+  const rows = await videoDao.listQueuedRenderJobs(pool, 100);
   for (const row of rows) await enqueueRender({
     jobId: row.job_id,
     userId: row.job_user_id,
@@ -660,8 +645,8 @@ async function recoverInterruptedRenders() {
 
 router.post('/:id/render', requirePermission('ai.generate'), async (req, res) => {
   const scope = projectUnitScope(await resolveWorkspace(req));
-  const [projects] = await pool.query(`SELECT * FROM video_projects WHERE id = ? AND user_id = ?${scope.sql} LIMIT 1`,
-    [req.params.id, req.user.id, ...scope.params]);
+  const ownedProject = await videoDao.findOwnedProject(pool, { id: req.params.id, userId: req.user.id, scope });
+  const projects = ownedProject ? [ownedProject] : [];
   if (!projects.length) return res.status(404).json({ error: 'VIDEO_PROJECT_NOT_FOUND' });
   try {
     videoStorage.assertObjectStorage();
@@ -673,34 +658,31 @@ router.post('/:id/render', requirePermission('ai.generate'), async (req, res) =>
   let result;
   try {
   await connection.beginTransaction();
-  [result] = await connection.query(
-    "INSERT INTO video_render_jobs (project_id, user_id, status, progress, stage, render_options) VALUES (?, ?, 'queued', 0, '等待渲染', ?)",
-    [req.params.id, req.user.id, JSON.stringify(options)]
-  );
+  result = await videoDao.insertRenderJob(connection, { projectId: req.params.id, userId: req.user.id, options });
   if (distributed()) await coordinator.enqueue('video-render', result.insertId,
     { jobId: result.insertId, userId: req.user.id, projectRow: projects[0], options }, { connection });
   await connection.commit();
   } catch (error) { await connection.rollback(); throw error; }
   finally { connection.release(); }
-  const [rows] = await pool.query('SELECT * FROM video_render_jobs WHERE id = ? LIMIT 1', [result.insertId]);
+  const job = await videoDao.findRenderJob(pool, result.insertId);
   if (!distributed()) await enqueueRender({ jobId: result.insertId, userId: req.user.id, projectRow: projects[0], options });
-  res.status(202).json({ job: renderDto(rows[0]) });
+  res.status(202).json({ job: renderDto(job) });
 });
 
 router.get('/renders/:jobId', requirePermission('ai.generate'), async (req, res) => {
-  const [rows] = await pool.query('SELECT * FROM video_render_jobs WHERE id = ? AND user_id = ? LIMIT 1', [req.params.jobId, req.user.id]);
-  if (!rows.length) return res.status(404).json({ error: 'VIDEO_RENDER_NOT_FOUND' });
-  res.json({ job: renderDto(rows[0]) });
+  const job = await videoDao.findOwnedRenderJob(pool, { id: req.params.jobId, userId: req.user.id });
+  if (!job) return res.status(404).json({ error: 'VIDEO_RENDER_NOT_FOUND' });
+  res.json({ job: renderDto(job) });
 });
 
 router.post('/renders/:jobId/cancel', requirePermission('ai.generate'), async (req, res) => {
-  const [rows] = await pool.query('SELECT * FROM video_render_jobs WHERE id = ? AND user_id = ? LIMIT 1', [req.params.jobId, req.user.id]);
-  if (!rows.length) return res.status(404).json({ error: 'VIDEO_RENDER_NOT_FOUND' });
+  const jobRow = await videoDao.findOwnedRenderJob(pool, { id: req.params.jobId, userId: req.user.id });
+  if (!jobRow) return res.status(404).json({ error: 'VIDEO_RENDER_NOT_FOUND' });
   const running = activeRenders.get(String(req.params.jobId));
   if (running) { running.canceled = true; if (running.child) running.child.kill('SIGTERM'); }
   const queuedIndex = renderQueue.findIndex((task) => String(task.jobId) === String(req.params.jobId));
   if (queuedIndex >= 0) renderQueue.splice(queuedIndex, 1);
-  await pool.query("UPDATE video_render_jobs SET status = 'canceled', stage = '已取消', finished_at = NOW() WHERE id = ? AND user_id = ? AND status IN ('queued','running')", [req.params.jobId, req.user.id]);
+  await videoDao.cancelRenderJob(pool, { id: req.params.jobId, userId: req.user.id });
   res.json({ ok: true });
 });
 
