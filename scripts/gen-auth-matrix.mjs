@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // 扫描 Express 路由，生成「接口 → 鉴权要求」对照表（对齐 PhotoStory 的 api-v1-auth-matrix 做法）。
 // 用法：node scripts/gen-auth-matrix.mjs > docs/api-auth-matrix.md
+//       node scripts/gen-auth-matrix.mjs --check   # CI 用：与已提交文件不一致则失败
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -58,4 +59,17 @@ const lines = [
   ...rows.map(r => `| ${r.method} | \`${r.path}\` | ${r.guards} | \`${r.file}\` |`),
   '',
 ];
-process.stdout.write(lines.join('\n'));
+const output = lines.join('\n') + '\n';
+const target = path.resolve(import.meta.dirname, '..', 'docs', 'api-auth-matrix.md');
+
+// --check：CI 里校验矩阵是否与路由现状一致，避免文档长期漂移
+if (process.argv.includes('--check')) {
+  const current = fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : '';
+  if (current !== output) {
+    console.error('api-auth-matrix.md 已过期，请运行：node scripts/gen-auth-matrix.mjs > docs/api-auth-matrix.md');
+    process.exit(1);
+  }
+  console.log(`api-auth-matrix.md 一致（${rows.length} 条路由）`);
+} else {
+  process.stdout.write(output);
+}

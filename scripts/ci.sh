@@ -12,8 +12,11 @@ echo "== 2/5 server lint（0 error 门槛）=="
 echo "== 3/5 TypeScript 类型检查（新 .ts 模块）=="
 (cd apps/web && npx tsc -p tsconfig.json --noEmit)
 
-echo "== 4/5 内联 SQL 棘轮（基线 0，只降不升）=="
+echo "== 4/6 内联 SQL 棘轮（基线 0，只降不升）=="
 node scripts/audit-inline-sql.mjs --fail-over 0 | head -3
+
+echo "== 4.5/6 鉴权矩阵一致性 =="
+node scripts/gen-auth-matrix.mjs --check
 
 echo "== 5/6 server 单测：调色 / 编辑 / 删除鉴权 =="
 (cd apps/server && node --test scripts/test_photo_tone.cjs scripts/test_photo_tone_render.cjs \

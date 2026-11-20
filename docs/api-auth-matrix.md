@@ -219,3 +219,4 @@
 | GET | `/api/workspaces/face-search/grants` | （路由内自行鉴权） | `apps/server/routes/workspaces.js` |
 | GET | `/api/workspaces/stats/ai` | （路由内自行鉴权） | `apps/server/routes/workspaces.js` |
 | GET | `/api/wx-image-proxy` | （路由内自行鉴权） | `apps/server/routes/wx_image_proxy.js` |
+
