@@ -79,3 +79,50 @@ module.exports = {
   setPersonCover,
   setFacePerson,
 };
+
+// ---- 人物合并 ----
+async function lockPerson(conn, { orgId, personId }) {
+  const [rows] = await conn.query(
+    'SELECT id, name, note, cover_face_id AS coverFaceId FROM face_persons WHERE organization_id = ? AND id = ? LIMIT 1 FOR UPDATE',
+    [orgId, personId]);
+  return rows && rows.length ? rows[0] : null;
+}
+
+async function lockPersons(conn, { orgId, personIds }) {
+  const [rows] = await conn.query(
+    'SELECT id, name, note, cover_face_id AS coverFaceId FROM face_persons WHERE organization_id = ? AND id IN (?) FOR UPDATE',
+    [orgId, personIds]);
+  return rows || [];
+}
+
+async function lockFacesOfPersons(conn, { orgId, personIds }) {
+  const [rows] = await conn.query(
+    `SELECT * FROM photo_faces WHERE organization_id = ? AND person_id IN (?) AND ${usableFaceSql()} ORDER BY id FOR UPDATE`,
+    [orgId, personIds]);
+  return rows || [];
+}
+
+async function moveFacesToPerson(conn, { orgId, targetPersonId, sourcePersonIds }) {
+  const [result] = await conn.query(
+    `UPDATE photo_faces SET person_id = ?, status = 'confirmed' WHERE organization_id = ? AND person_id IN (?) AND ${usableFaceSql()}`,
+    [targetPersonId, orgId, sourcePersonIds]);
+  return Number(result && result.affectedRows) || 0;
+}
+
+async function updatePersonMeta(conn, { orgId, personId, name, note, coverFaceId }) {
+  await conn.query(
+    'UPDATE face_persons SET name = ?, note = ?, cover_face_id = ? WHERE organization_id = ? AND id = ?',
+    [name, note, coverFaceId, orgId, personId]);
+}
+
+async function deletePersons(conn, { orgId, personIds }) {
+  const [result] = await conn.query('DELETE FROM face_persons WHERE organization_id = ? AND id IN (?)', [orgId, personIds]);
+  return Number(result && result.affectedRows) || 0;
+}
+
+module.exports.lockPerson = lockPerson;
+module.exports.lockPersons = lockPersons;
+module.exports.lockFacesOfPersons = lockFacesOfPersons;
+module.exports.moveFacesToPerson = moveFacesToPerson;
+module.exports.updatePersonMeta = updatePersonMeta;
+module.exports.deletePersons = deletePersons;

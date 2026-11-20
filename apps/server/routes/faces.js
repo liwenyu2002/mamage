@@ -1046,40 +1046,25 @@ router.post('/persons/merge', requirePermission('faces.merge'), async (req, res)
     try {
       await conn.beginTransaction();
 
-      const [targetRows] = await conn.query(
-        'SELECT id, name, note, cover_face_id AS coverFaceId FROM face_persons WHERE organization_id = ? AND id = ? LIMIT 1 FOR UPDATE',
-        [orgId, targetPersonId]
-      );
-      if (!targetRows || targetRows.length === 0) {
-        throw new Error('target person not found');
-      }
-      const target = targetRows[0];
+      const target = await facesDao.lockPerson(conn, { orgId, personId: targetPersonId });
+      if (!target) throw new Error('target person not found');
 
-      const [sourceRows] = await conn.query(
-        'SELECT id, name, note, cover_face_id AS coverFaceId FROM face_persons WHERE organization_id = ? AND id IN (?) FOR UPDATE',
-        [orgId, sourcePersonIds]
-      );
-      const foundSources = new Set((sourceRows || []).map((x) => Number(x.id)));
+      const sourceRows = await facesDao.lockPersons(conn, { orgId, personIds: sourcePersonIds });
+      const foundSources = new Set(sourceRows.map((x) => Number(x.id)));
       const missing = sourcePersonIds.filter((id) => !foundSources.has(id));
       if (missing.length) {
         throw new Error(`source person not found: ${missing.join(',')}`);
       }
 
-      const [feedbackFaces] = await conn.query(
-        `SELECT * FROM photo_faces WHERE organization_id = ? AND person_id IN (?) AND ${usableFaceSql()} ORDER BY id FOR UPDATE`,
-        [orgId, [targetPersonId, ...sourcePersonIds]]
-      );
+      const feedbackFaces = await facesDao.lockFacesOfPersons(conn, { orgId,
+        personIds: [targetPersonId, ...sourcePersonIds] });
       const referenceIds = new Set(parseFaceIdArray(body.referenceFaceIds || []));
       const ownedIds = new Set(feedbackFaces.map((face) => Number(face.id)));
       if ([...referenceIds].some((id) => !ownedIds.has(id))) {
         throw Object.assign(new Error('reference face does not belong to merged persons'), { status: 400 });
       }
 
-      const [upd] = await conn.query(
-        `UPDATE photo_faces SET person_id = ?, status = 'confirmed' WHERE organization_id = ? AND person_id IN (?) AND ${usableFaceSql()}`,
-        [targetPersonId, orgId, sourcePersonIds]
-      );
-      movedFaces = upd && Number.isFinite(Number(upd.affectedRows)) ? Number(upd.affectedRows) : 0;
+      movedFaces = await facesDao.moveFacesToPerson(conn, { orgId, targetPersonId, sourcePersonIds });
       await remapMergedFeedback(conn, orgId, targetPersonId, sourcePersonIds);
       await recordIdentityFeedback(conn, { orgId, userId: req.user.id, action: 'merge',
         details: { targetPersonId, sourcePersonIds },
@@ -1099,31 +1084,13 @@ router.post('/persons/merge', requirePermission('faces.merge'), async (req, res)
         if (sourceCover) coverFaceId = sourceCover;
       }
       if (!Number.isFinite(coverFaceId) || coverFaceId <= 0) {
-        const [coverRows] = await conn.query(
-          `SELECT id
-           FROM photo_faces
-           WHERE organization_id = ? AND person_id = ? AND ${usableFaceSql()}
-           ORDER BY detection_score DESC, id ASC
-           LIMIT 1`,
-          [orgId, targetPersonId]
-        );
-        if (coverRows && coverRows.length) {
-          coverFaceId = Number(coverRows[0].id);
-        } else {
-          coverFaceId = null;
-        }
+        const candidateId = await facesDao.pickBestFaceId(conn, targetPersonId, orgId);
+        coverFaceId = candidateId ? Number(candidateId) : null;
       }
 
-      await conn.query(
-        'UPDATE face_persons SET name = ?, note = ?, cover_face_id = ? WHERE organization_id = ? AND id = ?',
-        [mergedName, mergedNote, coverFaceId, orgId, targetPersonId]
-      );
-
-      const [del] = await conn.query(
-        'DELETE FROM face_persons WHERE organization_id = ? AND id IN (?)',
-        [orgId, sourcePersonIds]
-      );
-      deletedPersons = del && Number.isFinite(Number(del.affectedRows)) ? Number(del.affectedRows) : 0;
+      await facesDao.updatePersonMeta(conn, { orgId, personId: targetPersonId, name: mergedName,
+        note: mergedNote, coverFaceId });
+      deletedPersons = await facesDao.deletePersons(conn, { orgId, personIds: sourcePersonIds });
 
       await conn.commit();
     } catch (err) {
