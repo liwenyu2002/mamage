@@ -1,4 +1,5 @@
 const express = require('express');
+const wsDao = require('../lib/queries/workspaces');
 const { pool } = require('../db');
 const { requirePermission } = require('../lib/permissions');
 const { workspacePolicy, ROLE_LABELS } = require('../lib/access_policy');
@@ -29,35 +30,17 @@ async function getUnitRole(workspace, unitId, db = pool, lock = false) {
 }
 
 async function writeAudit(conn, workspace, action, unitId, resourceType, resourceId, details = null) {
-  await conn.query(
-    `INSERT INTO organization_access_audit
-       (organization_id, unit_id, user_id, action, resource_type, resource_id, details)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [workspace.orgId, unitId || null, workspace.userId, action, resourceType || null, resourceId || null,
-      details ? JSON.stringify(details) : null]
-  );
+  await wsDao.insertAudit(conn, { orgId: workspace.orgId, unitId, userId: workspace.userId, action,
+    resourceType, resourceId, details });
 }
 
 router.get('/', requirePermission('photos.view'), async (req, res) => {
   try {
     const workspace = await resolveWorkspace(req);
     if (!workspace.enabled) return res.json({ enabled: false, units: [], activeUnitId: null, access: workspacePolicy(workspace) });
-    const [rows] = await pool.query(
-      `SELECT ou.id, ou.name, ou.slug, ou.archived_at AS archivedAt, m.role,
-              (SELECT COUNT(*) FROM projects p WHERE p.unit_id = ou.id) AS albumCount
-       FROM organization_units ou
-       LEFT JOIN organization_unit_memberships m
-         ON m.unit_id = ou.id AND m.user_id = ? AND m.removed_at IS NULL
-       WHERE ou.organization_id = ? AND ou.archived_at IS NULL
-         AND (? = 1 OR m.user_id IS NOT NULL)
-       ORDER BY ou.id ASC`,
-      [workspace.userId, workspace.orgId, workspace.collegeAdmin ? 1 : 0]
-    );
-    const [shareTargets] = await pool.query(
-      `SELECT id, name FROM organization_units
-       WHERE organization_id = ? AND archived_at IS NULL ORDER BY id ASC`,
-      [workspace.orgId]
-    );
+    const rows = await wsDao.listUnitsForUser(pool, { userId: workspace.userId, orgId: workspace.orgId,
+      collegeAdmin: workspace.collegeAdmin });
+    const shareTargets = await wsDao.listUnitNames(pool, workspace.orgId);
     res.json({ enabled: true, units: rows.map(unit => ({ ...unit,
       access: workspacePolicy({ ...workspace, unitId: unit.id, role: unit.role }) })), activeUnitId: workspace.unitId,
       access: workspacePolicy(workspace), shareTargets, collegeAdmin: workspace.collegeAdmin, legacyAvailable: true });
@@ -76,8 +59,7 @@ router.post('/active', requirePermission('photos.view'), async (req, res) => {
     if (unitId && !await getUnitRole(workspace, unitId)) {
       throw new WorkspaceAccessError('UNIT_FORBIDDEN');
     }
-    await pool.query('UPDATE users SET active_unit_id = ? WHERE id = ? AND organization_id = ?',
-      [unitId, workspace.userId, workspace.orgId]);
+    await wsDao.setActiveUnit(pool, { unitId, userId: workspace.userId, orgId: workspace.orgId });
     res.json({ activeUnitId: unitId });
   } catch (err) { fail(res, err); }
 });
@@ -204,25 +186,18 @@ router.put('/:unitId/members/:userId', requirePermission('photos.view'), async (
     const actorRole = await getUnitRole({ ...workspace, collegeAdmin: admin.allowed }, unitId, conn, true);
     if (actorRole !== 'manager' && actorRole !== 'collegeAdmin') throw new WorkspaceAccessError('UNIT_FORBIDDEN');
     if (!admin.allowed && role === 'manager') throw new WorkspaceAccessError('COLLEGE_ADMIN_REQUIRED');
-    const [users] = await conn.query('SELECT id, role FROM users WHERE id = ? AND organization_id = ? LIMIT 1 FOR UPDATE',
-      [userId, workspace.orgId]);
-    if (!users.length) throw new WorkspaceAccessError('USER_NOT_FOUND', 404);
-    if (users[0].role === 'superadmin') throw new WorkspaceAccessError('PROTECTED_SUPERADMIN');
-    const [[previous]] = await conn.query('SELECT role FROM organization_unit_memberships WHERE unit_id = ? AND user_id = ? AND removed_at IS NULL LIMIT 1 FOR UPDATE',
-      [unitId, userId]);
+    const userRow = await wsDao.lockUserRole(conn, { userId, orgId: workspace.orgId });
+    if (!userRow) throw new WorkspaceAccessError('USER_NOT_FOUND', 404);
+    if (userRow.role === 'superadmin') throw new WorkspaceAccessError('PROTECTED_SUPERADMIN');
+    const previous = await wsDao.lockMembershipRole(conn, { unitId, userId });
     if (!admin.allowed && (!previous || previous.role === 'manager')) throw new WorkspaceAccessError('COLLEGE_ADMIN_REQUIRED');
     if (previous) {
       if (previous.role !== role) {
-        await conn.query('UPDATE organization_unit_memberships SET role = ? WHERE unit_id = ? AND user_id = ? AND removed_at IS NULL',
-          [role, unitId, userId]);
+        await wsDao.updateMembershipRole(conn, { unitId, userId, role });
         await writeAudit(conn, workspace, 'membership.role.configure', unitId, 'user', userId, { before: previous.role, role });
       }
     } else {
-      await conn.query(
-        `INSERT INTO organization_unit_memberships (unit_id, user_id, role)
-         VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE role = VALUES(role), removed_at = NULL`,
-        [unitId, userId, role]
-      );
+      await wsDao.upsertMembership(conn, { unitId, userId, role });
       await writeAudit(conn, workspace, 'membership.grant', unitId, 'user', userId, { role });
     }
     await conn.commit();
@@ -245,16 +220,11 @@ router.delete('/:unitId/members/:userId', requirePermission('photos.view'), asyn
     // 分配/变更成员角色属于权限管理，统一收口到超级管理员（历史实现允许小组 manager 越权分配）。
     const admin = await accessAdministrator(conn, workspace.userId);
     if (!admin.allowed) throw new WorkspaceAccessError('ACCESS_ADMIN_REQUIRED', 403);
-    const [targetRows] = await conn.query(
-      'SELECT role FROM organization_unit_memberships WHERE unit_id = ? AND user_id = ? AND removed_at IS NULL LIMIT 1',
-      [unitId, userId]
-    );
-    if (!targetRows.length) throw new WorkspaceAccessError('MEMBERSHIP_NOT_FOUND', 404);
-    if (targetRows[0].role === 'manager' && !workspace.collegeAdmin) throw new WorkspaceAccessError('COLLEGE_ADMIN_REQUIRED');
+    const target = await wsDao.findMembershipRole(conn, { unitId, userId });
+    if (!target) throw new WorkspaceAccessError('MEMBERSHIP_NOT_FOUND', 404);
+    if (target.role === 'manager' && !workspace.collegeAdmin) throw new WorkspaceAccessError('COLLEGE_ADMIN_REQUIRED');
     await conn.beginTransaction();
-    await conn.query('UPDATE organization_unit_memberships SET removed_at = NOW() WHERE unit_id = ? AND user_id = ?',
-      [unitId, userId]);
-    await conn.query('UPDATE users SET active_unit_id = NULL WHERE id = ? AND active_unit_id = ?', [userId, unitId]);
+    await wsDao.removeMembership(conn, { unitId, userId });
     await writeAudit(conn, workspace, 'membership.remove', unitId, 'user', userId);
     await conn.commit();
     res.json({ removed: true });
@@ -286,14 +256,10 @@ router.put('/face-search/:userId', requirePermission('photos.view'), async (req,
     if (req.body?.canManage !== undefined && typeof req.body.canManage !== 'boolean') throw new WorkspaceAccessError('INVALID_FACE_PERMISSION', 400);
     const userId = positiveId(req.params.userId);
     if (!userId) throw new WorkspaceAccessError('INVALID_USER', 400);
-    const [users] = await pool.query('SELECT id FROM users WHERE id = ? AND organization_id = ? LIMIT 1',
-      [userId, workspace.orgId]);
-    if (!users.length) throw new WorkspaceAccessError('USER_NOT_FOUND', 404);
-    await pool.query(
-      `INSERT INTO face_search_grants (organization_id, user_id, college_wide, can_manage, granted_by)
-       VALUES (?, ?, 1, ?, ?) ON DUPLICATE KEY UPDATE college_wide = 1, can_manage = VALUES(can_manage), granted_by = VALUES(granted_by)`,
-      [workspace.orgId, userId, canManage ? 1 : 0, workspace.userId]
-    );
+    if (!await wsDao.findUserInOrg(pool, { userId, orgId: workspace.orgId })) {
+      throw new WorkspaceAccessError('USER_NOT_FOUND', 404);
+    }
+    await wsDao.grantFaceSearch(pool, { orgId: workspace.orgId, userId, canManage, grantedBy: workspace.userId });
     res.json({ granted: true, search: true, canManage });
   } catch (err) { fail(res, err); }
 });
@@ -304,8 +270,7 @@ router.delete('/face-search/:userId', requirePermission('photos.view'), async (r
     if (!workspacePolicy(workspace).canGrantFaces) throw new WorkspaceAccessError('COLLEGE_ADMIN_REQUIRED');
     const userId = positiveId(req.params.userId);
     if (!userId) throw new WorkspaceAccessError('INVALID_USER', 400);
-    await pool.query('DELETE FROM face_search_grants WHERE organization_id = ? AND user_id = ?',
-      [workspace.orgId, userId]);
+    await wsDao.revokeFaceSearch(pool, { orgId: workspace.orgId, userId });
     res.json({ granted: false });
   } catch (err) { fail(res, err); }
 });
