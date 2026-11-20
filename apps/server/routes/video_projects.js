@@ -145,8 +145,8 @@ function scheduleDirectAssetCleanup() {
     try {
       const expired = (await directAssetUploads.values()).filter(session => session.expiresAt <= now);
       for (const session of expired) await directAssetUploads.withLock(session.id, async () => {
-        const [committed] = await pool.query('SELECT id FROM video_editor_assets WHERE storage_path = ? LIMIT 1', [session.key]);
-        if (!committed.length) await cosStorage.deleteObjects([session.key]);
+        const committed = await videoDao.findCommittedAssetByPath(pool, { storagePath: session.key });
+        if (!committed) await cosStorage.deleteObjects([session.key]);
         await directAssetUploads.delete(session.id);
       });
     } catch (error) { console.warn('[asset-cleanup]', error.message); }
@@ -193,8 +193,7 @@ const renderDto = (row) => ({
 router.get('/assets', requirePermission('ai.generate'), async (req, res) => {
   try {
     const scope = projectUnitScope(await resolveWorkspace(req));
-    const [rows] = await pool.query(`SELECT * FROM video_editor_assets WHERE user_id = ?${scope.sql} ORDER BY created_at DESC LIMIT 300`,
-      [req.user.id, ...scope.params]);
+    const rows = await videoDao.listAssets(pool, { userId: req.user.id, scope, limit: 300 });
     res.json({ assets: rows.map(assetDto) });
   } catch (err) { if (!sendWorkspaceError(res, err)) throw err; }
 });
@@ -326,8 +325,8 @@ async function completeDirectAsset(req, res, connection) {
     if (workspace.enabled && workspace.unitId !== session.unitId) {
       return res.status(403).json({ error: 'VIDEO_ASSET_UNIT_CHANGED' });
     }
-    const [existing] = await pool.query('SELECT * FROM video_editor_assets WHERE storage_path = ? AND user_id = ? AND unit_id <=> ? LIMIT 1', [session.key, req.user.id, session.unitId]);
-    if (existing.length) return res.status(201).json({ asset: assetDto(existing[0]) });
+    const existing = await videoDao.findAssetByPath(pool, { storagePath: session.key, userId: req.user.id });
+    if (existing) return res.status(201).json({ asset: assetDto(existing) });
     const head = await cosStorage.headObject(session.key);
     if (!head || Number(head.ContentLength) !== Number(session.metadata.size)) {
       const error = new Error('DIRECT_VIDEO_SIZE_MISMATCH');
@@ -348,8 +347,8 @@ router.post('/assets/direct/abort', requirePermission('ai.generate'), async (req
   return directAssetUploads.withLock(String(req.body?.sessionId || ''), async () => {
   const session = await getDirectAssetSession(req, req.body && req.body.sessionId);
   if (!session) return res.json({ ok: true });
-  const [committed] = await pool.query('SELECT id FROM video_editor_assets WHERE storage_path = ? AND user_id = ? LIMIT 1', [session.key, req.user.id]);
-  if (committed.length) return res.json({ ok: true, committed: true });
+  const committed = await videoDao.findCommittedAssetByPath(pool, { storagePath: session.key, userId: req.user.id });
+  if (committed) return res.json({ ok: true, committed: true });
   await directAssetUploads.delete(session.id);
   await cosStorage.deleteObjects([session.key]).catch(() => null);
   return res.json({ ok: true });
@@ -358,34 +357,30 @@ router.post('/assets/direct/abort', requirePermission('ai.generate'), async (req
 
 router.post('/assets/:assetId/analyze', requirePermission('ai.generate'), async (req, res) => {
   const scope = projectUnitScope(await resolveWorkspace(req));
-  const [rows] = await pool.query(`SELECT * FROM video_editor_assets WHERE id = ? AND user_id = ?${scope.sql} LIMIT 1`,
-    [req.params.assetId, req.user.id, ...scope.params]);
-  if (!rows.length) return res.status(404).json({ error: 'VIDEO_ASSET_NOT_FOUND' });
+  const assetRow = await videoDao.findAsset(pool, { id: req.params.assetId, userId: req.user.id, scope });
+  if (!assetRow) return res.status(404).json({ error: 'VIDEO_ASSET_NOT_FOUND' });
   let workDir = null;
   try {
-    let input = await videoStorage.analysisInput(rows[0]);
+    let input = await videoStorage.analysisInput(assetRow);
     let metadata;
     try {
       metadata = await probeVideo(input);
     } catch (probeError) {
       // Legacy/non-faststart assets may not be seekable over the storage gateway.
       // Materialize only those exceptional files and clean them immediately after.
-      workDir = await videoStorage.createJobWorkDir(`analyze-${rows[0].id}`);
-      input = await videoStorage.materializeAsset(rows[0], workDir);
+      workDir = await videoStorage.createJobWorkDir(`analyze-${assetRow.id}`);
+      input = await videoStorage.materializeAsset(assetRow, workDir);
       metadata = await probeVideo(input);
     }
     if (!metadata.duration || !metadata.width || !metadata.height) throw new Error('无法识别视频轨道');
-    await pool.query(
-      'UPDATE video_editor_assets SET duration_seconds = ?, width = ?, height = ?, has_audio = ? WHERE id = ? AND user_id = ?',
-      [metadata.duration, metadata.width, metadata.height, metadata.hasAudio ? 1 : 0, rows[0].id, req.user.id]
-    );
+    await videoDao.setAssetProbe(pool, { id: assetRow.id, userId: req.user.id, metadata });
     const analysis = await analyzeVideo(input, metadata.duration, {
       workDir,
       onProgress: ({ phase, completed, total }) => {
-        if (phase === 'visual') console.log(`[video-projects] asset ${rows[0].id} temporal segment ${completed + 1}/${total}`);
+        if (phase === 'visual') console.log(`[video-projects] asset ${assetRow.id} temporal segment ${completed + 1}/${total}`);
       },
     });
-    await pool.query('UPDATE video_editor_assets SET analysis_json = ? WHERE id = ? AND user_id = ?', [JSON.stringify(analysis), rows[0].id, req.user.id]);
+    await videoDao.setAssetAnalysis(pool, { id: assetRow.id, userId: req.user.id, analysis });
     res.json({ analysis });
   } catch (error) {
     res.status(500).json({ error: 'VIDEO_ANALYSIS_FAILED', message: error.message || '视频分析失败' });
@@ -397,8 +392,7 @@ router.post('/assets/:assetId/analyze', requirePermission('ai.generate'), async 
 router.get('/', requirePermission('ai.generate'), async (req, res) => {
   try {
     const scope = projectUnitScope(await resolveWorkspace(req));
-    const [rows] = await pool.query(`SELECT * FROM video_projects WHERE user_id = ?${scope.sql} ORDER BY updated_at DESC LIMIT 100`,
-      [req.user.id, ...scope.params]);
+    const rows = await videoDao.listProjects(pool, { userId: req.user.id, scope, limit: 100 });
     res.json({ projects: rows.map((row) => projectDto(row, false)) });
   } catch (err) { if (!sendWorkspaceError(res, err)) throw err; }
 });
@@ -470,7 +464,7 @@ async function loadProductionRenderAssets(project, projectRow, userId) {
 
   const photoIds = [...new Set(sources.map((source) => Number(source.productionPhotoId)))];
   if (process.env.ORGANIZATION_UNITS_ACTIVE === '1') {
-    const [users] = await pool.query('SELECT id, role, organization_id FROM users WHERE id = ? LIMIT 1', [userId]);
+    const users = await videoDao.findRenderUser(pool, userId);
     if (!users.length) throw new Error('RENDER_USER_NOT_FOUND');
     await requirePhotosAccess({
       user: users[0],
@@ -482,14 +476,7 @@ async function loadProductionRenderAssets(project, projectRow, userId) {
   const orgClause = orgId === null ? 'p.organization_id IS NULL' : 'p.organization_id = ?';
   const params = [...photoIds];
   if (orgId !== null) params.push(orgId);
-  const [rows] = await pool.query(
-    `SELECT p.id, p.url, p.playback_url, p.title, p.type
-       FROM photos p
-      WHERE p.id IN (${photoIds.map(() => '?').join(',')})
-        AND ${orgClause}
-        AND (p.type = 'video' OR (p.playback_url IS NOT NULL AND p.playback_url <> ''))`,
-    params
-  );
+  const rows = await videoDao.findProductionVideoSources(pool, { photoIds, orgClause, params });
   const byId = new Map(rows.map((row) => [String(row.id), row]));
   const assets = [];
   for (const source of sources) {
@@ -524,10 +511,7 @@ async function materializeRenderAssets(assets, workDir, userId) {
       throw new Error(`素材「${asset.name || asset.id}」无法识别视频轨道`);
     }
     if (asset.source_kind !== 'production') {
-      await pool.query(
-        'UPDATE video_editor_assets SET duration_seconds = ?, width = ?, height = ?, has_audio = ? WHERE id = ? AND user_id = ?',
-        [metadata.duration, metadata.width, metadata.height, metadata.hasAudio ? 1 : 0, asset.id, userId]
-      );
+      await videoDao.setAssetProbe(pool, { id: asset.id, userId, metadata });
     }
     return {
       ...asset,
@@ -549,8 +533,8 @@ async function runRender(jobId, userId, projectRow, options) {
     if (cancelPolling) return;
     cancelPolling = true;
     try {
-      const [rows] = await pool.query('SELECT status FROM video_render_jobs WHERE id = ?', [jobId]);
-      if (!rows.length || rows[0].status === 'canceled') {
+      const status = await videoDao.findRenderJobStatus(pool, jobId);
+      if (!status || status === 'canceled') {
         signalRef.canceled = true;
         signalRef.child?.kill('SIGTERM');
       }
@@ -558,8 +542,7 @@ async function runRender(jobId, userId, projectRow, options) {
     finally { cancelPolling = false; }
   }, 1000) : null;
   try {
-    const [claim] = await pool.query("UPDATE video_render_jobs SET status = 'running', progress = 1, stage = '准备素材', started_at = NOW() WHERE id = ? AND status IN ('queued','running')", [jobId]);
-    if (!claim.affectedRows) return;
+    if (!await videoDao.claimRenderJob(pool, jobId)) return;
     const project = parseJson(projectRow.project_json, {});
     const sourceIds = referencedSourceIds(project);
     const renderSources = (Array.isArray(project.sources) ? project.sources : [])
@@ -570,8 +553,7 @@ async function runRender(jobId, userId, projectRow, options) {
     if (!ids.length && !hasProductionSource && !hasBlankClip) throw new Error('工程素材尚未上传到服务端');
     const scope = projectUnitScope({ enabled: process.env.ORGANIZATION_UNITS_ACTIVE === '1', unitId: projectRow.unit_id });
     const assets = ids.length
-      ? (await pool.query(`SELECT * FROM video_editor_assets WHERE user_id = ? AND id IN (${ids.map(() => '?').join(',')})${scope.sql}`,
-        [userId, ...ids, ...scope.params]))[0]
+      ? await videoDao.findAssetsByIdsScoped(pool, { userId, ids, scope })
       : [];
     if (assets.length !== ids.length) throw new Error('工程包含无权访问或已经不存在的素材');
     const productionAssets = await loadProductionRenderAssets(project, projectRow, userId);
@@ -580,10 +562,10 @@ async function runRender(jobId, userId, projectRow, options) {
     const outputPath = path.join(workDir, 'output.mp4');
     await renderProject({
       project, assetRows: localAssets, outputPath, options, signalRef,
-      onProgress: (progress, stage) => pool.query('UPDATE video_render_jobs SET progress = ?, stage = ? WHERE id = ? AND status = \'running\'', [progress, stage, jobId]).catch(() => {}),
+      onProgress: (progress, stage) => videoDao.updateRenderProgress(pool, { jobId, progress, stage }).catch(() => {}),
     });
     if (signalRef.canceled) return;
-    await pool.query("UPDATE video_render_jobs SET progress = 99, stage = '上传导出文件' WHERE id = ? AND status = 'running'", [jobId]);
+    await videoDao.finishRenderUpload(pool, jobId);
     const stored = await videoStorage.uploadRender(outputPath, {
       orgId: projectRow.org_id,
       userId,
@@ -594,14 +576,12 @@ async function runRender(jobId, userId, projectRow, options) {
       await videoStorage.deleteObject(stored.key).catch(() => null);
       return;
     }
-    const [completed] = await pool.query(
-      "UPDATE video_render_jobs SET status = 'completed', progress = 100, stage = '导出完成', output_path = ?, output_url = NULL, finished_at = NOW() WHERE id = ? AND status = 'running'",
-      [stored.key, jobId]
-    );
-    if (!completed.affectedRows) await videoStorage.deleteObject(stored.key).catch(() => null);
+    const completed = await videoDao.completeRenderJob(pool, { jobId, status: 'completed', stage: '导出完成', outputPath: stored.key });
+    if (!completed) await videoStorage.deleteObject(stored.key).catch(() => null);
   } catch (error) {
     const status = signalRef.canceled ? 'canceled' : 'failed';
-    await pool.query('UPDATE video_render_jobs SET status = ?, stage = ?, error_text = ?, finished_at = NOW() WHERE id = ? AND status = \'running\'', [status, status === 'canceled' ? '已取消' : '导出失败', String(error.message || error).slice(0, 4000), jobId]);
+    await videoDao.completeRenderJob(pool, { jobId, status, stage: status === 'canceled' ? '已取消' : '导出失败',
+      errorText: String(error.message || error).slice(0, 4000) });
   } finally {
     activeRenders.delete(String(jobId));
     clearInterval(cancelTimer);
