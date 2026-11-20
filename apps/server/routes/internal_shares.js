@@ -103,7 +103,7 @@ router.post('/', requirePermission('photos.view'), async (req, res) => {
     }
     let copyJobId = null;
     if (mode === 'copy') {
-      const job = await sharesDao.insertCopyJob(conn, { shareId: created.insertId, orgId: workspace.orgId,
+      const job = await sharesDao.insertSystemCopyJob(conn, { shareId: created.insertId, orgId: workspace.orgId,
         targetUnitId, requestedBy: workspace.userId });
       copyJobId = job.insertId;
     }

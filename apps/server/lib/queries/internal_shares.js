@@ -35,7 +35,7 @@ async function insertShareItems(conn, rows) {
   await conn.query('INSERT INTO internal_share_items (share_id, photo_id, snapshot_json) VALUES ?', [rows]);
 }
 
-async function insertCopyJob(conn, { shareId, orgId, targetUnitId, requestedBy }) {
+async function insertSystemCopyJob(conn, { shareId, orgId, targetUnitId, requestedBy }) {
   const [result] = await conn.query(
     `INSERT INTO organization_copy_jobs (share_id, organization_id, target_unit_id, requested_by, system_initiated)
      VALUES (?, ?, ?, ?, 1)`, [shareId, orgId, targetUnitId, requestedBy]);
@@ -61,7 +61,7 @@ async function revokeShare(conn, id) {
 }
 
 module.exports = {
-  findReusableAlbumShare, insertShare, insertShareItems, insertCopyJob,
+  findReusableAlbumShare, insertShare, insertShareItems, insertSystemCopyJob,
   insertAccessAudit, findShareForRevoke, revokeShare,
 };
 
