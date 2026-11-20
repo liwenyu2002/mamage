@@ -110,11 +110,8 @@ router.post('/', requirePermission('photos.view'), async (req, res) => {
                 return res.status(400).json({ error: 'INVALID_PARAM', message: 'projectId is required for project share' });
             }
 
-            const [projRows] = await conn.query(
-                'SELECT id FROM projects WHERE id = ? AND organization_id = ? LIMIT 1',
-                [projectId, orgId]
-            );
-            if (!projRows || projRows.length === 0) {
+            const projRows = await shareDao.findProjectInOrg(conn, { projectId, orgId });
+            if (!projRows.length) {
                 await conn.rollback();
                 conn.release(); conn = null;
                 return res.status(404).json({ error: 'NOT_FOUND', message: 'project not found' });
@@ -145,11 +142,8 @@ router.post('/', requirePermission('photos.view'), async (req, res) => {
                 }
             }
 
-            const [rows] = await conn.query(
-                'SELECT id FROM photos WHERE id IN (?) AND organization_id = ?',
-                [photoIds, orgId]
-            );
-            const found = new Set((rows || []).map((r) => r.id));
+            const rows = await shareDao.findPhotoIdsInOrg(conn, { photoIds, orgId });
+            const found = new Set(rows.map((r) => r.id));
             const missing = photoIds.filter((id) => !found.has(id));
             if (missing.length) {
                 await conn.rollback();
@@ -172,20 +166,12 @@ router.post('/', requirePermission('photos.view'), async (req, res) => {
 
         if (shareType === 'collection') {
             // bulk insert items
-            const values = photoIds.map((photoId, idx) => [inserted.id, photoId, idx]);
-            await conn.query(
-                'INSERT INTO share_link_items (share_id, photo_id, sort_order) VALUES ?',
-                [values]
-            );
+            await shareDao.insertShareItems(conn, photoIds.map((photoId, idx) => [inserted.id, photoId, idx]));
         } else if (workspace.enabled && syncMode === 'approval') {
-            const [currentPhotos] = await conn.query(
-                'SELECT id FROM photos WHERE project_id = ? AND organization_id = ? ORDER BY id',
-                [projectId, orgId]
-            );
+            const currentPhotos = await shareDao.listProjectPhotoIds(conn, { projectId, orgId });
             for (let offset = 0; offset < currentPhotos.length; offset += 400) {
-                const values = currentPhotos.slice(offset, offset + 400)
-                    .map((photo, index) => [inserted.id, photo.id, offset + index]);
-                await conn.query('INSERT INTO share_link_items (share_id, photo_id, sort_order) VALUES ?', [values]);
+                await shareDao.insertShareItems(conn,
+                    currentPhotos.slice(offset, offset + 400).map((photo, index) => [inserted.id, photo.id, offset + index]));
             }
         }
 
@@ -246,7 +232,7 @@ router.get('/mine', requirePermission('photos.view'), async (req, res) => {
     try {
         const workspace = await resolveWorkspace(req);
         if (!workspace.enabled || !workspace.unitId) return res.json([]);
-        const [rows] = await pool.query(
+        const rows = await shareDao.queryMineShares(pool, { sql:
             `SELECT s.code, s.share_type AS shareType, COALESCE(folder.folder_name, s.title) AS title, s.project_id AS projectId, s.folder_share_id AS folderShareId,
                     folder.source_folder_id AS folderId,
                     s.sync_mode AS syncMode, s.expires_at AS expiresAt, s.created_at AS createdAt,
@@ -272,8 +258,7 @@ router.get('/mine', requirePermission('photos.view'), async (req, res) => {
                    WHERE si.share_id = s.id AND NOT (ph.photographer_id <=> ?))` : ''}
                AND (s.expires_at IS NULL OR s.expires_at > NOW())
              ORDER BY s.created_at DESC LIMIT 100`,
-            [workspace.orgId, workspace.unitId, ...(workspace.ownPhotosOnly ? [workspace.userId, workspace.userId] : [])]
-        );
+            params: [workspace.orgId, workspace.unitId, ...(workspace.ownPhotosOnly ? [workspace.userId, workspace.userId] : [])] });
         res.json(rows);
     } catch (err) {
         if (!sendWorkspaceError(res, err)) res.status(500).json({ error: 'INTERNAL_ERROR' });
@@ -334,23 +319,9 @@ router.get('/:code', async (req, res) => {
         const code = String(req.params.code || '').trim();
         if (!code) return res.status(400).json({ error: 'INVALID_PARAM' });
 
-        const [rows] = await pool.query(
-            `
-                SELECT
-                    s.*, 
-                    u.name AS creatorName,
-                    p.name AS projectName,
-                    o.name AS organizationName
-                FROM share_links s
-                LEFT JOIN users u ON s.created_by = u.id
-                LEFT JOIN projects p ON s.project_id = p.id AND s.share_type = 'project'
-                LEFT JOIN organizations o ON s.organization_id = o.id
-                WHERE s.code = ?
-                LIMIT 1
-            `,
-            [code]
-        );
-        if (!rows || rows.length === 0) return res.status(404).json({ error: 'NOT_FOUND' });
+        const shareRow = await shareDao.findPublicShare(pool, code);
+        if (!shareRow) return res.status(404).json({ error: 'NOT_FOUND' });
+        const rows = [shareRow];
 
         const share = rows[0];
         const expiresAtIso = share.expires_at ? new Date(share.expires_at).toISOString() : null;
@@ -409,18 +380,11 @@ router.get('/:code', async (req, res) => {
 
         if (share.share_type === 'project') {
             try {
-                const [sectionRows] = await pool.query(
-                    `SELECT id, project_id AS projectId, name, section_time AS sectionTime, sort_order AS sortOrder
-                     FROM project_timeline_sections
-                     WHERE project_id = ?
-                     ORDER BY sort_order ASC, id ASC`,
-                    [share.project_id]
-                );
-                timelineSections = sectionRows || [];
+                timelineSections = await shareDao.listTimelineSections(pool, share.project_id);
             } catch (e) {
                 timelineSections = [];
             }
-            const [pRows] = await pool.query(
+            const pRows = await shareDao.queryRows(pool, { sql:
                 `
 						SELECT
 							p.id,
@@ -451,13 +415,12 @@ router.get('/:code', async (req, res) => {
 					ORDER BY p.created_at DESC
 					LIMIT ? OFFSET ?
 				`,
-                [...(share.unit_id && share.sync_mode === 'approval' ? [share.id] : []),
+                params: [...(share.unit_id && share.sync_mode === 'approval' ? [share.id] : []),
                     share.project_id, share.organization_id,
-                    ...(share.unit_id ? [share.unit_id] : []), limit, offset]
-            );
-            photos = pRows || [];
+                    ...(share.unit_id ? [share.unit_id] : []), limit, offset] });
+            photos = pRows;
         } else {
-            const [pRows] = await pool.query(
+            const pRows = await shareDao.queryRows(pool, { sql:
                 `
 					SELECT
 							p.id,
@@ -488,9 +451,8 @@ router.get('/:code', async (req, res) => {
 					ORDER BY s.sort_order ASC, s.id ASC
 					LIMIT ? OFFSET ?
 				`,
-                [share.id, share.organization_id,
-                    ...(share.unit_id ? [share.unit_id] : []), limit, offset]
-            );
+                params: [share.id, share.organization_id,
+                    ...(share.unit_id ? [share.unit_id] : []), limit, offset] });
             photos = pRows || [];
         }
 

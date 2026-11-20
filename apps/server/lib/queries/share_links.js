@@ -51,3 +51,65 @@ async function insertShareItemsIgnore(db, rows) {
 module.exports = {
   insertShareLink, revokeByCode, findManageableShare, listPendingPhotos, findPhotosInScope, insertShareItemsIgnore,
 };
+
+// ---- 创建流程内的校验与条目写入 ----
+async function findProjectInOrg(db, { projectId, orgId }) {
+  const [rows] = await db.query('SELECT id FROM projects WHERE id = ? AND organization_id = ? LIMIT 1', [projectId, orgId]);
+  return rows || [];
+}
+
+async function findPhotoIdsInOrg(db, { photoIds, orgId }) {
+  const [rows] = await db.query('SELECT id FROM photos WHERE id IN (?) AND organization_id = ?', [photoIds, orgId]);
+  return rows || [];
+}
+
+async function insertShareItems(db, values) {
+  if (!values.length) return;
+  await db.query('INSERT INTO share_link_items (share_id, photo_id, sort_order) VALUES ?', [values]);
+}
+
+async function listProjectPhotoIds(db, { projectId, orgId }) {
+  const [rows] = await db.query('SELECT id FROM photos WHERE project_id = ? AND organization_id = ? ORDER BY id', [projectId, orgId]);
+  return rows || [];
+}
+
+module.exports.findProjectInOrg = findProjectInOrg;
+module.exports.findPhotoIdsInOrg = findPhotoIdsInOrg;
+module.exports.insertShareItems = insertShareItems;
+module.exports.listProjectPhotoIds = listProjectPhotoIds;
+
+/** 公开分享详情（含创建者/相册/组织名） */
+async function findPublicShare(db, code) {
+  const [rows] = await db.query(
+    `SELECT s.*, u.name AS creatorName, p.name AS projectName, o.name AS organizationName
+       FROM share_links s
+       LEFT JOIN users u ON s.created_by = u.id
+       LEFT JOIN projects p ON s.project_id = p.id AND s.share_type = 'project'
+       LEFT JOIN organizations o ON s.organization_id = o.id
+      WHERE s.code = ? LIMIT 1`, [code]);
+  return rows && rows.length ? rows[0] : null;
+}
+
+async function listTimelineSections(db, projectId) {
+  const [rows] = await db.query(
+    `SELECT id, project_id AS projectId, name, section_time AS sectionTime, sort_order AS sortOrder
+       FROM project_timeline_sections WHERE project_id = ? ORDER BY sort_order ASC, id ASC`, [projectId]);
+  return rows || [];
+}
+
+/** 公开页照片分页（两种 SQL 由路由拼好后传入，避免重复模板） */
+async function queryRows(db, { sql, params }) {
+  const [rows] = await db.query(sql, params);
+  return rows || [];
+}
+
+/** 我创建的分享列表（SQL 由路由拼装） */
+async function queryMineShares(db, { sql, params }) {
+  const [rows] = await db.query(sql, params);
+  return rows || [];
+}
+
+module.exports.findPublicShare = findPublicShare;
+module.exports.listTimelineSections = listTimelineSections;
+module.exports.queryRows = queryRows;
+module.exports.queryMineShares = queryMineShares;
