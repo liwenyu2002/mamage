@@ -29,14 +29,14 @@
 | 项 | 数值 | 命令 |
 |---|---|---|
 | web lint error | 0（warning 27） | `cd apps/web && node_modules/.bin/eslint src` |
-| server lint error | 0（warning 23） | `cd apps/server && node_modules/.bin/eslint .` |
-| `no-unused-vars` | web 785 → **0**，server 228 → **0** | 同上 |
+| server lint error | 0（warning 24） | `cd apps/server && node_modules/.bin/eslint .` |
+| `no-unused-vars` | web 785 → **0**，server 228 → **0**（实测复跑为 0） | 同上 |
 | `react-hooks/exhaustive-deps` | web 69 → **0**（补依赖 12 处、ref 稳定 9 处、刻意豁免 21 处并写明原因） | 同上 |
 | react-hooks 违规 | 103 → **0** | 同上 |
 | 导航回归 | 17 / 19（`publicAlbum` / `publicFolder` 为既有失败，已用 worktree 在 716bbd25 复现同样两项） | `cd apps/web && node scripts/test-navigation-browser.cjs` |
 | 全量 server 测试 | 129 通过 / 15 环境门控（`bash scripts/test-all.sh`） |
 | 调色/编辑单测 | 34 项通过 | `cd apps/server && npm run test:photo-tone` |
-| 接口总数 | 212 条（见矩阵） | `node scripts/gen-auth-matrix.mjs` |
+| 接口总数 | **224** 条（矩阵按 `app.js` 真实挂载生成，含 `lib/` 注册的 12 条） | `node scripts/gen-auth-matrix.mjs` |
 
 ## 四、本轮顺手修掉的真问题
 
@@ -72,8 +72,12 @@
   `routes/faces.js` 42 → **0**（含合并/拆分/标注/检测落库/找自己分享入口）。约定：dao 返回 `affectedRows` 数字而非原始元组，
   避免调用方解构口径不一。
 - 规则：**新的查询写进 `lib/queries/<域>.js`**，routes 只做编排与错误码；SQL 不再散落在路由里。
-- 棘轮：`scripts/audit-inline-sql.mjs` 统计 `routes/` 内联 SQL 调用点，当前 **70**，
-  `ci.sh` 用 `--fail-over 0` 卡住"只降不升"，每迁一个文件把阈值下调（374 → … → 278 → 269 → 261）。
+- 棘轮：`scripts/audit-inline-sql.mjs` 统计 `routes/` 内 `pool|conn|db.query(` 调用点，当前 **0**，
+  `ci.sh` 用 `--fail-over 0` 锁死。
+- **口径说明（重要）**：这个 0 只表示"routes 不再直接发起查询"。仍有 **70 行 SQL 文本**留在 `routes/*.js`
+  里，通过 `dao.queryRows(pool, { sql })` 之类的透传口子执行（`faces.js` 19、`photos.js` 11、
+  `internal_shares.js` 9、`projects.js` 8 等）。这属于"SQL 换了个文件放"，不是真正的分层，
+  已列入下方「已知遗留」按簇清理。
 - TypeScript：`tsconfig.json` + `@babel/preset-typescript` 已接入 webpack（`.ts/.tsx` 与 JS 同管线），
   `npm run typecheck` 进 CI。已转 TS：`services/shareService.ts`、`services/accountService.ts`。
   **注意**：当前 Babel 8 的 preset-typescript 不剥离“泛型调用实参”（`f<T>(x)`），TS 文件里统一用
@@ -90,3 +94,23 @@
 > 2026-11-20 追加：组件内裸 `fetch('/api/...')` 已清零（20 处 → 0），全部经 `services/`。
 > 新增服务：`shareService`（公开分享读/建）、`accountService`（用户/角色/邀请码/改密）；
 > `authService` 扩了 providers/login/email-code/register/IAM 二维码取消；`projectService` 扩取景项目；`newsMatrixService` 扩服务端渲染预览。
+
+
+## 六、已知遗留（2026-11-20 三份独立复审的结论）
+
+按"风险 × 收益"排序，尚未处理：
+
+| # | 问题 | 证据 | 影响 |
+|---|---|---|---|
+| 1 | routes 里仍有 70 行 SQL 文本经 dao 透传（`queryRows(pool,{sql})`） | `grep -rniE "SELECT \|INSERT INTO..." apps/server/routes/*.js \| wc -l` → 70 | 分层只是表面；棘轮口径不覆盖 |
+| 2 | dao 写操作返回形状未统一：68 个写函数仅 23 个返回 `affectedRows` 数字 | `lib/queries/*.js` 手查 | 调用方需记两套，改一处易错位 |
+| 3 | 7 个 workspace/share 端到端测试被 `DB_NAME` 门控，CI 默认不跑 | `scripts/test_workspace_*.js:8` 直接 throw | 跨组织共享的唯一端到端保护形同虚设 |
+| 4 | `photos.photographer_id` 无索引；2 处 `ORDER BY RAND()`；列表内逐条 `fs.existsSync` | 54 个迁移里 grep 不到该索引 | 个人工作区退化为全组织扫描 |
+| 5 | 错误出口 6 套并存；500 兜底泄漏已修，但 4xx 仍在多处回传原始 message | `grep -c "catch" routes/*.js` → 383 | 文案不一致，个别处仍有信息泄漏 |
+| 6 | dao 契约测试 15 项 / 336 个导出（4.5%）；`organizations`、`operations` 零测试 | `grep -c "^test(" scripts/test_dao_contracts.js` | 覆盖假象 |
+| 7 | `ProjectDetailInner` 单函数约 6950 行、146 个 `useState` | `wc -l src/ProjectDetail.jsx` → 7604 | 全仓风险最高的单点 |
+| 8 | `GET /api/organizations` 匿名可枚举全库学院（前端无调用点） | `routes/organizations.js:8` 无权限守卫 | 遗留暴露面 |
+
+已完成（本轮复审驱动）：鉴权矩阵按 `app.js` 真实挂载重建（212 → 224 条，含 `lib/` 注册的 12 条）、
+去掉 `registerUserAccessAdmin` 重复注册、补 `GET /api/users/:id`（同组织限定）、500 兜底停止回传 DB 原文
+（upload 6 处 / faces 5 处）、`scripts/test-all.sh` 汇总行 bash 3.2 兼容、清理误提交的编辑器临时文件与一次性 codemod。
