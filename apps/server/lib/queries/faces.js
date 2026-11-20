@@ -195,3 +195,61 @@ async function countRelatedPhotos(db, scope) {
 }
 
 module.exports.countRelatedPhotos = countRelatedPhotos;
+
+/** 通用执行（动态 SQL 由路由拼接，权限片段保持原样） */
+async function queryRows(db, { sql, params }) {
+  const [rows] = await db.query(sql, params);
+  return rows || [];
+}
+
+async function executeDynamic(db, { sql, params }) {
+  const [result] = await db.query(sql, params);
+  return result;
+}
+
+module.exports.queryRows = queryRows;
+module.exports.executeDynamic = executeDynamic;
+
+// ---- 检测结果落库 ----
+async function insertDetectedFace(conn, face) {
+  const [result] = await conn.query(
+    `INSERT INTO photo_faces (
+      photo_id, project_id, organization_id, person_id, face_no,
+      bbox_x, bbox_y, bbox_w, bbox_h, bbox_unit,
+      image_width, image_height, detection_score, quality_score,
+      embedding, normalized_embedding,
+      model_name, model_version, status, face_hash, extra
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [face.photoId, face.projectId || null, face.orgId, face.personId ?? null, face.faceNo,
+      face.left, face.top, face.width, face.height, face.unit || 'ratio',
+      face.imageWidth, face.imageHeight, face.detectionScore, face.qualityScore,
+      face.embedding ? JSON.stringify(face.embedding) : null,
+      face.normalizedEmbedding ? JSON.stringify(face.normalizedEmbedding) : null,
+      face.modelName || 'mobilefacenet_arcface', face.modelVersion || null,
+      face.status || 'detected', face.faceHash || null, JSON.stringify(face.extra)]);
+  return result;
+}
+
+/** 人物资料更新（动态 sets 由路由拼接） */
+async function updatePersonDynamic(db, { sql, params }) {
+  const [result] = await db.query(sql, params);
+  return Number(result && result.affectedRows) || 0;
+}
+
+/** 按 code 取分享链接（人脸"找自己"入口用） */
+async function findShareLinkByCode(db, code) {
+  const [rows] = await db.query(
+    'SELECT id, share_type, project_id, organization_id, unit_id, sync_mode, folder_share_id, expires_at, revoked_at FROM share_links WHERE code = ? LIMIT 1',
+    [code]);
+  return rows && rows.length ? rows[0] : null;
+}
+
+async function listPhotoIdsByScope(db, { sql, params }) {
+  const [rows] = await db.query(sql, params);
+  return (rows || []).map((row) => Number(row.photo_id ?? row.id)).filter(Boolean);
+}
+
+module.exports.insertDetectedFace = insertDetectedFace;
+module.exports.updatePersonDynamic = updatePersonDynamic;
+module.exports.findShareLinkByCode = findShareLinkByCode;
+module.exports.listPhotoIdsByScope = listPhotoIdsByScope;

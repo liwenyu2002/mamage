@@ -227,7 +227,7 @@ async function getPhotoBasic(photoId, orgId) {
   `;
   sql = appendOrgScope(sql, 'photos', orgId, params);
   sql += ' LIMIT 1';
-  const [rows] = await pool.query(sql, params);
+  const rows = await facesDao.queryRows(pool, { sql, params });
   return rows && rows.length ? rows[0] : null;
 }
 
@@ -243,7 +243,7 @@ async function listFacesByPhotoId(photoId, orgId) {
   `;
   sql = appendOrgScope(sql, 'pf', orgId, params);
   sql += ' ORDER BY pf.face_no ASC, pf.id ASC';
-  const [rows] = await pool.query(sql, params);
+  const rows = await facesDao.queryRows(pool, { sql, params });
   return (rows || []).map(mapFaceRow);
 }
 
@@ -268,7 +268,7 @@ async function getFaceWithPerson(faceId, orgId, workspace = null) {
   sql = appendOrgScope(sql, 'pf', orgId, params);
   sql = appendVisiblePhotoScope(sql, workspace, params);
   sql += ' LIMIT 1';
-  const [rows] = await pool.query(sql, params);
+  const rows = await facesDao.queryRows(pool, { sql, params });
   return rows && rows.length ? rows[0] : null;
 }
 
@@ -306,7 +306,7 @@ async function listRelatedPhotosByPersonId(personId, orgId, limit = null, userId
     params.push(safeLimit);
     if (offset !== null) { sql += ' OFFSET ?'; params.push(offset); }
   }
-  const [rows] = await pool.query(sql, params);
+  const rows = await facesDao.queryRows(pool, { sql, params });
   return (rows || []).map((row) => mapRelatedPhoto(row, userId));
 }
 
@@ -439,38 +439,13 @@ async function upsertFacesForPhoto({ photoId, orgId, incomingFaces, force }) {
         for (let i = 0; i < normalizedFaces.length; i++) {
           const face = normalizedFaces[i];
           const personId = Number.isFinite(face.personId) ? face.personId : null;
-          await conn.query(
-            `INSERT INTO photo_faces (
-              photo_id, project_id, organization_id, person_id, face_no,
-              bbox_x, bbox_y, bbox_w, bbox_h, bbox_unit,
-              image_width, image_height, detection_score, quality_score,
-              embedding, normalized_embedding,
-              model_name, model_version, status, face_hash, extra
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-              photoId,
-              photo.projectId || null,
-              orgId,
-              personId,
-              face.faceNo || (i + 1),
-              face.left,
-              face.top,
-              face.width,
-              face.height,
-              face.unit || 'ratio',
-              face.imageWidth,
-              face.imageHeight,
-              face.detectionScore,
-              face.qualityScore,
-              face.embedding ? JSON.stringify(face.embedding) : null,
-              face.normalizedEmbedding ? JSON.stringify(face.normalizedEmbedding) : null,
-              face.modelName || 'mobilefacenet_arcface',
-              face.modelVersion || null,
-              face.status || 'detected',
-              face.faceHash || null,
-              JSON.stringify({ ...face.extra, recognitionRevision: CURRENT_FACE_REVISION }),
-            ]
-          );
+          await facesDao.insertDetectedFace(conn, { photoId, projectId: photo.projectId, orgId, personId,
+            faceNo: face.faceNo || (i + 1), left: face.left, top: face.top, width: face.width, height: face.height,
+            unit: face.unit, imageWidth: face.imageWidth, imageHeight: face.imageHeight,
+            detectionScore: face.detectionScore, qualityScore: face.qualityScore, embedding: face.embedding,
+            normalizedEmbedding: face.normalizedEmbedding, modelName: face.modelName, modelVersion: face.modelVersion,
+            status: face.status, faceHash: face.faceHash,
+            extra: { ...face.extra, recognitionRevision: CURRENT_FACE_REVISION } });
         }
       }
 
@@ -543,7 +518,7 @@ async function buildFaceProfile({ faceId, personId, orgId, userId = null, worksp
     `;
     pSql = appendOrgScope(pSql, 'face_persons', orgId, pParams);
     pSql += ' LIMIT 1';
-    const [pRows] = await pool.query(pSql, pParams);
+    const pRows = await facesDao.queryRows(pool, { sql: pSql, params: pParams });
 
     if (pRows && pRows.length) {
       const p = pRows[0];
@@ -673,7 +648,7 @@ router.get('/faces', requirePermission('photos.view'), async (req, res) => {
       sql = appendOrgScope(sql, 'pf', orgId, params);
       sql = appendVisiblePhotoScope(sql, req.workspace, params);
       sql += ' ORDER BY pf.created_at DESC, pf.id DESC LIMIT 500';
-      const [rows] = await pool.query(sql, params);
+      const rows = await facesDao.queryRows(pool, { sql, params });
       const faces = (rows || []).map(mapFaceRow);
       return res.json({ personId: String(personId), faces, list: faces, total: faces.length });
     }
@@ -923,13 +898,10 @@ router.get('/persons', requirePermission('faces.view'), async (req, res) => {
     }
 
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
-    const [countRows] = await pool.query(
-      `SELECT COUNT(*) AS total FROM face_persons fp ${whereSql}`,
-      params
-    );
+    const countRows = await facesDao.queryRows(pool, { sql: `SELECT COUNT(*) AS total FROM face_persons fp ${whereSql}`, params });
     const total = countRows && countRows[0] ? Number(countRows[0].total) || 0 : 0;
 
-    const [rows] = await pool.query(
+    const rows = await facesDao.queryRows(pool, { sql:
       `SELECT
          fp.id,
          fp.person_no AS personNo,
@@ -953,8 +925,7 @@ router.get('/persons', requirePermission('faces.view'), async (req, res) => {
        ${whereSql}
        ORDER BY fp.updated_at DESC, fp.id DESC
        LIMIT ? OFFSET ?`,
-      [...params, pageSize, offset]
-    );
+      params: [...params, pageSize, offset] });
 
     const list = (rows || []).map((r) => ({
       id: String(r.id),
@@ -1154,7 +1125,7 @@ async function loadPersonFacesWithPhoto(personId, orgId, workspace = null) {
   sql = appendOrgScope(sql, 'pf', orgId, params);
   sql = appendVisiblePhotoScope(sql, workspace, params);
   sql += ' ORDER BY pf.created_at DESC, pf.id DESC LIMIT 5000';
-  const [rows] = await pool.query(sql, params);
+  const rows = await facesDao.queryRows(pool, { sql, params });
   return rows || [];
 }
 
@@ -1321,7 +1292,7 @@ router.post('/persons/:personId/split', requirePermission('faces.merge'), async 
           WHERE active.person_id = face_persons.id AND ${usableFaceSql('active')})`;
       dupSql = appendOrgScope(dupSql, 'face_persons', orgId, dupParams);
       dupSql += ' LIMIT 1';
-      const [dupRows] = await pool.query(dupSql, dupParams);
+      const dupRows = await facesDao.queryRows(pool, { sql: dupSql, params: dupParams });
       if (dupRows && dupRows.length) return res.status(409).json({
         error: 'person name already exists',
         message: '该姓名已被其他有效人物使用，请先搜索并确认是否需要合并人物。',
@@ -1462,7 +1433,7 @@ router.patch('/persons/:personId', requirePermission('faces.label'), async (req,
       let dupSql = `SELECT id, employee_no AS employeeNo, department FROM face_persons WHERE name = ? AND id <> ?
         AND EXISTS (SELECT 1 FROM photo_faces active WHERE active.person_id = face_persons.id AND ${usableFaceSql('active')})`;
       dupSql = appendOrgScope(dupSql, 'face_persons', orgId, dupParams);
-      const [dupRows] = await pool.query(dupSql, dupParams);
+      const dupRows = await facesDao.queryRows(pool, { sql: dupSql, params: dupParams });
       const nextNo = employeeNo === undefined ? null : employeeNo;
       const nextDept = department === undefined ? null : department;
       const conflict = (dupRows || []).find(row => {
@@ -1491,8 +1462,8 @@ router.patch('/persons/:personId', requirePermission('faces.label'), async (req,
     updParams.push(personId);
     let updSql = 'UPDATE face_persons SET ' + sets.join(', ') + ' WHERE id = ?';
     updSql = appendOrgScope(updSql, 'face_persons', orgId, updParams);
-    const [upd] = await pool.query(updSql, updParams);
-    if (!upd || !Number(upd.affectedRows)) {
+    const updated = await facesDao.updatePersonDynamic(pool, { sql: updSql, params: updParams });
+    if (!updated) {
       return res.status(404).json({ error: 'person not found' });
     }
 
@@ -1712,37 +1683,33 @@ router.post('/faces/find-me/share', (req, res) => {
       const code = String((req.body && req.body.shareCode) || '').trim();
       if (!code) return res.status(400).json({ error: 'shareCode is required' });
 
-      const [rows] = await pool.query(
-        'SELECT id, share_type, project_id, organization_id, unit_id, sync_mode, folder_share_id, expires_at, revoked_at FROM share_links WHERE code = ? LIMIT 1', [code]
-      );
-      if (!rows || !rows.length) return res.status(404).json({ error: 'NOT_FOUND' });
-      const s = rows[0];
+      const s = await facesDao.findShareLinkByCode(pool, code);
+      if (!s) return res.status(404).json({ error: 'NOT_FOUND' });
       if (s.revoked_at) return res.status(410).json({ error: 'REVOKED' });
       if (s.expires_at && new Date(s.expires_at).getTime() <= Date.now()) return res.status(410).json({ error: 'EXPIRED' });
 
       let scope;
       if (s.folder_share_id) {
         const condition = require('../lib/folder_shares').publicFolderPhotoScope(s, 'ph');
-        const [items] = await pool.query(`SELECT ph.id AS photo_id FROM photos ph WHERE ${condition.sql}${s.sync_mode === 'approval'
-          ? ' AND EXISTS (SELECT 1 FROM share_link_items approved WHERE approved.share_id = ? AND approved.photo_id = ph.id)' : ''}`,
-        [...condition.params, ...(s.sync_mode === 'approval' ? [s.id] : [])]);
-        scope = { photoIds: items.map(row => Number(row.photo_id)) };
+        const photoIds = await facesDao.listPhotoIdsByScope(pool, {
+          sql: `SELECT ph.id AS photo_id FROM photos ph WHERE ${condition.sql}${s.sync_mode === 'approval'
+            ? ' AND EXISTS (SELECT 1 FROM share_link_items approved WHERE approved.share_id = ? AND approved.photo_id = ph.id)' : ''}`,
+          params: [...condition.params, ...(s.sync_mode === 'approval' ? [s.id] : [])] });
+        scope = { photoIds };
       } else if (s.share_type === 'collection') {
-        const [items] = await pool.query(
-          `SELECT si.photo_id FROM share_link_items si JOIN photos ph ON ph.id = si.photo_id
-           WHERE si.share_id = ? AND ph.organization_id = ?
-             ${s.unit_id ? 'AND ph.unit_id = ?' : ''}`,
-          [s.id, s.organization_id, ...(s.unit_id ? [s.unit_id] : [])]
-        );
-        scope = { photoIds: (items || []).map((r) => Number(r.photo_id)).filter(Boolean) };
+        const photoIds = await facesDao.listPhotoIdsByScope(pool, {
+          sql: `SELECT si.photo_id FROM share_link_items si JOIN photos ph ON ph.id = si.photo_id
+                 WHERE si.share_id = ? AND ph.organization_id = ?
+                   ${s.unit_id ? 'AND ph.unit_id = ?' : ''}`,
+          params: [s.id, s.organization_id, ...(s.unit_id ? [s.unit_id] : [])] });
+        scope = { photoIds };
       } else if (s.share_type === 'project') {
         if (s.unit_id && s.sync_mode === 'approval') {
-          const [items] = await pool.query(
-            `SELECT si.photo_id FROM share_link_items si JOIN photos ph ON ph.id = si.photo_id
-             WHERE si.share_id = ? AND ph.organization_id = ? AND ph.unit_id = ?`,
-            [s.id, s.organization_id, s.unit_id]
-          );
-          scope = { photoIds: (items || []).map((r) => Number(r.photo_id)).filter(Boolean) };
+          const photoIds = await facesDao.listPhotoIdsByScope(pool, {
+            sql: `SELECT si.photo_id FROM share_link_items si JOIN photos ph ON ph.id = si.photo_id
+                   WHERE si.share_id = ? AND ph.organization_id = ? AND ph.unit_id = ?`,
+            params: [s.id, s.organization_id, s.unit_id] });
+          scope = { photoIds };
         } else {
           scope = { projectId: Number(s.project_id),
             orgId: s.organization_id === null ? null : Number(s.organization_id),
