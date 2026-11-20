@@ -18,7 +18,7 @@ node scripts/audit-inline-sql.mjs --fail-over 0 | head -3
 echo "== 5/6 server 单测：调色 / 编辑 / 删除鉴权 =="
 (cd apps/server && node --test scripts/test_photo_tone.cjs scripts/test_photo_tone_render.cjs \
   scripts/test_photo_tone_routes.cjs scripts/test_photo_edit.cjs scripts/test_photo_delete_ownership.js \
-  scripts/test_oidc_assignment_guard.js)
+  scripts/test_oidc_assignment_guard.js scripts/test_dao_contracts.js)
 
 echo "== 6/6 构建 web =="
 (cd apps/web && npm run build 2>&1 | tail -3)
