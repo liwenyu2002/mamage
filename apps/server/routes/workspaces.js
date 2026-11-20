@@ -17,16 +17,10 @@ function fail(res, err) {
 }
 
 async function getUnitRole(workspace, unitId, db = pool, lock = false) {
-  const [rows] = await db.query(
-    `SELECT m.role FROM organization_units ou
-     LEFT JOIN organization_unit_memberships m
-       ON m.unit_id = ou.id AND m.user_id = ? AND m.removed_at IS NULL
-     WHERE ou.id = ? AND ou.organization_id = ? AND ou.archived_at IS NULL LIMIT 1${lock ? ' FOR UPDATE' : ''}`,
-    [workspace.userId, unitId, workspace.orgId]
-  );
-  if (!rows.length) return null;
+  const row = await wsDao.findUnitRoleRow(db, { workspace, unitId, lock });
+  if (!row) return null;
   if (workspace.collegeAdmin) return 'collegeAdmin';
-  return rows[0]?.role || null;
+  return row.role || null;
 }
 
 async function writeAudit(conn, workspace, action, unitId, resourceType, resourceId, details = null) {
@@ -71,18 +65,8 @@ router.get('/stats/ai', requirePermission('photos.view'), async (req, res) => {
       throw new WorkspaceAccessError('UNIT_MANAGER_REQUIRED');
     }
     const days = Math.max(1, Math.min(365, Math.floor(Number(req.query.days) || 30)));
-    const [rows] = await pool.query(
-      `SELECT j.unit_id AS unitId, ou.name AS unitName, COUNT(*) AS jobCount,
-              SUM(j.status = 'succeeded') AS succeededCount,
-              COALESCE(SUM(j.tokens_used), 0) AS tokensUsed,
-              COALESCE(SUM(j.cost_estimate), 0) AS estimatedCost
-       FROM ai_jobs j JOIN users u ON u.id = j.user_id
-       LEFT JOIN organization_units ou ON ou.id = j.unit_id
-       WHERE u.organization_id = ? AND j.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
-         ${workspace.collegeAdmin ? '' : 'AND j.unit_id = ?'}
-       GROUP BY j.unit_id, ou.name ORDER BY jobCount DESC`,
-      [workspace.orgId, days, ...(workspace.collegeAdmin ? [] : [workspace.unitId])]
-    );
+    const rows = await wsDao.aiUsageStats(pool, { orgId: workspace.orgId, days,
+      unitId: workspace.collegeAdmin ? null : workspace.unitId });
     res.json({ days, rows });
   } catch (err) { fail(res, err); }
 });
@@ -91,13 +75,8 @@ router.get('/albums', requirePermission('photos.view'), async (req, res) => {
   try {
     const workspace = await resolveWorkspace(req);
     if (!workspace.enabled || !workspace.unitId) return res.json([]);
-    const [rows] = await pool.query(
-      `SELECT id, name FROM projects
-       WHERE organization_id = ? AND unit_id = ?
-         ${workspace.collegeAdmin ? '' : 'AND (restricted_to_user_id IS NULL OR restricted_to_user_id = ?)'}
-       ORDER BY created_at DESC, id DESC LIMIT 5000`,
-      [workspace.orgId, workspace.unitId, ...(workspace.collegeAdmin ? [] : [workspace.userId])]
-    );
+    const rows = await wsDao.listUnitAlbums(pool, { orgId: workspace.orgId, unitId: workspace.unitId,
+      userId: workspace.collegeAdmin ? null : workspace.userId });
     res.json(rows);
   } catch (err) { fail(res, err); }
 });
@@ -111,13 +90,7 @@ router.get('/:unitId/members', requirePermission('photos.view'), async (req, res
     const admin = await accessAdministrator(pool, workspace.userId);
     const managesGroup = role === 'manager' || (!admin.allowed && role === 'collegeAdmin'
       && await getUnitRole({ ...workspace, collegeAdmin: false }, unitId) === 'manager');
-    const [rows] = await pool.query(
-      `SELECT u.id, u.name, u.email, u.role AS accountRole, m.role, m.created_at AS joinedAt
-       FROM organization_unit_memberships m JOIN users u ON u.id = m.user_id
-       WHERE m.unit_id = ? AND m.removed_at IS NULL AND u.organization_id = ?
-       ORDER BY FIELD(m.role, 'manager', 'editor', 'member', 'viewer'), u.name ASC`,
-      [unitId, workspace.orgId]
-    );
+    const rows = await wsDao.listUnitMembers(pool, { unitId, orgId: workspace.orgId });
     res.json(rows.map(({ accountRole, ...member }) => ({
       ...member, accessRoleLabel: ROLE_LABELS[member.role === 'manager' ? 'manager' : member.role === 'viewer' ? 'viewer' : 'contributor'],
       canChangeRole: Number(member.id) !== workspace.userId && accountRole !== 'superadmin'
@@ -135,12 +108,7 @@ router.get('/:unitId/candidates', requirePermission('photos.view'), async (req, 
     if (role !== 'manager' && role !== 'collegeAdmin') throw new WorkspaceAccessError('UNIT_FORBIDDEN');
     const q = String(req.query.q || '').trim().slice(0, 80);
     if (q.length < 2) return res.json([]);
-    const [rows] = await pool.query(
-      `SELECT u.id, u.name, u.email
-       FROM users u WHERE u.organization_id = ? AND (u.name LIKE ? OR u.email LIKE ?)
-       ORDER BY u.name LIMIT 30`,
-      [workspace.orgId, `%${q}%`, `%${q}%`]
-    );
+    const rows = await wsDao.searchCandidates(pool, { orgId: workspace.orgId, like: `%${q}%` });
     res.json(rows);
   } catch (err) { fail(res, err); }
 });
@@ -153,18 +121,9 @@ router.get('/:unitId/recipients', requirePermission('photos.view'), async (req, 
       || (!workspace.collegeAdmin && !['editor', 'manager'].includes(workspace.role))) {
       throw new WorkspaceAccessError('UNIT_EDITOR_REQUIRED');
     }
-    const [units] = await pool.query(
-      'SELECT id FROM organization_units WHERE id = ? AND organization_id = ? AND archived_at IS NULL LIMIT 1',
-      [unitId, workspace.orgId]
-    );
+    const units = await wsDao.findArchivedUnit(pool, { unitId, orgId: workspace.orgId });
     if (!units.length || unitId === workspace.unitId) throw new WorkspaceAccessError('INVALID_TARGET_UNIT', 400);
-    const [rows] = await pool.query(
-      `SELECT u.id, u.name, u.email
-       FROM organization_unit_memberships m JOIN users u ON u.id = m.user_id
-       WHERE m.unit_id = ? AND m.removed_at IS NULL AND u.organization_id = ?
-       ORDER BY u.name LIMIT 200`,
-      [unitId, workspace.orgId]
-    );
+    const rows = await wsDao.listUnitRecipients(pool, { unitId, orgId: workspace.orgId });
     res.json(rows);
   } catch (err) { fail(res, err); }
 });
@@ -238,11 +197,7 @@ router.get('/face-search/grants', requirePermission('photos.view'), async (req, 
   try {
     const workspace = await resolveWorkspace(req);
     if (!workspacePolicy(workspace).canGrantFaces) throw new WorkspaceAccessError('COLLEGE_ADMIN_REQUIRED');
-    const [rows] = await pool.query(
-      `SELECT g.user_id AS userId, u.name, u.email, g.college_wide AS collegeWide, g.can_manage AS canManage
-       FROM face_search_grants g JOIN users u ON u.id = g.user_id
-       WHERE g.organization_id = ? ORDER BY u.name`, [workspace.orgId]
-    );
+    const rows = await wsDao.listFaceSearchGrants(pool, workspace.orgId);
     res.json(rows);
   } catch (err) { fail(res, err); }
 });

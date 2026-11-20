@@ -94,3 +94,88 @@ module.exports = {
   lockUserRole, lockMembershipRole, updateMembershipRole, upsertMembership, findMembershipRole, removeMembership,
   findUserInOrg, grantFaceSearch, revokeFaceSearch,
 };
+
+async function findUnitRoleRow(db, { workspace, unitId, lock }) {
+  const [rows] = await db.query(
+    `SELECT m.role FROM organization_units ou
+      LEFT JOIN organization_unit_memberships m
+        ON m.unit_id = ou.id AND m.user_id = ? AND m.removed_at IS NULL
+      WHERE ou.id = ? AND ou.organization_id = ? AND ou.archived_at IS NULL LIMIT 1${lock ? ' FOR UPDATE' : ''}`,
+    [workspace.userId, unitId, workspace.orgId]);
+  return rows && rows.length ? rows[0] : null;
+}
+
+async function aiUsageStats(db, { orgId, days, unitId }) {
+  const [rows] = await db.query(
+    `SELECT j.unit_id AS unitId, ou.name AS unitName, COUNT(*) AS jobCount,
+            SUM(j.status = 'succeeded') AS succeededCount,
+            COALESCE(SUM(j.tokens_used), 0) AS tokensUsed,
+            COALESCE(SUM(j.cost_estimate), 0) AS estimatedCost
+       FROM ai_jobs j JOIN users u ON u.id = j.user_id
+       LEFT JOIN organization_units ou ON ou.id = j.unit_id
+      WHERE u.organization_id = ? AND j.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
+        ${unitId === null ? '' : 'AND j.unit_id = ?'}
+      GROUP BY j.unit_id, ou.name ORDER BY jobCount DESC`,
+    [orgId, days, ...(unitId === null ? [] : [unitId])]);
+  return rows || [];
+}
+
+async function listUnitAlbums(db, { orgId, unitId, userId }) {
+  const [rows] = await db.query(
+    `SELECT id, name FROM projects
+      WHERE organization_id = ? AND unit_id = ?
+        ${userId === null ? '' : 'AND (restricted_to_user_id IS NULL OR restricted_to_user_id = ?)'}
+      ORDER BY created_at DESC, id DESC LIMIT 5000`,
+    [orgId, unitId, ...(userId === null ? [] : [userId])]);
+  return rows || [];
+}
+
+async function listUnitMembers(db, { unitId, orgId }) {
+  const [rows] = await db.query(
+    `SELECT u.id, u.name, u.email, u.role AS accountRole, m.role, m.created_at AS joinedAt
+       FROM organization_unit_memberships m JOIN users u ON u.id = m.user_id
+      WHERE m.unit_id = ? AND m.removed_at IS NULL AND u.organization_id = ?
+      ORDER BY FIELD(m.role, 'manager', 'editor', 'member', 'viewer'), u.name ASC`, [unitId, orgId]);
+  return rows || [];
+}
+
+async function searchCandidates(db, { orgId, like }) {
+  const [rows] = await db.query(
+    `SELECT u.id, u.name, u.email FROM users u
+      WHERE u.organization_id = ? AND (u.name LIKE ? OR u.email LIKE ?)
+      ORDER BY u.name LIMIT 30`, [orgId, like, like]);
+  return rows || [];
+}
+
+async function findArchivedUnit(db, { unitId, orgId }) {
+  const [rows] = await db.query(
+    'SELECT id FROM organization_units WHERE id = ? AND organization_id = ? AND archived_at IS NULL LIMIT 1',
+    [unitId, orgId]);
+  return rows || [];
+}
+
+async function listUnitRecipients(db, { unitId, orgId }) {
+  const [rows] = await db.query(
+    `SELECT u.id, u.name, u.email FROM organization_unit_memberships m JOIN users u ON u.id = m.user_id
+      WHERE m.unit_id = ? AND m.removed_at IS NULL AND u.organization_id = ?
+      ORDER BY u.name LIMIT 200`, [unitId, orgId]);
+  return rows || [];
+}
+
+module.exports.findUnitRoleRow = findUnitRoleRow;
+module.exports.aiUsageStats = aiUsageStats;
+module.exports.listUnitAlbums = listUnitAlbums;
+module.exports.listUnitMembers = listUnitMembers;
+module.exports.searchCandidates = searchCandidates;
+module.exports.findArchivedUnit = findArchivedUnit;
+module.exports.listUnitRecipients = listUnitRecipients;
+
+async function listFaceSearchGrants(db, orgId) {
+  const [rows] = await db.query(
+    `SELECT g.user_id AS userId, u.name, u.email, g.college_wide AS collegeWide, g.can_manage AS canManage
+       FROM face_search_grants g JOIN users u ON u.id = g.user_id
+      WHERE g.organization_id = ? ORDER BY u.name`, [orgId]);
+  return rows || [];
+}
+
+module.exports.listFaceSearchGrants = listFaceSearchGrants;
