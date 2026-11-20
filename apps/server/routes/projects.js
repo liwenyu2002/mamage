@@ -1,4 +1,5 @@
 // routes/projects.js
+const projectsDao = require('../lib/queries/projects');
 const express = require('express');
 const { attachVideoProcessingState } = require('../lib/video_processing_state');
 const router = express.Router();
@@ -358,13 +359,7 @@ async function fetchTimelineSections(projectIds) {
     .filter((id) => Number.isFinite(id) && id > 0);
   if (!ids.length) return {};
 
-  const [rows] = await pool.query(
-    `SELECT id, project_id AS projectId, name, section_time AS sectionTime, sort_order AS sortOrder
-     FROM project_timeline_sections
-     WHERE project_id IN (?)
-     ORDER BY project_id ASC, sort_order ASC, id ASC`,
-    [ids]
-  );
+  const rows = await projectsDao.listTimelineSectionsByProjects(pool, ids);
   const byProject = {};
   (rows || []).forEach((row) => {
     const key = String(row.projectId);
@@ -389,10 +384,7 @@ async function attachTimelineToProject(project) {
 }
 
 async function replaceTimelineSections(conn, projectId, sections) {
-  const [existingRows] = await conn.query(
-    'SELECT id, name FROM project_timeline_sections WHERE project_id = ? FOR UPDATE',
-    [projectId]
-  );
+  const existingRows = await projectsDao.lockTimelineSections(conn, projectId);
   const existingByName = new Map((existingRows || []).map((row) => [String(row.name || ''), row]));
   const existingById = new Map((existingRows || []).map((row) => [Number(row.id), row]));
   const keepIds = [];
@@ -408,27 +400,16 @@ async function replaceTimelineSections(conn, projectId, sections) {
     if (existing && existing.id) {
       claimedIds.add(Number(existing.id));
       keepIds.push(existing.id);
-      await conn.query(
-        `UPDATE project_timeline_sections
-         SET name = ?, section_time = ?, sort_order = ?, updated_at = NOW()
-         WHERE id = ? AND project_id = ?`,
-        [section.name, section.sectionTime || null, sortOrder, existing.id, projectId]
-      );
+      await projectsDao.updateTimelineSection(conn, {
+        id: existing.id, projectId, name: section.name, sectionTime: section.sectionTime, sortOrder });
     } else {
-      const [result] = await conn.query(
-        `INSERT INTO project_timeline_sections (project_id, name, section_time, sort_order, created_at, updated_at)
-         VALUES (?, ?, ?, ?, NOW(), NOW())`,
-        [projectId, section.name, section.sectionTime || null, sortOrder]
-      );
+      const result = await projectsDao.insertTimelineSection(conn, {
+        projectId, name: section.name, sectionTime: section.sectionTime, sortOrder });
       if (result && result.insertId) keepIds.push(result.insertId);
     }
   }
 
-  if (keepIds.length) {
-    await conn.query('DELETE FROM project_timeline_sections WHERE project_id = ? AND id NOT IN (?)', [projectId, keepIds]);
-  } else {
-    await conn.query('DELETE FROM project_timeline_sections WHERE project_id = ?', [projectId]);
-  }
+  await projectsDao.deleteTimelineSectionsExcept(conn, projectId, keepIds);
 }
 
 // ==============================
@@ -1385,16 +1366,11 @@ router.post('/:id/timeline-sections', requirePermission('projects.update'), asyn
     if (!name) return res.status(400).json({ error: 'SECTION_NAME_REQUIRED' });
     const sectionTime = String((req.body && (req.body.sectionTime || req.body.section_time)) || '').trim().slice(0, 64) || null;
 
-    const [dups] = await pool.query('SELECT id FROM project_timeline_sections WHERE project_id = ? AND name = ?', [projectId, name]);
+    const dups = await projectsDao.findTimelineSectionByName(pool, projectId, name);
     if (dups && dups.length) return res.status(409).json({ error: 'SECTION_NAME_EXISTS', message: '同名环节已存在' });
 
-    const [[maxRow]] = await pool.query('SELECT COALESCE(MAX(sort_order), -1) AS maxOrder FROM project_timeline_sections WHERE project_id = ?', [projectId]);
-    const sortOrder = Number(maxRow.maxOrder) + 1;
-    const [result] = await pool.query(
-      `INSERT INTO project_timeline_sections (project_id, name, section_time, sort_order, created_at, updated_at)
-       VALUES (?, ?, ?, ?, NOW(), NOW())`,
-      [projectId, name, sectionTime, sortOrder]
-    );
+    const sortOrder = await projectsDao.nextTimelineSortOrder(pool, projectId);
+    const result = await projectsDao.insertTimelineSectionDirect(pool, { projectId, name, sectionTime, sortOrder });
     return res.status(201).json(serializeTimelineSection({ id: result.insertId, projectId, name, sectionTime, sortOrder }));
   } catch (err) {
     if (sendWorkspaceError(res, err)) return;
@@ -1413,7 +1389,7 @@ router.patch('/:id/timeline-sections/:sectionId', requirePermission('projects.up
     }
     if (!(await findScopedProject(req, projectId))) return res.status(404).json({ error: 'Project not found' });
 
-    const [rows] = await pool.query('SELECT id FROM project_timeline_sections WHERE id = ? AND project_id = ?', [sectionId, projectId]);
+    const rows = await projectsDao.findTimelineSectionById(pool, sectionId, projectId);
     if (!rows || !rows.length) return res.status(404).json({ error: 'Section not found' });
 
     const sets = [];
@@ -1421,10 +1397,7 @@ router.patch('/:id/timeline-sections/:sectionId', requirePermission('projects.up
     if (req.body && req.body.name !== undefined) {
       const name = String(req.body.name || '').trim().slice(0, 100);
       if (!name) return res.status(400).json({ error: 'SECTION_NAME_REQUIRED' });
-      const [dups] = await pool.query(
-        'SELECT id FROM project_timeline_sections WHERE project_id = ? AND name = ? AND id <> ?',
-        [projectId, name, sectionId]
-      );
+      const dups = await projectsDao.findTimelineSectionByName(pool, projectId, name, sectionId);
       if (dups && dups.length) return res.status(409).json({ error: 'SECTION_NAME_EXISTS', message: '同名环节已存在' });
       sets.push('name = ?');
       params.push(name);
@@ -1440,14 +1413,8 @@ router.patch('/:id/timeline-sections/:sectionId', requirePermission('projects.up
     }
     if (!sets.length) return res.status(400).json({ error: 'NO_FIELDS' });
 
-    await pool.query(
-      `UPDATE project_timeline_sections SET ${sets.join(', ')}, updated_at = NOW() WHERE id = ? AND project_id = ?`,
-      [...params, sectionId, projectId]
-    );
-    const [[row]] = await pool.query(
-      'SELECT id, project_id AS projectId, name, section_time AS sectionTime, sort_order AS sortOrder FROM project_timeline_sections WHERE id = ?',
-      [sectionId]
-    );
+    await projectsDao.updateTimelineSectionFields(pool, { sets, params, sectionId, projectId });
+    const row = await projectsDao.findTimelineSectionRow(pool, sectionId);
     return res.json(serializeTimelineSection(row));
   } catch (err) {
     if (sendWorkspaceError(res, err)) return;
