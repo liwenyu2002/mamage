@@ -74,7 +74,9 @@
 - 棘轮：`scripts/audit-inline-sql.mjs` 统计 `routes/` 内联 SQL 调用点，当前 **70**，
   `ci.sh` 用 `--fail-over 0` 卡住"只降不升"，每迁一个文件把阈值下调（374 → … → 278 → 269 → 261）。
 - TypeScript：`tsconfig.json` + `@babel/preset-typescript` 已接入 webpack（`.ts/.tsx` 与 JS 同管线），
-  `npm run typecheck` 进 CI；首个 TS 模块 `services/shareService.ts`。
+  `npm run typecheck` 进 CI。已转 TS：`services/shareService.ts`、`services/accountService.ts`。
+  **注意**：当前 Babel 8 的 preset-typescript 不剥离“泛型调用实参”（`f<T>(x)`），TS 文件里统一用
+  `as Promise<...>` 断言代替，否则构建报 `Unexpected token`。
 
 ## 五、还没做（按优先级）
 
