@@ -5,6 +5,7 @@
 // 挂载于 app.js: app.use('/api/wechat-style', require('./routes/wechat_style'))
 const express = require('express');
 const router = express.Router();
+const styleDao = require('../lib/queries/wechat_style');
 const { pool } = require('../db');
 const { requirePermission } = require('../lib/permissions');
 const { resolveWorkspace, sendWorkspaceError } = require('../lib/workspace_access');
@@ -143,12 +144,9 @@ router.get('/blocks', requirePermission('ai.generate'), async (req, res) => {
     const orgId = (req.user && req.user.organization_id !== undefined) ? req.user.organization_id : null;
     const workspace = await resolveWorkspace(req);
     // <=> 为 MySQL NULL 安全等于，兼容用户暂未归属任何组织（org_id 为 NULL）的场景
-    const [rows] = await pool.query(
-      `SELECT * FROM wechat_style_blocks WHERE org_id <=> ?
-       ${workspace.enabled ? (workspace.unitId ? 'AND unit_id = ?' : 'AND unit_id IS NULL') : ''}
-       ORDER BY created_at DESC LIMIT 500`,
-      workspace.enabled && workspace.unitId ? [orgId, workspace.unitId] : [orgId]
-    );
+    const unitScopeSql = workspace.enabled ? (workspace.unitId ? 'AND unit_id = ?' : 'AND unit_id IS NULL') : '';
+    const rows = await styleDao.listBlocks(pool, { orgId, unitScopeSql,
+      params: workspace.enabled && workspace.unitId ? [workspace.unitId] : [] });
     let observed = [];
     try { observed = (await loadObservedStyleLibrary(pool, workspace)).blocks; }
     catch (error) { console.warn('[wechat.style.observed]', error.code || 'OBSERVED_STYLES_UNAVAILABLE'); }
@@ -219,20 +217,13 @@ router.post('/blocks', requirePermission('ai.generate'), async (req, res) => {
     const insertedIds = [];
     for (const r of rowsToInsert) {
       // source 恒为 'extracted'：builtin 块只存在于前端内置数组，不经此接口落库，防止客户端伪造 source='builtin'
-      const [result] = await pool.query(
-        `INSERT INTO wechat_style_blocks
-           (org_id, unit_id, type, name, html_template, accent_editable, source, source_url, created_by, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, 'extracted', ?, ?, NOW())`,
-        [orgId, workspace.enabled ? workspace.unitId : null, r.type, r.name, r.htmlTemplate,
-          r.accentEditable ? 1 : 0, r.sourceUrl, createdBy]
-      );
+      const result = await styleDao.insertBlock(pool, { orgId, unitId: workspace.enabled ? workspace.unitId : null,
+        type: r.type, name: r.name, htmlTemplate: r.htmlTemplate, accentEditable: r.accentEditable,
+        sourceUrl: r.sourceUrl, createdBy });
       insertedIds.push(result.insertId);
     }
 
-    const [savedRows] = await pool.query(
-      `SELECT * FROM wechat_style_blocks WHERE id IN (${insertedIds.map(() => '?').join(',')}) ORDER BY id ASC`,
-      insertedIds
-    );
+    const savedRows = await styleDao.listByIds(pool, insertedIds);
     res.status(201).json({ blocks: (savedRows || []).map(rowToBlock) });
   } catch (e) {
     if (sendWorkspaceError(res, e)) return;
@@ -248,9 +239,8 @@ router.delete('/blocks/:id', requirePermission('ai.generate'), async (req, res) 
     const id = parseInt(req.params.id, 10);
     if (!id) return res.status(400).json({ code: 4001, message: 'invalid id' });
 
-    const [rows] = await pool.query('SELECT * FROM wechat_style_blocks WHERE id = ? LIMIT 1', [id]);
-    if (!rows || rows.length === 0) return res.status(404).json({ code: 4041, message: 'block not found' });
-    const row = rows[0];
+    const row = await styleDao.findBlock(pool, id);
+    if (!row) return res.status(404).json({ code: 4041, message: 'block not found' });
 
     const orgId = (req.user && req.user.organization_id !== undefined) ? req.user.organization_id : null;
     const rowOrgId = row.org_id === undefined ? null : row.org_id;
@@ -268,7 +258,7 @@ router.delete('/blocks/:id', requirePermission('ai.generate'), async (req, res) 
       : req.user && (req.user.role === 'admin' || req.user.role === 'superadmin');
     if (!isOwner && !isAdmin) return res.status(403).json({ code: 4030, message: 'forbidden' });
 
-    await pool.query('DELETE FROM wechat_style_blocks WHERE id = ?', [id]);
+    await styleDao.deleteBlock(pool, id);
     res.json({ deleted: true, id });
   } catch (e) {
     if (sendWorkspaceError(res, e)) return;

@@ -1,3 +1,4 @@
+const tplDao = require('../lib/queries/wechat_content_templates');
 const { workspacePolicy } = require('../lib/access_policy');
 
 function registerContentTemplateRoutes(router, { pool, requirePermission, resolveWorkspace, sendWorkspaceError }) {
@@ -27,26 +28,20 @@ function registerContentTemplateRoutes(router, { pool, requirePermission, resolv
     }
   };
   router.get('/content-templates', permission, handler(async (_req, res, workspace) => {
-    const [rows] = await pool.query(`SELECT id,name,outline,review_credits,visibility,owner_id,updated_at
-      FROM wechat_content_templates WHERE organization_id = ? AND unit_id <=> ?
-      AND (owner_id = ? OR (visibility = 'workspace' AND unit_id IS NOT NULL)) ORDER BY updated_at DESC, id DESC`,
-    [...scope(workspace), workspace.userId]);
+    const rows = await tplDao.listForWorkspace(pool, { scopeParams: scope(workspace), userId: workspace.userId });
     return res.json({ items: rows.map(row => toItem(row, workspace)) });
   }));
   router.post('/content-templates', permission, handler(async (req, res, workspace) => {
     const body = req.body || {}, error = validate(body, workspace);
     if (error) return res.status(400).json({ message: error });
-    const [result] = await pool.query(`INSERT INTO wechat_content_templates
-      (organization_id,unit_id,owner_id,name,outline,review_credits,visibility) VALUES (?,?,?,?,?,?,?)`,
-    [...scope(workspace), workspace.userId, body.name.trim(), body.outline.trim(), body.reviewCredits ? 1 : 0, body.visibility || 'private']);
+    const result = await tplDao.insertTemplate(pool, { scopeParams: scope(workspace), userId: workspace.userId,
+      name: body.name.trim(), outline: body.outline.trim(), reviewCredits: body.reviewCredits, visibility: body.visibility });
     return res.status(201).json({ id: result.insertId });
   }));
   const owned = async (req, res, workspace) => {
     const id = Number(req.params.id);
     if (!Number.isSafeInteger(id) || id <= 0) { res.status(404).json({ message: '模板不存在' }); return null; }
-    const [rows] = await pool.query(`SELECT id,owner_id,visibility FROM wechat_content_templates
-      WHERE id = ? AND organization_id = ? AND unit_id <=> ? LIMIT 1`, [id, ...scope(workspace)]);
-    const row = rows[0];
+    const row = await tplDao.findOwnedRow(pool, { id, scopeParams: scope(workspace) });
     if (!row || (Number(row.owner_id) !== workspace.userId && !(row.visibility === 'workspace' && workspacePolicy(workspace).canManageMembers))) {
       res.status(404).json({ message: '模板不存在' }); return null;
     }
@@ -55,19 +50,17 @@ function registerContentTemplateRoutes(router, { pool, requirePermission, resolv
   router.put('/content-templates/:id', permission, handler(async (req, res, workspace) => {
     const row = await owned(req, res, workspace); if (!row) return;
     const body = req.body || {}, error = validate(body, workspace); if (error) return res.status(400).json({ message: error });
-    const [updated] = await pool.query(`UPDATE wechat_content_templates SET name=?,outline=?,review_credits=?,visibility=?
-      WHERE id=? AND organization_id=? AND unit_id <=> ? AND (owner_id=? OR (visibility='workspace' AND ?=1))`,
-    [body.name.trim(), body.outline.trim(), body.reviewCredits ? 1 : 0, body.visibility || 'private', row.id, ...scope(workspace),
-      workspace.userId, workspacePolicy(workspace).canManageMembers ? 1 : 0]);
-    if (!updated.affectedRows) return res.status(404).json({ message: '模板不存在' });
+    const updated = await tplDao.updateTemplate(pool, { id: row.id, scopeParams: scope(workspace),
+      name: body.name.trim(), outline: body.outline.trim(), reviewCredits: body.reviewCredits,
+      visibility: body.visibility, userId: workspace.userId, canManage: workspacePolicy(workspace).canManageMembers });
+    if (!updated) return res.status(404).json({ message: '模板不存在' });
     return res.json({ id: row.id });
   }));
   router.delete('/content-templates/:id', permission, handler(async (req, res, workspace) => {
     const row = await owned(req, res, workspace); if (!row) return;
-    const [deleted] = await pool.query(`DELETE FROM wechat_content_templates WHERE id=? AND organization_id=? AND unit_id <=> ?
-      AND (owner_id=? OR (visibility='workspace' AND ?=1))`, [row.id, ...scope(workspace), workspace.userId,
-      workspacePolicy(workspace).canManageMembers ? 1 : 0]);
-    if (!deleted.affectedRows) return res.status(404).json({ message: '模板不存在' });
+    const deleted = await tplDao.deleteTemplate(pool, { id: row.id, scopeParams: scope(workspace),
+      userId: workspace.userId, canManage: workspacePolicy(workspace).canManageMembers });
+    if (!deleted) return res.status(404).json({ message: '模板不存在' });
     return res.json({ deleted: true });
   }));
 }

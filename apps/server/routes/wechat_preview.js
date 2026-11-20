@@ -7,6 +7,7 @@
 const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
+const previewDao = require('../lib/queries/wechat_previews');
 const { pool } = require('../db');
 const { requirePermission } = require('../lib/permissions');
 
@@ -61,12 +62,8 @@ async function insertPreviewWithRetry(row, maxAttempts = 5) {
   for (let i = 0; i < maxAttempts; i += 1) {
     const token = generateToken();
     try {
-      const [result] = await pool.query(
-        `INSERT INTO wechat_previews
-					(token, org_id, created_by, title, digest, html, created_at, expires_at)
-				 VALUES (?, ?, ?, ?, ?, ?, NOW(), ?)`,
-        [token, row.org_id, row.created_by, row.title, row.digest, row.html, row.expires_at]
-      );
+      const result = await previewDao.insertPreview(pool, { token, orgId: row.org_id, createdBy: row.created_by,
+        title: row.title, digest: row.digest, html: row.html, expiresAt: row.expires_at });
       return { id: result.insertId, token };
     } catch (e) {
       lastErr = e;
@@ -83,23 +80,14 @@ async function insertPreviewWithRetry(row, maxAttempts = 5) {
 async function cleanupAfterInsert(createdBy) {
   try {
     if (createdBy) {
-      const [keepRows] = await pool.query(
-        'SELECT id FROM wechat_previews WHERE created_by = ? ORDER BY id DESC LIMIT ?',
-        [createdBy, MAX_PREVIEWS_PER_USER]
-      );
-      const keepIds = (keepRows || []).map((r) => r.id);
-      if (keepIds.length > 0) {
-        await pool.query(
-          'DELETE FROM wechat_previews WHERE created_by = ? AND id NOT IN (?)',
-          [createdBy, keepIds]
-        );
-      }
+      const keepIds = await previewDao.listKeepIds(pool, { createdBy, limit: MAX_PREVIEWS_PER_USER });
+      await previewDao.deleteBeyond(pool, { createdBy, keepIds });
     }
   } catch (e) {
     console.warn('[wechat_preview] cleanup per-user cap failed (ignored)', e && e.message);
   }
   try {
-    await pool.query('DELETE FROM wechat_previews WHERE expires_at IS NOT NULL AND expires_at < NOW() LIMIT 100');
+    await previewDao.deleteExpired(pool, 100);
   } catch (e) {
     console.warn('[wechat_preview] cleanup expired rows failed (ignored)', e && e.message);
   }
@@ -172,13 +160,8 @@ router.get('/:token', async (req, res) => {
     const token = String(req.params.token || '').trim();
     if (!token) return sendNotFoundPage(res);
 
-    const [rows] = await pool.query(
-      'SELECT title, digest, html, expires_at FROM wechat_previews WHERE token = ? LIMIT 1',
-      [token]
-    );
-    if (!rows || rows.length === 0) return sendNotFoundPage(res);
-
-    const preview = rows[0];
+    const preview = await previewDao.findByToken(pool, token);
+    if (!preview) return sendNotFoundPage(res);
     if (preview.expires_at && new Date(preview.expires_at).getTime() <= Date.now()) {
       return sendNotFoundPage(res);
     }
