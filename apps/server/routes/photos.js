@@ -42,6 +42,7 @@ const { recordSearchTelemetry } = require('../lib/search_telemetry');
 const { createPhotoSearchStream } = require('../lib/photo_search_stream');
 const { resolveFolderSearchScope, resolveWorkspaceSearchScope } = require('../lib/photo_search_scope');
 const { photoOwnerFilter } = require('../lib/access_policy');
+const photosDao = require('../lib/queries/photos');
 const {
   resolveWorkspace, requireProjectAccess, requirePhotoAccess, requirePhotosAccess, sendWorkspaceError,
   assertNoActiveCopySource, WorkspaceAccessError,
@@ -442,9 +443,8 @@ async function populateReqUserFromAuthIfPresent(req) {
     let payload;
     try { payload = jwt.verify(token, JWT_SECRET); } catch (e) { return; }
     if (!payload || !payload.id) return;
-    const [rows] = await pool.query('SELECT id, organization_id, role FROM users WHERE id = ? LIMIT 1', [payload.id]);
-    if (!rows || rows.length === 0) return;
-    const u = rows[0];
+    const u = await photosDao.findAuthUser(pool, payload.id);
+    if (!u) return;
     const org = (u.organization_id !== undefined && u.organization_id !== null) ? Number(u.organization_id) : null;
     req.user = { id: u.id, role: u.role || null, organization_id: org };
   } catch (e) {
@@ -491,18 +491,9 @@ function hasMeaningfulPhotoAdjustments(input) {
 }
 
 async function getScopedPhotoSourceRow(req, id) {
-  const orgId = req.user && (req.user.organization_id !== undefined && req.user.organization_id !== null) ? parseInt(req.user.organization_id, 10) : null;
-  let sql = 'SELECT id, url, thumb_url AS thumbUrl, public_download_url AS publicDownloadUrl, playback_url AS playbackUrl, title, type, adjustments FROM photos WHERE id = ?';
-  const params = [id];
-  if (orgId === null) {
-    sql += ' AND organization_id IS NULL';
-  } else {
-    sql += ' AND organization_id = ?';
-    params.push(orgId);
-  }
-  sql += ' LIMIT 1';
-  const [rows] = await pool.query(sql, params);
-  return rows && rows.length ? rows[0] : null;
+  const orgId = req.user && (req.user.organization_id !== undefined && req.user.organization_id !== null)
+    ? parseInt(req.user.organization_id, 10) : null;
+  return photosDao.findScopedPhotoSource(pool, id, orgId);
 }
 
 function resolvePhotoSourceTargetUrl(req, row, variant = 'original') {
@@ -1032,7 +1023,7 @@ router.post('/delete', requirePermission('photos.delete'), async (req, res) => {
 
       await assertNoActiveCopySource(conn, foundIds);
 
-      await conn.query('DELETE FROM photos WHERE id IN (?)', [foundIds]);
+      await photosDao.deletePhotosByIds(conn, foundIds);
 
       const byProject = {};
       for (const r of rows) {
@@ -1043,10 +1034,10 @@ router.post('/delete', requirePermission('photos.delete'), async (req, res) => {
 
       for (const [projIdStr, removedIds] of Object.entries(byProject)) {
         const projId = Number(projIdStr);
-        const [projRows] = await conn.query('SELECT photo_ids FROM projects WHERE id = ? FOR UPDATE', [projId]);
-        if (!projRows || !projRows.length) continue;
-        const arr = parseProjectPhotoIds(projRows[0].photo_ids).filter((id) => !removedIds.includes(id));
-        await conn.query('UPDATE projects SET photo_ids = ? WHERE id = ?', [arr.length ? JSON.stringify(arr) : null, projId]);
+        const projRow = await photosDao.lockProjectPhotoIds(conn, projId);
+        if (!projRow) continue;
+        const arr = parseProjectPhotoIds(projRow.photo_ids).filter((id) => !removedIds.includes(id));
+        await photosDao.updateProjectPhotoIds(conn, projId, arr);
       }
 
       await conn.commit();
@@ -1516,7 +1507,7 @@ async function handleZipRequest(req, res) {
     const projIds = [...new Set(rows.map(r => r.projectId).filter(Boolean))];
     let projMap = {};
     if (projIds.length > 0) {
-      const [projRows] = await pool.query(`SELECT id, name FROM projects WHERE id IN (?)`, [projIds]);
+      const projRows = await photosDao.findProjectNames(pool, projIds);
       for (const p of projRows) {
         projMap[p.id] = p.name || `project-${p.id}`;
       }
@@ -1527,7 +1518,7 @@ async function handleZipRequest(req, res) {
     const sectionMap = {};
     if (sectionIds.length > 0) {
       try {
-        const [secRows] = await pool.query('SELECT id, name FROM project_timeline_sections WHERE id IN (?)', [sectionIds]);
+        const secRows = await photosDao.findTimelineSectionNames(pool, sectionIds);
         for (const s of secRows) {
           const n = String(s.name || '').trim();
           if (n) sectionMap[s.id] = n;

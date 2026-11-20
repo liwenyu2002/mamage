@@ -52,12 +52,15 @@
     "test:news-backend": "node scripts/test-news-backend-browser.cjs",
     "test:wechat-monitor": "node scripts/test-wechat-monitor-browser.cjs",
     "test:dev-server": "node --test scripts/test-dev-server.cjs",
-    "test:media-download": "node --test scripts/test-media-download.cjs scripts/test-direct-storage-client.cjs"
+    "test:media-download": "node --test scripts/test-media-download.cjs scripts/test-direct-storage-client.cjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src --max-warnings 100000"
   },
   "devDependencies": {
     "@babel/core": "^7.28.5",
     "@babel/preset-env": "^7.28.5",
     "@babel/preset-react": "^7.28.5",
+    "@babel/preset-typescript": "^8.0.7",
     "@vitejs/plugin-react": "6.1.2",
     "babel-loader": "^10.0.0",
     "css-loader": "^7.1.2",
@@ -69,6 +72,7 @@
     "sass": "^1.94.2",
     "sass-loader": "^16.0.6",
     "style-loader": "^4.0.0",
+    "typescript": "^7.0.2",
     "vite": "8.3.4",
     "webpack": "^5.103.0",
     "webpack-cli": "6.0.1"

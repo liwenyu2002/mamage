@@ -42,6 +42,16 @@
 - `App.jsx` 调用 `clearExplicitLogout()` 但 `services/logoutHold` 模块缺失：只要 URL 带 `dingtalk_token=` 就会 `ReferenceError` 白屏。已补齐模块与 import。
 - `ProjectDetail` 在 hooks 之前 `return null`：`projectId` 由空变非空时会抛 "Rendered more hooks than during the previous render"。已改为外层守卫组件。
 
+## 四之二、DAO 层与 TypeScript（2026-11-20 落地）
+
+- 新增 `apps/server/lib/queries/photos.js`：把照片鉴权用户、原图行、批量删除、相册 photo_ids 回写、
+  下载名映射等 7 处 SQL 从 `routes/photos.js` 抽出（该文件内联调用 24 → 17）。
+- 规则：**新的查询写进 `lib/queries/<域>.js`**，routes 只做编排与错误码；SQL 不再散落在路由里。
+- 棘轮：`scripts/audit-inline-sql.mjs` 统计 `routes/` 内联 SQL 调用点，当前 **374**，
+  `ci.sh` 用 `--fail-over 374` 卡住"只降不升"，每迁一个文件把阈值下调。
+- TypeScript：`tsconfig.json` + `@babel/preset-typescript` 已接入 webpack（`.ts/.tsx` 与 JS 同管线），
+  `npm run typecheck` 进 CI；首个 TS 模块 `services/shareService.ts`。
+
 ## 五、还没做（按优先级）
 
 1. ~~`no-unused-vars` 清理~~ ✅ 已完成（web 死代码 20 处、未使用导入 464 个说明符；server 7 处）

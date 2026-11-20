@@ -73,6 +73,7 @@ function fixture({ role='editor', accountRole='admin', collegeAdmin=false, enabl
     assertNoActiveCopySource:access.assertNoActiveCopySource,sendWorkspaceError:access.sendWorkspaceError,
     MAX_DELETE_PHOTOS:200,console:{log(){},info(){},error(){}},setImmediate:()=>{state.cleanup++;},
     parseProjectPhotoIds:value=>JSON.parse(value),cleanupDeletedPhotoRows:async()=>{},
+    photosDao: require('../lib/queries/photos'),
   });
   vm.runInNewContext(source.slice(source.indexOf("router.patch('/:id'"),source.indexOf('module.exports = router;')),{
     router,pool,requirePermission:permissions.requirePermission,requirePhotoAccess:access.requirePhotoAccess,sendWorkspaceError:access.sendWorkspaceError,console,normalizePhotoAdjustments:value=>value,
@@ -92,6 +93,7 @@ function fixture({ role='editor', accountRole='admin', collegeAdmin=false, enabl
     require:key=>{
       if(key==='../lib/workspace_access')return access;
       if(key==='../lib/access_policy')return require('../lib/access_policy');
+      if(key==='../lib/queries/photos')return require('../lib/queries/photos');
       if(key==='../lib/face_access')return{getFacePermissions:async()=>({search:false,manage:false})};
       if(key==='../lib/user_access_admin')return require('../lib/user_access_admin');
       throw Error('Unexpected module '+key);

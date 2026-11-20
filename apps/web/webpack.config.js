@@ -106,12 +106,12 @@ module.exports = (_env, argv) => ({
     },
   },
   resolve: {
-    extensions: ['.js', '.jsx'],
+    extensions: ['.ts', '.tsx', '.js', '.jsx'],
   },
   module: {
     rules: [
       {
-        test: /\.(js|jsx)$/,
+        test: /\.(js|jsx|ts|tsx)$/,
         exclude: /node_modules/,
         use: {
           loader: 'babel-loader',
@@ -119,6 +119,8 @@ module.exports = (_env, argv) => ({
             presets: [
               '@babel/preset-env',
               '@babel/preset-react',
+              // 新模块用 TS；老文件保持 JS，两者同一套 loader（只剥离类型，不做类型检查）
+              '@babel/preset-typescript',
             ],
           },
         },

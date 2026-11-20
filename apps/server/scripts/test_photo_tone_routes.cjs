@@ -21,6 +21,7 @@ async function fixture({ denied = false, saved = false } = {}) {
   const router = express.Router();
   const context = {
     router, photoTone, ...renderer, ...require('../lib/photo_tone/artifacts.cjs'), Buffer, URL, console,
+    photosDao: require('../lib/queries/photos'),
     pool: { query: async (_sql, params) => [params[0] === 11 && params[1] === 8 ? [row] : []] },
     requirePermission: () => (_req, _res, next) => next(),
     populateReqUserFromAuthIfPresent: async () => {},
