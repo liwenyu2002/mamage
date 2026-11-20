@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
 
+const shareDao = require('../lib/queries/share_links');
 const { pool } = require('../db');
 const { buildMediaUrl, buildShareOriginalUrl } = require('../lib/media_access');
 const { loadPublicFolderShare } = require('../lib/public_folder_share');
@@ -36,25 +37,7 @@ async function insertShareLinkWithRetry(conn, row, maxAttempts = 5) {
     for (let i = 0; i < maxAttempts; i++) {
         const code = generateCode();
         try {
-            const [res] = await conn.query(
-                `INSERT INTO share_links
-                    (code, share_type, project_id, title, note, created_by, organization_id, unit_id, sync_mode, expires_at)
-                 VALUES
-					(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-                ,
-                [
-                    code,
-                    row.share_type,
-                    row.project_id || null,
-                    row.title || null,
-                    row.note || null,
-                    row.created_by,
-                    row.organization_id,
-                    row.unit_id || null,
-                    row.sync_mode || 'approval',
-                    row.expires_at || null
-                ]
-            );
+            const res = await shareDao.insertShareLink(conn, { ...row, code });
             return { id: res.insertId, code };
         } catch (e) {
             lastErr = e;
@@ -245,14 +228,9 @@ router.post('/:code/revoke', requirePermission('photos.view'), async (req, res) 
         const canManageUnit = workspace.enabled && workspace.unitId
             && (workspace.collegeAdmin || workspace.role === 'manager');
 
-        const [result] = await pool.query(
-            `UPDATE share_links SET revoked_at = NOW()
-             WHERE code = ? AND organization_id = ? AND revoked_at IS NULL
-               AND (created_by = ? OR (? = 1 AND unit_id = ?))`,
-            [code, orgId, userId, canManageUnit ? 1 : 0, workspace.unitId || 0]
-        );
+        const affected = await shareDao.revokeByCode(pool, { code, orgId, userId, canManageUnit, unitId: workspace.unitId });
 
-        if (!result || result.affectedRows === 0) {
+        if (!affected) {
             return res.status(404).json({ error: 'NOT_FOUND', message: 'share not found or already revoked' });
         }
 
@@ -309,14 +287,9 @@ async function requireShareManager(req, code) {
         || (!workspace.collegeAdmin && workspace.role !== 'manager')) {
         throw new WorkspaceAccessError('UNIT_MANAGER_REQUIRED');
     }
-    const [rows] = await pool.query(
-        `SELECT id, project_id, share_type, sync_mode, folder_share_id, organization_id, unit_id FROM share_links
-         WHERE code = ? AND organization_id = ? AND unit_id = ?
-           AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > NOW()) LIMIT 1`,
-        [code, workspace.orgId, workspace.unitId]
-    );
-    if (!rows.length) throw new WorkspaceAccessError('SHARE_NOT_FOUND', 404);
-    return { share: rows[0], workspace };
+    const share = await shareDao.findManageableShare(pool, { code, orgId: workspace.orgId, unitId: workspace.unitId });
+    if (!share) throw new WorkspaceAccessError('SHARE_NOT_FOUND', 404);
+    return { share, workspace };
 }
 
 router.get('/:code/pending', requirePermission('photos.view'), async (req, res) => {
@@ -326,13 +299,7 @@ router.get('/:code/pending', requirePermission('photos.view'), async (req, res) 
             return res.json({ photos: [] });
         }
         const scope = share.folder_share_id ? publicFolderPhotoScope(share) : { sql: 'p.project_id = ? AND p.organization_id = ? AND p.unit_id = ?', params: [share.project_id, workspace.orgId, workspace.unitId] };
-        const [rows] = await pool.query(
-            `SELECT p.id, p.title, p.thumb_url AS thumbUrl, p.created_at AS createdAt
-             FROM photos p LEFT JOIN share_link_items si ON si.share_id = ? AND si.photo_id = p.id
-             WHERE ${scope.sql} AND si.photo_id IS NULL
-             ORDER BY p.created_at DESC LIMIT 500`,
-            [share.id, ...scope.params]
-        );
+        const rows = await shareDao.listPendingPhotos(pool, { shareId: share.id, scope, limit: 500 });
         res.json({ photos: rows.map((photo) => ({ ...photo,
             thumbUrl: photo.thumbUrl ? buildMediaUrl(photo.thumbUrl,
                 { userId: req.user.id, photoId: photo.id }) : null })) });
@@ -351,13 +318,9 @@ router.post('/:code/approve', requirePermission('photos.view'), async (req, res)
             .map(Number).filter((id) => Number.isSafeInteger(id) && id > 0)));
         if (!ids.length || ids.length > 500) throw new WorkspaceAccessError('INVALID_PHOTO_IDS', 400);
         const scope = share.folder_share_id ? publicFolderPhotoScope(share) : { sql: 'p.project_id = ? AND p.organization_id = ? AND p.unit_id = ?', params: [share.project_id, workspace.orgId, workspace.unitId] };
-        const [rows] = await pool.query(
-            `SELECT p.id FROM photos p WHERE p.id IN (?) AND ${scope.sql}`,
-            [ids, ...scope.params]
-        );
+        const rows = await shareDao.findPhotosInScope(pool, { ids, scope });
         if (rows.length !== ids.length) throw new WorkspaceAccessError('PHOTO_NOT_FOUND', 404);
-        const values = ids.map((id, index) => [share.id, id, index]);
-        await pool.query('INSERT IGNORE INTO share_link_items (share_id, photo_id, sort_order) VALUES ?', [values]);
+        await shareDao.insertShareItemsIgnore(pool, ids.map((id, index) => [share.id, id, index]));
         res.json({ approved: ids.length });
     } catch (err) {
         if (!sendWorkspaceError(res, err)) res.status(500).json({ error: 'INTERNAL_ERROR' });
