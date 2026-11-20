@@ -48,11 +48,15 @@
   （`routes/photos.js` 24 → 17）。
 - `apps/server/lib/queries/projects.js`：时间线环节 11 处（列表/加锁/更新/插入/删除/同名检测/排序号/回读），
   `routes/projects.js` 48 → 35。
+- `apps/server/lib/queries/video_projects.js`：视频工程 CRUD 与渲染任务 15 处（`routes/video_projects.js` 33 → 18）。
+- `apps/server/lib/queries/users.js`：重复校验、改密、邀请码 11 处（`routes/users.js` 28 → 17）。
+- `apps/server/lib/queries/internal_shares.js`：幂等查重、建分享/条目/复制任务/审计、撤销 7 处
+  （`routes/internal_shares.js` 24 → 16）。
 - `apps/server/lib/queries/faces.js`：人脸审计、人物编号、拆分的锁脸/建人/搬脸/封面、归属变更 9 处，
   `routes/faces.js` 42 → 32。约定：dao 返回 `affectedRows` 数字而非原始元组，避免调用方解构口径不一。
 - 规则：**新的查询写进 `lib/queries/<域>.js`**，routes 只做编排与错误码；SQL 不再散落在路由里。
 - 棘轮：`scripts/audit-inline-sql.mjs` 统计 `routes/` 内联 SQL 调用点，当前 **374**，
-  `ci.sh` 用 `--fail-over 351` 卡住"只降不升"，每迁一个文件把阈值下调（374 → 361 → 351）。
+  `ci.sh` 用 `--fail-over 321` 卡住"只降不升"，每迁一个文件把阈值下调（374 → 361 → 351 → 338 → 329 → 321）。
 - TypeScript：`tsconfig.json` + `@babel/preset-typescript` 已接入 webpack（`.ts/.tsx` 与 JS 同管线），
   `npm run typecheck` 进 CI；首个 TS 模块 `services/shareService.ts`。
 

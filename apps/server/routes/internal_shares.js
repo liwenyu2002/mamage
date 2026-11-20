@@ -1,4 +1,5 @@
 const express = require('express');
+const sharesDao = require('../lib/queries/internal_shares');
 const { pool } = require('../db');
 const { buildMediaUrl } = require('../lib/media_access');
 const { requirePermission } = require('../lib/permissions');
@@ -85,56 +86,30 @@ router.post('/', requirePermission('photos.view'), async (req, res) => {
     // 同一相册（或同一批照片）发给同一目标、同一模式时保持幂等：已有有效分享就直接复用，
     // 避免用户重复点击或多端提交产生多条重复分享记录。
     if (shareType === 'album' && projectId) {
-      const [existing] = await conn.query(
-        `SELECT id, share_type AS shareType, mode, project_id AS projectId, expires_at AS expiresAt,
-                created_at AS createdAt, target_unit_id AS targetUnitId, target_user_id AS targetUserId,
-                (SELECT COUNT(*) FROM internal_share_items si WHERE si.share_id = s.id) AS snapshotCount
-         FROM internal_shares s
-         WHERE organization_id = ? AND source_unit_id = ? AND target_unit_id = ?
-           AND ((target_user_id IS NULL AND ? IS NULL) OR target_user_id = ?)
-           AND share_type = 'album' AND project_id = ? AND mode = ?
-           AND folder_share_id IS NULL AND revoked_at IS NULL
-           AND (expires_at IS NULL OR expires_at > NOW())
-         ORDER BY id DESC LIMIT 1`,
-        [workspace.orgId, workspace.unitId, targetUnitId, targetUserId, targetUserId, projectId, mode]
-      );
-      if (existing.length) {
+      const existing = await sharesDao.findReusableAlbumShare(conn, { orgId: workspace.orgId, sourceUnitId: workspace.unitId,
+        targetUnitId, targetUserId, projectId, mode });
+      if (existing) {
         await conn.commit();
-        return res.json({ ...existing[0], reused: true });
+        return res.json({ ...existing, reused: true });
       }
     }
 
-    const [created] = await conn.query(
-      `INSERT INTO internal_shares
-         (organization_id, source_unit_id, target_unit_id, target_user_id,
-          share_type, mode, project_id, created_by, expires_at, snapshot_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [workspace.orgId, workspace.unitId, targetUnitId, targetUserId,
-        shareType, mode, projectId, workspace.userId, expiresAt,
-        snapshot ? JSON.stringify(snapshot) : null]
-    );
+    const created = await sharesDao.insertShare(conn, { orgId: workspace.orgId, sourceUnitId: workspace.unitId,
+      targetUnitId, targetUserId, shareType, mode, projectId, createdBy: workspace.userId, expiresAt, snapshot });
     for (let offset = 0; offset < photoIds.length; offset += 400) {
-      const values = photoIds.slice(offset, offset + 400).map((id) =>
+      const rows = photoIds.slice(offset, offset + 400).map((id) =>
         [created.insertId, id, photoSnapshots.has(id) ? JSON.stringify(photoSnapshots.get(id)) : null]);
-      await conn.query('INSERT INTO internal_share_items (share_id, photo_id, snapshot_json) VALUES ?', [values]);
+      await sharesDao.insertShareItems(conn, rows);
     }
     let copyJobId = null;
     if (mode === 'copy') {
-      const [job] = await conn.query(
-        `INSERT INTO organization_copy_jobs
-           (share_id, organization_id, target_unit_id, requested_by, system_initiated)
-         VALUES (?, ?, ?, ?, 1)`,
-        [created.insertId, workspace.orgId, targetUnitId, workspace.userId]
-      );
+      const job = await sharesDao.insertCopyJob(conn, { shareId: created.insertId, orgId: workspace.orgId,
+        targetUnitId, requestedBy: workspace.userId });
       copyJobId = job.insertId;
     }
-    await conn.query(
-      `INSERT INTO organization_access_audit
-         (organization_id, unit_id, user_id, action, resource_type, resource_id, details)
-       VALUES (?, ?, ?, 'internal_share.create', 'internal_share', ?, ?)`,
-      [workspace.orgId, workspace.unitId, workspace.userId, created.insertId,
-        JSON.stringify({ mode, shareType, targetUnitId, targetUserId, photoCount: photoIds.length })]
-    );
+    await sharesDao.insertAccessAudit(conn, { orgId: workspace.orgId, unitId: workspace.unitId, userId: workspace.userId,
+      action: 'internal_share.create', resourceType: 'internal_share', resourceId: created.insertId,
+      details: { mode, shareType, targetUnitId, targetUserId, photoCount: photoIds.length } });
     await conn.commit();
     if (copyJobId) copyWorker.wake();
     res.status(201).json({ id: created.insertId, mode, shareType, projectId,
@@ -384,19 +359,14 @@ router.post('/:id/revoke', requirePermission('photos.view'), async (req, res) =>
     const workspace = await resolveWorkspace(req, conn);
     const id = positiveId(req.params.id);
     if (!id) throw new WorkspaceAccessError('INVALID_SHARE', 400);
-    const [rows] = await conn.query('SELECT source_unit_id, folder_share_id FROM internal_shares WHERE id = ? AND organization_id = ? LIMIT 1',
-      [id, workspace.orgId]);
-    if (!rows.length) throw new WorkspaceAccessError('SHARE_NOT_FOUND', 404);
-    if (rows[0].folder_share_id) throw new WorkspaceAccessError('REVOKE_FOLDER_SHARE_REQUIRED', 409);
-    await requireSourceEditor(workspace, Number(rows[0].source_unit_id), conn);
+    const share = await sharesDao.findShareForRevoke(conn, { id, orgId: workspace.orgId });
+    if (!share) throw new WorkspaceAccessError('SHARE_NOT_FOUND', 404);
+    if (share.folder_share_id) throw new WorkspaceAccessError('REVOKE_FOLDER_SHARE_REQUIRED', 409);
+    await requireSourceEditor(workspace, Number(share.source_unit_id), conn);
     await conn.beginTransaction();
-    await conn.query('UPDATE internal_shares SET revoked_at = NOW() WHERE id = ? AND revoked_at IS NULL', [id]);
-    await conn.query(
-      `INSERT INTO organization_access_audit
-         (organization_id, unit_id, user_id, action, resource_type, resource_id)
-       VALUES (?, ?, ?, 'internal_share.revoke', 'internal_share', ?)`,
-      [workspace.orgId, workspace.unitId, workspace.userId, id]
-    );
+    await sharesDao.revokeShare(conn, id);
+    await sharesDao.insertAccessAudit(conn, { orgId: workspace.orgId, unitId: workspace.unitId,
+      userId: workspace.userId, action: 'internal_share.revoke', resourceType: 'internal_share', resourceId: id });
     await conn.commit();
     res.json({ revoked: true });
   } catch (err) {
