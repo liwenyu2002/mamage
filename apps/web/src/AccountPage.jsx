@@ -1,4 +1,5 @@
 import React from 'react';
+import { listAllUsers, setUserRole, listInvitations, createInvitation, revokeInvitation, createMyInvite, changeMyPassword } from './services/accountService';
 import { Card, Input, Button, Toast, Typography, Select, Divider } from './ui';
 import * as authService from './services/authService';
 import { accessRoleLabel } from './utils/accessRoles';
@@ -36,11 +37,9 @@ export default function AccountPage({ currentUser, onUpdated, membershipSummary 
   const fetchAllUsers = React.useCallback(async () => {
     setUsersLoading(true);
     try {
-      const token = localStorage.getItem('mamage_jwt_token');
-      const res = await fetch('/api/users/all', { headers: { Authorization: token ? `Bearer ${token}` : '' } });
+      const res = await listAllUsers();
       if (!res.ok) { setAllUsers([]); return; }
-      const data = await res.json().catch(() => ({}));
-      setAllUsers(Array.isArray(data.users) ? data.users : []);
+      setAllUsers(Array.isArray(res.data?.users) ? res.data.users : []);
     } catch (err) {
       console.error('fetchAllUsers failed', err);
       setAllUsers([]);
@@ -58,13 +57,8 @@ export default function AccountPage({ currentUser, onUpdated, membershipSummary 
     if (!role) return;
     setRoleSaving((prev) => ({ ...prev, [userId]: true }));
     try {
-      const token = localStorage.getItem('mamage_jwt_token');
-      const res = await fetch(`/api/users/${userId}/role`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: token ? `Bearer ${token}` : '' },
-        body: JSON.stringify({ role }),
-      });
-      const data = await res.json().catch(() => ({}));
+      const res = await setUserRole(userId, role);
+      const data = res.data || {};
       if (!res.ok) {
         Toast.error(data.message || (data.error === 'LAST_SUPERADMIN' ? '至少保留一名超级管理员' : '修改失败'));
         return;
@@ -94,13 +88,12 @@ export default function AccountPage({ currentUser, onUpdated, membershipSummary 
     setInvLoading(true);
     setInvError('');
     try {
-      const token = localStorage.getItem('mamage_jwt_token');
-      const res = await fetch('/api/users/invitations' + (before ? `?before=${before}` : ''), { headers: { Authorization: token ? `Bearer ${token}` : '' } });
+      const res = await listInvitations({ before });
       if (!res.ok) {
         setInvError('邀请码列表暂时不可用，请重试');
         return;
       }
-      const data = await res.json().catch(() => ([]));
+      const data = res.data ?? [];
       const list = Array.isArray(data) ? data : (data.list || []);
       setInvites(previous => before ? [...previous, ...list] : list);
       setInvCursor(data.nextCursor || null);
@@ -126,13 +119,8 @@ export default function AccountPage({ currentUser, onUpdated, membershipSummary 
     setLoading(true);
     setMessage('');
     try {
-      const token = localStorage.getItem('mamage_jwt_token');
-      const res = await fetch('/api/users/me/invite', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
-        body: JSON.stringify({ invite_code: inviteCode.trim() }),
-      });
-      const data = await res.json().catch(() => ({}));
+      const res = await createMyInvite({ invite_code: inviteCode.trim() });
+      const data = res.data || {};
       if (!res.ok) {
         setMessage(data.message || '兑换失败');
         return;
@@ -153,13 +141,8 @@ export default function AccountPage({ currentUser, onUpdated, membershipSummary 
     setCreateLoading(true);
     setLastCreated(null);
     try {
-      const token = localStorage.getItem('mamage_jwt_token');
-      const res = await fetch('/api/users/invitations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
-        body: JSON.stringify({ role: createRole, expiresInDays: Number(expiresDays || 0) || 0 }),
-      });
-      const data = await res.json().catch(() => ({}));
+      const res = await createInvitation({ role: createRole, expiresInDays: Number(expiresDays || 0) || 0 });
+      const data = res.data || {};
       if (!res.ok) {
         Toast.error(data.message || '创建邀请码失败');
         return;
@@ -178,8 +161,7 @@ export default function AccountPage({ currentUser, onUpdated, membershipSummary 
   const handleRevoke = async (id) => {
     if (!id) return;
     try {
-      const token = localStorage.getItem('mamage_jwt_token');
-      const res = await fetch(`/api/users/invitations/${id}`, { method: 'DELETE', headers: { Authorization: token ? `Bearer ${token}` : '' } });
+      const res = await revokeInvitation(id);
       if (!res.ok) {
         Toast.error('撤销失败');
         return;
@@ -204,19 +186,9 @@ export default function AccountPage({ currentUser, onUpdated, membershipSummary 
     setPwdLoading(true);
     setPwdMessage('');
     try {
-      const token = localStorage.getItem('mamage_jwt_token');
-      const body = currentPassword
-        ? { currentPassword, newPassword }
-        : { newPassword };
-      const res = await fetch('/api/users/me/password', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': token ? `Bearer ${token}` : ''
-        },
-        body: JSON.stringify(body)
-      });
-      const data = await res.json().catch(() => ({}));
+      const body = currentPassword ? { currentPassword, newPassword } : { newPassword };
+      const res = await changeMyPassword(body);
+      const data = res.data || {};
       if (!res.ok) {
         if (res.status === 401 && (data.error === 'INVALID_CURRENT_PASSWORD' || data.message?.includes('INVALID_CURRENT_PASSWORD'))) {
           setPwdMessage('当前密码错误，请重新输入');

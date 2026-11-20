@@ -1,6 +1,7 @@
 import React from 'react';
 import FindMeModal from './FindMeModal';
 import { resolveAssetUrl, rewriteMediaUrlsDeep } from './services/request';
+import { fetchPublicShare } from './services/shareService';
 import {
   IconChevronLeft, IconChevronRight, IconClose, IconDownload,
   IconFaceScan, IconGridView, IconMasonryView,
@@ -78,8 +79,8 @@ function PublicFolderView({ share, onBack }) {
       if (document.hidden) return;
       const current = ++sequence.current;
       try {
-        const response = await fetch(`/api/share/${encodeURIComponent(code)}?limit=100`, { cache: 'no-store' });
-        const next = rewriteMediaUrlsDeep(await response.json());
+        const response = await fetchPublicShare(code, { limit: 100 });
+        const next = rewriteMediaUrlsDeep(response.data);
         if (!active || current !== sequence.current) return;
         if (!response.ok || !next.folder) { setError('分享已失效，或文件夹已移除'); return; }
         setData(next);
@@ -93,8 +94,8 @@ function PublicFolderView({ share, onBack }) {
     const current = ++sequence.current;
     setLoading(true); setError('');
     try {
-      const response = await fetch(`/api/share/${encodeURIComponent(code)}?limit=100${projectId ? `&projectId=${encodeURIComponent(projectId)}` : ''}`);
-      const next = rewriteMediaUrlsDeep(await response.json());
+      const response = await fetchPublicShare(code, { limit: 100, projectId });
+      const next = rewriteMediaUrlsDeep(response.data);
       if (current !== sequence.current) return;
       if (!response.ok) throw new Error(response.status === 410 || response.status === 404 ? '分享已失效，或相册已移出文件夹' : '暂时无法加载，请重试');
       if (projectId) setAlbum({ ...next, shareCode: code });
@@ -162,9 +163,9 @@ function AlbumShareView({ share = {}, onBack }) {
     setMoreLoading(true);
     setMoreError('');
     try {
-      const response = await fetch(`/api/share/${encodeURIComponent(shareCode)}?limit=${pageSize}&offset=${photos.length}${share.projectId ? `&projectId=${encodeURIComponent(share.projectId)}` : ''}`);
+      const response = await fetchPublicShare(shareCode, { limit: pageSize, offset: photos.length, projectId: share.projectId });
       if (!response.ok) throw new Error('加载失败，请重试');
-      const data = rewriteMediaUrlsDeep(await response.json());
+      const data = rewriteMediaUrlsDeep(response.data);
       const next = Array.isArray(data.photos) ? data.photos : [];
       setPhotos((current) => current.concat(next));
       setHasMore(next.length >= pageSize);

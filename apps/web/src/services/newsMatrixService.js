@@ -2,6 +2,7 @@
 // AI 创作矩阵服务层：渠道元数据常量 + 批次生成/轮询/重试。
 // 全部走 services/request（自带 token 头 + JSON 序列化），与后端 /api/ai/news/* 契约对齐。
 import { request } from './request';
+import { getToken } from './authService';
 
 // 与后端 channel_templates.channel_key 一一对应，顺序即前端多选 tile 的展示顺序。
 // 新增渠道时先由后端 seed 好 channel_templates 行，这里再补一条元数据，两边 key 必须一致。
@@ -36,3 +37,14 @@ async function retryJob(jobId) {
 }
 
 export { CHANNELS, DEFAULT_CHANNEL_KEYS, startBatch, getBatch, retryJob };
+
+// 服务端渲染公众号预览图（html → png）。返回原始 Response：调用方需要读 headers/blob。
+export async function renderNewsPreview(payload) {
+  const token = typeof getToken === 'function' ? getToken() : null;
+  return fetch('/api/ai/news/render-preview', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : null) },
+    body: JSON.stringify(payload),
+  });
+}

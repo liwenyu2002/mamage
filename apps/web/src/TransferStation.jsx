@@ -6,6 +6,7 @@ import { resolveAssetUrl } from './services/request';
 import { formatBytes, formatDuration } from './services/zipDownload';
 import { cancelDirectZipJob, getDirectZipJob, listActiveDirectZipJobs, triggerDirectDownload } from './services/directStorage';
 import { batchVideoDownload } from './services/batchVideoDownload';
+import { createPublicLink } from './services/shareService';
 
 
 
@@ -383,18 +384,7 @@ export default function TransferStation({ onInternalShare, hideLauncher = false 
         photoIds: ids,
         expiresInSeconds: typeof expiresInSeconds === 'number' ? expiresInSeconds : null
       };
-      const resp = await fetch('/api/share', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        credentials: 'same-origin',
-        body: JSON.stringify(body)
-      });
-      if (!resp.ok) {
-        const txt = await resp.text();
-        throw new Error(txt || `server responded ${resp.status}`);
-      }
-
-      const data = await resp.json().catch(() => ({}));
+      const data = (await createPublicLink(body)) || {};
       let code = data.code || data.shareCode || data.data && (data.data.code || data.data.shareCode) || null;
       const rawUrl = data.url || data.shareUrl || data.data?.url || data.data?.shareUrl || null;
       if (!code && rawUrl) {

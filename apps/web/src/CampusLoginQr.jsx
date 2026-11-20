@@ -1,4 +1,5 @@
 import React from 'react';
+import { cancelIamQr } from './services/authService';
 
 export default function CampusLoginQr() {
   const [revision, setRevision] = React.useState(0);
@@ -12,10 +13,7 @@ export default function CampusLoginQr() {
   React.useEffect(() => {
     const controller = new AbortController();
     let canceled = false, terminal = false, attempt, timer, expiryTimer, navigating = false;
-    const cancel = id => fetch(`/api/auth/iam/qr/${id}/cancel`, {
-      method: 'POST', credentials: 'same-origin', keepalive: true,
-      headers: { 'Content-Type': 'application/json' }, body: '{}',
-    }).catch(() => {});
+    const cancel = id => { void cancelIamQr(id).catch(() => {}); };
     async function post(path, body = {}, timeout = 30000) {
       const request = new AbortController();
       const abort = () => request.abort();

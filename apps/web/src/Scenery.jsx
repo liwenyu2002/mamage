@@ -3,7 +3,7 @@ import React from 'react';
 import ProjectDetail from './ProjectDetail';
 import { goBack } from './utils/navigation';
 import './Scenery.css';
-import { getToken } from './services/authService';
+import { fetchSceneryProjects } from './services/projectService';
 import { Button, ButtonGroup } from './ui';
 
 export default function Scenery({ currentUser = null }) {
@@ -18,15 +18,7 @@ export default function Scenery({ currentUser = null }) {
       setLoading(true);
       setError(null);
       try {
-        const headers = {};
-        const token = getToken ? getToken() : null;
-        if (token) headers['Authorization'] = `Bearer ${token}`;
-        const res = await fetch('/api/projects/scenery', { headers });
-        if (!res.ok) {
-          const text = await res.text().catch(() => '');
-          throw new Error(`Failed to fetch scenery projects: ${res.status} ${text}`);
-        }
-        const data = await res.json().catch(() => []);
+        const data = await fetchSceneryProjects();
         if (canceled) return;
         if (Array.isArray(data) && data.length > 0) {
           // choose the first scenery project by default

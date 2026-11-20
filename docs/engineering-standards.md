@@ -49,3 +49,7 @@
 3. 组件内裸 `fetch` 收敛到 `services/`
 4. 服务端 route 内联 SQL 抽到 `lib/`（对齐 dao 层）
 5. 前端迁移 TS（收益大但成本最高，建议新模块先行）
+
+> 2026-11-20 追加：组件内裸 `fetch('/api/...')` 已清零（20 处 → 0），全部经 `services/`。
+> 新增服务：`shareService`（公开分享读/建）、`accountService`（用户/角色/邀请码/改密）；
+> `authService` 扩了 providers/login/email-code/register/IAM 二维码取消；`projectService` 扩取景项目；`newsMatrixService` 扩服务端渲染预览。

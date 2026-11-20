@@ -3,7 +3,7 @@ import { navigate } from './utils/navigation';
 import { Layout, Input, TextArea, Modal, GlassSelect, SegmentedControl, DatePicker, Button, Tag, Toast } from './ui';
 import { request, resolveAssetUrl } from './services/request';
 import { getToken } from './services/authService';
-import { CHANNELS, startBatch, getBatch, retryJob } from './services/newsMatrixService';
+import { CHANNELS, startBatch, getBatch, retryJob, renderNewsPreview } from './services/newsMatrixService';
 import { pollNewsBatch } from './services/newsBatchPolling';
 import { newsDraftKey, importLegacyNewsDraft, formatNewsDate, recordNewsEdit, stepNewsEdit, isNewsBatchDone, resolveNewsPhotos,
 restoreNewsForm, hasNewsSource } from './utils/newsWriterState';
@@ -1335,22 +1335,12 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
   };
 
   const renderPreviewImageByServer = async ({ html, width, height }) => {
-    const token = typeof getToken === 'function' ? getToken() : '';
-    const resp = await fetch('/api/ai/news/render-preview', {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {})
-      },
-      body: JSON.stringify({
-        html: String(html || ''),
-        width,
-        height,
-        baseHref: typeof window !== 'undefined' && window.location && window.location.origin ?
-        `${window.location.origin}/` :
-        ''
-      })
+    const resp = await renderNewsPreview({
+      html: String(html || ''),
+      width,
+      height,
+      baseHref: typeof window !== 'undefined' && window.location && window.location.origin
+        ? `${window.location.origin}/` : '',
     });
 
     if (!resp.ok) {

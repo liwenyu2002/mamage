@@ -143,7 +143,12 @@ async function reorderTimelineSections(projectId, sectionIds) {
   });
 }
 
+async function fetchSceneryProjects({ signal } = {}) {
+  return request('/api/projects/scenery', { method: 'GET', signal });
+}
+
 export {
+  fetchSceneryProjects,
   fetchLatestProjects, fetchProjectList, fetchProjectImportStatuses, getProjectById, updateProject, createProject, deleteProject,
   createTimelineSection, updateTimelineSection, deleteTimelineSection, reorderTimelineSections,
 };

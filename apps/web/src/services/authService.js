@@ -115,3 +115,30 @@ export async function logout() {
 }
 
 export default { me, login, register, logout, updateMe, getToken };
+
+
+// ---- 登录相关（原先是 AuthPage / CampusLoginQr 里手写 fetch，这里统一收口）----
+const jsonHeaders = { 'Content-Type': 'application/json' };
+
+async function rawAuth(path, { method = 'GET', body, signal, keepalive } = {}) {
+  const response = await fetch(path, {
+    method,
+    credentials: 'same-origin',
+    signal,
+    keepalive,
+    headers: body ? jsonHeaders : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  let data = null;
+  try { data = await response.json(); } catch { data = null; }
+  return { ok: response.ok, status: response.status, data };
+}
+
+export const getProviders = (signal) => rawAuth('/api/auth/providers', { signal });
+export const loginWithPassword = (payloadOrEmail, password) => rawAuth('/api/users/login', {
+  method: 'POST',
+  body: typeof payloadOrEmail === 'string' ? { email: payloadOrEmail, password } : payloadOrEmail,
+});
+export const sendEmailCode = (email) => rawAuth('/api/users/email-code', { method: 'POST', body: { email } });
+export const registerAccount = (payload) => rawAuth('/api/users/register', { method: 'POST', body: payload });
+export const cancelIamQr = (id) => rawAuth(`/api/auth/iam/qr/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: {}, keepalive: true });

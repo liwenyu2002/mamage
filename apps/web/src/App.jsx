@@ -23,6 +23,7 @@ import UiZoomControl, { useUiZoom, applyDocumentZoom } from './UiZoomControl';
 import { IconFaceScan, IconSparkleAI, IconChevronRight, IconPlus } from './ui/icons';
 import useNavigation, { useNavigationScroll } from './useNavigation';
 import { navigate, goBack, openMediaRoute, closeMediaRoute } from './utils/navigation';
+import { fetchPublicShare } from './services/shareService';
 import useMembershipNotifications from './useMembershipNotifications';
 import './WorkspaceJoin.css';
 
@@ -737,12 +738,9 @@ function App() {
         if (code) {
           (async () => {
             try {
-              const resp = await fetch(`/api/share/${code}?limit=100&offset=0`);
-              // Always try to parse JSON body when possible, even if status is not ok
-              // 裸 fetch 不经 request() 封装 → 手动过内网媒体地址改写，否则内网打开分享页仍绕公网隧道
-              const data = rewriteMediaUrlsDeep(await (async () => {
-                try {return await resp.json();} catch (e) {return null;}
-              })());
+              const resp = await fetchPublicShare(code, { limit: 100 });
+              // 分享页是匿名入口，服务层已内置 credentials；这里统一做内网媒体地址改写
+              const data = rewriteMediaUrlsDeep(resp.data);
 
               if (resp && resp.ok && data) {
                 // successful share response

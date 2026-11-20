@@ -4,6 +4,7 @@ import { IconChevronRight } from './ui/icons';
 import { campusLoginUrl, autoStartCampusLogin } from './services/iamLogin';
 import './AuthPage.css';
 import * as authService from './services/authService';
+import { getProviders, loginWithPassword, sendEmailCode, registerAccount } from './services/authService';
 import CampusLoginQr from './CampusLoginQr';
 
 const PASSWORD_RE = /^(?![0-9]+$)(?![a-zA-Z]+$)[0-9A-Za-z]{8,16}$/;
@@ -42,8 +43,8 @@ export default function AuthPage({ onAuthenticated }) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
     setProvidersLoading(true);setProvidersFailed(false);
-    fetch('/api/auth/providers', { signal: controller.signal }).
-    then((r) => {if (!r.ok) throw Error('Providers unavailable');return r.json();}).
+    getProviders(controller.signal).
+    then((r) => {if (!r.ok || !r.data) throw Error('Providers unavailable');return r.data;}).
     then((d) => {if (!canceled) setAuthProviders({ iam: d.iam === true, iamQr: d.iamQr === true, dingtalk: d.dingtalk === true });}).
     catch(() => {if (!canceled) setProvidersFailed(true);}).
     finally(() => {clearTimeout(timeout);if (!canceled) setProvidersLoading(false);});
@@ -152,12 +153,8 @@ export default function AuthPage({ onAuthenticated }) {
     try {
       const payload = { password };
       if (identifier.indexOf('@') !== -1) payload.email = identifier;else payload.student_no = identifier;
-      const res = await fetch('/api/users/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      const data = await res.json().catch(() => ({}));
+      const res = await loginWithPassword(payload);
+      const data = res.data || {};
       if (!res.ok) {
         const code = data.error_code || data.error || 'UNKNOWN_ERROR';
         // Friendly message for authentication failure
@@ -203,12 +200,8 @@ export default function AuthPage({ onAuthenticated }) {
     setCodeSending(true);
     setRegErrors((prev) => ({ ...prev, email: '', code: '', general: '' }));
     try {
-      const res = await fetch('/api/users/email-code', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, purpose: 'register' })
-      });
-      const data = await res.json().catch(() => ({}));
+      const res = await sendEmailCode({ email, purpose: 'register' });
+      const data = res.data || {};
       if (!res.ok) {
         const code = data.error || 'UNKNOWN_ERROR';
         const message = data.message || '验证码发送失败';
@@ -283,12 +276,8 @@ export default function AuthPage({ onAuthenticated }) {
       const invite_code = regInviteCode ? regInviteCode.trim() : undefined;
       const payload = { name, password, email, emailCode, organizationCode };
       if (invite_code) payload.invite_code = invite_code;
-      const res = await fetch('/api/users/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      const data = await res.json().catch(() => ({}));
+      const res = await registerAccount(payload);
+      const data = res.data || {};
       if (!res.ok) {
         const code = data.error || 'UNKNOWN_ERROR';
         const message = data.message || '注册失败';

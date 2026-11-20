@@ -1,4 +1,5 @@
 // src/ProjectDetail.jsx
+import { getUser } from './services/accountService';
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { Button, Tag, Spin, Empty, Modal, Input, DateTimePicker, Toast, HexLoader } from './ui';
@@ -1477,13 +1478,11 @@ function ProjectDetailInner({
               map((p) => p.photographerId || p.userId || p.ownerId).
               filter(Boolean)));
               if (idsToFetch.length) {
-                const token = getToken ? getToken() : null;
-                const headers = token ? { Authorization: `Bearer ${token}` } : {};
                 const fetchUser = async (id) => {
                   try {
-                    const resp = await fetch(`/api/users/${id}`, { headers });
+                    const resp = await getUser(id);
                     if (!resp.ok) return null;
-                    const data = await resp.json();
+                    const data = resp.data || null;
                     return data && (data.name || data.username || data.displayName || data.nickname || data.nick || data.realName);
                   } catch (e) {
                     return null;
