@@ -750,7 +750,7 @@ router.post('/faces/label', requirePermission('photos.view'), async (req, res) =
   } catch (err) {
     console.error('POST /api/faces/label error:', err && err.stack ? err.stack : err);
     if (schemaErrorResponse(res, err, 'POST /api/faces/label')) return;
-    return res.status(500).json({ error: err && err.message ? err.message : 'Internal server error' });
+    return res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -1060,7 +1060,7 @@ router.post('/persons/merge', requirePermission('faces.merge'), async (req, res)
     if (err && err.message && (String(err.message).includes('person not found'))) {
       return res.status(404).json({ error: err.message });
     }
-    return res.status(500).json({ error: err && err.message ? err.message : 'Internal server error' });
+    return res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -1263,7 +1263,7 @@ router.post('/persons/:personId/split-preview', requirePermission('faces.merge')
   } catch (err) {
     console.error('POST /api/persons/:personId/split-preview error:', err && err.stack ? err.stack : err);
     if (schemaErrorResponse(res, err, 'POST /api/persons/:personId/split-preview')) return;
-    return res.status(500).json({ error: err && err.message ? err.message : 'Internal server error' });
+    return res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -1384,7 +1384,7 @@ router.post('/persons/:personId/split', requirePermission('faces.merge'), async 
     console.error('POST /api/persons/:personId/split error:', err && err.stack ? err.stack : err);
     if (schemaErrorResponse(res, err, 'POST /api/persons/:personId/split')) return;
     if (err && err.status) return res.status(err.status).json({ error: err.message });
-    return res.status(500).json({ error: err && err.message ? err.message : 'Internal server error' });
+    return res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -1473,7 +1473,7 @@ router.patch('/persons/:personId', requirePermission('faces.label'), async (req,
   } catch (err) {
     console.error('PATCH /api/persons/:personId error:', err && err.stack ? err.stack : err);
     if (schemaErrorResponse(res, err, 'PATCH /api/persons/:personId')) return;
-    return res.status(500).json({ error: err && err.message ? err.message : 'Internal server error' });
+    return res.status(500).json({ error: 'Internal server error' });
   }
 });
 

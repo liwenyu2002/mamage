@@ -1460,7 +1460,9 @@ async function processUpload(req, res) {
   } catch (err) {
     await cosStorage.deleteObjects(uploadedKeys).catch(() => null);
     console.error('POST /api/upload/photo error:', err && err.stack ? err.stack : err);
-    return res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
+    return res.status(err.status || 500).json({
+      error: err.status ? (err.message || err.code || 'REQUEST_FAILED') : (err.code || 'INTERNAL_ERROR'),
+    });
   }
 }
 
@@ -1596,7 +1598,9 @@ async function processVideoUpload(req, res) {
   } catch (err) {
     await cosStorage.deleteObjects(uploadedKeys).catch(() => null);
     console.error('POST /api/upload/video error:', err && err.stack ? err.stack : err);
-    return res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
+    return res.status(err.status || 500).json({
+      error: err.status ? (err.message || err.code || 'REQUEST_FAILED') : (err.code || 'INTERNAL_ERROR'),
+    });
   } finally {
     if (posterImage && posterImage.filePath) {
       unlinkFileQuiet(posterImage.filePath);
@@ -1676,7 +1680,9 @@ router.post('/photo/direct/init', requirePermission('upload.photo'), async (req,
     });
   } catch (err) {
     console.error('POST /api/upload/photo/direct/init error:', err && err.stack ? err.stack : err);
-    res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
+    res.status(err.status || 500).json({
+      error: err.status ? (err.message || err.code || 'REQUEST_FAILED') : (err.code || 'INTERNAL_ERROR'),
+    });
   }
 });
 
@@ -1734,7 +1740,9 @@ router.post('/photo/direct/complete', requirePermission('upload.photo'), async (
     }));
   } catch (err) {
     console.error('POST /api/upload/photo/direct/complete error:', err && err.stack ? err.stack : err);
-    res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
+    res.status(err.status || 500).json({
+      error: err.status ? (err.message || err.code || 'REQUEST_FAILED') : (err.code || 'INTERNAL_ERROR'),
+    });
   }
 });
 
@@ -1851,7 +1859,9 @@ router.post('/video/direct/init', requirePermission('upload.photo'), async (req,
     });
   } catch (err) {
     console.error('POST /api/upload/video/direct/init error:', err && err.stack ? err.stack : err);
-    return res.status(err.status || 500).json({ error: err.message || 'DIRECT_VIDEO_INIT_FAILED' });
+    return res.status(err.status || 500).json({
+      error: err.status ? (err.message || 'DIRECT_VIDEO_INIT_FAILED') : (err.code || 'DIRECT_VIDEO_INIT_FAILED'),
+    });
   }
 });
 
@@ -2016,7 +2026,9 @@ async function completeDirectVideo(req, res, connection) {
       await directVideoUploads.set(session.id, session).catch(() => null);
     }
     console.error('POST /api/upload/video/direct/complete error:', err && err.stack ? err.stack : err);
-    return res.status(err.status || 500).json({ error: err.message || 'DIRECT_VIDEO_COMPLETE_FAILED' });
+    return res.status(err.status || 500).json({
+      error: err.status ? (err.message || 'DIRECT_VIDEO_COMPLETE_FAILED') : (err.code || 'DIRECT_VIDEO_COMPLETE_FAILED'),
+    });
   }
 }
 
