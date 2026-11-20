@@ -1,4 +1,5 @@
 const express = require('express');
+const folderSharesDao = require('../lib/queries/folder_shares');
 const { pool } = require('../db');
 const { requirePermission } = require('../lib/permissions');
 const { resolveWorkspace, positiveId, WorkspaceAccessError, sendWorkspaceError } = require('../lib/workspace_access');
@@ -67,7 +68,7 @@ router.post('/', async (req, res) => {
     await conn.beginTransaction();
     if (body.mode === 'copy') {
       for (const unitId of [workspace.unitId, targetUnitId].sort((a, b) => a - b)) {
-        await conn.query(`INSERT IGNORE INTO album_desktop_workspaces (organization_id, unit_key, state) VALUES (?, ?, '{"groups":[]}')`, [workspace.orgId, unitId]);
+        await folderSharesDao.ensureDesktopWorkspace(conn, { orgId: workspace.orgId, unitId });
         await sourceGroups(conn, workspace.orgId, unitId, true);
       }
     }
@@ -79,20 +80,18 @@ router.post('/', async (req, res) => {
     if (body.mode === 'copy') {
       const branch = folderBranch(groups, folder.id);
       const candidates = [...new Set(branch.flatMap(group => group.projectIds || []).map(Number))];
-      const [projects] = candidates.length ? await conn.query(`SELECT id FROM projects WHERE organization_id = ? AND unit_id = ?
-        AND restricted_to_user_id IS NULL AND id IN (?)`, [workspace.orgId, workspace.unitId, candidates]) : [[]];
+      const projects = await folderSharesDao.listShareableProjects(conn, { orgId: workspace.orgId,
+        unitId: workspace.unitId, candidates });
       projectIds = projects.map(project => Number(project.id));
       const allowed = new Set(projectIds);
       snapshot = { groups: branch.map(group => ({ id: group.id, name: group.name,
         parentId: group.id === folder.id ? null : group.parentId, kind: 'manual', color: group.color,
         tint: group.tint, symbol: group.symbol, layout: group.layout, projectIds: (group.projectIds || []).map(Number).filter(id => allowed.has(id)) })) };
     }
-    const [created] = await conn.query(
-      `INSERT INTO folder_shares (organization_id, source_unit_id, source_folder_id, folder_name,
-         target_unit_id, target_user_id, mode, created_by, expires_at, snapshot_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [workspace.orgId, workspace.unitId, folder.id, folder.name, publicShare ? null : targetUnitId,
-        publicShare ? null : targetUserId, body.mode, workspace.userId, expiresAt, snapshot ? JSON.stringify(snapshot) : null]
-    );
+    const created = await folderSharesDao.insertFolderShare(conn, { orgId: workspace.orgId,
+      sourceUnitId: workspace.unitId, sourceFolderId: folder.id, folderName: folder.name,
+      targetUnitId: publicShare ? null : targetUnitId, targetUserId: publicShare ? null : targetUserId,
+      mode: body.mode, createdBy: workspace.userId, expiresAt, snapshot });
     let code = null;
     if (body.mode === 'copy') {
       const parent = { id: created.insertId, organization_id: workspace.orgId, source_unit_id: workspace.unitId,
@@ -106,17 +105,15 @@ router.post('/', async (req, res) => {
     }
     if (publicShare) {
       code = crypto.randomBytes(18).toString('base64url');
-      const [link] = await conn.query(`INSERT INTO share_links (code, share_type, title, created_by,
-        organization_id, unit_id, sync_mode, expires_at, folder_share_id) VALUES (?, 'collection', ?, ?, ?, ?, ?, ?, ?)`,
-      [code, folder.name, workspace.userId, workspace.orgId, workspace.unitId, syncMode, expiresAt, created.insertId]);
-      await conn.query(`INSERT INTO share_link_items (share_id, photo_id, sort_order)
-        SELECT ?, ph.id, ph.id FROM photos ph JOIN internal_shares s ON s.project_id = ph.project_id
-        WHERE s.folder_share_id = ? AND ph.organization_id = ? AND ph.unit_id = ? AND s.revoked_at IS NULL`,
-      [link.insertId, created.insertId, workspace.orgId, workspace.unitId]);
+      const link = await folderSharesDao.insertPublicShareLink(conn, { code, title: folder.name,
+        createdBy: workspace.userId, orgId: workspace.orgId, unitId: workspace.unitId, syncMode, expiresAt,
+        folderShareId: created.insertId });
+      await folderSharesDao.fillShareLinkItemsFromFolder(conn, { shareId: link.insertId,
+        folderShareId: created.insertId, orgId: workspace.orgId, unitId: workspace.unitId });
     }
-    await conn.query(`INSERT INTO organization_access_audit (organization_id, unit_id, user_id, action, resource_type, resource_id, details)
-      VALUES (?, ?, ?, 'folder_share.create', 'folder_share', ?, ?)`,
-    [workspace.orgId, workspace.unitId, workspace.userId, created.insertId, JSON.stringify({ folderId: folder.id, mode: body.mode, targetUnitId, targetUserId })]);
+    await folderSharesDao.insertAudit(conn, { orgId: workspace.orgId, unitId: workspace.unitId, userId: workspace.userId,
+      action: 'folder_share.create', resourceType: 'folder_share', resourceId: created.insertId,
+      details: { folderId: folder.id, mode: body.mode, targetUnitId, targetUserId } });
     await conn.commit();
     if (body.mode === 'copy') copyWorker.wake();
     res.status(201).json({ id: created.insertId, code, shareType: 'folder', folderId: folder.id, mode: body.mode, expiresAt });
@@ -180,14 +177,11 @@ router.post('/:id/revoke', async (req, res) => {
     if (!id) throw new WorkspaceAccessError('INVALID_SHARE', 400);
     await conn.beginTransaction();
     await sourceGroups(conn, workspace.orgId, workspace.unitId, true);
-    const [rows] = await conn.query('SELECT id FROM folder_shares WHERE id = ? AND organization_id = ? AND source_unit_id = ? FOR UPDATE',
-      [id, workspace.orgId, workspace.unitId]);
-    if (!rows.length) throw new WorkspaceAccessError('SHARE_NOT_FOUND', 404);
-    await conn.query('UPDATE folder_shares SET revoked_at = NOW() WHERE id = ? AND revoked_at IS NULL', [id]);
-    await conn.query('UPDATE internal_shares SET revoked_at = NOW() WHERE folder_share_id = ? AND revoked_at IS NULL', [id]);
-    await conn.query('UPDATE share_links SET revoked_at = NOW() WHERE folder_share_id = ? AND revoked_at IS NULL', [id]);
-    await conn.query(`INSERT INTO organization_access_audit (organization_id, unit_id, user_id, action, resource_type, resource_id)
-      VALUES (?, ?, ?, 'folder_share.revoke', 'folder_share', ?)`, [workspace.orgId, workspace.unitId, workspace.userId, id]);
+    const locked = await folderSharesDao.lockFolderShare(conn, { id, orgId: workspace.orgId, unitId: workspace.unitId });
+    if (!locked.length) throw new WorkspaceAccessError('SHARE_NOT_FOUND', 404);
+    await folderSharesDao.revokeFolderShare(conn, id);
+    await folderSharesDao.insertAudit(conn, { orgId: workspace.orgId, unitId: workspace.unitId, userId: workspace.userId,
+      action: 'folder_share.revoke', resourceType: 'folder_share', resourceId: id });
     await conn.commit();
     res.json({ revoked: true });
   } catch (error) { await conn?.rollback().catch(() => {}); fail(res, error); }
@@ -202,17 +196,13 @@ router.post('/:id/copy', async (req, res) => {
     if (workspace.ownPhotosOnly) throw new WorkspaceAccessError('ORGANIZATION_PHOTO_ACCESS_REQUIRED');
     if (!id) throw new WorkspaceAccessError('INVALID_SHARE', 400);
     await conn.beginTransaction();
-    const [rows] = await conn.query(`SELECT * FROM folder_shares WHERE id = ? AND organization_id = ? AND mode = 'copy'
-      AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > NOW()) FOR UPDATE`, [id, workspace.orgId]);
-    const share = rows[0];
+    const share = await folderSharesDao.lockCopyFolderShare(conn, { id, orgId: workspace.orgId });
     if (!share) throw new WorkspaceAccessError('SHARE_NOT_FOUND', 404);
     if (Number(share.source_unit_id) === workspace.unitId) await requireSourceEditor(workspace, workspace.unitId);
     else if (Number(share.target_unit_id) !== workspace.unitId || (share.target_user_id && Number(share.target_user_id) !== workspace.userId)) throw new WorkspaceAccessError('SHARE_NOT_FOUND', 404);
-    const [jobs] = await conn.query(`UPDATE organization_copy_jobs j JOIN internal_shares s ON s.id = j.share_id
-      SET j.status = 'queued', j.error_code = NULL, j.copied_bytes = 0
-      WHERE s.folder_share_id = ? AND s.revoked_at IS NULL AND j.status = 'failed'`, [id]);
+    const queued = await folderSharesDao.requeueFailedCopyJobs(conn, id);
     await conn.commit();
-    copyWorker.wake(); res.json({ queued: jobs.affectedRows });
+    copyWorker.wake(); res.json({ queued });
   } catch (error) { await conn?.rollback().catch(() => {}); fail(res, error); }
   finally { conn?.release(); }
 });
