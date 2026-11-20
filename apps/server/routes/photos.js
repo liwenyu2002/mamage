@@ -1113,7 +1113,7 @@ router.post('/assign-section', requirePermission('photos.edit'), async (req, res
     const updParams = [sectionId, foundIds];
     if (orgId === null) updSql += ' AND organization_id IS NULL';
     else { updSql += ' AND organization_id = ?'; updParams.push(orgId); }
-    const [result] = await conn.query(updSql, updParams);
+    const result = await photosDao.executeDynamic(conn, { sql: updSql, params: updParams });
     await conn.commit();
     committed = true;
 
@@ -1188,31 +1188,27 @@ router.get('/group-rescue/:jobId', requirePermission('photos.edit'), async (req,
 // 分享页(公开、无登录态)也要能打包：带 shareCode 时改用"分享码鉴权"，
 // 并把可下载范围严格钉死在该分享自身的照片里（下方 resolveShareZipScope）。
 async function resolveShareZipScope(code) {
-  const [rows] = await pool.query(
-    'SELECT id, code, share_type, project_id, organization_id, unit_id, sync_mode, folder_share_id, expires_at, revoked_at FROM share_links WHERE code = ? LIMIT 1',
-    [String(code || '').trim()]
-  );
-  if (!rows || rows.length === 0) return { error: 'NOT_FOUND', status: 404 };
-  const s = rows[0];
+  const s = await photosDao.findShareLinkForZip(pool, String(code || '').trim());
+  if (!s) return { error: 'NOT_FOUND', status: 404 };
   if (s.revoked_at) return { error: 'REVOKED', status: 410 };
   if (s.expires_at && new Date(s.expires_at).getTime() <= Date.now()) return { error: 'EXPIRED', status: 410 };
 
   let allowed = [];
   if (s.folder_share_id) {
     const scope = require('../lib/folder_shares').publicFolderPhotoScope(s);
-    const [items] = await pool.query(`SELECT p.id FROM photos p WHERE ${scope.sql}${s.sync_mode === 'approval'
-      ? ' AND EXISTS (SELECT 1 FROM share_link_items approved WHERE approved.share_id = ? AND approved.photo_id = p.id)' : ''}`,
-    [...scope.params, ...(s.sync_mode === 'approval' ? [s.id] : [])]);
+    const items = await photosDao.listIdsByDynamicScope(pool, {
+      sql: `SELECT p.id FROM photos p WHERE ${scope.sql}${s.sync_mode === 'approval'
+        ? ' AND EXISTS (SELECT 1 FROM share_link_items approved WHERE approved.share_id = ? AND approved.photo_id = p.id)' : ''}`,
+      params: [...scope.params, ...(s.sync_mode === 'approval' ? [s.id] : [])] });
     allowed = items.map(row => Number(row.id));
   } else if (s.share_type === 'collection') {
-    const [items] = await pool.query('SELECT photo_id FROM share_link_items WHERE share_id = ?', [s.id]);
-    allowed = (items || []).map((r) => Number(r.photo_id)).filter(Boolean);
+    const items = await photosDao.listIdsByDynamicScope(pool, {
+      sql: 'SELECT photo_id FROM share_link_items WHERE share_id = ?', params: [s.id] });
+    allowed = items.map((r) => Number(r.photo_id)).filter(Boolean);
   } else if (s.share_type === 'project') {
-    const [ps] = await pool.query(
-      `SELECT id FROM photos WHERE project_id = ?${s.organization_id === null ? ' AND organization_id IS NULL' : ' AND organization_id = ?'}`,
-      s.organization_id === null ? [s.project_id] : [s.project_id, s.organization_id]
-    );
-    allowed = (ps || []).map((r) => Number(r.id)).filter(Boolean);
+    const ps = await photosDao.listProjectPhotoIdsForZip(pool, { projectId: s.project_id,
+      orgId: s.organization_id === null ? null : Number(s.organization_id) });
+    allowed = ps.map((r) => Number(r.id)).filter(Boolean);
   } else {
     return { error: 'UNSUPPORTED_SHARE_TYPE', status: 400 };
   }
@@ -2264,7 +2260,7 @@ router.patch('/:id', requirePermission('photos.edit'), async (req, res) => {
       }
       await requirePhotoAccess(req, id, 'metadata', conn);
       prepared?.assertCurrent(ownRows[0]);
-      await conn.query(sql, params);
+      await photosDao.updateDynamic(conn, { sql, params });
       await conn.commit();
       committed = true;
     } catch (error) {

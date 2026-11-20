@@ -146,3 +146,32 @@ module.exports.queryWithDegradedFallback = queryWithDegradedFallback;
 module.exports.findSectionWithProjectScope = findSectionWithProjectScope;
 module.exports.lockOwnershipRow = lockOwnershipRow;
 module.exports.findPhotoDetail = findPhotoDetail;
+
+/** 分享码 -> 可下载范围（公开打包用） */
+async function findShareLinkForZip(db, code) {
+  const [rows] = await db.query(
+    'SELECT id, code, share_type, project_id, organization_id, unit_id, sync_mode, folder_share_id, expires_at, revoked_at FROM share_links WHERE code = ? LIMIT 1',
+    [code]);
+  return rows && rows.length ? rows[0] : null;
+}
+
+async function listIdsByDynamicScope(db, { sql, params }) {
+  const [rows] = await db.query(sql, params);
+  return rows || [];
+}
+
+async function listProjectPhotoIdsForZip(db, { projectId, orgId }) {
+  const [rows] = await db.query(
+    `SELECT id FROM photos WHERE project_id = ?${orgId === null ? ' AND organization_id IS NULL' : ' AND organization_id = ?'}`,
+    orgId === null ? [projectId] : [projectId, orgId]);
+  return rows || [];
+}
+
+async function updateDynamic(conn, { sql, params }) {
+  await conn.query(sql, params);
+}
+
+module.exports.findShareLinkForZip = findShareLinkForZip;
+module.exports.listIdsByDynamicScope = listIdsByDynamicScope;
+module.exports.listProjectPhotoIdsForZip = listProjectPhotoIdsForZip;
+module.exports.updateDynamic = updateDynamic;

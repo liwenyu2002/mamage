@@ -45,7 +45,7 @@
 ## 四之二、DAO 层与 TypeScript（2026-11-20 落地）
 
 - `apps/server/lib/queries/photos.js`：照片鉴权用户、原图行、批量删除、相册 photo_ids 回写、下载名映射等 7 处
-  （`routes/photos.js` 24 → **6**）。
+  （`routes/photos.js` 24 → **0**）。
 - `apps/server/lib/queries/projects.js`：时间线环节 11 处（列表/加锁/更新/插入/删除/同名检测/排序号/回读），
   `routes/projects.js` 48 → 35。
 - `apps/server/lib/queries/video_projects.js`：视频工程 CRUD、素材、渲染任务状态机 33 处（`routes/video_projects.js` 33 → **0**）。
@@ -70,7 +70,7 @@
   避免调用方解构口径不一。
 - 规则：**新的查询写进 `lib/queries/<域>.js`**，routes 只做编排与错误码；SQL 不再散落在路由里。
 - 棘轮：`scripts/audit-inline-sql.mjs` 统计 `routes/` 内联 SQL 调用点，当前 **70**，
-  `ci.sh` 用 `--fail-over 62` 卡住"只降不升"，每迁一个文件把阈值下调（374 → … → 278 → 269 → 261）。
+  `ci.sh` 用 `--fail-over 56` 卡住"只降不升"，每迁一个文件把阈值下调（374 → … → 278 → 269 → 261）。
 - TypeScript：`tsconfig.json` + `@babel/preset-typescript` 已接入 webpack（`.ts/.tsx` 与 JS 同管线），
   `npm run typecheck` 进 CI；首个 TS 模块 `services/shareService.ts`。
 
