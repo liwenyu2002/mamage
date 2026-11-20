@@ -9,19 +9,19 @@ import CampusLoginQr from './CampusLoginQr';
 const PASSWORD_RE = /^(?![0-9]+$)(?![a-zA-Z]+$)[0-9A-Za-z]{8,16}$/;
 const EMAIL_RE = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
 
-function validateRegisterInput({ name, email, password }) {
-  // name (昵称) 可选
-  if (email && !EMAIL_RE.test(email)) return { ok: false, field: 'email', msg: '邮箱格式不正确' };
-  if (!password || !PASSWORD_RE.test(password)) return { ok: false, field: 'password', msg: '密码需 8-16 位且同时包含字母和数字' };
-  return { ok: true };
-}
 
-function validateLoginInput({ email, password }) {
-  if (!email || email.trim().length === 0) return { ok: false, msg: '请输入邮箱或学号' };
-  if (!password || password.length === 0) return { ok: false, msg: '请输入密码' };
-  // 不进行邮箱格式校验，允许学号等其他凭证
-  return { ok: true };
-}
+
+
+
+
+
+
+
+
+
+
+
+
 
 export default function AuthPage({ onAuthenticated }) {
   const [authProviders, setAuthProviders] = React.useState({ dingtalk: false, iam: false, iamQr: false });
@@ -41,28 +41,28 @@ export default function AuthPage({ onAuthenticated }) {
     let canceled = false;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
-    setProvidersLoading(true); setProvidersFailed(false);
-    fetch('/api/auth/providers', { signal: controller.signal })
-      .then((r) => { if (!r.ok) throw Error('Providers unavailable'); return r.json(); })
-      .then((d) => { if (!canceled) setAuthProviders({ iam: d.iam === true, iamQr: d.iamQr === true, dingtalk: d.dingtalk === true }); })
-      .catch(() => { if (!canceled) setProvidersFailed(true); })
-      .finally(() => { clearTimeout(timeout); if (!canceled) setProvidersLoading(false); });
+    setProvidersLoading(true);setProvidersFailed(false);
+    fetch('/api/auth/providers', { signal: controller.signal }).
+    then((r) => {if (!r.ok) throw Error('Providers unavailable');return r.json();}).
+    then((d) => {if (!canceled) setAuthProviders({ iam: d.iam === true, iamQr: d.iamQr === true, dingtalk: d.dingtalk === true });}).
+    catch(() => {if (!canceled) setProvidersFailed(true);}).
+    finally(() => {clearTimeout(timeout);if (!canceled) setProvidersLoading(false);});
     // 钉钉回调失败时错误信息挂在 hash 上
     try {
       const m = String(window.location.hash || '').match(/(?:dingtalk|iam|oidc)_error=([^&]+)/);
       if (m) {
         const code = decodeURIComponent(m[1]);
-        const message = code.startsWith('OIDC_') || code.startsWith('IAM_') || code.startsWith('ACCOUNT_')
-          ? /ACCOUNT_LINK_REQUIRED|ACCOUNT_MATCH_CONFLICT/.test(code) ? '统一身份尚未关联，请联系管理员'
-            : /PROFILE_INCOMPLETE|PROFILE_ID_MISSING|PROFILE_CLAIMS_CONFLICT/.test(code) ? '统一身份资料不完整，请联系管理员核对登录资料配置'
-              : /ACCOUNT_SESSION_REVOKED/.test(code) ? '账号已停用或登录已失效，请联系管理员'
-                : '统一身份登录未完成，请重试或联系管理员'
-          : code;
-        setLoginAlert(message); Toast.error(message);
+        const message = code.startsWith('OIDC_') || code.startsWith('IAM_') || code.startsWith('ACCOUNT_') ?
+        /ACCOUNT_LINK_REQUIRED|ACCOUNT_MATCH_CONFLICT/.test(code) ? '统一身份尚未关联，请联系管理员' :
+        /PROFILE_INCOMPLETE|PROFILE_ID_MISSING|PROFILE_CLAIMS_CONFLICT/.test(code) ? '统一身份资料不完整，请联系管理员核对登录资料配置' :
+        /ACCOUNT_SESSION_REVOKED/.test(code) ? '账号已停用或登录已失效，请联系管理员' :
+        '统一身份登录未完成，请重试或联系管理员' :
+        code;
+        setLoginAlert(message);Toast.error(message);
         window.history.replaceState({}, '', window.location.pathname + window.location.search);
       }
-    } catch (e) { /* ignore */ }
-    return () => { canceled = true; clearTimeout(timeout); controller.abort(); };
+    } catch (e) {/* ignore */}
+    return () => {canceled = true;clearTimeout(timeout);controller.abort();};
   }, [providerRetry]);
   const [active, setActive] = React.useState('login');
   const hasCampusLogin = authProviders.iam || authProviders.dingtalk;
@@ -80,16 +80,16 @@ export default function AuthPage({ onAuthenticated }) {
         window.location.replace('/api/auth/iam/login?returnTo=' + encodeURIComponent(window.location.pathname + window.location.search));
         return;
       }
-    } catch { /* 存储不可用时保持手动登录 */ }
+    } catch {/* 存储不可用时保持手动登录 */}
     try {
       if (autoStartCampusLogin({ providers: authProviders, location: window.location,
         userAgent: navigator.userAgent, storage: window.sessionStorage })) setRedirecting(true);
-    } catch { /* Manual login remains available when browser storage is unavailable. */ }
+    } catch {/* Manual login remains available when browser storage is unavailable. */}
   }, [providersLoading, providersFailed, active, loginMode, authProviders]);
   const beginCampusLogin = () => {
     const url = campusLoginUrl(authProviders, window.location);
     if (!url || redirecting) return;
-    setRedirecting(true); window.location.assign(url);
+    setRedirecting(true);window.location.assign(url);
   };
   const [loading, setLoading] = React.useState(false);
   // controlled fields
@@ -107,7 +107,7 @@ export default function AuthPage({ onAuthenticated }) {
   const [codeCooldown, setCodeCooldown] = React.useState(0);
   const commonSuffixes = ['@qq.com', '@163.com', '@gmail.com', '@hotmail.com', '@edu.cn'];
   const [showRegSuggestions, setShowRegSuggestions] = React.useState(false);
-  const [regPasswordValid, setRegPasswordValid] = React.useState(false);
+
   React.useEffect(() => {
     try {
       // prefill invite code from URL ?invite=CODE
@@ -132,7 +132,7 @@ export default function AuthPage({ onAuthenticated }) {
     minMax: (p) => !!p && p.length >= 8 && p.length <= 16,
     hasLetter: (p) => /[A-Za-z]/.test(p),
     hasNumber: (p) => /[0-9]/.test(p),
-    allowedChars: (p) => /^[0-9A-Za-z]*$/.test(p),
+    allowedChars: (p) => /^[0-9A-Za-z]*$/.test(p)
   }), []);
 
   const handleLogin = async () => {
@@ -151,11 +151,11 @@ export default function AuthPage({ onAuthenticated }) {
     setLoginErrors({ email: '', password: '', general: '' });
     try {
       const payload = { password };
-      if (identifier.indexOf('@') !== -1) payload.email = identifier; else payload.student_no = identifier;
+      if (identifier.indexOf('@') !== -1) payload.email = identifier;else payload.student_no = identifier;
       const res = await fetch('/api/users/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(payload)
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -174,8 +174,8 @@ export default function AuthPage({ onAuthenticated }) {
 
       // success: expect { token, user }
       if (data && data.token) {
-        try { localStorage.setItem('mamage_jwt_token', data.token); } catch (e) { console.warn('save token failed', e); }
-        const user = data.user || await authService.me();
+        try {localStorage.setItem('mamage_jwt_token', data.token);} catch (e) {console.warn('save token failed', e);}
+        const user = data.user || (await authService.me());
         Toast.success('登录成功');
         if (typeof onAuthenticated === 'function') onAuthenticated(user);
       } else {
@@ -206,7 +206,7 @@ export default function AuthPage({ onAuthenticated }) {
       const res = await fetch('/api/users/email-code', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, purpose: 'register' }),
+        body: JSON.stringify({ email, purpose: 'register' })
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -286,7 +286,7 @@ export default function AuthPage({ onAuthenticated }) {
       const res = await fetch('/api/users/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(payload)
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -365,51 +365,51 @@ export default function AuthPage({ onAuthenticated }) {
       </header>
       <main className="auth-body">
       <section className="auth-content" aria-labelledby="auth-title">
-        {active === 'login' && hasCampusLogin && !providersLoading ? (
+        {active === 'login' && hasCampusLogin && !providersLoading ?
           <div className="auth-login-tabs" role="tablist" aria-label="登录方式" onKeyDown={(event) => {
             if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
             event.preventDefault();
             const index = event.key === 'Home' ? 0 : event.key === 'End' ? 1 : currentLoginMode === 'campus' ? 1 : 0;
-            setLoginMode(index === 0 ? 'campus' : 'password'); event.currentTarget.querySelectorAll('[role="tab"]')[index].focus();
+            setLoginMode(index === 0 ? 'campus' : 'password');event.currentTarget.querySelectorAll('[role="tab"]')[index].focus();
           }}>
             <button type="button" role="tab" id="campus-login-tab" aria-controls="campus-login-panel" aria-selected={currentLoginMode === 'campus'} tabIndex={currentLoginMode === 'campus' ? 0 : -1}
-              onClick={() => setLoginMode('campus')}>{authProviders.iam ? '校园登录' : '钉钉登录'}</button>
+            onClick={() => setLoginMode('campus')}>{authProviders.iam ? '校园登录' : '钉钉登录'}</button>
             <button type="button" role="tab" id="password-login-tab" aria-controls="password-login-panel" aria-selected={currentLoginMode === 'password'} tabIndex={currentLoginMode === 'password' ? 0 : -1}
-              onClick={() => setLoginMode('password')}>账号密码</button>
-          </div>
-        ) : null}
+            onClick={() => setLoginMode('password')}>账号密码</button>
+          </div> :
+          null}
         <div className="auth-intro">
           <img className="auth-product-mark" src="/icons/icon-192.png" alt="MaMage" width="52" height="52" />
           <h1 id="auth-title">{active === 'register' ? '创建 MaMage 账号' : '登录 MaMage'}</h1>
           <p>{active === 'register' ? '校园素材库' : '欢迎回来'}</p>
         </div>
         {loginAlert && <div className="auth-notice" role="alert">{loginAlert}</div>}
-        {active === 'login' ? (
+        {active === 'login' ?
           providersLoading && !loginMode ? <div className="auth-provider-loading" role="status"><span className="mamage-button-spinner" />正在连接登录服务</div> :
-          currentLoginMode === 'campus' && hasCampusLogin ? (
+          currentLoginMode === 'campus' && hasCampusLogin ?
           <div className="auth-campus-panel" id="campus-login-panel" role="tabpanel" aria-labelledby="campus-login-tab">
             <h2>{authProviders.iam ? '校园统一身份认证' : '使用钉钉扫码或点击头像授权登录'}</h2>
-            {authProviders.iam && authProviders.iamQr && !redirecting && !/DingTalk/i.test(navigator.userAgent) ? (
-              <>
+            {authProviders.iam && authProviders.iamQr && !redirecting && !/DingTalk/i.test(navigator.userAgent) ?
+            <>
                 <CampusLoginQr />
                 <div className="auth-campus-divider"><span>或</span></div>
-              </>
-            ) : null}
+              </> :
+            null}
             <Button className="auth-primary" loading={redirecting} onClick={beginCampusLogin}>
               {authProviders.iam ? '前往校园登录' : '使用钉钉登录'}<IconChevronRight />
             </Button>
-          </div>
-          ) : (
+          </div> :
+
           <form className="auth-login-form" id="password-login-panel" role={hasCampusLogin ? 'tabpanel' : undefined}
-            aria-labelledby={hasCampusLogin ? 'password-login-tab' : 'auth-title'} onSubmit={(event) => { event.preventDefault(); if (!loading) void handleLogin(); }}>
+          aria-labelledby={hasCampusLogin ? 'password-login-tab' : 'auth-title'} onSubmit={(event) => {event.preventDefault();if (!loading) void handleLogin();}}>
             <div style={{ position: 'relative' }}>
               <Input
                 placeholder="邮箱或学号"
                 aria-label="邮箱或学号"
                 autoComplete="username"
                 value={loginEmail}
-                onChange={(v) => { setLoginEmail(v); setLoginErrors({ ...loginErrors, email: '', general: '' }); }}
-              />
+                onChange={(v) => {setLoginEmail(v);setLoginErrors({ ...loginErrors, email: '', general: '' });}} />
+              
             </div>
 
             <div>
@@ -422,8 +422,8 @@ export default function AuthPage({ onAuthenticated }) {
                 onChange={(v) => {
                   setLoginPassword(v);
                   setLoginErrors({ ...loginErrors, password: '' });
-                }}
-              />
+                }} />
+              
               {loginErrors.password && <div style={{ color: '#e53935', fontSize: 12, marginTop: 4 }}>{loginErrors.password}</div>}
               {loginErrors.general && <div role="alert" className="auth-error">{loginErrors.general}</div>}
             </div>
@@ -432,13 +432,13 @@ export default function AuthPage({ onAuthenticated }) {
               {loading ? <span className="mamage-button-spinner" aria-hidden="true" /> : null}{loading ? '正在登录' : '登录'}
             </button>
             {providersFailed && <div className="auth-provider-fallback"><span>校园登录暂不可用</span>
-              <button type="button" className="auth-text-button" onClick={() => setProviderRetry(value => value + 1)}>重试</button></div>}
-          </form>
-          )
-        ) : (
+              <button type="button" className="auth-text-button" onClick={() => setProviderRetry((value) => value + 1)}>重试</button></div>}
+          </form> :
+
+
           <div className="auth-register-form">
             <div>
-              <Input placeholder="姓名" value={regName} onChange={(v) => { setRegName(v); setRegErrors((prev) => ({ ...prev, name: '' })); }} />
+              <Input placeholder="姓名" value={regName} onChange={(v) => {setRegName(v);setRegErrors((prev) => ({ ...prev, name: '' }));}} />
               {regErrors.name && <div style={{ color: '#e53935', fontSize: 12, marginTop: 4 }}>{regErrors.name}</div>}
             </div>
 
@@ -456,37 +456,37 @@ export default function AuthPage({ onAuthenticated }) {
                     setShowRegSuggestions(true);
                   }}
                   onBlur={() => setTimeout(() => setShowRegSuggestions(false), 120)}
-                  onFocus={() => setShowRegSuggestions(true)}
-                />
+                  onFocus={() => setShowRegSuggestions(true)} />
+                
                 <Button
                   className="auth-code-button"
                   type="tertiary"
                   loading={codeSending}
                   disabled={loading || codeSending || codeCooldown > 0}
-                  onClick={handleSendEmailCode}
-                >
+                  onClick={handleSendEmailCode}>
+                  
                   {codeCooldown > 0 ? `${codeCooldown}s` : '发送验证码'}
                 </Button>
               </div>
-              {showRegSuggestions && regEmail.indexOf('@') === -1 && regEmail.length > 0 && (
-                <div className="auth-email-suggestions">
-                  {commonSuffixes.map((suf) => (
-                    <div
-                      key={suf}
-                      className="auth-email-suggestion"
-                      onMouseDown={() => {
-                        setRegEmail(regEmail + suf);
-                        setRegEmailCode('');
-                        setCodeCooldown(0);
-                        setRegErrors((prev) => ({ ...prev, email: '', code: '', general: '' }));
-                        setShowRegSuggestions(false);
-                      }}
-                    >
+              {showRegSuggestions && regEmail.indexOf('@') === -1 && regEmail.length > 0 &&
+              <div className="auth-email-suggestions">
+                  {commonSuffixes.map((suf) =>
+                <div
+                  key={suf}
+                  className="auth-email-suggestion"
+                  onMouseDown={() => {
+                    setRegEmail(regEmail + suf);
+                    setRegEmailCode('');
+                    setCodeCooldown(0);
+                    setRegErrors((prev) => ({ ...prev, email: '', code: '', general: '' }));
+                    setShowRegSuggestions(false);
+                  }}>
+                  
                       {regEmail}{suf}
                     </div>
-                  ))}
+                )}
                 </div>
-              )}
+              }
               {regErrors.email && <div style={{ color: '#e53935', fontSize: 12, marginTop: 4 }}>{regErrors.email}</div>}
             </div>
 
@@ -499,8 +499,8 @@ export default function AuthPage({ onAuthenticated }) {
                 onChange={(v) => {
                   setRegEmailCode(String(v || '').replace(/\D/g, '').slice(0, 6));
                   setRegErrors((prev) => ({ ...prev, code: '', general: '' }));
-                }}
-              />
+                }} />
+              
               {regErrors.code && <div style={{ color: '#e53935', fontSize: 12, marginTop: 4 }}>{regErrors.code}</div>}
             </div>
 
@@ -514,12 +514,12 @@ export default function AuthPage({ onAuthenticated }) {
                   onChange={(v) => {
                     setRegOrgCode(String(v || '').trim().toUpperCase());
                     setRegErrors((prev) => ({ ...prev, orgCode: '', general: '' }));
-                  }}
-                />
+                  }} />
+                
                 {regErrors.orgCode && <div style={{ color: '#e53935', fontSize: 12, marginTop: 4 }}>{regErrors.orgCode}</div>}
               </div>
               <div>
-                <Input placeholder="邀请码（可选）" value={regInviteCode} onChange={(v) => { setRegInviteCode(v); setRegErrors((prev) => ({ ...prev, invite: '' })); }} />
+                <Input placeholder="邀请码（可选）" value={regInviteCode} onChange={(v) => {setRegInviteCode(v);setRegErrors((prev) => ({ ...prev, invite: '' }));}} />
                 {regErrors.invite && <div style={{ color: '#e53935', fontSize: 12, marginTop: 6 }}>{regErrors.invite}</div>}
               </div>
             </div>
@@ -532,17 +532,14 @@ export default function AuthPage({ onAuthenticated }) {
                 onChange={(v) => {
                   setRegPassword(v);
                   if (!v || v.length === 0) {
-                    setRegPasswordValid(false);
                     setRegErrors((prev) => ({ ...prev, password: '' }));
                   } else if (PASSWORD_RE.test(v)) {
-                    setRegPasswordValid(true);
                     setRegErrors((prev) => ({ ...prev, password: '', general: '' }));
                   } else {
-                    setRegPasswordValid(false);
                     setRegErrors((prev) => ({ ...prev, password: '密码需 8-16 位且同时包含字母和数字' }));
                   }
-                }}
-              />
+                }} />
+              
               {/* Realtime detailed password hints */}
               <div style={{ fontSize: 12, marginTop: 6 }}>
                 <div style={{ color: passwordChecks.minMax(regPassword) ? '#2e7d32' : '#e53935' }}>• 长度 8-16 位</div>
@@ -562,17 +559,17 @@ export default function AuthPage({ onAuthenticated }) {
                 theme="solid"
                 disabled={loading}
                 loading={loading}
-                onClick={handleRegisterClick}
-              >
+                onClick={handleRegisterClick}>
+                
                 注册并登录
               </Button>
             </div>
           </div>
-        )}
+          }
 
         <div className="auth-account-switch">
-          {active === 'login' ? <button type="button" className="auth-text-button" onClick={() => setActive('register')}>创建账号</button>
-            : <button type="button" className="auth-text-button" onClick={() => setActive('login')}>返回登录</button>}
+          {active === 'login' ? <button type="button" className="auth-text-button" onClick={() => setActive('register')}>创建账号</button> :
+            <button type="button" className="auth-text-button" onClick={() => setActive('login')}>返回登录</button>}
         </div>
         <div className="auth-consent-row">
           登录即代表同意
@@ -581,6 +578,6 @@ export default function AuthPage({ onAuthenticated }) {
       </section>
       </main>
       <footer className="auth-footer">MaMage © {new Date().getFullYear()}</footer>
-    </div>
-  );
+    </div>);
+
 }

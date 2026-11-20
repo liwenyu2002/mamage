@@ -104,7 +104,6 @@ function createIamQrGateway({ transport = fetch } = {}) {
         throw e;
       }
       async function startFlow(cfg, authorizationUrl, cookies) {
-      const withCookies = options => ({ ...options, headers: { ...(options.headers || {}), ...(cookies.header() ? { Cookie: cookies.header() } : {}) } });
       let page = iamUrl(authorizationUrl, cfg);
       for (let i = 0; page.pathname !== '/authn/index.html'; i++) {
         if (i >= 5 || !['/sso/oauth2.0/authorize', '/sso/login'].includes(page.pathname)) throw fail();

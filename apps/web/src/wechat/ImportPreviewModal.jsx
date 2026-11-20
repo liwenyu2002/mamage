@@ -285,7 +285,7 @@ function ImportPreviewModal({ visible, result, canvasHasContent, onCancel, onImp
     }
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [visible, onCancel]);
 
   function selectAll() {

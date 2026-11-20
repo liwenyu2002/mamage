@@ -112,7 +112,7 @@ export async function downloadImagePack({ photos, baseName }) {
 
     done += 1;
     if (i < list.length - 1) {
-      // eslint-disable-next-line no-await-in-loop
+       
       await new Promise((resolve) => setTimeout(resolve, 300));
     }
   }

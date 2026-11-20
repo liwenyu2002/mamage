@@ -2,7 +2,6 @@ const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const { hydrateNewsPhotoContext, photoContextPrompt } = require('../lib/news_photo_context');
 const { buildRevisionRequest } = require('../lib/news_revision');
-const access = require('../lib/workspace_access');
 
 function fixture({ faceGrant = true, albumDenied = false, org = 1, unit = 2, shared = false, revoked = false,
   photoOrg = 1, moved = false, legacy = false } = {}) {

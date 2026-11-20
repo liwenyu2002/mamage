@@ -20,9 +20,9 @@ import { canAll } from './permissions/permissionStore';
 import { LiquidGlassDefs } from './liquidGlass';
 import { GlassAccountMenu, ViewerDisplaySettings, useViewerAppearance } from './ui/Glass';
 import UiZoomControl, { useUiZoom, applyDocumentZoom } from './UiZoomControl';
-import { IconFaceScan, IconSparkleAI, IconChevronLeft, IconChevronRight, IconPlus } from './ui/icons';
+import { IconFaceScan, IconSparkleAI, IconChevronRight, IconPlus } from './ui/icons';
 import useNavigation, { useNavigationScroll } from './useNavigation';
-import { navigate, goBack, withoutParams, openMediaRoute, closeMediaRoute } from './utils/navigation';
+import { navigate, goBack, openMediaRoute, closeMediaRoute } from './utils/navigation';
 import useMembershipNotifications from './useMembershipNotifications';
 import './WorkspaceJoin.css';
 
@@ -32,21 +32,21 @@ const lazyWithPreload = (loader) => {
   return Component;
 };
 
-const AlbumDesktop = lazyWithPreload(() => import(/* webpackChunkName: "album-desktop" */ './AlbumDesktop'));
-const ProjectDetail = lazyWithPreload(() => import(/* webpackChunkName: "project-detail" */ './ProjectDetail'));
-const ShareView = lazyWithPreload(() => import(/* webpackChunkName: "share-view" */ './ShareView'));
-const AuthPage = lazyWithPreload(() => import(/* webpackChunkName: "auth-page" */ './AuthPage'));
-const CreateAlbumModal = lazyWithPreload(() => import(/* webpackChunkName: "create-album" */ './CreateAlbumModal'));
-const TransferStation = lazyWithPreload(() => import(/* webpackChunkName: "transfer-station" */ './TransferStation'));
-const BatchVideoDownload = lazyWithPreload(() => import(/* webpackChunkName: "video-download" */ './BatchVideoDownload'));
-const PhotoPreviewOverlay = lazyWithPreload(() => import(/* webpackChunkName: "photo-preview" */ './PhotoPreviewOverlay.jsx'));
-const Scenery = lazyWithPreload(() => import(/* webpackChunkName: "scenery" */ './Scenery'));
-const AccountPage = lazyWithPreload(() => import(/* webpackChunkName: "account-page" */ './AccountPage'));
-const AiNewsWriter = lazyWithPreload(() => import(/* webpackChunkName: "ai-news-writer" */ './AiNewsWriter.jsx'));
-const WechatComposer = lazyWithPreload(() => import(/* webpackChunkName: "wechat-workspace" */ './WechatWorkspace.jsx'));
-const VideoEditor = lazyWithPreload(() => import(/* webpackChunkName: "video-editor" */ './VideoEditor.jsx'));
-const WorkspacePanel = lazyWithPreload(() => import(/* webpackChunkName: "workspace-panel" */ './WorkspacePanel.jsx'));
-const PersonalWorkspace = lazyWithPreload(() => import(/* webpackChunkName: "personal-workspace" */ './PersonalWorkspace.jsx'));
+const AlbumDesktop = lazyWithPreload(() => import(/* webpackChunkName: "album-desktop" */'./AlbumDesktop'));
+const ProjectDetail = lazyWithPreload(() => import(/* webpackChunkName: "project-detail" */'./ProjectDetail'));
+const ShareView = lazyWithPreload(() => import(/* webpackChunkName: "share-view" */'./ShareView'));
+const AuthPage = lazyWithPreload(() => import(/* webpackChunkName: "auth-page" */'./AuthPage'));
+const CreateAlbumModal = lazyWithPreload(() => import(/* webpackChunkName: "create-album" */'./CreateAlbumModal'));
+const TransferStation = lazyWithPreload(() => import(/* webpackChunkName: "transfer-station" */'./TransferStation'));
+const BatchVideoDownload = lazyWithPreload(() => import(/* webpackChunkName: "video-download" */'./BatchVideoDownload'));
+const PhotoPreviewOverlay = lazyWithPreload(() => import(/* webpackChunkName: "photo-preview" */'./PhotoPreviewOverlay.jsx'));
+const Scenery = lazyWithPreload(() => import(/* webpackChunkName: "scenery" */'./Scenery'));
+const AccountPage = lazyWithPreload(() => import(/* webpackChunkName: "account-page" */'./AccountPage'));
+const AiNewsWriter = lazyWithPreload(() => import(/* webpackChunkName: "ai-news-writer" */'./AiNewsWriter.jsx'));
+const WechatComposer = lazyWithPreload(() => import(/* webpackChunkName: "wechat-workspace" */'./WechatWorkspace.jsx'));
+const VideoEditor = lazyWithPreload(() => import(/* webpackChunkName: "video-editor" */'./VideoEditor.jsx'));
+const WorkspacePanel = lazyWithPreload(() => import(/* webpackChunkName: "workspace-panel" */'./WorkspacePanel.jsx'));
+const PersonalWorkspace = lazyWithPreload(() => import(/* webpackChunkName: "personal-workspace" */'./PersonalWorkspace.jsx'));
 
 const PROJECT_PAGE_SIZE = 24;
 const SEARCH_SUGGESTIONS = ['拿话筒的邹欣', '刘铁岩单人照', '举奖杯的人', '王婧琦的单人照', '穿白衣服的人', '多人合影'];
@@ -54,13 +54,13 @@ const SEARCH_SUGGESTION_KEY = 'mamage-search-suggestion:v1';
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 const MEDIA_STUDIO_PLATFORMS = [
-  { key: 'wechat_article', label: '推文', path: '/function/wechat-composer', editor: 'wechat' },
-  { key: 'xiaohongshu', label: '小红书', path: '/function/xiaohongshu', editor: 'writer' },
-  { key: 'press_release', label: '新闻稿', path: '/function/news', editor: 'writer' },
-  { key: 'report_brief', label: '工作简报', path: '/function/brief', editor: 'writer' },
-  { key: 'weibo', label: '微博', path: '/function/weibo', editor: 'writer' },
-  { key: 'video_editor', label: '视频剪辑', path: '/function/video', editor: 'video' },
-];
+{ key: 'wechat_article', label: '推文', path: '/function/wechat-composer', editor: 'wechat' },
+{ key: 'xiaohongshu', label: '小红书', path: '/function/xiaohongshu', editor: 'writer' },
+{ key: 'press_release', label: '新闻稿', path: '/function/news', editor: 'writer' },
+{ key: 'report_brief', label: '工作简报', path: '/function/brief', editor: 'writer' },
+{ key: 'weibo', label: '微博', path: '/function/weibo', editor: 'writer' },
+{ key: 'video_editor', label: '视频剪辑', path: '/function/video', editor: 'video' }];
+
 const TEXT_MEDIA_PLATFORMS = MEDIA_STUDIO_PLATFORMS.filter((platform) => platform.editor !== 'video');
 const VIDEO_MEDIA_PLATFORM = MEDIA_STUDIO_PLATFORMS.find((platform) => platform.editor === 'video');
 const DEFAULT_MEDIA_PLATFORM = MEDIA_STUDIO_PLATFORMS[0];
@@ -77,7 +77,7 @@ function mediaPlatformFromPath(pathname) {
 function formatHeaderDate(val) {
   if (!val && val !== 0) return '';
   try {
-    const dt = (typeof val === 'string' || typeof val === 'number') ? new Date(val) : (val instanceof Date ? val : new Date(String(val)));
+    const dt = typeof val === 'string' || typeof val === 'number' ? new Date(val) : val instanceof Date ? val : new Date(String(val));
     if (Number.isNaN(dt.getTime())) return '';
     const y = dt.getFullYear();
     const m = String(dt.getMonth() + 1).padStart(2, '0');
@@ -96,30 +96,30 @@ function AppLoadingState({ title = '正在加载', subtitle = '请稍候', compa
       <HexLoader size={compact ? 46 : 60} className="app-loading-mark" />
       <div className="app-loading-title">{title}</div>
       {subtitle ? <div className="app-loading-subtitle">{subtitle}</div> : null}
-    </div>
-  );
+    </div>);
+
 }
 
 function LazyPanel({ children, title = '正在加载功能' }) {
   return (
     <React.Suspense
-      fallback={(
-        <div className="mamage-route-loading" role="status" aria-live="polite">
+      fallback={
+      <div className="mamage-route-loading" role="status" aria-live="polite">
           <AppLoadingState title={title} subtitle="马上打开" compact />
         </div>
-      )}
-    >
+      }>
+      
       {children}
-    </React.Suspense>
-  );
+    </React.Suspense>);
+
 }
 
 function LazySilent({ children }) {
   return (
     <React.Suspense fallback={null}>
       {children}
-    </React.Suspense>
-  );
+    </React.Suspense>);
+
 }
 
 // 以下四个组件委托给 src/ui 组件库渲染，保证首页/搜索页与全站视觉一致
@@ -131,8 +131,8 @@ function Button({ children, className = '', disabled = false, loading = false, o
   return (
     <UiButton className={className} disabled={disabled} loading={loading} onClick={onClick} size={size} style={style}>
       {children}
-    </UiButton>
-  );
+    </UiButton>);
+
 }
 
 function Empty({ description = '暂无内容' }) {
@@ -154,19 +154,19 @@ try {
     localStorage.setItem('mamage_jwt_token', decodeURIComponent(tokenInHash[1]));
     clearExplicitLogout();
     const pendingUpload = storedAlbumUploadIntent(window.sessionStorage);
-    window.history.replaceState({}, '', pendingUpload && window.location.pathname === '/login'
-      ? buildAlbumUploadUrl(pendingUpload.projectId, pendingUpload.unitId, window.location.origin)
-      : window.location.pathname + window.location.search);
+    window.history.replaceState({}, '', pendingUpload && window.location.pathname === '/login' ?
+    buildAlbumUploadUrl(pendingUpload.projectId, pendingUpload.unitId, window.location.origin) :
+    window.location.pathname + window.location.search);
   }
-} catch (e) { /* ignore */ }
+} catch (e) {/* ignore */}
 
 function App() {
   const route = useNavigation();
   useNavigationScroll();
   const routeUrl = new URL(route.url, window.location.origin);
   const routeQuery = routeUrl.searchParams.get('q') || '';
-  const globalQuery = ['/', '/demo'].includes(routeUrl.pathname) && !routeUrl.searchParams.has('projectId')
-    && !routeUrl.searchParams.has('folder') && !routeUrl.searchParams.has('sharedFolder') ? routeQuery : '';
+  const globalQuery = ['/', '/demo'].includes(routeUrl.pathname) && !routeUrl.searchParams.has('projectId') &&
+  !routeUrl.searchParams.has('folder') && !routeUrl.searchParams.has('sharedFolder') ? routeQuery : '';
   // 搜索态仍由本地状态驱动；路由层的 globalQuery 只用于返回/前进恢复。
   const displaySettings = useViewerAppearance();
 
@@ -181,16 +181,16 @@ function App() {
   const [keyword, setKeyword] = React.useState('');
   const [searchSuggestion] = React.useState(() => {
     let previous;
-    try { previous = window.sessionStorage.getItem(SEARCH_SUGGESTION_KEY); } catch { /* Storage is optional. */ }
-    const choices = SEARCH_SUGGESTIONS.filter(value => value !== previous);
+    try {previous = window.sessionStorage.getItem(SEARCH_SUGGESTION_KEY);} catch {/* Storage is optional. */}
+    const choices = SEARCH_SUGGESTIONS.filter((value) => value !== previous);
     return choices[Math.floor(Math.random() * choices.length)];
   });
   React.useEffect(() => {
-    try { window.sessionStorage.setItem(SEARCH_SUGGESTION_KEY, searchSuggestion); } catch { /* Storage is optional. */ }
+    try {window.sessionStorage.setItem(SEARCH_SUGGESTION_KEY, searchSuggestion);} catch {/* Storage is optional. */}
   }, [searchSuggestion]);
   const [albumUploadIntent, setAlbumUploadIntent] = React.useState(() => {
     const intent = readAlbumUploadIntent(window.location.href);
-    try { if (intent) rememberAlbumUploadIntent(window.sessionStorage, intent); } catch { /* Storage is optional. */ }
+    try {if (intent) rememberAlbumUploadIntent(window.sessionStorage, intent);} catch {/* Storage is optional. */}
     return intent;
   });
   const [currentProjectId, setCurrentProjectId] = React.useState(null);
@@ -202,7 +202,7 @@ function App() {
   const [functionPage, setFunctionPage] = React.useState(null);
   const [currentUser, setCurrentUser] = React.useState(null);
   const personalOnly = Boolean(currentUser?.needsAssignment);
-  const personalView = selectedNav === 'personal' || (personalOnly && ['projects', 'scenery', 'function'].includes(selectedNav));
+  const personalView = selectedNav === 'personal' || personalOnly && ['projects', 'scenery', 'function'].includes(selectedNav);
   const [folderStyle, setFolderStyle] = useFolderStyle(currentUser?.id);
   const [workspaceInfo, setWorkspaceInfo] = React.useState(null);
   const [workspaceSwitching, setWorkspaceSwitching] = React.useState(false);
@@ -212,12 +212,12 @@ function App() {
   const [albumShareProject, setAlbumShareProject] = React.useState(null);
   const [authLoading, setAuthLoading] = React.useState(() => {
     try {
-      return Boolean(iamLoginPending || oidcLoginPending || (authService.getToken && authService.getToken()));
+      return Boolean(iamLoginPending || oidcLoginPending || authService.getToken && authService.getToken());
     } catch (e) {
       return false;
     }
   });
-  const [isMobileHeader, setIsMobileHeader] = React.useState(() => (typeof window !== 'undefined' ? window.innerWidth <= 1024 : false));
+  const [isMobileHeader, setIsMobileHeader] = React.useState(() => typeof window !== 'undefined' ? window.innerWidth <= 1024 : false);
   const [uiZoom, setUiZoom] = useUiZoom();
   const [mobileNavVisible, setMobileNavVisible] = React.useState(false);
   const [projectInfoOpen, setProjectInfoOpen] = React.useState(false);
@@ -231,11 +231,11 @@ function App() {
   }, [isMobileHeader, currentProjectId]);
   React.useEffect(() => {
     if (!projectInfoOpen) return undefined;
-    const outside = event => { if (!headerBrandRef.current?.contains(event.target) && !event.target.closest('.mamage-nav-search-group')) setProjectInfoOpen(false); };
-    const escape = event => { if (event.key === 'Escape') setProjectInfoOpen(false); };
+    const outside = (event) => {if (!headerBrandRef.current?.contains(event.target) && !event.target.closest('.mamage-nav-search-group')) setProjectInfoOpen(false);};
+    const escape = (event) => {if (event.key === 'Escape') setProjectInfoOpen(false);};
     document.addEventListener('pointerdown', outside);
     document.addEventListener('keydown', escape);
-    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape); };
+    return () => {document.removeEventListener('pointerdown', outside);document.removeEventListener('keydown', escape);};
   }, [projectInfoOpen]);
   const [shareMode, setShareMode] = React.useState(false);
   const [shareInitialProject, setShareInitialProject] = React.useState(null);
@@ -278,7 +278,7 @@ function App() {
   // 整体界面缩放：仅在桌面端的主应用视图生效（分享/登录/加载页强制 1，避免它们被缩放却没有控件可复位）。
   // 用 layoutEffect 在绘制前应用，避免刷新时从 100% 跳到已保存缩放的闪烁。
   const inMainAppView = !isSharePath && !authLoading && (currentUser || isDemoPath);
-  const effectiveZoom = (inMainAppView && !isMobileHeader && !personalView) ? uiZoom : 1;
+  const effectiveZoom = inMainAppView && !isMobileHeader && !personalView ? uiZoom : 1;
   React.useLayoutEffect(() => {
     applyDocumentZoom(effectiveZoom);
     return () => applyDocumentZoom(1);
@@ -311,9 +311,9 @@ function App() {
   const [projectSort, setProjectSort] = React.useState(() => {
     try {
       const saved = JSON.parse(String(localStorage.getItem('mamage_project_sort') || ''));
-      if (saved && (saved.key === 'eventDate' || saved.key === 'createdAt')
-        && (saved.order === 'asc' || saved.order === 'desc')) return saved;
-    } catch (e) { /* ignore */ }
+      if (saved && (saved.key === 'eventDate' || saved.key === 'createdAt') && (
+      saved.order === 'asc' || saved.order === 'desc')) return saved;
+    } catch (e) {/* ignore */}
     return { key: 'createdAt', order: 'desc' };
   });
 
@@ -323,10 +323,10 @@ function App() {
       if (saved && typeof saved === 'object') {
         return {
           from: DATE_RE.test(saved.from) ? saved.from : '',
-          to: DATE_RE.test(saved.to) ? saved.to : '',
+          to: DATE_RE.test(saved.to) ? saved.to : ''
         };
       }
-    } catch (e) { /* ignore */ }
+    } catch (e) {/* ignore */}
     return { from: '', to: '' };
   });
 
@@ -340,7 +340,7 @@ function App() {
     setLoading(true);
     setError(null);
     if (!isDemoPath && (!currentUser || currentUser.needsAssignment)) {
-      setProjects([]); setProjectHasMore(false); setProjectTotal(0); setLoading(false);
+      setProjects([]);setProjectHasMore(false);setProjectTotal(0);setLoading(false);
       return;
     }
     try {
@@ -353,7 +353,7 @@ function App() {
         sort: projectSort.key,
         order: projectSort.order,
         dateFrom: DATE_RE.test(projectDateFilter.from) ? projectDateFilter.from : undefined,
-        dateTo: DATE_RE.test(projectDateFilter.to) ? projectDateFilter.to : undefined,
+        dateTo: DATE_RE.test(projectDateFilter.to) ? projectDateFilter.to : undefined
       });
       if (latestRequestRef.current !== currentToken) return;
 
@@ -380,10 +380,10 @@ function App() {
 
   const handleInitialUploadHandled = React.useCallback(() => {
     setAlbumUploadIntent(null);
-    try { clearAlbumUploadIntent(window.sessionStorage); } catch { /* Storage is optional. */ }
+    try {clearAlbumUploadIntent(window.sessionStorage);} catch {/* Storage is optional. */}
     const url = new URL(window.location.href);
     if (readAlbumUploadIntent(url.href)) {
-      url.searchParams.delete('upload'); url.searchParams.delete('unitId');
+      url.searchParams.delete('upload');url.searchParams.delete('unitId');
       window.history.replaceState(window.history.state, '', url);
     }
   }, []);
@@ -420,15 +420,15 @@ function App() {
     setPhotoSearchTotal(null);
     setPhotoSearchError(null);
     const base = append ? photoSearchResultsRef.current : [];
-    if (!append) { photoSearchResultsRef.current = []; setPhotoSearchResults([]); setPhotoSearchMeta(null); }
+    if (!append) {photoSearchResultsRef.current = [];setPhotoSearchResults([]);setPhotoSearchMeta(null);}
     let received = false;
-    const applyResponse = response => {
+    const applyResponse = (response) => {
       if (controller.signal.aborted || latestPhotoSearchReqRef.current !== currentToken) return;
-      const mapped = (Array.isArray(response?.list) ? response.list : []).map(item => ({ ...item,
+      const mapped = (Array.isArray(response?.list) ? response.list : []).map((item) => ({ ...item,
         url: item?.url ? resolveAssetUrl(item.url) : null,
-        thumbUrl: item?.thumbUrl ? resolveAssetUrl(item.thumbUrl) : (item?.url ? resolveAssetUrl(item.url) : null),
+        thumbUrl: item?.thumbUrl ? resolveAssetUrl(item.thumbUrl) : item?.url ? resolveAssetUrl(item.url) : null
       }));
-      const next = [...new Map([...base, ...mapped].map(photo => [String(photo.id), photo])).values()];
+      const next = [...new Map([...base, ...mapped].map((photo) => [String(photo.id), photo])).values()];
       received = received || mapped.length > 0;
       photoSearchResultsRef.current = next;
       setPhotoSearchResults(next);
@@ -447,14 +447,14 @@ function App() {
         smart: true,
         demo: isDemoPath,
         related, signal: controller.signal,
-        onProgress: event => {
+        onProgress: (event) => {
           if (controller.signal.aborted || latestPhotoSearchReqRef.current !== currentToken) return;
-          if (event.type === 'results') { applyResponse(event.data); setPhotoSearchPhase('receiving'); }
-          else if (event.type === 'status') {
+          if (event.type === 'results') {applyResponse(event.data);setPhotoSearchPhase('receiving');} else
+          if (event.type === 'status') {
             setPhotoSearchPhase(event.phase);
             if (event.search) setPhotoSearchMeta(event.search);
           }
-        },
+        }
       });
       if (latestPhotoSearchReqRef.current !== currentToken) return;
 
@@ -466,8 +466,8 @@ function App() {
       const message = err?.body || err?.message || '搜索照片失败';
       setPhotoSearchError(message);
       setPhotoSearchPhase('error');
-      if ((!append && !received) || [401,403].includes(Number(err?.status))) {
-        setPhotoSearchResults([]); photoSearchResultsRef.current = []; setPhotoSearchMeta(null);
+      if (!append && !received || [401, 403].includes(Number(err?.status))) {
+        setPhotoSearchResults([]);photoSearchResultsRef.current = [];setPhotoSearchMeta(null);
       }
       setPhotoSearchHasMore(false);
     } finally {
@@ -518,7 +518,7 @@ function App() {
     }).catch(() => {
       if (!cancelled) setWorkspaceInfo(null);
     });
-    return () => { cancelled = true; };
+    return () => {cancelled = true;};
   }, [currentUser, isDemoPath]);
 
   const handleWorkspaceChange = React.useCallback(async (event) => {
@@ -534,9 +534,9 @@ function App() {
   }, []);
 
   React.useEffect(() => {
-    if (!currentUser || !albumUploadIntent?.unitId || !workspaceInfo
-      || Number(workspaceInfo.activeUnitId) === Number(albumUploadIntent.unitId)) return undefined;
-    if (!workspaceInfo.units?.some(unit => Number(unit.id) === Number(albumUploadIntent.unitId))) {
+    if (!currentUser || !albumUploadIntent?.unitId || !workspaceInfo ||
+    Number(workspaceInfo.activeUnitId) === Number(albumUploadIntent.unitId)) return undefined;
+    if (!workspaceInfo.units?.some((unit) => Number(unit.id) === Number(albumUploadIntent.unitId))) {
       handleInitialUploadHandled();
       Toast.warning('当前账号无权进入该相册所属的小组');
       return undefined;
@@ -545,18 +545,18 @@ function App() {
     setWorkspaceSwitching(true);
     setActiveWorkspace(Number(albumUploadIntent.unitId)).then(() => {
       if (!cancelled) window.location.replace(buildAlbumUploadUrl(albumUploadIntent.projectId, albumUploadIntent.unitId, window.location.origin));
-    }).catch(error => {
+    }).catch((error) => {
       if (!cancelled) {
-        setWorkspaceSwitching(false); handleInitialUploadHandled();
+        setWorkspaceSwitching(false);handleInitialUploadHandled();
         Toast.error(error?.message || '无法进入上传相册');
       }
     });
-    return () => { cancelled = true; };
+    return () => {cancelled = true;};
   }, [currentUser, albumUploadIntent, workspaceInfo, handleInitialUploadHandled]);
 
   const openAlbumShare = React.useCallback((album) => {
-    if (!album?.id || !workspaceInfo?.activeUnitId
-      || Number(album.unitId) !== Number(workspaceInfo.activeUnitId)) {
+    if (!album?.id || !workspaceInfo?.activeUnitId ||
+    Number(album.unitId) !== Number(workspaceInfo.activeUnitId)) {
       Toast.warning('请先切换到所属的工作空间');
       return;
     }
@@ -574,9 +574,9 @@ function App() {
     const mount = () => {
       if (!canceled) setMountTransferStation(true);
     };
-    const idleId = typeof window.requestIdleCallback === 'function'
-      ? window.requestIdleCallback(mount, { timeout: 1600 })
-      : window.setTimeout(mount, 900);
+    const idleId = typeof window.requestIdleCallback === 'function' ?
+    window.requestIdleCallback(mount, { timeout: 1600 }) :
+    window.setTimeout(mount, 900);
     return () => {
       canceled = true;
       if (typeof window.cancelIdleCallback === 'function') {
@@ -601,8 +601,8 @@ function App() {
       setAuthLoading(true);
       try {
         await Promise.all([iamLoginPending, oidcLoginPending].filter(Boolean));
-        const token = (typeof authService.getToken === 'function') ? authService.getToken() : null;
-        if (!token) { if (!canceled) setCurrentUser(null); return; }
+        const token = typeof authService.getToken === 'function' ? authService.getToken() : null;
+        if (!token) {if (!canceled) setCurrentUser(null);return;}
         const u = await authService.me();
         if (canceled) return;
         // u now includes permissions array from backend: { id, username, role, permissions: [...] }
@@ -613,14 +613,14 @@ function App() {
         if (!canceled) setAuthLoading(false);
       }
     })();
-    return () => { canceled = true; };
+    return () => {canceled = true;};
   }, []);
 
   const handleSearchSubmit = React.useCallback(() => {
     let trimmed = String(keyword || '').trim();
-    if (currentProjectId || (selectedNav === 'projects' && folderSearchScope)) {
+    if (currentProjectId || selectedNav === 'projects' && folderSearchScope) {
       const url = new URL(window.location.href);
-      if (trimmed) url.searchParams.set('q', trimmed); else url.searchParams.delete('q');
+      if (trimmed) url.searchParams.set('q', trimmed);else url.searchParams.delete('q');
       navigate(url);
       return;
     }
@@ -631,14 +631,14 @@ function App() {
     try {
       const url = new URL(window.location.href);
       url.searchParams.delete('projectId');
-      const base = isDemoPath ? '/demo' : (url.pathname && url.pathname !== '/' ? '/' : url.pathname || '/');
+      const base = isDemoPath ? '/demo' : url.pathname && url.pathname !== '/' ? '/' : url.pathname || '/';
       url.searchParams.set('q', trimmed);
       navigate(base + url.search);
     } catch (e) {
-      // ignore
-    }
-  }, [keyword, searchSuggestion, currentProjectId, selectedNav, folderSearchScope, loadPhotoSearchResults, clearPhotoSearchState, loadProjects, isDemoPath]);
 
+
+      // ignore
+    }}, [keyword, searchSuggestion, currentProjectId, selectedNav, folderSearchScope, loadPhotoSearchResults, clearPhotoSearchState, loadProjects, isDemoPath]);
   const handlePhotoSearchLoadMore = React.useCallback(() => {
     if (photoSearchLoading || !photoSearchHasMore) return;
     loadPhotoSearchResults({ kw: keyword, page: photoSearchPage + 1, append: true, related: photoSearchMeta?.matchType === 'related' });
@@ -675,8 +675,8 @@ function App() {
   }, []);
 
   const closePhotoPreview = React.useCallback(() => {
-    if (new URLSearchParams(window.location.search).has('previewId')) closeMediaRoute('previewId');
-    else setPhotoPreviewVisible(false);
+    if (new URLSearchParams(window.location.search).has('previewId')) closeMediaRoute('previewId');else
+    setPhotoPreviewVisible(false);
   }, []);
 
   const handleSelectProject = React.useCallback((projectId, photo = {}) => {
@@ -685,34 +685,34 @@ function App() {
     try {
       const url = new URL(window.location.href);
       url.pathname = isDemoPath ? '/demo' : '/';
-      ['q', 'previewId', 'upload', 'unitId'].forEach(key => url.searchParams.delete(key));
+      ['q', 'previewId', 'upload', 'unitId'].forEach((key) => url.searchParams.delete(key));
       url.searchParams.set('projectId', projectId);
       url.searchParams.delete('focusPhotoId');
-      if (photoId) url.searchParams.set('photoId', photoId);
-      else url.searchParams.delete('photoId');
+      if (photoId) url.searchParams.set('photoId', photoId);else
+      url.searchParams.delete('photoId');
       if (navigate(url)) setPendingOpenPhotoSrc(photo?.src || null);
     } catch (e) {
-      // ignore
-    }
-  }, [handleInitialUploadHandled, isDemoPath]);
 
+
+      // ignore
+    }}, [handleInitialUploadHandled, isDemoPath]);
   const handleBackToList = React.useCallback(() => {
     handleInitialUploadHandled();
     const url = new URL(window.location.href);
     url.pathname = isDemoPath ? '/demo' : '/';
-    ['projectId', 'focusPhotoId', 'photoId', 'q', 'previewId'].forEach(key => url.searchParams.delete(key));
+    ['projectId', 'focusPhotoId', 'photoId', 'q', 'previewId'].forEach((key) => url.searchParams.delete(key));
     goBack(url);
   }, [isDemoPath, handleInitialUploadHandled]);
   const handleGoHome = React.useCallback(() => {
     handleInitialUploadHandled();
     navigate(isDemoPath ? '/demo' : '/');
   }, [isDemoPath, handleInitialUploadHandled]);
-  const clearSearch = React.useCallback(() => {
-    const parent = withoutParams(window.location.href, ['q', 'previewId']);
-    setKeyword('');
-    if (!new URLSearchParams(window.location.search).has('q')) return;
-    goBack(parent, { acceptPrevious: previous => previous === parent });
-  }, []);
+
+
+
+
+
+
 
   const handleProjectPrevPage = React.useCallback(() => {
     if (loading || projectPage <= 1) return;
@@ -741,7 +741,7 @@ function App() {
               // Always try to parse JSON body when possible, even if status is not ok
               // 裸 fetch 不经 request() 封装 → 手动过内网媒体地址改写，否则内网打开分享页仍绕公网隧道
               const data = rewriteMediaUrlsDeep(await (async () => {
-                try { return await resp.json(); } catch (e) { return null; }
+                try {return await resp.json();} catch (e) {return null;}
               })());
 
               if (resp && resp.ok && data) {
@@ -753,8 +753,8 @@ function App() {
                     createdBy: data.createdBy || data.owner || null,
                     creatorName: data.creatorName || data.creator || data.sharedBy || data.ownerName || null,
                     createdAt: data.createdAt || data.created || null,
-                    expiresAt: (typeof data.expiresAt !== 'undefined') ? data.expiresAt : (data.expires || null),
-                    remainingSeconds: (typeof data.remainingSeconds === 'number') ? data.remainingSeconds : (typeof data.remaining_seconds === 'number' ? data.remaining_seconds : null),
+                    expiresAt: typeof data.expiresAt !== 'undefined' ? data.expiresAt : data.expires || null,
+                    remainingSeconds: typeof data.remainingSeconds === 'number' ? data.remainingSeconds : typeof data.remaining_seconds === 'number' ? data.remaining_seconds : null
                   };
 
                   // 公开文件夹分享：把 folder 原样带给 ShareView，由 PublicFolderView 渲染分栏浏览
@@ -766,7 +766,7 @@ function App() {
                   } else if (Array.isArray(data.photos) || Array.isArray(data.list) || Array.isArray(data.images)) {
                     setShareInitialProject(Object.assign({}, data, {
                       title: data.title || data.projectName || '照片分享',
-                      photos: data.photos || data.list || data.images,
+                      photos: data.photos || data.list || data.images
                     }, meta));
                   } else if (Array.isArray(data)) {
                     setShareInitialProject(Object.assign({ title: '分享', images: data }, meta));
@@ -776,7 +776,7 @@ function App() {
                     // fallback: pass raw data as images if it contains urls
                     const arr = [];
                     if (data && typeof data === 'object') {
-                      Object.keys(data).forEach(k => { if (Array.isArray(data[k])) arr.push(...data[k]); });
+                      Object.keys(data).forEach((k) => {if (Array.isArray(data[k])) arr.push(...data[k]);});
                     }
                     if (arr.length) setShareInitialProject(Object.assign({ title: data.title || '分享', images: arr }, meta));
                   }
@@ -792,10 +792,10 @@ function App() {
                   createdBy: data.createdBy || data.owner || data.created_by || null,
                   creatorName: data.creatorName || data.creator || data.sharedBy || data.ownerName || data.name || null,
                   createdAt: data.createdAt || data.created || null,
-                  expiresAt: (typeof data.expiresAt !== 'undefined') ? data.expiresAt : (data.expires || null),
-                  remainingSeconds: (typeof data.remainingSeconds === 'number') ? data.remainingSeconds : (typeof data.remaining_seconds === 'number' ? data.remaining_seconds : null),
+                  expiresAt: typeof data.expiresAt !== 'undefined' ? data.expiresAt : data.expires || null,
+                  remainingSeconds: typeof data.remainingSeconds === 'number' ? data.remainingSeconds : typeof data.remaining_seconds === 'number' ? data.remaining_seconds : null,
                   error: data.error || null,
-                  message: data.message || (data.error === 'EXPIRED' ? '分享链接已过期' : (data.error === 'REVOKED' ? '分享链接已被撤销' : null)),
+                  message: data.message || (data.error === 'EXPIRED' ? '分享链接已过期' : data.error === 'REVOKED' ? '分享链接已被撤销' : null)
                 };
 
                 setShareInitialProject(Object.assign({}, data, meta));
@@ -805,14 +805,14 @@ function App() {
               setShareInitialProject({
                 shareCode: code,
                 error: 'LOAD_FAILED',
-                message: '分享内容暂时无法加载，请稍后重试。',
+                message: '分享内容暂时无法加载，请稍后重试。'
               });
               setShareMode(true);
             } catch (e) {
               setShareInitialProject({
                 shareCode: code,
                 error: 'LOAD_FAILED',
-                message: '网络连接失败，请检查网络后重试。',
+                message: '网络连接失败，请检查网络后重试。'
               });
               setShareMode(true);
             }
@@ -820,27 +820,27 @@ function App() {
         }
       }
     } catch (e) {
-      // ignore
-    }
-  }, []);
 
+
+      // ignore
+    }}, []);
   const lastGlobalQuery = React.useRef('');
   React.useEffect(() => {
     lastGlobalQuery.current = '';
     clearPhotoSearchState();
   }, [currentUser?.id, workspaceInfo?.activeUnitId, clearPhotoSearchState]);
   React.useEffect(() => {
-    const url = new URL(route.url, window.location.origin), params = url.searchParams;
+    const url = new URL(route.url, window.location.origin),params = url.searchParams;
     if (url.pathname.startsWith('/share/')) return;
     const intent = readAlbumUploadIntent(url.href);
     setAlbumUploadIntent(intent);
     if (intent) rememberAlbumUploadIntent(window.sessionStorage, intent);
-    if (url.pathname === '/login' && currentUser && !intent) { navigate('/', { replace: true }); return; }
+    if (url.pathname === '/login' && currentUser && !intent) {navigate('/', { replace: true });return;}
     if (currentUser?.needsAssignment && !['/personal', '/account', '/privacy', '/about'].includes(url.pathname)) {
-      navigate('/personal', { replace: true }); return;
+      navigate('/personal', { replace: true });return;
     }
     const platform = mediaPlatformFromPath(url.pathname);
-    const page = ({ '/about': 'about', '/account': 'account', '/privacy': 'privacy', '/scenery': 'scenery', '/personal': 'personal' })[url.pathname];
+    const page = { '/about': 'about', '/account': 'account', '/privacy': 'privacy', '/scenery': 'scenery', '/personal': 'personal' }[url.pathname];
     setSelectedNav(page || (platform ? 'function' : 'projects'));
     if (platform) setFunctionPage(platform.key);
     const projectId = !page && !platform ? params.get('projectId') : null;
@@ -853,7 +853,7 @@ function App() {
     setProjectInfoOpen(false);
   }, [route.url, currentUser, globalQuery]);
   React.useEffect(() => {
-    if (!globalQuery || (!currentUser && !isDemoPath)) return;
+    if (!globalQuery || !currentUser && !isDemoPath) return;
     if (lastGlobalQuery.current === globalQuery) return;
     lastGlobalQuery.current = globalQuery;
     loadProjects(globalQuery, 1, PROJECT_PAGE_SIZE);
@@ -861,15 +861,15 @@ function App() {
   }, [globalQuery, currentUser, workspaceInfo?.activeUnitId, isDemoPath, loadProjects, loadPhotoSearchResults]);
   const previewId = routeUrl.searchParams.get('previewId');
   React.useEffect(() => {
-    const photo = photoSearchResults.find(item => String(item.id) === previewId);
-    if (photo) { openMediaRoute(photo.id, 'previewId'); openPhotoPreview(photo); }
-    else setPhotoPreviewVisible(false);
+    const photo = photoSearchResults.find((item) => String(item.id) === previewId);
+    if (photo) {openMediaRoute(photo.id, 'previewId');openPhotoPreview(photo);} else
+    setPhotoPreviewVisible(false);
   }, [previewId, photoSearchResults, openPhotoPreview]);
 
   const canUseMediaStudio = Boolean(
-    currentUser
-    && Array.isArray(currentUser.permissions)
-    && currentUser.permissions.includes('ai.generate')
+    currentUser &&
+    Array.isArray(currentUser.permissions) &&
+    currentUser.permissions.includes('ai.generate')
   );
 
   // 无 ai.generate 权限的人直接访问编辑台 URL（如 /wechat）时，弹回项目列表
@@ -892,11 +892,11 @@ function App() {
       const startDate = project?.eventDate ?? project?.startDate ?? project?.date ?? project?.shootDate ?? null;
       const createdAt = project?.createdAt ?? project?.created_at ?? project?.updatedAt ?? null;
       const updatedAt = project?.updatedAt ?? project?.updated_at ?? project?.modifiedAt ?? project?.modified_at ?? null;
-      const baseImages = Array.isArray(project?.previewImages)
-        ? project.previewImages
-        : Array.isArray(project?.images)
-          ? project.images
-          : [];
+      const baseImages = Array.isArray(project?.previewImages) ?
+      project.previewImages :
+      Array.isArray(project?.images) ?
+      project.images :
+      [];
       const toSrc = (it) => {
         if (!it) return null;
         if (typeof it === 'string') return it;
@@ -914,10 +914,10 @@ function App() {
 
       // Resolve cover and thumbnails to absolute URLs and ensure thumbnails do not equal cover
       const resolvedCover = cover ? resolveAssetUrl(cover) : resolveAssetUrl('uploads/assets/daishangchuan.png');
-      const resolvedThumbnails = thumbnails
-        .map((s) => resolveAssetUrl(s))
-        .filter((s) => s && s !== resolvedCover)
-        .slice(0, 6);
+      const resolvedThumbnails = thumbnails.
+      map((s) => resolveAssetUrl(s)).
+      filter((s) => s && s !== resolvedCover).
+      slice(0, 6);
       const count = project?.photoCount ?? (Array.isArray(project?.photoIds) ? project.photoIds.length : undefined) ?? project?.count ?? normalizedImages.length;
       const shareLineage = Array.isArray(project?.meta?.shareLineage) ? project.meta.shareLineage : [];
       const lastShare = shareLineage[shareLineage.length - 1];
@@ -938,7 +938,7 @@ function App() {
         cover: resolvedCover,
         coverSrc: resolvedCover,
         thumbnails: resolvedThumbnails,
-        previewPhotos: baseImages,
+        previewPhotos: baseImages
       };
     }).filter((project) => project.id != null);
 
@@ -947,7 +947,7 @@ function App() {
 
   const visibleProjectIds = normalizedProjects.map((project) => project.id).join(',');
   React.useEffect(() => {
-    if (selectedNav !== 'projects' || currentProjectId || (!currentUser && !isDemoPath) || !visibleProjectIds) return undefined;
+    if (selectedNav !== 'projects' || currentProjectId || !currentUser && !isDemoPath || !visibleProjectIds) return undefined;
     const ids = visibleProjectIds.split(',');
     let disposed = false;
     let inFlight = false;
@@ -958,16 +958,16 @@ function App() {
     };
     const refresh = async () => {
       if (disposed || inFlight) return;
-      if (document.hidden) { schedule(); return; }
+      if (document.hidden) {schedule();return;}
       inFlight = true;
       try {
         const response = await fetchProjectImportStatuses(ids, { demo: isDemoPath });
         if (!disposed) setProjectImportStatuses(response?.statuses || {});
       } catch (err) {
+
+
         // Album cards stay usable if the optional status request fails.
-      } finally {
-        inFlight = false;
-        schedule();
+      } finally {inFlight = false;schedule();
       }
     };
     const onVisibility = () => {
@@ -991,9 +991,9 @@ function App() {
     return normalizedProjects.find((project) => String(project.id) === sid) || null;
   }, [normalizedProjects, currentProjectId]);
   const activeWorkspaceRole = workspaceInfo?.units?.find((unit) =>
-    Number(unit.id) === Number(workspaceInfo.activeUnitId))?.role;
-  const canShareWorkspace = Boolean(workspaceInfo?.activeUnitId
-    && (workspaceInfo.collegeAdmin || ['editor', 'manager'].includes(activeWorkspaceRole)));
+  Number(unit.id) === Number(workspaceInfo.activeUnitId))?.role;
+  const canShareWorkspace = Boolean(workspaceInfo?.activeUnitId && (
+  workspaceInfo.collegeAdmin || ['editor', 'manager'].includes(activeWorkspaceRole)));
 
   const projectHeader = React.useMemo(() => {
     if (!currentProjectId) return null;
@@ -1006,25 +1006,25 @@ function App() {
       count: currentProject.count,
       createdText: formatHeaderDate(currentProject.createdAt),
       updatedText: formatHeaderDate(currentProject.updatedAt),
-      coverSrc: currentProject.coverSrc || currentProject.cover || currentProject.thumbnails?.[0] || currentProject.images?.[0] || '',
+      coverSrc: currentProject.coverSrc || currentProject.cover || currentProject.thumbnails?.[0] || currentProject.images?.[0] || ''
     } : {};
     return {
       ...fallback,
-      ...(activeProjectHeader || {}),
+      ...(activeProjectHeader || {})
     };
   }, [activeProjectHeader, currentProject, currentProjectId]);
 
   const projectHeaderReady = Boolean(projectHeader && (
-    projectHeader.title
-    || projectHeader.description
-    || projectHeader.subtitle
-    || projectHeader.createdText
-    || projectHeader.updatedText
-    || projectHeader.count !== undefined
-  ));
-  const projectHeaderTitle = currentProjectId
-    ? (projectHeaderReady ? (projectHeader?.title || '未命名相册') : '正在加载相册')
-    : 'MaMage 图库';
+  projectHeader.title ||
+  projectHeader.description ||
+  projectHeader.subtitle ||
+  projectHeader.createdText ||
+  projectHeader.updatedText ||
+  projectHeader.count !== undefined)
+  );
+  const projectHeaderTitle = currentProjectId ?
+  projectHeaderReady ? projectHeader?.title || '未命名相册' : '正在加载相册' :
+  'MaMage 图库';
   React.useLayoutEffect(() => {
     const content = headerAlbumContentRef.current;
     if (!isMobileHeader || !currentProjectId || !content) return undefined;
@@ -1037,9 +1037,9 @@ function App() {
   }, [isMobileHeader, currentProjectId, projectInfoOpen, projectHeaderTitle]);
   const projectHeaderDescription = String(projectHeader?.description || projectHeader?.subtitle || '').trim();
   const projectHeaderOrigin = String(projectHeader?.originLabel || '').trim();
-  const projectHeaderDescriptionText = currentProjectId
-    ? (projectHeaderReady ? (projectHeaderDescription || '暂无描述') : '正在同步照片信息')
-    : '';
+  const projectHeaderDescriptionText = currentProjectId ?
+  projectHeaderReady ? projectHeaderDescription || '暂无描述' : '正在同步照片信息' :
+  '';
   const projectHeaderMeta = React.useMemo(() => {
     if (!projectHeader) return [];
     if (currentProjectId && !projectHeaderReady) return ['读取照片信息'];
@@ -1119,38 +1119,38 @@ function App() {
     }
   }, []);
 
-  const navItems = React.useMemo(() => ([
-    ...(!personalOnly ? [{ key: 'projects', label: '项目', onClick: handleGoHome },
-      { key: 'scenery', label: '风景', onClick: handleNavigateScenery }] : []),
-    { key: 'personal', label: '个人工具', onClick: () => navigate('/personal') },
-    ...(canUseMediaStudio ? [{ key: 'function', label: '全媒体编辑台', onClick: handleNavigateFunction }] : []),
-    { key: 'about', label: '关于', onClick: handleNavigateAbout },
-  ]), [personalOnly, canUseMediaStudio, handleGoHome, handleNavigateAbout, handleNavigateFunction, handleNavigateScenery]);
+  const navItems = React.useMemo(() => [
+  ...(!personalOnly ? [{ key: 'projects', label: '项目', onClick: handleGoHome },
+  { key: 'scenery', label: '风景', onClick: handleNavigateScenery }] : []),
+  { key: 'personal', label: '个人工具', onClick: () => navigate('/personal') },
+  ...(canUseMediaStudio ? [{ key: 'function', label: '全媒体编辑台', onClick: handleNavigateFunction }] : []),
+  { key: 'about', label: '关于', onClick: handleNavigateAbout }],
+  [personalOnly, canUseMediaStudio, handleGoHome, handleNavigateAbout, handleNavigateFunction, handleNavigateScenery]);
 
-  const renderNavItem = React.useCallback((item, mobile = false) => (
-    <button
-      key={item.key}
-      type="button"
-      className={`${mobile ? 'mamage-mobile-nav-item' : 'mamage-nav-link'}${selectedNav === item.key ? ' is-active' : ''}`}
-      onPointerEnter={() => preloadNavItem(item.key)}
-      onFocus={() => preloadNavItem(item.key)}
-      onClick={() => {
-        item.onClick();
-        if (mobile) closeMobileNav();
-      }}
-    >
+  const renderNavItem = React.useCallback((item, mobile = false) =>
+  <button
+    key={item.key}
+    type="button"
+    className={`${mobile ? 'mamage-mobile-nav-item' : 'mamage-nav-link'}${selectedNav === item.key ? ' is-active' : ''}`}
+    onPointerEnter={() => preloadNavItem(item.key)}
+    onFocus={() => preloadNavItem(item.key)}
+    onClick={() => {
+      item.onClick();
+      if (mobile) closeMobileNav();
+    }}>
+    
       {item.label}
-    </button>
-  ), [closeMobileNav, preloadNavItem, selectedNav]);
+    </button>,
+  [closeMobileNav, preloadNavItem, selectedNav]);
 
   const handleProjectSortSelect = React.useCallback(({ key, order }) => {
     setProjectSort({ key, order });
-    try { localStorage.setItem('mamage_project_sort', JSON.stringify({ key, order })); } catch (e) { /* ignore */ }
+    try {localStorage.setItem('mamage_project_sort', JSON.stringify({ key, order }));} catch (e) {/* ignore */}
   }, []);
 
   // 时间筛选（闭区间）：活动时间优先，没填的相册按创建日期参与筛选
   const persistProjectDateFilter = React.useCallback((next) => {
-    try { localStorage.setItem('mamage_project_date_filter', JSON.stringify(next)); } catch (e) { /* ignore */ }
+    try {localStorage.setItem('mamage_project_date_filter', JSON.stringify(next));} catch (e) {/* ignore */}
   }, []);
   const handleProjectDateFilterChange = React.useCallback((patch) => {
     setProjectDateFilter((prev) => {
@@ -1160,10 +1160,10 @@ function App() {
     });
   }, [persistProjectDateFilter]);
 
-  const showProjectPager = (projectPage > 1) || projectHasMore;
-  const projectPageText = projectTotal > 0
-    ? `第 ${projectPage} 页 / 共 ${Math.max(1, Math.ceil(projectTotal / PROJECT_PAGE_SIZE))} 页（共 ${projectTotal} 个相册）`
-    : `第 ${projectPage} 页`;
+  const showProjectPager = projectPage > 1 || projectHasMore;
+  const projectPageText = projectTotal > 0 ?
+  `第 ${projectPage} 页 / 共 ${Math.max(1, Math.ceil(projectTotal / PROJECT_PAGE_SIZE))} 页（共 ${projectTotal} 个相册）` :
+  `第 ${projectPage} 页`;
 
   const handleInitialPhotoOpened = React.useCallback((photoId) => {
     setPendingOpenPhotoSrc(null);
@@ -1171,7 +1171,7 @@ function App() {
 
 
   const projectToolbar = <ProjectLibraryToolbar sort={projectSort} dateFilter={projectDateFilter}
-    onSortChange={handleProjectSortSelect} onDateFilterChange={handleProjectDateFilterChange} />;
+  onSortChange={handleProjectSortSelect} onDateFilterChange={handleProjectDateFilterChange} />;
 
   if (isSharePath) {
     if (shareMode && shareInitialProject) {
@@ -1182,26 +1182,26 @@ function App() {
           <LazyPanel title="正在打开分享内容">
             <ShareView
               share={shareInitialProject}
-              onBack={() => { try { window.history.replaceState({}, '', '/'); window.location.reload(); } catch (e) { window.location.href = '/'; } }}
-            />
+              onBack={() => {try {window.history.replaceState({}, '', '/');window.location.reload();} catch (e) {window.location.href = '/';}}} />
+            
           </LazyPanel>
-        </div>
-      );
+        </div>);
+
     }
     return (
       <div style={{ width: '100%', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <div className="mamage-dynamic-backdrop" aria-hidden="true" />
         <AppLoadingState title="正在打开分享内容" subtitle="正在整理相册信息" />
-      </div>
-    );
+      </div>);
+
   }
 
   if (authLoading) {
     return (
       <div style={{ width: '100%', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <AppLoadingState title="正在检查登录状态" subtitle="马上进入图库" />
-      </div>
-    );
+      </div>);
+
   }
 
   if (!currentUser && !isDemoPath) {
@@ -1214,11 +1214,11 @@ function App() {
               onBack={() => {
                 setSelectedNav('projects');
                 navigate('/login');
-              }}
-            />
+              }} />
+            
           </LazyPanel>
-        </div>
-      );
+        </div>);
+
     }
     return (
       <LazyPanel title="正在打开登录页">
@@ -1226,22 +1226,22 @@ function App() {
           try {
             const user = await authService.me();
             if (!user) throw Error('登录状态未能确认，请重试');
-            setCurrentUser(user); loadProjects();
-          } catch (error) { Toast.error(error?.message || '登录状态未能确认，请重试'); }
+            setCurrentUser(user);loadProjects();
+          } catch (error) {Toast.error(error?.message || '登录状态未能确认，请重试');}
         }} />
-      </LazyPanel>
-    );
+      </LazyPanel>);
+
   }
 
   const columnWorkspace = !personalView && folderStyle === 'classic' && !currentProjectId && selectedNav === 'projects' && !photoSearchMode && currentUser && !isDemoPath;
   const workspaceHasCreateDock = selectedNav === 'projects' && !photoSearchMode && Boolean(currentUser);
   const showCreateAlbum = !personalView && !isDemoPath && !currentProjectId && !workspaceHasCreateDock && canAll('projects.create');
-  const uploadWorkspacePending = Boolean(albumUploadIntent?.unitId
-    && Number(workspaceInfo?.activeUnitId) !== Number(albumUploadIntent.unitId));
+  const uploadWorkspacePending = Boolean(albumUploadIntent?.unitId &&
+  Number(workspaceInfo?.activeUnitId) !== Number(albumUploadIntent.unitId));
   const appFooter = <footer className="mamage-footer" style={{ textAlign: 'center' }}>
     MaMage 校园图库 © {new Date().getFullYear()} ·{' '}
     <button type="button" onClick={handleNavigatePrivacy}
-      style={{ border: 'none', background: 'transparent', color: 'inherit', font: 'inherit', cursor: 'pointer', textDecoration: 'underline' }}>
+    style={{ border: 'none', background: 'transparent', color: 'inherit', font: 'inherit', cursor: 'pointer', textDecoration: 'underline' }}>
       隐私说明
     </button>
   </footer>;
@@ -1251,64 +1251,64 @@ function App() {
       <LiquidGlassDefs />
       <div className="mamage-dynamic-backdrop" aria-hidden="true" />
       <header className={`mamage-header${currentProjectId ? ' is-project-detail' : ''}${isMobileHeader ? ' is-mobile-header' : ' is-desktop-header'}`}
-        data-title-open={isMobileHeader && projectInfoOpen} data-search-open={isMobileHeader && mobileHeaderPanel === 'search'}>
+      data-title-open={isMobileHeader && projectInfoOpen} data-search-open={isMobileHeader && mobileHeaderPanel === 'search'}>
         <div className={`mamage-topbar${currentProjectId ? ' is-project-detail' : ''}`} data-create-visible={showCreateAlbum}>
           <div className="mamage-nav-brand-slot" ref={headerBrandRef}>
           <div className="mamage-nav-brand-group" data-glass="clear" data-open={isMobileHeader && projectInfoOpen}>
           <div className="mamage-nav-brand-content" ref={headerAlbumContentRef}>
           <div className="mamage-brand-area">
-            {isMobileHeader ? (
-              <button
-                type="button"
-                className={`mamage-menu-trigger${currentProjectId ? ' is-home' : (mobileNavVisible ? ' is-open' : '')}`}
-                aria-label={currentProjectId ? '返回首页' : '打开导航'}
-                aria-controls={currentProjectId ? undefined : 'mamage-mobile-nav'}
-                aria-expanded={currentProjectId ? undefined : mobileNavVisible}
-                aria-label={currentProjectId ? '返回上一页' : '打开导航'}
-                onClick={currentProjectId ? handleBackToList : () => setMobileNavVisible((prev) => !prev)}
-              >
+            {isMobileHeader ?
+                  <button
+                    type="button"
+                    className={`mamage-menu-trigger${currentProjectId ? ' is-home' : mobileNavVisible ? ' is-open' : ''}`}
+                    aria-label={currentProjectId ? '返回首页' : '打开导航'}
+                    aria-controls={currentProjectId ? undefined : 'mamage-mobile-nav'}
+                    aria-expanded={currentProjectId ? undefined : mobileNavVisible}
+                    aria-label={currentProjectId ? '返回上一页' : '打开导航'}
+                    onClick={currentProjectId ? handleBackToList : () => setMobileNavVisible((prev) => !prev)}>
+                    
                 <span />
                 <span />
                 <span />
-              </button>
-            ) : null}
+              </button> :
+                  null}
 
             <button
-              type="button"
-              onClick={currentProjectId && isMobileHeader ? () => { setMobileHeaderPanel(null); setProjectInfoOpen((prev) => !prev); } : handleBackToList}
-              className={`mamage-brand-button${currentProjectId && isMobileHeader ? ' is-project-title' : ''}`}
-              title={currentProjectId && isMobileHeader ? '查看相册信息' : (currentProjectId ? '返回项目列表' : '返回首页')}
-              aria-expanded={currentProjectId && isMobileHeader ? projectInfoOpen : undefined}
-              aria-controls={currentProjectId && isMobileHeader ? 'mamage-album-header-info' : undefined}
-            >
-              {currentProjectId && isMobileHeader ? (
-                <span className="mamage-project-title-text">{projectHeaderTitle}</span>
-              ) : (
-                <span className="mamage-brand-name">{isMobileHeader ? 'MaMage 图库' : 'MaMage'}</span>
-              )}
+                    type="button"
+                    onClick={currentProjectId && isMobileHeader ? () => {setMobileHeaderPanel(null);setProjectInfoOpen((prev) => !prev);} : handleBackToList}
+                    className={`mamage-brand-button${currentProjectId && isMobileHeader ? ' is-project-title' : ''}`}
+                    title={currentProjectId && isMobileHeader ? '查看相册信息' : currentProjectId ? '返回项目列表' : '返回首页'}
+                    aria-expanded={currentProjectId && isMobileHeader ? projectInfoOpen : undefined}
+                    aria-controls={currentProjectId && isMobileHeader ? 'mamage-album-header-info' : undefined}>
+                    
+              {currentProjectId && isMobileHeader ?
+                    <span className="mamage-project-title-text">{projectHeaderTitle}</span> :
+
+                    <span className="mamage-brand-name">{isMobileHeader ? 'MaMage 图库' : 'MaMage'}</span>
+                    }
             </button>
 
           </div>
-            {currentProjectId && isMobileHeader ? (
-                  <div className="mamage-project-info-panel" id="mamage-album-header-info" aria-hidden={!projectInfoOpen} inert={!projectInfoOpen ? '' : undefined}>
-                  {projectHeaderMeta.length > 0 ? (
-                    <div className="mamage-project-info-meta">
+            {currentProjectId && isMobileHeader ?
+                <div className="mamage-project-info-panel" id="mamage-album-header-info" aria-hidden={!projectInfoOpen} inert={!projectInfoOpen ? '' : undefined}>
+                  {projectHeaderMeta.length > 0 ?
+                  <div className="mamage-project-info-meta">
                       {projectHeaderMeta.map((item) => <span key={item}>{item}</span>)}
-                    </div>
-                  ) : null}
+                    </div> :
+                  null}
                   <div className="mamage-project-info-desc">描述：{projectHeaderDescriptionText}</div>
                   {projectHeaderOrigin ? <div className="mamage-project-info-desc">来自：{projectHeaderOrigin}</div> : null}
-                </div>
-            ) : null}
+                </div> :
+                null}
           </div>
 
-          {!isMobileHeader ? (
-            <>
+          {!isMobileHeader ?
+              <>
               <nav className="mamage-nav-links" aria-label="主导航">
                 {navItems.map((item) => renderNavItem(item))}
               </nav>
-            </>
-          ) : null}
+            </> :
+              null}
           </div>
           </div>
 
@@ -1317,24 +1317,24 @@ function App() {
             {personalView ? <span className="mamage-personal-header-label">MaMage · 个人工具</span> : null}
             <div className="mamage-nav-search-field" data-has-keyword={Boolean(keyword)}>
               <input
-                ref={headerSearchRef}
-                className="mamage-nav-search-input"
-                aria-label={currentProjectId ? '当前相册内智能检索' : folderSearchScope ? '当前文件夹内智能检索' : '用自然语言搜索项目、照片、人物或场景'}
-                placeholder={isMobileHeader && mobileHeaderPanel !== 'search' ? '搜索' : currentProjectId ? '在当前相册内搜索' : folderSearchScope ? `在「${folderSearchScope.name}」内搜索` : `试试：${searchSuggestion}`}
-                value={keyword}
-                onFocus={() => { if (isMobileHeader) { setProjectInfoOpen(false); setMobileHeaderPanel('search'); } }}
-                onBlur={event => {
-                  if (!event.currentTarget.closest('.mamage-nav-search-group')?.contains(event.relatedTarget)) {
-                    setMobileHeaderPanel(current => current === 'search' ? null : current);
-                  }
-                }}
-                onChange={(event) => setKeyword(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Escape' && isMobileHeader) { setMobileHeaderPanel(null); event.currentTarget.blur(); }
-                  if (event.key === 'Enter' && !event.nativeEvent.isComposing && event.keyCode !== 229) handleSearchSubmit();
-                }}
-              />
-              {keyword ? (
+                  ref={headerSearchRef}
+                  className="mamage-nav-search-input"
+                  aria-label={currentProjectId ? '当前相册内智能检索' : folderSearchScope ? '当前文件夹内智能检索' : '用自然语言搜索项目、照片、人物或场景'}
+                  placeholder={isMobileHeader && mobileHeaderPanel !== 'search' ? '搜索' : currentProjectId ? '在当前相册内搜索' : folderSearchScope ? `在「${folderSearchScope.name}」内搜索` : `试试：${searchSuggestion}`}
+                  value={keyword}
+                  onFocus={() => {if (isMobileHeader) {setProjectInfoOpen(false);setMobileHeaderPanel('search');}}}
+                  onBlur={(event) => {
+                    if (!event.currentTarget.closest('.mamage-nav-search-group')?.contains(event.relatedTarget)) {
+                      setMobileHeaderPanel((current) => current === 'search' ? null : current);
+                    }
+                  }}
+                  onChange={(event) => setKeyword(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Escape' && isMobileHeader) {setMobileHeaderPanel(null);event.currentTarget.blur();}
+                    if (event.key === 'Enter' && !event.nativeEvent.isComposing && event.keyCode !== 229) handleSearchSubmit();
+                  }} />
+                
+              {keyword ?
                 <button
                   type="button"
                   className="mamage-search-clear"
@@ -1342,29 +1342,29 @@ function App() {
                   onClick={() => {
                     // 清空输入的同时退出搜索结果态，回到项目列表（与"搜索空关键词"行为一致）
                     setKeyword('');
-                    if (currentProjectId || (selectedNav === 'projects' && folderSearchScope)) {
+                    if (currentProjectId || selectedNav === 'projects' && folderSearchScope) {
                       setScopedSearchRequest({ q: '', projectId: currentProjectId || null,
                         folderId: currentProjectId ? null : folderSearchScope.folderId, revision: {} });
                       return;
                     }
                     clearPhotoSearchState();
                     loadProjects('', 1, PROJECT_PAGE_SIZE);
-                  }}
-                >
+                  }}>
+                  
                   ×
-                </button>
-              ) : null}
+                </button> :
+                null}
               <button
-                type="button"
-                className="mamage-search-submit"
-                aria-label="搜索"
-                onClick={() => {
-                  if (isMobileHeader && projectInfoOpen) {
-                    setProjectInfoOpen(false); setMobileHeaderPanel('search');
-                    requestAnimationFrame(() => headerSearchRef.current?.focus());
-                  } else handleSearchSubmit();
-                }}
-              >
+                  type="button"
+                  className="mamage-search-submit"
+                  aria-label="搜索"
+                  onClick={() => {
+                    if (isMobileHeader && projectInfoOpen) {
+                      setProjectInfoOpen(false);setMobileHeaderPanel('search');
+                      requestAnimationFrame(() => headerSearchRef.current?.focus());
+                    } else handleSearchSubmit();
+                  }}>
+                  
                 <span className="mamage-search-symbol" aria-hidden="true" />
               </button>
             </div>
@@ -1374,75 +1374,75 @@ function App() {
             </button>
             </div>
 
-            {showCreateAlbum ? (
-                <button
-                  type="button"
-                  className="mamage-action-button is-secondary mamage-create-album"
-                  aria-label="新建相册" title="新建相册"
-                  data-glass="clear"
-                  onPointerEnter={preloadCreateAlbum}
-                  onFocus={preloadCreateAlbum}
-                  onClick={() => setShowCreateModal(true)}
-                >
+            {showCreateAlbum ?
+            <button
+              type="button"
+              className="mamage-action-button is-secondary mamage-create-album"
+              aria-label="新建相册" title="新建相册"
+              data-glass="clear"
+              onPointerEnter={preloadCreateAlbum}
+              onFocus={preloadCreateAlbum}
+              onClick={() => setShowCreateModal(true)}>
+              
                   <span className="mamage-label-full">新建相册</span>
                   <span className="mamage-label-short">新建</span>
                   <IconPlus className="mamage-create-album-icon" />
-                </button>
-            ) : null}
+                </button> :
+            null}
 
             <div className={`mamage-account-group${membershipSummary?.total > 0 ? ' has-membership-notification' : ''}`}>
             <ViewerDisplaySettings appearance={displaySettings.appearance} onChange={displaySettings.update}
               compact={isMobileHeader} open={isMobileHeader ? mobileHeaderPanel === 'settings' : undefined}
-              onOpenChange={open => { if (isMobileHeader) { setMobileHeaderPanel(current => open ? 'settings' : current === 'settings' ? null : current); if (open) setProjectInfoOpen(false); } }} />
-            {currentUser ? (
+              onOpenChange={(open) => {if (isMobileHeader) {setMobileHeaderPanel((current) => open ? 'settings' : current === 'settings' ? null : current);if (open) setProjectInfoOpen(false);}}} />
+            {currentUser ?
               <GlassAccountMenu label={`${userName}，账户菜单${membershipSummary?.total ? `，${membershipSummary.total} 条组织通知` : ''}`} compactContent={isMobileHeader ? Array.from(userName)[0] : undefined}
-                open={isMobileHeader ? mobileHeaderPanel === 'account' : undefined}
-                onOpenChange={open => { if (isMobileHeader) { setMobileHeaderPanel(current => open ? 'account' : current === 'account' ? null : current); if (open) setProjectInfoOpen(false); } }}
-                triggerContent={<>
+              open={isMobileHeader ? mobileHeaderPanel === 'account' : undefined}
+              onOpenChange={(open) => {if (isMobileHeader) {setMobileHeaderPanel((current) => open ? 'account' : current === 'account' ? null : current);if (open) setProjectInfoOpen(false);}}}
+              triggerContent={<>
                   <span className="mamage-user-name">{userName}</span>
                   {workspaceInfo ? <span className="mamage-user-email">
                     {personalView || personalOnly ? '个人工具' : workspaceInfo.units.find((unit) => Number(unit.id) === Number(workspaceInfo.activeUnitId))?.name || '历史相册'}
                   </span> : null}
                   <IconChevronRight className="mamage-user-chevron" />
                 </>}>
-                  {workspaceInfo && !personalOnly ? (
-                    <label className="mamage-workspace-control">
+                  {workspaceInfo && !personalOnly ?
+                <label className="mamage-workspace-control">
                       <span>当前工作空间</span>
                       <select
-                        value={workspaceInfo.activeUnitId || 'legacy'}
-                        onChange={handleWorkspaceChange}
-                        disabled={workspaceSwitching}
-                        aria-label="切换工作空间"
-                      >
+                    value={workspaceInfo.activeUnitId || 'legacy'}
+                    onChange={handleWorkspaceChange}
+                    disabled={workspaceSwitching}
+                    aria-label="切换工作空间">
+                    
                         <option value="legacy">历史相册</option>
-                        {workspaceInfo.units.map((unit) => (
-                          <option key={unit.id} value={unit.id}>{unit.name}</option>
-                        ))}
+                        {workspaceInfo.units.map((unit) =>
+                    <option key={unit.id} value={unit.id}>{unit.name}</option>
+                    )}
                       </select>
-                    </label>
-                  ) : null}
-                  {workspaceInfo?.activeUnitId ? (
-                    <button type="button" onClick={() => {
-                      setAlbumShareProject(null);
-                      setWorkspacePanelPhotoIds([]);
-                      setWorkspacePanelOpen(true);
-                    }}>工作空间管理</button>
-                  ) : null}
+                    </label> :
+                null}
+                  {workspaceInfo?.activeUnitId ?
+                <button type="button" onClick={() => {
+                  setAlbumShareProject(null);
+                  setWorkspacePanelPhotoIds([]);
+                  setWorkspacePanelOpen(true);
+                }}>工作空间管理</button> :
+                null}
                   <FolderStyleMenu value={folderStyle} onChange={setFolderStyle} />
                   <button type="button" onClick={() => navigate('/personal')}>个人工具</button>
                   <button type="button" onClick={handleNavigateAccount}>账户信息</button>
                   {currentUser?.canManageUserAccess || membershipSummary?.canReview || workspaceInfo?.access?.canManageMembers ? <button type="button" onClick={() => {
-                    if (!currentUser?.canManageUserAccess && workspaceInfo?.activeUnitId && workspaceInfo?.access?.canManageMembers) {
-                      setAlbumShareProject(null);
-                      setWorkspacePanelPhotoIds([]);
-                      setWorkspacePanelTab('members');
-                      setWorkspacePanelOpen(true);
-                    } else navigate('/account#membership-requests');
-                  }}>{currentUser?.canManageUserAccess ? '用户与权限' : '成员管理'}{membershipSummary?.pendingCount ? <span className="membership-menu-count">{membershipSummary.pendingCount}</span> : null}</button>
-                    : membershipSummary?.unreadCount ? <button type="button" onClick={handleNavigateAccount}>组织申请<span className="membership-menu-count">{membershipSummary.unreadCount}</span></button> : null}
+                  if (!currentUser?.canManageUserAccess && workspaceInfo?.activeUnitId && workspaceInfo?.access?.canManageMembers) {
+                    setAlbumShareProject(null);
+                    setWorkspacePanelPhotoIds([]);
+                    setWorkspacePanelTab('members');
+                    setWorkspacePanelOpen(true);
+                  } else navigate('/account#membership-requests');
+                }}>{currentUser?.canManageUserAccess ? '用户与权限' : '成员管理'}{membershipSummary?.pendingCount ? <span className="membership-menu-count">{membershipSummary.pendingCount}</span> : null}</button> :
+                membershipSummary?.unreadCount ? <button type="button" onClick={handleNavigateAccount}>组织申请<span className="membership-menu-count">{membershipSummary.unreadCount}</span></button> : null}
                   <button type="button" onClick={handleLogout}>退出账号</button>
-              </GlassAccountMenu>
-            ) : (
+              </GlassAccountMenu> :
+
               <button
                 type="button"
                 className="mamage-action-button is-secondary"
@@ -1453,29 +1453,29 @@ function App() {
                   } catch (e) {
                     window.location.href = '/login';
                   }
-                }}
-              >
+                }}>
+                
                 管理员登录
               </button>
-            )}
+              }
             </div>
           </div>
         </div>
 
-        {currentProjectId && !isMobileHeader ? (
-          <div className="mamage-desktop-project-notch" data-glass="clear" aria-label="相册信息">
+        {currentProjectId && !isMobileHeader ?
+        <div className="mamage-desktop-project-notch" data-glass="clear" aria-label="相册信息">
             <button type="button" className="mamage-desktop-project-title" aria-label="返回上一页" title="返回上一页" onClick={handleBackToList}>{projectHeaderTitle}</button>
-            {projectHeaderMeta.length > 0 ? (
-              <span className="mamage-notch-meta">
+            {projectHeaderMeta.length > 0 ?
+          <span className="mamage-notch-meta">
                 {projectHeaderMeta.map((item) => <span key={item}>{item}</span>)}
-              </span>
-            ) : null}
+              </span> :
+          null}
             <span className="mamage-notch-description">描述：{projectHeaderDescriptionText}</span>
-          </div>
-        ) : null}
+          </div> :
+        null}
 
-        {isMobileHeader && mobileNavVisible ? (
-          <>
+        {isMobileHeader && mobileNavVisible ?
+        <>
             <button type="button" className="mamage-mobile-nav-backdrop" aria-label="关闭导航遮罩" onClick={closeMobileNav} />
             <aside id="mamage-mobile-nav" className="mamage-mobile-nav-panel is-open" role="dialog" aria-modal="true" aria-hidden={false}>
               <div className="mamage-mobile-nav-head">
@@ -1486,8 +1486,8 @@ function App() {
                 {navItems.map((item) => renderNavItem(item, true))}
               </div>
             </aside>
-          </>
-        ) : null}
+          </> :
+        null}
       </header>
 
       <main className="mamage-content" style={{ padding: 'clamp(10px, 2.5vw, 24px)' }}>
@@ -1499,43 +1499,43 @@ function App() {
               const user = await authService.me();
               if (!user) return Toast.error('登录状态已失效，请重新登录');
               if (user.needsAssignment) return Toast.warning('组织申请尚未通过');
-              setCurrentUser(user); navigate('/');
-            }} /></LazyPanel> : currentProjectId ? (
-            <LazyPanel title="正在加载相册">
+              setCurrentUser(user);navigate('/');
+            }} /></LazyPanel> : currentProjectId ?
+          <LazyPanel title="正在加载相册">
               {uploadWorkspacePending ? <AppLoadingState title="正在打开上传相册" /> : <ProjectDetail
-                key={`project-${currentProjectId}`}
-                projectId={currentProjectId}
-                initialProject={currentProject || null}
-                currentUser={currentUser}
-                onBack={handleBackToList}
-                readOnly={isDemoPath}
-                initialOpenPhotoId={pendingOpenPhotoId}
-                initialOpenPhotoSrc={pendingOpenPhotoSrc}
-                initialOpenUpload={Boolean(albumUploadIntent && String(albumUploadIntent.projectId) === String(currentProjectId))}
-                onInitialUploadHandled={handleInitialUploadHandled}
-                onInitialOpenPhotoHandled={handleInitialPhotoOpened}
-                onProjectHeaderChange={setActiveProjectHeader}
-                onShareAlbum={!isDemoPath && canShareWorkspace ? openAlbumShare : null}
-                shareUnitId={workspaceInfo?.activeUnitId}
-                searchRequest={scopedSearchRequest}
-              />}
-            </LazyPanel>
-          ) : (
-            selectedNav === 'projects' ? (
-              photoSearchMode ? (
-                <div>
+              key={`project-${currentProjectId}`}
+              projectId={currentProjectId}
+              initialProject={currentProject || null}
+              currentUser={currentUser}
+              onBack={handleBackToList}
+              readOnly={isDemoPath}
+              initialOpenPhotoId={pendingOpenPhotoId}
+              initialOpenPhotoSrc={pendingOpenPhotoSrc}
+              initialOpenUpload={Boolean(albumUploadIntent && String(albumUploadIntent.projectId) === String(currentProjectId))}
+              onInitialUploadHandled={handleInitialUploadHandled}
+              onInitialOpenPhotoHandled={handleInitialPhotoOpened}
+              onProjectHeaderChange={setActiveProjectHeader}
+              onShareAlbum={!isDemoPath && canShareWorkspace ? openAlbumShare : null}
+              shareUnitId={workspaceInfo?.activeUnitId}
+              searchRequest={scopedSearchRequest} />
+            }
+            </LazyPanel> :
+
+          selectedNav === 'projects' ?
+          photoSearchMode ?
+          <div>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
                     <Text>{`“${String(keyword || '').trim()}”的搜索结果`}</Text>
                     <Button
-                      size="small"
-                      onClick={handleBackToList}
-                    >
+                size="small"
+                onClick={handleBackToList}>
+                
                       清空搜索
                     </Button>
                   </div>
 
-                  {photoSearchMeta && Array.isArray(photoSearchMeta.chips) && photoSearchMeta.chips.length ? (
-                    <div className="app-search-insight" aria-label="智能搜索理解结果">
+                  {photoSearchMeta && Array.isArray(photoSearchMeta.chips) && photoSearchMeta.chips.length ?
+            <div className="app-search-insight" aria-label="智能搜索理解结果">
                       <span className={`app-search-insight__mode${photoSearchMeta.aiUsed ? ' is-ai' : ''}`}>
                         <IconSparkleAI />
                         {photoSearchMeta.visual ? '视觉核验' : photoSearchMeta.aiUsed ? 'AI 解析' : '条件匹配'}
@@ -1543,336 +1543,336 @@ function App() {
                       <div className="app-search-insight__chips">
                         {photoSearchMeta.chips.map((chip) => <span key={chip}>{chip}</span>)}
                       </div>
-                    </div>
-                  ) : null}
+                    </div> :
+            null}
 
                   <SearchFeedback search={photoSearchMeta} loading={photoSearchLoading}
-                    phase={photoSearchPhase} found={photoSearchResults.length}
-                    onRefresh={() => loadPhotoSearchResults({ kw: keyword, related: photoSearchMeta?.matchType === 'related' })}
-                    onRelated={() => loadPhotoSearchResults({ kw: keyword, related: true })}
-                    onStrict={() => loadPhotoSearchResults({ kw: keyword })} />
+            phase={photoSearchPhase} found={photoSearchResults.length}
+            onRefresh={() => loadPhotoSearchResults({ kw: keyword, related: photoSearchMeta?.matchType === 'related' })}
+            onRelated={() => loadPhotoSearchResults({ kw: keyword, related: true })}
+            onStrict={() => loadPhotoSearchResults({ kw: keyword })} />
 
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                       <Text strong>{Number(photoSearchTotal) > 0 ? `找到 ${photoSearchTotal} 张照片` : '照片结果'}</Text>
                     </div>
 
-                    {photoSearchLoading && photoSearchResults.length === 0 && (
-                      <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
+                    {photoSearchLoading && photoSearchResults.length === 0 &&
+              <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
                         <SearchSkeleton />
                       </div>
-                    )}
+              }
 
-                    {!photoSearchLoading && photoSearchError && (
-                      <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '40px 0' }}>
+                    {!photoSearchLoading && photoSearchError &&
+              <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '40px 0' }}>
                         <Text type="danger">{photoSearchError}</Text>
                       </div>
-                    )}
+              }
 
-                    {!photoSearchLoading && !photoSearchError && photoSearchResults.length === 0 && (
-                      <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
-                        <Empty description={photoSearchMeta?.visual && !photoSearchMeta.visual.coverageComplete
-                          ? '暂未确认符合条件的照片' : '没有匹配的照片'} />
+                    {!photoSearchLoading && !photoSearchError && photoSearchResults.length === 0 &&
+              <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
+                        <Empty description={photoSearchMeta?.visual && !photoSearchMeta.visual.coverageComplete ?
+                '暂未确认符合条件的照片' : '没有匹配的照片'} />
                       </div>
-                    )}
+              }
 
-                    {photoSearchResults.length > 0 && (
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 260px), 1fr))', gap: 14 }}>
-                        {photoSearchResults.map((photo, idx) => (
-                          <div
-                            key={`${photo.id || 'p'}-${idx}`}
-                            className="app-photo-search-card search-result-enter"
-                            style={{ '--search-order': idx % 8 }}
-                          >
+                    {photoSearchResults.length > 0 &&
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 260px), 1fr))', gap: 14 }}>
+                        {photoSearchResults.map((photo, idx) =>
+                <div
+                  key={`${photo.id || 'p'}-${idx}`}
+                  className="app-photo-search-card search-result-enter"
+                  style={{ '--search-order': idx % 8 }}>
+                  
                             <button
-                              type="button"
-                              onClick={() => { openPhotoPreview(photo); openMediaRoute(photo.id, 'previewId'); }}
-                              title={(photo.thumbUrl || photo.url) ? '点击预览大图' : ''}
-                              style={{
-                                width: '100%',
-                                border: 'none',
-                                padding: 0,
-                                background: 'transparent',
-                                cursor: (photo.thumbUrl || photo.url) ? 'zoom-in' : 'default',
-                                display: 'block'
-                              }}
-                            >
+                    type="button"
+                    onClick={() => {openPhotoPreview(photo);openMediaRoute(photo.id, 'previewId');}}
+                    title={photo.thumbUrl || photo.url ? '点击预览大图' : ''}
+                    style={{
+                      width: '100%',
+                      border: 'none',
+                      padding: 0,
+                      background: 'transparent',
+                      cursor: photo.thumbUrl || photo.url ? 'zoom-in' : 'default',
+                      display: 'block'
+                    }}>
+                    
                               <div className="detail-photo-item" style={{ width: '100%', overflow: 'hidden', transform: 'none' }}>
                                 <div className="detail-photo" style={{ overflow: 'hidden', background: '#e5e7eb', transform: 'none', aspectRatio: '4 / 3' }}>
-                                  {photo.thumbUrl || photo.url ? (
-                                    <img
-                                      src={photo.thumbUrl || photo.url}
-                                      alt={photo.title || 'photo'}
-                                      loading="lazy"
-                                      decoding="async"
-                                      className="detail-photo-img is-ready"
-                                      style={{ width: '100%', height: '100%', objectFit: 'cover', cursor: (photo.thumbUrl || photo.url) ? 'zoom-in' : 'default' }}
-                                    />
-                                  ) : null}
+                                  {photo.thumbUrl || photo.url ?
+                        <img
+                          src={photo.thumbUrl || photo.url}
+                          alt={photo.title || 'photo'}
+                          loading="lazy"
+                          decoding="async"
+                          className="detail-photo-img is-ready"
+                          style={{ width: '100%', height: '100%', objectFit: 'cover', cursor: photo.thumbUrl || photo.url ? 'zoom-in' : 'default' }} /> :
+
+                        null}
                                 </div>
                               </div>
                             </button>
 
                             <button
-                              type="button"
-                              onMouseEnter={() => setHoverPhotoSearchIdx(idx)}
-                              onMouseLeave={() => setHoverPhotoSearchIdx((prev) => (prev === idx ? -1 : prev))}
-                              onClick={() => {
-                                if (photo.projectId) handleSelectProject(String(photo.projectId));
-                              }}
-                              title={photo.projectId ? '点击进入对应相册' : ''}
-                              className="app-photo-search-card__meta"
-                              style={{
-                                cursor: photo.projectId ? 'pointer' : 'default',
-                                display: 'flex',
-                                flexDirection: 'column',
-                                gap: 4,
-                                position: 'relative',
-                                overflow: 'hidden',
-                              }}
-                            >
+                    type="button"
+                    onMouseEnter={() => setHoverPhotoSearchIdx(idx)}
+                    onMouseLeave={() => setHoverPhotoSearchIdx((prev) => prev === idx ? -1 : prev)}
+                    onClick={() => {
+                      if (photo.projectId) handleSelectProject(String(photo.projectId));
+                    }}
+                    title={photo.projectId ? '点击进入对应相册' : ''}
+                    className="app-photo-search-card__meta"
+                    style={{
+                      cursor: photo.projectId ? 'pointer' : 'default',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 4,
+                      position: 'relative',
+                      overflow: 'hidden'
+                    }}>
+                    
                               <Text size="small" strong>
                                 {photo.projectName || `项目 #${photo.projectId || '-'}`}
                               </Text>
                               <Text size="small" type="tertiary" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                 {photo.photographerName ? `摄影师：${photo.photographerName}` : '摄影师：-'}
                               </Text>
-                              {Array.isArray(photo.faceNames) && photo.faceNames.length ? (
-                                <span className="app-photo-search-card__people" title={photo.faceNames.join('、')}>
+                              {Array.isArray(photo.faceNames) && photo.faceNames.length ?
+                    <span className="app-photo-search-card__people" title={photo.faceNames.join('、')}>
                                   <IconFaceScan />
                                   {photo.faceNames.slice(0, 3).join('、')}{photo.faceNames.length > 3 ? ` 等 ${photo.faceNames.length} 人` : ''}
-                                </span>
-                              ) : null}
+                                </span> :
+                    null}
                               <div
-                                style={{
-                                  position: 'absolute',
-                                  inset: 0,
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  color: 'var(--lg-blue, #111)',
-                                  fontSize: 12,
-                                  fontWeight: 600,
-                                  background: 'rgba(255,255,255,0.7)',
-                                  backdropFilter: 'blur(6px)',
-                                  WebkitBackdropFilter: 'blur(6px)',
-                                  opacity: hoverPhotoSearchIdx === idx ? 1 : 0,
-                                  transition: 'opacity 160ms ease',
-                                  pointerEvents: 'none',
-                                }}
-                              >
+                      style={{
+                        position: 'absolute',
+                        inset: 0,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: 'var(--lg-blue, #111)',
+                        fontSize: 12,
+                        fontWeight: 600,
+                        background: 'rgba(255,255,255,0.7)',
+                        backdropFilter: 'blur(6px)',
+                        WebkitBackdropFilter: 'blur(6px)',
+                        opacity: hoverPhotoSearchIdx === idx ? 1 : 0,
+                        transition: 'opacity 160ms ease',
+                        pointerEvents: 'none'
+                      }}>
+                      
                                 点击进入对应相册
                               </div>
                             </button>
                           </div>
-                        ))}
+                )}
                       </div>
-                    )}
+              }
 
                     <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '16px 0 8px' }}>
-                      {photoSearchHasMore ? (
-                        <Button loading={photoSearchLoading} onClick={handlePhotoSearchLoadMore}>加载更多</Button>
-                      ) : (
-                        !photoSearchLoading && !photoSearchError && photoSearchResults.length > 0 ? <Text type="tertiary">已显示全部结果</Text> : null
-                      )}
+                      {photoSearchHasMore ?
+                <Button loading={photoSearchLoading} onClick={handlePhotoSearchLoadMore}>加载更多</Button> :
+
+                !photoSearchLoading && !photoSearchError && photoSearchResults.length > 0 ? <Text type="tertiary">已显示全部结果</Text> : null
+                }
                     </div>
                   </div>
-                  {!loading && !error && normalizedProjects.length > 0 ? (
-                    <div className="app-search-project-results">
+                  {!loading && !error && normalizedProjects.length > 0 ?
+            <div className="app-search-project-results">
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                         <Text strong>相册结果</Text>
                       </div>
                       <div className="project-grid">
-                        {normalizedProjects.map(project => (
-                          <ProjectCard key={project.id} {...project} importStatus={projectImportStatuses[project.id]}
-                            onClick={() => handleSelectProject(project.id)} />
-                        ))}
+                        {normalizedProjects.map((project) =>
+                <ProjectCard key={project.id} {...project} importStatus={projectImportStatuses[project.id]}
+                onClick={() => handleSelectProject(project.id)} />
+                )}
                       </div>
-                      {showProjectPager ? (
-                        <div style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 10, marginTop: 12 }}>
+                      {showProjectPager ?
+              <div style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 10, marginTop: 12 }}>
                           <Button size="small" disabled={projectPage <= 1 || loading} onClick={handleProjectPrevPage}>上一页</Button>
                           <Text type="tertiary">{projectPageText}</Text>
                           <Button size="small" disabled={!projectHasMore || loading} onClick={handleProjectNextPage}>下一页</Button>
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : null}
-                </div>
-              ) : currentUser && !isDemoPath ? (
-                <LazyPanel title="正在加载我的桌面"><AlbumDesktop folderStyle={folderStyle} footer={appFooter} currentUser={currentUser} workspaceInfo={workspaceInfo}
-                  onOpen={handleSelectProject} onShare={canShareWorkspace ? openAlbumShare : undefined} sharingOpen={workspacePanelOpen}
-                  sort={projectSort} dateFilter={projectDateFilter} toolbar={projectToolbar}
-                  projectPreviews={normalizedProjects} importStatuses={projectImportStatuses}
-                  onSearchScopeChange={setFolderSearchScope} searchRequest={scopedSearchRequest} /></LazyPanel>
-              ) : (
-                <>
+                        </div> :
+              null}
+                    </div> :
+            null}
+                </div> :
+          currentUser && !isDemoPath ?
+          <LazyPanel title="正在加载我的桌面"><AlbumDesktop folderStyle={folderStyle} footer={appFooter} currentUser={currentUser} workspaceInfo={workspaceInfo}
+            onOpen={handleSelectProject} onShare={canShareWorkspace ? openAlbumShare : undefined} sharingOpen={workspacePanelOpen}
+            sort={projectSort} dateFilter={projectDateFilter} toolbar={projectToolbar}
+            projectPreviews={normalizedProjects} importStatuses={projectImportStatuses}
+            onSearchScopeChange={setFolderSearchScope} searchRequest={scopedSearchRequest} /></LazyPanel> :
+
+          <>
                   {projectToolbar}
                   <div className="project-grid">
-                    {loading && (
-                      <div className="mamage-grid-state">
+                    {loading &&
+              <div className="mamage-grid-state">
                         <AppLoadingState title="正在加载相册" subtitle="照片马上出现" compact />
                       </div>
-                    )}
+              }
 
-                    {!loading && error && (
-                      <div className="mamage-grid-state">
+                    {!loading && error &&
+              <div className="mamage-grid-state">
                         <Text type="danger">{error}</Text>
                       </div>
-                    )}
+              }
 
-                    {!loading && !error && normalizedProjects.length === 0 && (
-                      <div className="mamage-grid-state">
+                    {!loading && !error && normalizedProjects.length === 0 &&
+              <div className="mamage-grid-state">
                         <Empty description="暂无项目" />
                       </div>
-                    )}
+              }
 
                     {!loading && !error &&
-                      normalizedProjects.map((project) => (
-                        <ProjectCard
-                          key={project.id}
-                          {...project}
-                          importStatus={projectImportStatuses[project.id]}
-                          onHoverIntent={preloadProjectDetail}
-                          onClick={() => handleSelectProject(project.id)}
-                          onPreviewOpen={photo => handleSelectProject(project.id, photo)}
-                        />
-                      ))}
+              normalizedProjects.map((project) =>
+              <ProjectCard
+                key={project.id}
+                {...project}
+                importStatus={projectImportStatuses[project.id]}
+                onHoverIntent={preloadProjectDetail}
+                onClick={() => handleSelectProject(project.id)}
+                onPreviewOpen={(photo) => handleSelectProject(project.id, photo)} />
+
+              )}
                   </div>
-                  {!loading && !error && showProjectPager && (
-                    <div style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 10, marginTop: 12 }}>
+                  {!loading && !error && showProjectPager &&
+            <div style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 10, marginTop: 12 }}>
                       <Button size="small" disabled={projectPage <= 1 || loading} onClick={handleProjectPrevPage}>上一页</Button>
                       <Text type="tertiary">{projectPageText}</Text>
                       <Button size="small" disabled={!projectHasMore || loading} onClick={handleProjectNextPage}>下一页</Button>
                     </div>
-                  )}
-                </>
-              )
-            ) : selectedNav === 'scenery' ? (
-              <LazyPanel title="正在加载风景页">
+            }
+                </> :
+
+          selectedNav === 'scenery' ?
+          <LazyPanel title="正在加载风景页">
                 <Scenery currentUser={currentUser} />
-              </LazyPanel>
-            ) : selectedNav === 'account' ? (
-              <LazyPanel title="正在加载账户页">
-                <AccountPage currentUser={currentUser} membershipSummary={membershipSummary} onUpdated={(u) => { setCurrentUser(u); }} />
-              </LazyPanel>
-            ) : selectedNav === 'function' ? (
-              canUseMediaStudio ? (
-              <section className="media-studio-shell" aria-label="全媒体编辑台">
+              </LazyPanel> :
+          selectedNav === 'account' ?
+          <LazyPanel title="正在加载账户页">
+                <AccountPage currentUser={currentUser} membershipSummary={membershipSummary} onUpdated={(u) => {setCurrentUser(u);}} />
+              </LazyPanel> :
+          selectedNav === 'function' ?
+          canUseMediaStudio ?
+          <section className="media-studio-shell" aria-label="全媒体编辑台">
                 <nav className="media-studio-nav" aria-label="媒体平台">
                   <div className="media-studio-nav-title">全媒体编辑台</div>
                   <div className="media-studio-nav-groups">
                     <div className="media-studio-primary-tabs" role="tablist" aria-label="选择内容类型">
                       <button
-                        type="button"
-                        role="tab"
-                        aria-selected={activeMediaSection === 'text'}
-                        className={`media-studio-primary-tab${activeMediaSection === 'text' ? ' is-active' : ''}`}
-                        onPointerEnter={() => {
-                          if (WechatComposer.preload) WechatComposer.preload();
-                          if (AiNewsWriter.preload) AiNewsWriter.preload();
-                        }}
-                        onFocus={() => {
-                          if (WechatComposer.preload) WechatComposer.preload();
-                          if (AiNewsWriter.preload) AiNewsWriter.preload();
-                        }}
-                        onClick={() => handleNavigateMediaPlatform(activeMediaSection === 'text' ? activeMediaPlatform : DEFAULT_MEDIA_PLATFORM)}
-                      >
+                    type="button"
+                    role="tab"
+                    aria-selected={activeMediaSection === 'text'}
+                    className={`media-studio-primary-tab${activeMediaSection === 'text' ? ' is-active' : ''}`}
+                    onPointerEnter={() => {
+                      if (WechatComposer.preload) WechatComposer.preload();
+                      if (AiNewsWriter.preload) AiNewsWriter.preload();
+                    }}
+                    onFocus={() => {
+                      if (WechatComposer.preload) WechatComposer.preload();
+                      if (AiNewsWriter.preload) AiNewsWriter.preload();
+                    }}
+                    onClick={() => handleNavigateMediaPlatform(activeMediaSection === 'text' ? activeMediaPlatform : DEFAULT_MEDIA_PLATFORM)}>
+                    
                         <span>文本内容</span>
                       </button>
                       <button
-                        type="button"
-                        role="tab"
-                        aria-selected={activeMediaSection === 'video'}
-                        className={`media-studio-primary-tab${activeMediaSection === 'video' ? ' is-active' : ''}`}
-                        onPointerEnter={() => { if (VideoEditor.preload) VideoEditor.preload(); }}
-                        onFocus={() => { if (VideoEditor.preload) VideoEditor.preload(); }}
-                        onClick={() => handleNavigateMediaPlatform(VIDEO_MEDIA_PLATFORM)}
-                      >
+                    type="button"
+                    role="tab"
+                    aria-selected={activeMediaSection === 'video'}
+                    className={`media-studio-primary-tab${activeMediaSection === 'video' ? ' is-active' : ''}`}
+                    onPointerEnter={() => {if (VideoEditor.preload) VideoEditor.preload();}}
+                    onFocus={() => {if (VideoEditor.preload) VideoEditor.preload();}}
+                    onClick={() => handleNavigateMediaPlatform(VIDEO_MEDIA_PLATFORM)}>
+                    
                         <span>视频剪辑</span>
                       </button>
                     </div>
-                    {activeMediaSection === 'text' ? (
-                      <div className="media-studio-secondary-row">
+                    {activeMediaSection === 'text' ?
+                <div className="media-studio-secondary-row">
                         <span className="media-studio-secondary-label">文本类型</span>
                         <div
-                          className="media-studio-secondary-tabs"
-                          role="tablist"
-                          aria-label="选择文本类型"
-                          style={{ '--media-studio-subtab-offset': `${activeTextPlatformIndex * 67}px` }}
-                        >
+                    className="media-studio-secondary-tabs"
+                    role="tablist"
+                    aria-label="选择文本类型"
+                    style={{ '--media-studio-subtab-offset': `${activeTextPlatformIndex * 67}px` }}>
+                    
                           <span className="media-studio-subtab-indicator" aria-hidden="true" />
-                          {TEXT_MEDIA_PLATFORMS.map((platform) => (
-                            <button
-                              key={platform.key}
-                              type="button"
-                              role="tab"
-                              aria-selected={activeMediaPlatform.key === platform.key}
-                              className={`media-studio-subtab${activeMediaPlatform.key === platform.key ? ' is-active' : ''}`}
-                              onPointerEnter={() => {
-                                if (platform.editor === 'wechat' && WechatComposer.preload) WechatComposer.preload();
-                                if (platform.editor === 'writer' && AiNewsWriter.preload) AiNewsWriter.preload();
-                              }}
-                              onFocus={() => {
-                                if (platform.editor === 'wechat' && WechatComposer.preload) WechatComposer.preload();
-                                if (platform.editor === 'writer' && AiNewsWriter.preload) AiNewsWriter.preload();
-                              }}
-                              onClick={() => handleNavigateMediaPlatform(platform)}
-                            >
+                          {TEXT_MEDIA_PLATFORMS.map((platform) =>
+                    <button
+                      key={platform.key}
+                      type="button"
+                      role="tab"
+                      aria-selected={activeMediaPlatform.key === platform.key}
+                      className={`media-studio-subtab${activeMediaPlatform.key === platform.key ? ' is-active' : ''}`}
+                      onPointerEnter={() => {
+                        if (platform.editor === 'wechat' && WechatComposer.preload) WechatComposer.preload();
+                        if (platform.editor === 'writer' && AiNewsWriter.preload) AiNewsWriter.preload();
+                      }}
+                      onFocus={() => {
+                        if (platform.editor === 'wechat' && WechatComposer.preload) WechatComposer.preload();
+                        if (platform.editor === 'writer' && AiNewsWriter.preload) AiNewsWriter.preload();
+                      }}
+                      onClick={() => handleNavigateMediaPlatform(platform)}>
+                      
                               {platform.label}
                             </button>
-                          ))}
+                    )}
                         </div>
-                      </div>
-                    ) : null}
+                      </div> :
+                null}
                   </div>
                 </nav>
                 <div className="media-studio-workspace">
-                  {activeMediaPlatform.editor === 'wechat' ? (
-                    <LazyPanel title="正在加载推文编辑台">
+                  {activeMediaPlatform.editor === 'wechat' ?
+              <LazyPanel title="正在加载推文编辑台">
                       <WechatComposer key={`${currentUser?.id}:${workspaceInfo?.activeUnitId || 'legacy'}`}
-                        currentUser={currentUser} workspaceId={workspaceInfo?.activeUnitId} />
-                    </LazyPanel>
-                  ) : activeMediaPlatform.editor === 'video' ? (
-                    <LazyPanel title="正在加载视频剪辑工作台">
+                currentUser={currentUser} workspaceId={workspaceInfo?.activeUnitId} />
+                    </LazyPanel> :
+              activeMediaPlatform.editor === 'video' ?
+              <LazyPanel title="正在加载视频剪辑工作台">
                       <VideoEditor />
-                    </LazyPanel>
-                  ) : (
-                    <LazyPanel title={`正在加载${activeMediaPlatform.label}编辑台`}>
+                    </LazyPanel> :
+
+              <LazyPanel title={`正在加载${activeMediaPlatform.label}编辑台`}>
                       <AiNewsWriter key={`${currentUser?.id}:${workspaceInfo?.activeUnitId || 'legacy'}`}
-                        currentUser={currentUser} workspaceId={workspaceInfo?.activeUnitId}
-                        initialChannelKey={activeMediaPlatform.key} />
+                currentUser={currentUser} workspaceId={workspaceInfo?.activeUnitId}
+                initialChannelKey={activeMediaPlatform.key} />
                     </LazyPanel>
-                  )}
+              }
                 </div>
-              </section>
-              ) : (
-                <div style={{ padding: 24, maxWidth: 560, margin: '0 auto' }}>
+              </section> :
+
+          <div style={{ padding: 24, maxWidth: 560, margin: '0 auto' }}>
                   <Card title="无访问权限">
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                       <Text>全媒体编辑台仅对管理员开放。</Text>
                       <div>
                         <UiButton
-                          theme="solid"
-                          type="primary"
-                          onClick={() => {
-                            setSelectedNav('projects');
-                            setCurrentProjectId(null);
-                            navigate('/', { replace: true });
-                          }}
-                        >
+                    theme="solid"
+                    type="primary"
+                    onClick={() => {
+                      setSelectedNav('projects');
+                      setCurrentProjectId(null);
+                      navigate('/', { replace: true });
+                    }}>
+                    
                           回到相册
                         </UiButton>
                       </div>
                     </div>
                   </Card>
-                </div>
-              )
-            ) : selectedNav === 'privacy' ? (
-              <LazyPanel title="正在打开隐私说明">
+                </div> :
+
+          selectedNav === 'privacy' ?
+          <LazyPanel title="正在打开隐私说明">
                 <PrivacyPage onBack={handleBackToList} />
-              </LazyPanel>
-            ) : selectedNav === 'about' ? (
-              <div style={{ padding: 24, maxWidth: 720, margin: '0 auto' }}>
+              </LazyPanel> :
+          selectedNav === 'about' ?
+          <div style={{ padding: 24, maxWidth: 720, margin: '0 auto' }}>
                 <Card title="关于 MaMage" bordered>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10, lineHeight: 1.7 }}>
                     <Text>MaMage 是一套面向校园活动的照片/视频图库：按相册与活动环节组织媒体，支持批量上传、AI 智能打标与选片、人脸识别、时间轴浏览、跨相册中转与限时分享。</Text>
@@ -1880,8 +1880,8 @@ function App() {
                   <button
                     type="button"
                     className="privacy-back-btn"
-                    onClick={handleNavigatePrivacy}
-                  >
+                    onClick={handleNavigatePrivacy}>
+                    
                     隐私说明 →
                   </button>
                 </div>
@@ -1890,74 +1890,74 @@ function App() {
                     <Text type="tertiary" size="small">© 2026 MaMage 校园图库</Text>
                   </div>
                 </Card>
-              </div>
-            ) : (
-              <div style={{ padding: 24 }}><Text>该页面暂未实现</Text></div>
-            )
-          )}
+              </div> :
+
+          <div style={{ padding: 24 }}><Text>该页面暂未实现</Text></div>
+
+          }
         </div>
       </main>
 
-      {photoPreviewVisible ? (
-        <LazySilent>
+      {photoPreviewVisible ?
+      <LazySilent>
           <PhotoPreviewOverlay
-            visible={photoPreviewVisible}
-            src={photoPreviewSrc}
-            title={photoPreviewTitle}
-            originalFilename={photoPreviewOriginalFilename}
-            description={photoPreviewDescription}
-            tags={photoPreviewTags}
-            onClose={closePhotoPreview}
-          />
-        </LazySilent>
-      ) : null}
+          visible={photoPreviewVisible}
+          src={photoPreviewSrc}
+          title={photoPreviewTitle}
+          originalFilename={photoPreviewOriginalFilename}
+          description={photoPreviewDescription}
+          tags={photoPreviewTags}
+          onClose={closePhotoPreview} />
+        
+        </LazySilent> :
+      null}
 
       {!currentProjectId && !columnWorkspace ? appFooter : null}
-      {mountTransferStation ? (
-        <React.Suspense fallback={null}><BatchVideoDownload /></React.Suspense>
-      ) : null}
-      {mountTransferStation ? (
-        <LazySilent>
+      {mountTransferStation ?
+      <React.Suspense fallback={null}><BatchVideoDownload /></React.Suspense> :
+      null}
+      {mountTransferStation ?
+      <LazySilent>
           <TransferStation hideLauncher={selectedNav === 'account' || personalView} onInternalShare={(photoIds) => {
-            if (!workspaceInfo?.activeUnitId) return Toast.warning('请先切换到部门工作空间');
-            setAlbumShareProject(null);
-            setWorkspacePanelPhotoIds(photoIds);
-            setWorkspacePanelOpen(true);
-          }} />
-        </LazySilent>
-      ) : null}
-      {workspacePanelOpen ? (
-        <LazySilent>
+          if (!workspaceInfo?.activeUnitId) return Toast.warning('请先切换到部门工作空间');
+          setAlbumShareProject(null);
+          setWorkspacePanelPhotoIds(photoIds);
+          setWorkspacePanelOpen(true);
+        }} />
+        </LazySilent> :
+      null}
+      {workspacePanelOpen ?
+      <LazySilent>
           <WorkspacePanel visible={workspacePanelOpen} workspaceInfo={workspaceInfo}
-            initialTab={workspacePanelTab}
-            initialProjectId={albumShareProject?.id || (workspacePanelPhotoIds.length ? null : currentProjectId)}
-            albumShareProject={albumShareProject?.kind === 'folder' ? null : albumShareProject}
-            folderShareFolder={albumShareProject?.kind === 'folder' ? albumShareProject : null}
-            initialPhotoIds={workspacePanelPhotoIds}
-            onOpenProject={handleSelectProject}
-            onOpenFolder={id => { window.location.href = `/?sharedFolder=${encodeURIComponent(id)}`; }}
-            onClose={() => { setWorkspacePanelOpen(false); setWorkspacePanelTab(null); setAlbumShareProject(null); }} />
-        </LazySilent>
-      ) : null}
-      {showCreateModal ? (
-        <LazySilent>
+        initialTab={workspacePanelTab}
+        initialProjectId={albumShareProject?.id || (workspacePanelPhotoIds.length ? null : currentProjectId)}
+        albumShareProject={albumShareProject?.kind === 'folder' ? null : albumShareProject}
+        folderShareFolder={albumShareProject?.kind === 'folder' ? albumShareProject : null}
+        initialPhotoIds={workspacePanelPhotoIds}
+        onOpenProject={handleSelectProject}
+        onOpenFolder={(id) => {window.location.href = `/?sharedFolder=${encodeURIComponent(id)}`;}}
+        onClose={() => {setWorkspacePanelOpen(false);setWorkspacePanelTab(null);setAlbumShareProject(null);}} />
+        </LazySilent> :
+      null}
+      {showCreateModal ?
+      <LazySilent>
           <CreateAlbumModal
-            visible={showCreateModal}
-            onClose={() => setShowCreateModal(false)}
-            createProject={createProject}
-            onCreated={(project, options) => {
-              setShowCreateModal(false);
-              loadProjects(projectQuery, 1, PROJECT_PAGE_SIZE);
-              if (options?.openAlbum && project?.id) handleSelectProject(project.id);
-            }}
-          />
-        </LazySilent>
-      ) : null}
-      {!isMobileHeader && !personalView ? (
-        <UiZoomControl value={uiZoom} onChange={setUiZoom} />
-      ) : null}
-    </div>
-  );
+          visible={showCreateModal}
+          onClose={() => setShowCreateModal(false)}
+          createProject={createProject}
+          onCreated={(project, options) => {
+            setShowCreateModal(false);
+            loadProjects(projectQuery, 1, PROJECT_PAGE_SIZE);
+            if (options?.openAlbum && project?.id) handleSelectProject(project.id);
+          }} />
+        
+        </LazySilent> :
+      null}
+      {!isMobileHeader && !personalView ?
+      <UiZoomControl value={uiZoom} onChange={setUiZoom} /> :
+      null}
+    </div>);
+
 }
 
 export default App;

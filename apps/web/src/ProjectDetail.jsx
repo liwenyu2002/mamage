@@ -1,16 +1,16 @@
-﻿// src/ProjectDetail.jsx
+// src/ProjectDetail.jsx
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { Typography, Button, Tag, Spin, Empty, Modal, MotionModal, Input, DatePicker, DateTimePicker, TextArea, Toast, HexLoader } from './ui';
+import { Button, Tag, Spin, Empty, Modal, Input, DateTimePicker, Toast, HexLoader } from './ui';
 import AlbumDetailsFields from './AlbumDetailsFields';
 import AlbumFormModal from './AlbumFormModal';
 import AlbumActionBar from './AlbumActionBar';
 import PhotoDescription from './PhotoDescription';
 import SearchFeedback, { SearchSkeleton } from './SearchFeedback';
 import {
-  IconAIStrokedLevel1,
+
   IconClose,
-  IconEditStroked,
+
   IconInfoEdit,
   IconMasonryView,
   IconSimilarStack,
@@ -18,7 +18,7 @@ import {
   IconTimelineFlow,
   IconGridView,
   IconListView,
-  IconMoreStroked,
+
   IconPlus,
   IconSearch,
   IconTrash,
@@ -29,15 +29,15 @@ import {
   IconStar,
   IconChevronLeft,
   IconChevronRight,
-  IconGroupRescue,
-} from './ui/icons';
+  IconGroupRescue } from
+'./ui/icons';
 import './ProjectDetail.css';
 import './mediaViewer.css';
 import { GlassReveal, ViewerDisplaySettings, useViewerAppearance } from './ui/Glass';
 import useMediaViewerDialog from './useMediaViewerDialog';
 import useNavigation, { useNavigationState } from './useNavigation';
 import { navigate, getNavigation, openMediaRoute, closeMediaRoute } from './utils/navigation';
-import { getProjectById, updateProject, deleteProject, createTimelineSection, updateTimelineSection, deleteTimelineSection, reorderTimelineSections } from './services/projectService';
+import { getProjectById, updateProject, createTimelineSection, updateTimelineSection, deleteTimelineSection, reorderTimelineSections } from './services/projectService';
 import { canEditMetadata } from './utils/metadataEditPermissions';
 import { getToken } from './services/authService';
 import { fetchRandomByProject, searchPhotos, getPhotoById, getPhotoPersonObservations, updatePhoto, assignPhotosTimelineSection, getFacePersonInfo, getFaceAvatar, getFacePersonPhotos, labelFacePerson, renameFacePerson, uploadPhotoFiles, warmUploadApiProbe, deletePhotos, getPhotoFaces, getUploadFileLimitError, FRONTEND_MAX_VIDEO_UPLOAD_TEXT, runGroupRescueJob, isBrowserUndisplayableImage, isNeverBrowserPreviewable, undisplayableFormatLabel, getPersonFaces, previewPersonSplit, splitPerson } from './services/photoService';
@@ -62,8 +62,8 @@ import {
   getToneAdjustmentKey,
   isDefaultPhotoAdjustments,
   normalizePhotoAdjustments,
-  renderPhotoAdjustmentsToCanvas,
-} from './utils/photoAdjustments';
+  renderPhotoAdjustmentsToCanvas } from
+'./utils/photoAdjustments';
 import { sectionTimeToInputValue, inputValueToSectionTime } from './utils/sectionTime';
 import { getFaceBoxStyle } from './utils/faceGeometry';
 import { canDeletePhoto, getPhotoDeleteErrorMessage, isPhotoUploadedBy } from './utils/photoDeletePermissions';
@@ -74,10 +74,10 @@ import {
   createInitialUploadProgress,
   getUploadFileKey,
   getUploadPhaseLabel,
-  reduceUploadProgress,
-} from './utils/uploadProgress';
+  reduceUploadProgress } from
+'./utils/uploadProgress';
 
-const { Title, Text } = Typography;
+
 const ANALYSIS_POLL_INITIAL_DELAY_MS = 900;
 const ANALYSIS_POLL_INTERVAL_MS = 1800;
 const ANALYSIS_POLL_MAX_ATTEMPTS = 45;
@@ -125,7 +125,7 @@ function getPhotoAiQuality(meta) {
   const raw = meta && (meta.aiQuality || meta.ai_quality);
   if (!raw) return null;
   if (typeof raw === 'object') return raw;
-  try { return JSON.parse(raw); } catch (e) { return null; }
+  try {return JSON.parse(raw);} catch (e) {return null;}
 }
 
 function formatAiQualityTooltip(quality, score) {
@@ -134,13 +134,13 @@ function formatAiQualityTooltip(quality, score) {
   if (score !== null) parts.push(`综合 ${score} 分`);
   const d = quality.dims || {};
   const dimText = [
-    d.sharpness !== undefined ? `锐度${d.sharpness}` : null,
-    d.exposure !== undefined ? `曝光${d.exposure}` : null,
-    d.composition !== undefined ? `构图${d.composition}` : null,
-    d.subject !== undefined ? `主体${d.subject}` : null,
-    d.moment !== undefined ? `瞬间${d.moment}` : null,
-    d.aesthetics !== undefined ? `美感${d.aesthetics}` : null,
-  ].filter(Boolean).join(' · ');
+  d.sharpness !== undefined ? `锐度${d.sharpness}` : null,
+  d.exposure !== undefined ? `曝光${d.exposure}` : null,
+  d.composition !== undefined ? `构图${d.composition}` : null,
+  d.subject !== undefined ? `主体${d.subject}` : null,
+  d.moment !== undefined ? `瞬间${d.moment}` : null,
+  d.aesthetics !== undefined ? `美感${d.aesthetics}` : null].
+  filter(Boolean).join(' · ');
   if (dimText) parts.push(dimText);
   if (Array.isArray(quality.flags) && quality.flags.length) parts.push(`缺陷：${quality.flags.join('、')}`);
   if (quality.reason) parts.push(quality.reason);
@@ -256,34 +256,34 @@ function normalizeTimelineSectionsForClient(input) {
     }
   }
   if (!Array.isArray(list)) return [];
-  return list
-    .map((section, idx) => {
-      if (typeof section === 'string') {
-        return {
-          id: '',
-          key: `name:${section}`,
-          name: section.trim(),
-          sectionTime: '',
-          sortOrder: idx,
-        };
-      }
-      const rawId = section?.id ?? section?.sectionId ?? section?.timelineSectionId ?? '';
-      const id = rawId === null || rawId === undefined ? '' : String(rawId).trim();
-      const name = String(section?.name || section?.title || section?.label || '').trim();
-      const sectionTime = String(section?.sectionTime || section?.section_time || section?.time || '').trim();
-      const sortOrder = Number.isFinite(Number(section?.sortOrder ?? section?.sort_order))
-        ? Number(section?.sortOrder ?? section?.sort_order)
-        : idx;
+  return list.
+  map((section, idx) => {
+    if (typeof section === 'string') {
       return {
-        id,
-        key: id || `name:${name}:${idx}`,
-        name,
-        sectionTime,
-        sortOrder,
+        id: '',
+        key: `name:${section}`,
+        name: section.trim(),
+        sectionTime: '',
+        sortOrder: idx
       };
-    })
-    .filter((section) => section.name)
-    .sort((a, b) => (a.sortOrder - b.sortOrder) || String(a.name).localeCompare(String(b.name), 'zh-Hans-CN'));
+    }
+    const rawId = section?.id ?? section?.sectionId ?? section?.timelineSectionId ?? '';
+    const id = rawId === null || rawId === undefined ? '' : String(rawId).trim();
+    const name = String(section?.name || section?.title || section?.label || '').trim();
+    const sectionTime = String(section?.sectionTime || section?.section_time || section?.time || '').trim();
+    const sortOrder = Number.isFinite(Number(section?.sortOrder ?? section?.sort_order)) ?
+    Number(section?.sortOrder ?? section?.sort_order) :
+    idx;
+    return {
+      id,
+      key: id || `name:${name}:${idx}`,
+      name,
+      sectionTime,
+      sortOrder
+    };
+  }).
+  filter((section) => section.name).
+  sort((a, b) => a.sortOrder - b.sortOrder || String(a.name).localeCompare(String(b.name), 'zh-Hans-CN'));
 }
 
 function getPhotoTimelineSectionId(meta) {
@@ -307,8 +307,8 @@ function HistogramView({ histogram }) {
   const bins = Array.isArray(histogram) && histogram.length ? histogram : Array(256).fill(0);
   const max = Math.max(1, ...bins);
   const points = bins.map((value, idx) => {
-    const x = (idx / 255) * 100;
-    const y = 100 - (Math.sqrt(value / max) * 92);
+    const x = idx / 255 * 100;
+    const y = 100 - Math.sqrt(value / max) * 92;
     return `${x.toFixed(2)},${y.toFixed(2)}`;
   }).join(' ');
   const areaPoints = `0,100 ${points} 100,100`;
@@ -316,30 +316,30 @@ function HistogramView({ histogram }) {
     <svg className="tone-histogram-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
       <polygon points={areaPoints} />
       <polyline points={points} />
-    </svg>
-  );
+    </svg>);
+
 }
 
-function hasPhotoAdjustment(adjustments) {
-  return !isDefaultPhotoAdjustments(adjustments);
-}
+
+
+
 
 function extractPhotoSemantic(photo) {
   const allTags = safeParseTags(photo && photo.tags);
   let aiLabel = null;
-  if (allTags.includes('AI recommended')) aiLabel = 'recommended';
-  else if (allTags.includes('AI medium')) aiLabel = 'medium';
-  else if (allTags.includes('AI rejected')) aiLabel = 'rejected';
+  if (allTags.includes('AI recommended')) aiLabel = 'recommended';else
+  if (allTags.includes('AI medium')) aiLabel = 'medium';else
+  if (allTags.includes('AI rejected')) aiLabel = 'rejected';
   const tags = allTags.filter((tag) => !AI_QUALITY_TAGS.includes(tag));
-  const description = String((photo && (photo.description || photo.desc)) || '').trim();
+  const description = String(photo && (photo.description || photo.desc) || '').trim();
   const aiStatus = normalizePhotoAiStatus(photo && (
-    photo.aiStatus
-    || photo.ai_status
-    || photo.analysisStatus
-    || photo.analysis_status
-    || photo.semanticStatus
-    || photo.semantic_status
-  ));
+  photo.aiStatus ||
+  photo.ai_status ||
+  photo.analysisStatus ||
+  photo.analysis_status ||
+  photo.semanticStatus ||
+  photo.semantic_status)
+  );
   return {
     tags,
     description,
@@ -382,19 +382,19 @@ function getVideoSemanticGlobal(analysis) {
 
 function getVideoTranscript(analysis) {
   if (!analysis || typeof analysis !== 'object') return null;
-  const raw = analysis.transcript || (analysis.audio && analysis.audio.transcript);
+  const raw = analysis.transcript || analysis.audio && analysis.audio.transcript;
   return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : null;
 }
 
 function getVideoTranscriptSegments(transcript, limit = 4000) {
-  return (Array.isArray(transcript && transcript.segments) ? transcript.segments : [])
-    .filter((item) => item && typeof item === 'object' && String(item.text || '').trim())
-    .map((item) => ({
-      start: Math.max(0, Number(item.start) || 0),
-      end: Math.max(0, Number(item.end) || Number(item.start) || 0),
-      text: String(item.text || '').trim(),
-    }))
-    .slice(0, limit);
+  return (Array.isArray(transcript && transcript.segments) ? transcript.segments : []).
+  filter((item) => item && typeof item === 'object' && String(item.text || '').trim()).
+  map((item) => ({
+    start: Math.max(0, Number(item.start) || 0),
+    end: Math.max(0, Number(item.end) || Number(item.start) || 0),
+    text: String(item.text || '').trim()
+  })).
+  slice(0, limit);
 }
 
 function isVideoTranscriptFinal(analysis) {
@@ -403,7 +403,7 @@ function isVideoTranscriptFinal(analysis) {
 }
 
 function toVideoSemanticList(value, limit = 16) {
-  const values = Array.isArray(value) ? value : (value ? [value] : []);
+  const values = Array.isArray(value) ? value : value ? [value] : [];
   const seen = new Set();
   return values.map((item) => String(item || '').trim()).filter((item) => {
     if (!item || seen.has(item)) return false;
@@ -416,7 +416,7 @@ function formatVideoSemanticTime(value) {
   const seconds = Math.max(0, Number(value) || 0);
   const whole = Math.floor(seconds);
   const hours = Math.floor(whole / 3600);
-  const minutes = Math.floor((whole % 3600) / 60);
+  const minutes = Math.floor(whole % 3600 / 60);
   const rest = whole % 60;
   if (hours) return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(rest).padStart(2, '0')}`;
   return `${String(minutes).padStart(2, '0')}:${String(rest).padStart(2, '0')}`;
@@ -438,7 +438,7 @@ function normalizePhotoForGallery(photo) {
       photoId: id,
       thumbSrc,
       originalSrc,
-      playbackSrc: playbackSrc || undefined,
+      playbackSrc: playbackSrc || undefined
     }
   };
 }
@@ -449,7 +449,7 @@ function normalizeProjectImageMeta(item) {
     ...item,
     thumbSrc: resolveAssetUrl(getPhotoThumbCandidate(item)),
     originalSrc: resolveAssetUrl(getPhotoOriginalCandidate(item)),
-    playbackSrc: resolveAssetUrl(getVideoPlaybackCandidate(item)) || undefined,
+    playbackSrc: resolveAssetUrl(getVideoPlaybackCandidate(item)) || undefined
   };
 }
 
@@ -473,21 +473,21 @@ function toNameList(input) {
 
 function extractFaceNamesFromMeta(meta, viewerFaces) {
   const direct = toNameList(
-    (meta && (
-      meta.faceNames
-      || meta.personNames
-      || meta.personNameList
-      || meta.face_name_list
-      || meta.person_name_list
-      || meta.people
-    )) || []
+    meta && (
+    meta.faceNames ||
+    meta.personNames ||
+    meta.personNameList ||
+    meta.face_name_list ||
+    meta.person_name_list ||
+    meta.people) ||
+    []
   );
   if (direct.length) return direct;
 
   const names = [];
-  const faces = Array.isArray(viewerFaces) ? viewerFaces : (Array.isArray(meta?.faces) ? meta.faces : []);
+  const faces = Array.isArray(viewerFaces) ? viewerFaces : Array.isArray(meta?.faces) ? meta.faces : [];
   faces.forEach((f) => {
-    const n = String((f && (f.personName || f.person_name || f.name || f.label)) || '').trim();
+    const n = String(f && (f.personName || f.person_name || f.name || f.label) || '').trim();
     if (!n) return;
     if (/^人脸#?\d+$/i.test(n) || /^face#?\d+$/i.test(n)) return;
     if (!names.includes(n)) names.push(n);
@@ -512,35 +512,35 @@ function normalizeRelatedFacePhotos(input) {
       projectId: item.projectId || item.project_id || null,
       projectName: item.projectName || item.project_name || '',
       url: full ? resolveAssetUrl(full) : '',
-      thumbUrl: thumb ? resolveAssetUrl(thumb) : (full ? resolveAssetUrl(full) : ''),
+      thumbUrl: thumb ? resolveAssetUrl(thumb) : full ? resolveAssetUrl(full) : '',
       title: item.title || item.description || item.name || `照片 ${idx + 1}`,
-      description: item.description || '',
+      description: item.description || ''
     };
   }).filter(Boolean);
 }
 
 function normalizeFaceDetections(payload) {
-  const root = (payload && typeof payload === 'object') ? payload : {};
-  const data = (root.data && typeof root.data === 'object') ? root.data : root;
-  const list = Array.isArray(root)
-    ? root
-    : Array.isArray(data.faces)
-      ? data.faces
-      : Array.isArray(data.list)
-        ? data.list
-        : Array.isArray(data.items)
-          ? data.items
-          : Array.isArray(data.results)
-            ? data.results
-            : Array.isArray(data.boxes)
-              ? data.boxes
-              : [];
+  const root = payload && typeof payload === 'object' ? payload : {};
+  const data = root.data && typeof root.data === 'object' ? root.data : root;
+  const list = Array.isArray(root) ?
+  root :
+  Array.isArray(data.faces) ?
+  data.faces :
+  Array.isArray(data.list) ?
+  data.list :
+  Array.isArray(data.items) ?
+  data.items :
+  Array.isArray(data.results) ?
+  data.results :
+  Array.isArray(data.boxes) ?
+  data.boxes :
+  [];
 
   const defaultImgW = toFiniteNumber(data.imageWidth ?? data.image_width ?? root.imageWidth ?? root.image_width);
   const defaultImgH = toFiniteNumber(data.imageHeight ?? data.image_height ?? root.imageHeight ?? root.image_height);
 
   return list.map((item, idx) => {
-    const face = (item && typeof item === 'object') ? item : null;
+    const face = item && typeof item === 'object' ? item : null;
     if (!face) return null;
     const rect = face.bbox || face.box || face.rect || face.region || face.faceBox || face.location || {};
 
@@ -563,13 +563,13 @@ function normalizeFaceDetections(payload) {
 
     const normalizedHint = Boolean(face.normalized ?? rect.normalized ?? data.normalized ?? root.normalized);
     const looksNormalized = Math.abs(left) <= 1.05 && Math.abs(top) <= 1.05 && Math.abs(width) <= 1.2 && Math.abs(height) <= 1.2;
-    const unit = (normalizedHint || looksNormalized) ? 'ratio' : 'pixel';
-    const faceNo = face.faceNo || face.faceNumber || face.no || (idx + 1);
+    const unit = normalizedHint || looksNormalized ? 'ratio' : 'pixel';
+    const faceNo = face.faceNo || face.faceNumber || face.no || idx + 1;
     const faceId = String(face.faceId || face.face_id || face.id || face.trackId || `face-${faceNo}`);
     const rawPhotoId = face.photoId || face.photo_id || face.imageId || face.image_id || '';
     const photoId = rawPhotoId ? String(rawPhotoId) : '';
     const personIdRaw = face.personId || face.person_id || face.identityId || face.identity_id || face.clusterId || face.cluster_id || null;
-    const personId = (personIdRaw !== null && personIdRaw !== undefined && String(personIdRaw).trim() !== '') ? String(personIdRaw) : '';
+    const personId = personIdRaw !== null && personIdRaw !== undefined && String(personIdRaw).trim() !== '' ? String(personIdRaw) : '';
     const personNameRaw = face.personName || face.person_name || face.name || face.label || '';
     const personName = String(personNameRaw || '').trim();
 
@@ -589,21 +589,21 @@ function normalizeFaceDetections(payload) {
       imageHeight: toFiniteNumber(face.imageHeight ?? face.image_height ?? rect.imageHeight ?? defaultImgH),
       score: toFiniteNumber(face.score ?? face.confidence ?? face.similarity),
       relatedPhotos: normalizeRelatedFacePhotos(face.relatedPhotos || face.photos || face.matches || []),
-      raw: face,
+      raw: face
     };
   }).filter(Boolean);
 }
 
 function normalizeFacePerson(payload, sourceFace) {
-  const root = (payload && typeof payload === 'object') ? payload : {};
-  const data = (root.data && typeof root.data === 'object') ? root.data : root;
-  const person = (data.person && typeof data.person === 'object')
-    ? data.person
-    : (data.profile && typeof data.profile === 'object')
-      ? data.profile
-      : (data.face && typeof data.face === 'object')
-        ? data.face
-        : data;
+  const root = payload && typeof payload === 'object' ? payload : {};
+  const data = root.data && typeof root.data === 'object' ? root.data : root;
+  const person = data.person && typeof data.person === 'object' ?
+  data.person :
+  data.profile && typeof data.profile === 'object' ?
+  data.profile :
+  data.face && typeof data.face === 'object' ?
+  data.face :
+  data;
 
   const rawPersonId = person.personId || person.person_id || person.id || sourceFace?.personId || '';
   const personId = rawPersonId ? String(rawPersonId) : '';
@@ -619,7 +619,7 @@ function normalizeFacePerson(payload, sourceFace) {
     personId,
     faceId,
     personName,
-    displayName: personName || (personId ? `人物#${personId}` : (sourceFace?.faceNo ? `人脸#${sourceFace.faceNo}` : '未标注人物')),
+    displayName: personName || (personId ? `人物#${personId}` : sourceFace?.faceNo ? `人脸#${sourceFace.faceNo}` : '未标注人物'),
     description: String(person.description || person.bio || person.summary || '').trim(),
     // 服务端按人脸裁好的头像（data URI）。有它就直接当主图，不再下原图 + CSS 缩放
     avatarDataUrl: typeof data.avatarDataUrl === 'string' && data.avatarDataUrl ? data.avatarDataUrl : '',
@@ -630,7 +630,7 @@ function normalizeFacePerson(payload, sourceFace) {
     photoHasMore: data.hasMore === undefined ? allRelatedPhotos.length > relatedPhotos.length : Boolean(data.hasMore),
     relatedPhotos,
     sourceFace: sourceFace || null,
-    raw: data,
+    raw: data
   };
 }
 
@@ -650,7 +650,7 @@ function ProjectDetailInner({
   onProjectHeaderChange,
   onShareAlbum,
   shareUnitId,
-  searchRequest,
+  searchRequest
 }) {
   const route = useNavigation();
   const routeParams = new URL(route.url, window.location.origin).searchParams;
@@ -659,8 +659,8 @@ function ProjectDetailInner({
   const DISABLE_DELETE_FEATURE = !!readOnly;
 
   const [project, setProject] = React.useState(initialProject || null);
-  const [images, setImages] = React.useState(() => (initialProject?.images ? initialProject.images.map((it) => resolveAssetUrl(getPhotoThumbCandidate(it))) : []));
-  const [photoMetas, setPhotoMetas] = React.useState(() => (initialProject?.images ? initialProject.images.map(normalizeProjectImageMeta) : []));
+  const [images, setImages] = React.useState(() => initialProject?.images ? initialProject.images.map((it) => resolveAssetUrl(getPhotoThumbCandidate(it))) : []);
+  const [photoMetas, setPhotoMetas] = React.useState(() => initialProject?.images ? initialProject.images.map(normalizeProjectImageMeta) : []);
   const [loading, setLoading] = React.useState(() => !!projectId);
   const [error, setError] = React.useState(null);
   const [focusPhotoId, setFocusPhotoId] = React.useState(null);
@@ -691,7 +691,7 @@ function ProjectDetailInner({
   const [failedPreviews, setFailedPreviews] = React.useState(() => new Set());
   const markPreviewFailed = React.useCallback((url) => {
     if (!url) return;
-    setFailedPreviews((prev) => { const n = new Set(prev); n.add(url); return n; });
+    setFailedPreviews((prev) => {const n = new Set(prev);n.add(url);return n;});
   }, []);
   const [selectedUploadSectionId, setSelectedUploadSectionId] = React.useState('');
   const [uploading, setUploading] = React.useState(false);
@@ -742,18 +742,18 @@ function ProjectDetailInner({
   const [allSelected, setAllSelected] = React.useState(false);
   const [deletingPhotos, setDeletingPhotos] = React.useState(false);
   const ownPhotosOnly = currentUser?.photoDeleteScope === 'own';
-  const canDeleteItem = React.useCallback(meta => canDeletePhoto(meta, currentUser, {
-    readOnly, projectUnitId: project?.unitId,
+  const canDeleteItem = React.useCallback((meta) => canDeletePhoto(meta, currentUser, {
+    readOnly, projectUnitId: project?.unitId
   }), [currentUser, readOnly, project?.unitId]);
-  const canEditItem = React.useCallback(meta => canEditMetadata(meta, currentUser, {
-    readOnly, unitId: project?.unitId,
+  const canEditItem = React.useCallback((meta) => canEditMetadata(meta, currentUser, {
+    readOnly, unitId: project?.unitId
   }), [currentUser, readOnly, project?.unitId]);
   const canEditAlbumInfo = canEditMetadata(project || initialProject, currentUser, { kind: 'album', readOnly });
   const hasPerm = React.useCallback((key) => userPermissions.includes(key) || canAny(key), [userPermissions]);
   const canUpdateProject = hasPerm('projects.update') && canEditAlbumInfo;
   const canUploadPhotos = !DISABLE_UPLOAD_FEATURE && (hasPerm('photos.upload') || hasPerm('upload.photo'));
-  const canDeletePhotos = !DISABLE_DELETE_FEATURE && hasPerm('photos.delete')
-    && ['own', 'unit', 'organization'].includes(currentUser?.photoDeleteScope);
+  const canDeletePhotos = !DISABLE_DELETE_FEATURE && hasPerm('photos.delete') &&
+  ['own', 'unit', 'organization'].includes(currentUser?.photoDeleteScope);
   const canDeleteProject = !DISABLE_DELETE_FEATURE && hasPerm('projects.delete');
   const canEditTags = hasPerm('tags.edit');
   const canEditPhotos = hasPerm('photos.edit');
@@ -762,7 +762,7 @@ function ProjectDetailInner({
   const canSplitFacePerson = hasPerm('faces.merge');
   const canDeleteSelection = React.useMemo(() => {
     const selected = Object.keys(selectedMap || {});
-    return selected.length > 0 && selected.every(index => canDeleteItem(photoMetas?.[Number(index)]));
+    return selected.length > 0 && selected.every((index) => canDeleteItem(photoMetas?.[Number(index)]));
   }, [selectedMap, photoMetas, canDeleteItem]);
 
   const fileInputRef = React.useRef(null);
@@ -813,7 +813,7 @@ function ProjectDetailInner({
   const [facePersonPhotosError, setFacePersonPhotosError] = React.useState('');
   const facePersonRequestRef = React.useRef(null);
   const facePersonPageRequestRef = React.useRef(null);
-  React.useEffect(() => () => { facePersonRequestRef.current?.abort(); facePersonRequestRef.current = null; }, [projectId]);
+  React.useEffect(() => () => {facePersonRequestRef.current?.abort();facePersonRequestRef.current = null;}, [projectId]);
   const [faceMergeVisible, setFaceMergeVisible] = React.useState(false);
   // 系统认错人了？——人物拆分（select=勾种子脸，preview=预览两组归属）
   const [faceSplitMode, setFaceSplitMode] = React.useState(null);
@@ -900,19 +900,19 @@ function ProjectDetailInner({
   const [simDeleting, setSimDeleting] = React.useState(false);
   const simRequestRef = React.useRef(null);
   React.useEffect(() => {
-    setSimGroups(null); setSimPhotos({}); setSimError(null); setSimLoading(false);
-    setSimSelectedMap({}); setSimSelectedCount(0); setSimModalVisible(false);
-    return () => { simRequestRef.current?.controller.abort(); simRequestRef.current = null; };
+    setSimGroups(null);setSimPhotos({});setSimError(null);setSimLoading(false);
+    setSimSelectedMap({});setSimSelectedCount(0);setSimModalVisible(false);
+    return () => {simRequestRef.current?.controller.abort();simRequestRef.current = null;};
   }, [projectId, readOnly, currentUser?.id, shareUnitId]);
   // 合影救场（查看器入口）状态机：null | { phase: 'loading'|'pick'|'running'|'done'|'noop'|'failed'|'nogroup', ... }
   const [viewerRescue, setViewerRescue] = React.useState(null);
-  const [isMobile, setIsMobile] = React.useState(() => (typeof window !== 'undefined' ? window.innerWidth <= 768 : false));
+  const [isMobile, setIsMobile] = React.useState(() => typeof window !== 'undefined' ? window.innerWidth <= 768 : false);
   const viewerPointerRef = React.useRef({ active: false, pointerId: null, startX: 0, startY: 0 });
   const searchKeyword = routeParams.get('q') || '';
-  const setSearchKeyword = value => {
+  const setSearchKeyword = (value) => {
     const url = new URL(window.location.href);
     const replacing = url.searchParams.has('q');
-    if (value) url.searchParams.set('q', value); else url.searchParams.delete('q');
+    if (value) url.searchParams.set('q', value);else url.searchParams.delete('q');
     navigate(url, { replace: replacing });
   };
   const [searching, setSearching] = React.useState(false);
@@ -971,15 +971,15 @@ function ProjectDetailInner({
 
   React.useEffect(() => () => {
     Object.values(analysisPollTimersRef.current || {}).forEach((timer) => {
-      try { clearTimeout(timer); } catch (e) { }
+      try {clearTimeout(timer);} catch (e) {}
     });
     analysisPollTimersRef.current = {};
     Object.values(videoPlaybackPollTimersRef.current || {}).forEach((timer) => {
-      try { clearTimeout(timer); } catch (e) { }
+      try {clearTimeout(timer);} catch (e) {}
     });
     videoPlaybackPollTimersRef.current = {};
     Object.values(videoSemanticPollTimersRef.current || {}).forEach((timer) => {
-      try { clearTimeout(timer); } catch (e) { }
+      try {clearTimeout(timer);} catch (e) {}
     });
     videoSemanticPollTimersRef.current = {};
   }, []);
@@ -1009,14 +1009,14 @@ function ProjectDetailInner({
   React.useEffect(() => {
     if (initialProject) {
       setProject((prev) => {
-        if (!prev || (initialProject.id && prev.id !== initialProject.id)) {
+        if (!prev || initialProject.id && prev.id !== initialProject.id) {
           return initialProject;
         }
         return prev;
       });
       if (initialProject.images && initialProject.images.length) {
-        setImages((prev) => (prev.length ? prev : initialProject.images.map((it) => resolveAssetUrl(getPhotoThumbCandidate(it)))));
-        setPhotoMetas((prev) => (prev.length ? prev : initialProject.images.map((it) => (typeof it === 'string' ? { url: it } : { ...it, thumbSrc: resolveAssetUrl(getPhotoThumbCandidate(it)), originalSrc: resolveAssetUrl(getPhotoOriginalCandidate(it)), playbackSrc: resolveAssetUrl(getVideoPlaybackCandidate(it)) }))));
+        setImages((prev) => prev.length ? prev : initialProject.images.map((it) => resolveAssetUrl(getPhotoThumbCandidate(it))));
+        setPhotoMetas((prev) => prev.length ? prev : initialProject.images.map((it) => typeof it === 'string' ? { url: it } : { ...it, thumbSrc: resolveAssetUrl(getPhotoThumbCandidate(it)), originalSrc: resolveAssetUrl(getPhotoOriginalCandidate(it)), playbackSrc: resolveAssetUrl(getVideoPlaybackCandidate(it)) }));
       }
     }
   }, [initialProject]);
@@ -1058,18 +1058,18 @@ function ProjectDetailInner({
     return counts;
   }, [stagingSectionIds]);
 
-  const hasUnassignedStagedFiles = React.useMemo(() => (
-    uploadTimelineEnabled
-      && uploadTimelineSections.length > 0
-      && stagingFiles.some((_, index) => !stagingSectionIds[index])
-  ), [uploadTimelineEnabled, uploadTimelineSections, stagingFiles, stagingSectionIds]);
+  const hasUnassignedStagedFiles = React.useMemo(() =>
+  uploadTimelineEnabled &&
+  uploadTimelineSections.length > 0 &&
+  stagingFiles.some((_, index) => !stagingSectionIds[index]),
+  [uploadTimelineEnabled, uploadTimelineSections, stagingFiles, stagingSectionIds]);
 
   const stagedUploadGroups = React.useMemo(() => {
     const makeItem = (file, index) => ({
       file,
       index,
       preview: stagingPreviews[index],
-      sectionId: stagingSectionIds[index] || '',
+      sectionId: stagingSectionIds[index] || ''
     });
 
     if (!uploadTimelineEnabled || !uploadTimelineSections.length) {
@@ -1079,7 +1079,7 @@ function ProjectDetailInner({
         name: '待上传照片',
         sectionTime: '',
         active: true,
-        items: stagingFiles.map((file, index) => makeItem(file, index)),
+        items: stagingFiles.map((file, index) => makeItem(file, index))
       }];
     }
 
@@ -1089,7 +1089,7 @@ function ProjectDetailInner({
       name: section.name || '未命名环节',
       sectionTime: section.sectionTime || '',
       active: String(section.id || '') === String(selectedUploadSectionId || ''),
-      items: [],
+      items: []
     }));
     const bySectionId = new Map(groups.map((group) => [String(group.sectionId), group]));
     const unassigned = {
@@ -1098,7 +1098,7 @@ function ProjectDetailInner({
       name: '未选择环节',
       sectionTime: '',
       active: false,
-      items: [],
+      items: []
     };
 
     stagingFiles.forEach((file, index) => {
@@ -1109,13 +1109,13 @@ function ProjectDetailInner({
 
     return unassigned.items.length ? [...groups, unassigned] : groups;
   }, [
-    uploadTimelineEnabled,
-    uploadTimelineSections,
-    stagingFiles,
-    stagingPreviews,
-    stagingSectionIds,
-    selectedUploadSectionId,
-  ]);
+  uploadTimelineEnabled,
+  uploadTimelineSections,
+  stagingFiles,
+  stagingPreviews,
+  stagingSectionIds,
+  selectedUploadSectionId]
+  );
 
   const findStagedUploadIndex = React.useCallback((file) => {
     const key = getUploadFileKey(file);
@@ -1151,14 +1151,14 @@ function ProjectDetailInner({
       thumbUrl: placeholderSrc,
       originalSrc: placeholderSrc,
       originalUrl: placeholderSrc,
-      url: placeholderSrc,
+      url: placeholderSrc
     };
     const current = Array.isArray(photoMetasRef.current) ? photoMetasRef.current : [];
     const existingIndex = current.findIndex((meta) => isVideoUploadPlaceholder(meta) && meta.clientUploadKey === fileKey);
     if (state === 'failed' && existingIndex < 0) return;
-    const next = existingIndex >= 0
-      ? current.map((meta, index) => (index === existingIndex ? { ...(meta || {}), ...placeholderMeta } : meta))
-      : [placeholderMeta, ...current];
+    const next = existingIndex >= 0 ?
+    current.map((meta, index) => index === existingIndex ? { ...(meta || {}), ...placeholderMeta } : meta) :
+    [placeholderMeta, ...current];
     applyGalleryMetas(next);
   }, [applyGalleryMetas, findStagedUploadIndex, stagingPreviews, stagingSectionIds]);
 
@@ -1174,7 +1174,7 @@ function ProjectDetailInner({
   const buildImagesAndMetas = React.useCallback((detail) => {
     if (!detail) return { images: [], metas: [] };
     const items = (detail.images || detail.photos || detail.gallery || []).filter(Boolean);
-    const photoIds = Array.isArray(detail.photo_ids) ? detail.photo_ids : (Array.isArray(detail.photoIds) ? detail.photoIds : null);
+    const photoIds = Array.isArray(detail.photo_ids) ? detail.photo_ids : Array.isArray(detail.photoIds) ? detail.photoIds : null;
     const tagsMap = {};
     const descMap = {};
     const aiLabelMap = {};
@@ -1202,14 +1202,14 @@ function ProjectDetailInner({
               thumbCandidate = `${thumbCandidate}${thumbCandidate.includes('?') ? '&' : '?'}thumb=1`;
             }
           }
-        } catch (e) { }
+        } catch (e) {}
 
         const playbackCandidate = getVideoPlaybackCandidate(meta);
         const metaFinal = Object.assign({}, meta, {
           mediaType,
           thumbSrc: resolveAssetUrl(thumbCandidate),
           originalSrc: resolveAssetUrl(origCandidate),
-          playbackSrc: playbackCandidate ? resolveAssetUrl(playbackCandidate) : undefined,
+          playbackSrc: playbackCandidate ? resolveAssetUrl(playbackCandidate) : undefined
         });
         if (metaFinal.id) {
           const semantic = extractPhotoSemantic(item);
@@ -1226,13 +1226,13 @@ function ProjectDetailInner({
         try {
           const isRelativeResolved = resolvedSrc && /^\//.test(resolvedSrc);
           if (isRelativeResolved) {
-            const allSrcs = items.map((it) => (typeof it === 'string' ? it : (it && (it.url || it.imageUrl || it.src || it.fileUrl)))).filter(Boolean);
-            const absCandidates = allSrcs.filter(s => /^https?:\/\//i.test(s));
+            const allSrcs = items.map((it) => typeof it === 'string' ? it : it && (it.url || it.imageUrl || it.src || it.fileUrl)).filter(Boolean);
+            const absCandidates = allSrcs.filter((s) => /^https?:\/\//i.test(s));
             if (absCandidates.length) {
-              const getFilename = (s) => { try { const m = String(s).match(/([^\/:?#]+)(?:[?#].*)?$/); return m ? m[1] : null; } catch (e) { return null; } };
+              const getFilename = (s) => {try {const m = String(s).match(/([^\/:?#]+)(?:[?#].*)?$/);return m ? m[1] : null;} catch (e) {return null;}};
               const targetName = getFilename(item);
               let pick = null;
-              if (targetName) pick = absCandidates.find(a => getFilename(a) === targetName) || null;
+              if (targetName) pick = absCandidates.find((a) => getFilename(a) === targetName) || null;
               if (!pick) pick = absCandidates[0];
               if (pick) {
                 resolvedSrc = pick;
@@ -1242,7 +1242,7 @@ function ProjectDetailInner({
               }
             }
           }
-        } catch (e) { }
+        } catch (e) {}
 
         return {
           src: resolvedSrc,
@@ -1268,13 +1268,13 @@ function ProjectDetailInner({
             thumbCandidate = `${thumbCandidate}${thumbCandidate.includes('?') ? '&' : '?'}thumb=1`;
           }
         }
-      } catch (e) { }
+      } catch (e) {}
       const playbackCandidate = getVideoPlaybackCandidate(meta);
       const metaFinal = Object.assign({}, meta, {
         mediaType,
         thumbSrc: resolveAssetUrl(thumbCandidate),
         originalSrc: resolveAssetUrl(origCandidate),
-        playbackSrc: playbackCandidate ? resolveAssetUrl(playbackCandidate) : undefined,
+        playbackSrc: playbackCandidate ? resolveAssetUrl(playbackCandidate) : undefined
       });
       if (metaFinal.id) {
         const semantic = extractPhotoSemantic(item);
@@ -1290,13 +1290,13 @@ function ProjectDetailInner({
       try {
         const isRelativeResolved = resolvedSrc && /^\//.test(resolvedSrc);
         if (isRelativeResolved) {
-          const allSrcs = items.map((it) => (typeof it === 'string' ? it : (it && (it.url || it.imageUrl || it.src || it.fileUrl)))).filter(Boolean);
-          const absCandidates = allSrcs.filter(s => /^https?:\/\//i.test(s));
+          const allSrcs = items.map((it) => typeof it === 'string' ? it : it && (it.url || it.imageUrl || it.src || it.fileUrl)).filter(Boolean);
+          const absCandidates = allSrcs.filter((s) => /^https?:\/\//i.test(s));
           if (absCandidates.length) {
-            const getFilename = (s) => { try { const m = String(s).match(/([^\/:?#]+)(?:[?#].*)?$/); return m ? m[1] : null; } catch (e) { return null; } };
+            const getFilename = (s) => {try {const m = String(s).match(/([^\/:?#]+)(?:[?#].*)?$/);return m ? m[1] : null;} catch (e) {return null;}};
             const targetName = getFilename(src || meta.url);
             let pick = null;
-            if (targetName) pick = absCandidates.find(a => getFilename(a) === targetName) || null;
+            if (targetName) pick = absCandidates.find((a) => getFilename(a) === targetName) || null;
             if (!pick) pick = absCandidates[0];
             if (pick) {
               resolvedSrc = pick;
@@ -1305,7 +1305,7 @@ function ProjectDetailInner({
             }
           }
         }
-      } catch (e) { }
+      } catch (e) {}
 
       return {
         src: resolvedSrc,
@@ -1329,12 +1329,12 @@ function ProjectDetailInner({
     return { images: normalized.map((n) => n.src), metas: normalized.map((n) => n.meta) };
   }, []);
 
-  React.useEffect(() => { stagingPreviewsRef.current = stagingPreviews; }, [stagingPreviews]);
+  React.useEffect(() => {stagingPreviewsRef.current = stagingPreviews;}, [stagingPreviews]);
   React.useEffect(() => {
     // Only unmount releases retained previews; remove/cancel release their own URLs.
     return () => {
       stagingPreviewsRef.current.forEach((u) => {
-        try { URL.revokeObjectURL(u); } catch (e) { }
+        try {URL.revokeObjectURL(u);} catch (e) {}
       });
     };
   }, []);
@@ -1345,22 +1345,22 @@ function ProjectDetailInner({
 
     const extractImageUrls = (list) => {
       if (!Array.isArray(list)) return [];
-      return list
-        .map((item) => {
-          if (!item) return null;
-          if (typeof item === 'string') return item;
-          return item.url || item.imageUrl || item.src || item.fileUrl || null;
-        })
-        .filter(Boolean);
+      return list.
+      map((item) => {
+        if (!item) return null;
+        if (typeof item === 'string') return item;
+        return item.url || item.imageUrl || item.src || item.fileUrl || null;
+      }).
+      filter(Boolean);
     };
 
     const mergeUnique = (primary, fallback) => {
       const seen = new Set();
       const result = [];
       [
-        ...(Array.isArray(primary) ? primary : []),
-        ...(Array.isArray(fallback) ? fallback : []),
-      ].forEach((src) => {
+      ...(Array.isArray(primary) ? primary : []),
+      ...(Array.isArray(fallback) ? fallback : [])].
+      forEach((src) => {
         if (!src || seen.has(src)) return;
         seen.add(src);
         result.push(src);
@@ -1375,13 +1375,13 @@ function ProjectDetailInner({
         const detail = await getProjectById(projectId, {
           demo: readOnly,
           includeFaces: false,
-          timeoutMs: PROJECT_DETAIL_TIMEOUT_MS,
+          timeoutMs: PROJECT_DETAIL_TIMEOUT_MS
         });
         if (canceled) return;
 
         setProject(detail);
 
-        const detailItems = Array.isArray(detail?.images) ? detail.images : (Array.isArray(detail?.photos) ? detail.photos : (Array.isArray(detail?.gallery) ? detail.gallery : []));
+        const detailItems = Array.isArray(detail?.images) ? detail.images : Array.isArray(detail?.photos) ? detail.photos : Array.isArray(detail?.gallery) ? detail.gallery : [];
         const previewItems = Array.isArray(detail?.previewImages) ? detail.previewImages : [];
         let built = buildImagesAndMetas({ images: detailItems.length ? detailItems : previewItems, photo_ids: detail?.photo_ids, photoIds: detail?.photoIds });
 
@@ -1406,7 +1406,7 @@ function ProjectDetailInner({
         try {
           const photoIds = nextMetas.map((m) => m.id).filter(Boolean);
           if (photoIds.length > 0) {
-            const photosArray = Array.isArray(detail.photos) ? detail.photos : (Array.isArray(detail.images) ? detail.images : []);
+            const photosArray = Array.isArray(detail.photos) ? detail.photos : Array.isArray(detail.images) ? detail.images : [];
             const photoMap = {};
 
             if (photosArray.length) {
@@ -1442,7 +1442,7 @@ function ProjectDetailInner({
             // 如果 detail 涓繑鍥炰簡鏇村畬鏁寸殑 photo 对象，合并这些字段回 photoMetas
             try {
               const photoById = {};
-              photosArray.forEach(p => { const id = p && (p.id || p.photoId || p.photo_id); if (id) photoById[id] = p; });
+              photosArray.forEach((p) => {const id = p && (p.id || p.photoId || p.photo_id);if (id) photoById[id] = p;});
               if (Object.keys(photoById).length) {
                 const merged = (nextMetas || []).map((m) => {
                   if (!m) return m;
@@ -1471,11 +1471,11 @@ function ProjectDetailInner({
             // 濡傛灉閮ㄥ垎 photo meta 缺少 photographerName，但包含 photographerId锛?
             // 前端仍可回退去请求用户信息并补全 name（可保留以提升体验）。
             try {
-              const mergedList = (nextMetas || []).map(m => ({ ...(m || {}) }));
-              const idsToFetch = Array.from(new Set((mergedList || [])
-                .filter(p => p && !p.photographerName && (p.photographerId || p.userId || p.ownerId))
-                .map(p => p.photographerId || p.userId || p.ownerId)
-                .filter(Boolean)));
+              const mergedList = (nextMetas || []).map((m) => ({ ...(m || {}) }));
+              const idsToFetch = Array.from(new Set((mergedList || []).
+              filter((p) => p && !p.photographerName && (p.photographerId || p.userId || p.ownerId)).
+              map((p) => p.photographerId || p.userId || p.ownerId).
+              filter(Boolean)));
               if (idsToFetch.length) {
                 const token = getToken ? getToken() : null;
                 const headers = token ? { Authorization: `Bearer ${token}` } : {};
@@ -1490,10 +1490,10 @@ function ProjectDetailInner({
                   }
                 };
 
-                const userNamePromises = idsToFetch.map(id => fetchUser(id));
+                const userNamePromises = idsToFetch.map((id) => fetchUser(id));
                 const names = await Promise.all(userNamePromises);
                 const idToName = {};
-                idsToFetch.forEach((id, i) => { if (names[i]) idToName[id] = names[i]; });
+                idsToFetch.forEach((id, i) => {if (names[i]) idToName[id] = names[i];});
                 if (Object.keys(idToName).length) {
                   const updated = (mergedList || []).map((m) => {
                     if (!m) return m;
@@ -1508,10 +1508,10 @@ function ProjectDetailInner({
                 }
               }
             } catch (e) {
+
+
               // 忽略网络错误，不影响主流程
-            }
-          }
-        } catch (e) {
+            }}} catch (e) {
           console.warn('Failed to process photos from project detail:', e);
         }
         if (!canceled) {
@@ -1523,7 +1523,7 @@ function ProjectDetailInner({
         setError(err?.message || '获取项目详情失败');
         if (initialProject?.images?.length) {
           setImages(initialProject.images.map((it) => resolveAssetUrl(getPhotoThumbCandidate(it))));
-          setPhotoMetas(initialProject.images.map((it) => (typeof it === 'string' ? { url: it } : { ...it, thumbSrc: resolveAssetUrl(getPhotoThumbCandidate(it)), originalSrc: resolveAssetUrl(getPhotoOriginalCandidate(it)), playbackSrc: resolveAssetUrl(getVideoPlaybackCandidate(it)) })));
+          setPhotoMetas(initialProject.images.map((it) => typeof it === 'string' ? { url: it } : { ...it, thumbSrc: resolveAssetUrl(getPhotoThumbCandidate(it)), originalSrc: resolveAssetUrl(getPhotoOriginalCandidate(it)), playbackSrc: resolveAssetUrl(getVideoPlaybackCandidate(it)) }));
         }
       } finally {
         if (!canceled) setLoading(false);
@@ -1553,10 +1553,10 @@ function ProjectDetailInner({
         setError(null);
         setLoading(false);
       } catch (err) {
+
+
         // Keep the primary detail request in charge of the final error state.
-      }
-    }, 1600);
-    return () => {
+      }}, 1600);return () => {
       canceled = true;
       clearTimeout(timer);
     };
@@ -1567,7 +1567,7 @@ function ProjectDetailInner({
     const detail = await getProjectById(projectId, {
       demo: readOnly,
       includeFaces: false,
-      timeoutMs: PROJECT_DETAIL_TIMEOUT_MS,
+      timeoutMs: PROJECT_DETAIL_TIMEOUT_MS
     });
     if (isCurrent && !isCurrent()) return;
     setProject(detail);
@@ -1593,7 +1593,7 @@ function ProjectDetailInner({
     setProject((prev) => prev ? {
       ...prev,
       photos: [...(prev.photos || []), ...fresh],
-      photoCount: current.length + fresh.length,
+      photoCount: current.length + fresh.length
     } : prev);
   }, [applyGalleryMetas, buildImagesAndMetas]);
 
@@ -1603,9 +1603,9 @@ function ProjectDetailInner({
       if (!prev) return prev;
       const current = prev.timelineSections || [];
       if (current.length === sections.length && current.every((section, index) =>
-        Number(section.id) === Number(sections[index].id)
-        && section.name === sections[index].name
-        && section.sectionTime === sections[index].sectionTime)) return prev;
+      Number(section.id) === Number(sections[index].id) &&
+      section.name === sections[index].name &&
+      section.sectionTime === sections[index].sectionTime)) return prev;
       return { ...prev, timelineSections: sections, timelineEnabled: true,
         meta: { ...(prev.meta || {}), timelineEnabled: true } };
     });
@@ -1616,7 +1616,7 @@ function ProjectDetailInner({
     if (!key) return;
     const timer = analysisPollTimersRef.current[key];
     if (timer) {
-      try { clearTimeout(timer); } catch (e) { }
+      try {clearTimeout(timer);} catch (e) {}
     }
     delete analysisPollTimersRef.current[key];
   }, []);
@@ -1626,7 +1626,7 @@ function ProjectDetailInner({
     if (!key) return;
     const timer = videoPlaybackPollTimersRef.current[key];
     if (timer) {
-      try { clearTimeout(timer); } catch (e) { }
+      try {clearTimeout(timer);} catch (e) {}
     }
     delete videoPlaybackPollTimersRef.current[key];
   }, []);
@@ -1636,7 +1636,7 @@ function ProjectDetailInner({
     if (!key) return;
     const timer = videoSemanticPollTimersRef.current[key];
     if (timer) {
-      try { clearTimeout(timer); } catch (e) { }
+      try {clearTimeout(timer);} catch (e) {}
     }
     delete videoSemanticPollTimersRef.current[key];
   }, []);
@@ -1679,9 +1679,9 @@ function ProjectDetailInner({
   }, []);
 
   const prependUploadedPhotos = React.useCallback((photos) => {
-    const normalized = (Array.isArray(photos) ? photos : [])
-      .map(normalizePhotoForGallery)
-      .filter(Boolean);
+    const normalized = (Array.isArray(photos) ? photos : []).
+    map(normalizePhotoForGallery).
+    filter(Boolean);
     if (!normalized.length) return [];
 
     const patchesById = {};
@@ -1703,9 +1703,9 @@ function ProjectDetailInner({
 
     const currentMetas = Array.isArray(photoMetasRef.current) ? photoMetasRef.current : [];
     const existingIds = new Set(currentMetas.map((meta) => getPhotoRecordId(meta)).filter(Boolean));
-    const freshMetas = normalized
-      .filter(({ meta }) => !existingIds.has(getPhotoRecordId(meta)))
-      .map(({ meta }) => meta);
+    const freshMetas = normalized.
+    filter(({ meta }) => !existingIds.has(getPhotoRecordId(meta))).
+    map(({ meta }) => meta);
     const updatedExisting = currentMetas.map((meta) => {
       const photoId = getPhotoRecordId(meta);
       return photoId && patchesById[photoId] ? { ...(meta || {}), ...patchesById[photoId] } : meta;
@@ -1770,7 +1770,7 @@ function ProjectDetailInner({
         const photo = await getPhotoById(key);
         const result = mergeVideoSemanticResult(photo);
         const transcriptReady = result.analysis && isVideoTranscriptFinal(result.analysis);
-        if ((!result.analysis && !result.pending) || transcriptReady) {
+        if (!result.analysis && !result.pending || transcriptReady) {
           setViewerVideoAnalysisLoadingMap((prev) => ({ ...(prev || {}), [key]: false }));
           clearVideoSemanticPollTimer(key);
           return;
@@ -1802,7 +1802,7 @@ function ProjectDetailInner({
         ...(meta || {}),
         ...photo,
         thumbSrc: resolveAssetUrl(getPhotoThumbCandidate(photo)) || meta.thumbSrc || meta.thumbUrl,
-        originalSrc: resolveAssetUrl(getPhotoOriginalCandidate(photo)) || meta.originalSrc || meta.url,
+        originalSrc: resolveAssetUrl(getPhotoOriginalCandidate(photo)) || meta.originalSrc || meta.url
       };
       // 直传视频会先有封面与语义状态，再完成播放转码；两阶段都要同步回相册。
       if (!playbackSrc) return next;
@@ -1814,7 +1814,7 @@ function ProjectDetailInner({
         processingStatus: null,
         processing_status: null,
         uploadState: null,
-        upload_state: null,
+        upload_state: null
       };
     });
     applyGalleryMetas(nextMetas);
@@ -1882,7 +1882,7 @@ function ProjectDetailInner({
     const hasMappedDesc = photoId && Object.prototype.hasOwnProperty.call(photoDescMap || {}, photoId);
     const description = hasMappedDesc ? String(photoDescMap[photoId] || '').trim() : semantic.description;
     const tags = Array.isArray(mappedTags) ? mappedTags : semantic.tags;
-    const hasAnalysis = Boolean(description || (Array.isArray(tags) && tags.length));
+    const hasAnalysis = Boolean(description || Array.isArray(tags) && tags.length);
     const aiStatus = semantic.aiStatus;
     const statusPending = ACTIVE_ANALYSIS_STATUSES.has(aiStatus);
     return {
@@ -1902,7 +1902,7 @@ function ProjectDetailInner({
     setSearchMeta(null);
     setSearchRelated(false);
     setSearchPhase('idle');
-    setSearchPage(1); setSearchHasMore(false); setSearchTotal(null); searchResultsRef.current = [];
+    setSearchPage(1);setSearchHasMore(false);setSearchTotal(null);searchResultsRef.current = [];
     setSearching(false);
     searchReqSeqRef.current = 0;
     hasSearchedRef.current = false;
@@ -1914,7 +1914,7 @@ function ProjectDetailInner({
     setSearchPage(1);
     setSearchKeyword(searchRequest.q);
     setSearchOpen(Boolean(searchRequest.q));
-    setSearchRefresh(value => value + 1);
+    setSearchRefresh((value) => value + 1);
   }, [searchRequest, projectId]);
 
   React.useEffect(() => {
@@ -1923,22 +1923,22 @@ function ProjectDetailInner({
     searchReqSeqRef.current = seq;
     const base = searchPage > 1 ? searchResultsRef.current : [];
     if (String(searchKeyword || '').trim() && projectId) {
-      setSearching(true); setSearchPhase('starting'); setSearchError(''); setSearchMeta(null);
+      setSearching(true);setSearchPhase('starting');setSearchError('');setSearchMeta(null);
       if (searchPage === 1) {
-        setImages([]); setPhotoMetas([]); searchResultsRef.current = []; setSearchTotal(null); setSearchHasMore(false);
+        setImages([]);setPhotoMetas([]);searchResultsRef.current = [];setSearchTotal(null);setSearchHasMore(false);
       }
       hasSearchedRef.current = true;
-      setDeleteMode(false); setSelectedMap({}); setSelectedCount(0); setAllSelected(false);
+      setDeleteMode(false);setSelectedMap({});setSelectedCount(0);setAllSelected(false);
     }
     const timer = setTimeout(async () => {
       const q = String(searchKeyword || '').trim();
 
       if (!q) {
-        setSearchHasMore(false); setSearchTotal(null); searchResultsRef.current = [];
+        setSearchHasMore(false);setSearchTotal(null);searchResultsRef.current = [];
         setSearchError('');
         setSearchMeta(null);
         setSearchPhase('idle');
-        if (!hasSearchedRef.current) { setSearching(false); return; }
+        if (!hasSearchedRef.current) {setSearching(false);return;}
         setSearching(true);
         try {
           await reloadGalleryFromServer({ isCurrent: () => !controller.signal.aborted && searchReqSeqRef.current === seq });
@@ -1959,11 +1959,11 @@ function ProjectDetailInner({
       setSearchError('');
       setSearchMeta(null);
       let received = false;
-      const applyResponse = resp => {
+      const applyResponse = (resp) => {
         if (controller.signal.aborted || searchReqSeqRef.current !== seq) return;
-        const list = [...new Map([...base, ...(Array.isArray(resp?.list) ? resp.list : [])].map(photo => [String(photo.id), photo])).values()];
+        const list = [...new Map([...base, ...(Array.isArray(resp?.list) ? resp.list : [])].map((photo) => [String(photo.id), photo])).values()];
         searchResultsRef.current = list;
-        setSearchHasMore(Boolean(resp?.hasMore)); setSearchTotal(resp?.total ?? null);
+        setSearchHasMore(Boolean(resp?.hasMore));setSearchTotal(resp?.total ?? null);
         received = received || list.length > 0;
         setSearchMeta(resp?.search || null);
         const nextMetas = list.map((it) => {
@@ -2000,20 +2000,20 @@ function ProjectDetailInner({
       try {
         const resp = await searchPhotos({ q, projectId, page: searchPage, pageSize: 200, sort: 'relevance', smart: true,
           demo: readOnly, related: searchRelated, signal: controller.signal,
-          onProgress: event => {
+          onProgress: (event) => {
             if (controller.signal.aborted || searchReqSeqRef.current !== seq) return;
-            if (event.type === 'results') { applyResponse(event.data); setSearchPhase('receiving'); }
-            else if (event.type === 'status') { setSearchPhase(event.phase); if (event.search) setSearchMeta(event.search); }
-          },
+            if (event.type === 'results') {applyResponse(event.data);setSearchPhase('receiving');} else
+            if (event.type === 'status') {setSearchPhase(event.phase);if (event.search) setSearchMeta(event.search);}
+          }
         });
         applyResponse(resp);
         if (!controller.signal.aborted && searchReqSeqRef.current === seq) setSearchPhase('complete');
       } catch (err) {
         if (controller.signal.aborted) return;
         if (searchReqSeqRef.current !== seq) return;
-        if (!received || [401,403,404].includes(Number(err?.status))) {
+        if (!received || [401, 403, 404].includes(Number(err?.status))) {
           setSearchMeta(null);
-          if ([401,403,404].includes(Number(err?.status))) { setImages([]); setPhotoMetas([]); searchResultsRef.current = []; }
+          if ([401, 403, 404].includes(Number(err?.status))) {setImages([]);setPhotoMetas([]);searchResultsRef.current = [];}
         }
         setSearchPhase('error');
         setSearchHasMore(false);
@@ -2023,7 +2023,7 @@ function ProjectDetailInner({
       }
     }, 360);
 
-    return () => { clearTimeout(timer); controller.abort(); };
+    return () => {clearTimeout(timer);controller.abort();};
   }, [searchKeyword, searchRelated, searchRefresh, searchPage, projectId, reloadGalleryFromServer, readOnly]);
 
   React.useEffect(() => {
@@ -2064,7 +2064,7 @@ function ProjectDetailInner({
     }
     if (!acceptedList.length) return;
     const fallbackSection = uploadTimelineSections.find((section) => section && section.id);
-    const nextSectionId = String(forcedSectionId || selectedUploadSectionId || (fallbackSection && fallbackSection.id) || '');
+    const nextSectionId = String(forcedSectionId || selectedUploadSectionId || fallbackSection && fallbackSection.id || '');
     if (uploadTimelineEnabled && uploadTimelineSections.length && !nextSectionId) {
       Toast.warning('请先选择要上传的环节');
       setUploadMode(true);
@@ -2089,13 +2089,13 @@ function ProjectDetailInner({
       if (skipped) Toast.warning(`已跳过 ${skipped} 个重复文件`);
       if (fresh.length) {
         setStagingPreviews((prev) => [
-          ...(prev || []),
-          ...fresh.map((file) => (isVideoMeta(file) || isNeverBrowserPreviewable(file) ? '' : URL.createObjectURL(file))),
-        ]);
+        ...(prev || []),
+        ...fresh.map((file) => isVideoMeta(file) || isNeverBrowserPreviewable(file) ? '' : URL.createObjectURL(file))]
+        );
         setStagingSectionIds((prev) => [
-          ...(prev || []),
-          ...fresh.map(() => (uploadTimelineEnabled && uploadTimelineSections.length ? nextSectionId : '')),
-        ]);
+        ...(prev || []),
+        ...fresh.map(() => uploadTimelineEnabled && uploadTimelineSections.length ? nextSectionId : '')]
+        );
       }
       return [...(prevFiles || []), ...fresh];
     });
@@ -2113,7 +2113,7 @@ function ProjectDetailInner({
       const next = [...(prev || [])];
       const removed = next.splice(index, 1);
       if (removed && removed[0]) {
-        try { URL.revokeObjectURL(removed[0]); } catch (e) { }
+        try {URL.revokeObjectURL(removed[0]);} catch (e) {}
       }
       return next;
     });
@@ -2134,7 +2134,7 @@ function ProjectDetailInner({
   }, []);
 
   const cancelUpload = React.useCallback(() => {
-    stagingPreviews.forEach((u) => { try { URL.revokeObjectURL(u); } catch (e) { } });
+    stagingPreviews.forEach((u) => {try {URL.revokeObjectURL(u);} catch (e) {}});
     setStagingFiles([]);
     setStagingPreviews([]);
     setStagingSectionIds([]);
@@ -2146,7 +2146,7 @@ function ProjectDetailInner({
   // 上传执行核心：staging 确认与"直接拖文件上传"共用
   React.useEffect(() => {
     if (!uploading) return undefined;
-    const warnBeforeLeaving = (event) => { event.preventDefault(); event.returnValue = ''; };
+    const warnBeforeLeaving = (event) => {event.preventDefault();event.returnValue = '';};
     window.addEventListener('beforeunload', warnBeforeLeaving);
     return () => window.removeEventListener('beforeunload', warnBeforeLeaving);
   }, [uploading]);
@@ -2175,7 +2175,7 @@ function ProjectDetailInner({
         const groupResults = await uploadPhotoFiles(files, {
           projectId,
           timelineSectionId: uploadTimelineEnabled && uploadTimelineSections.length ? sectionId : undefined,
-          onProgress: handleProgress,
+          onProgress: handleProgress
         });
         results.push(...groupResults);
       }
@@ -2188,69 +2188,69 @@ function ProjectDetailInner({
       } else if (succeeded.length > 0 && failed.length > 0) {
         Toast.warning(`上传完成：成功 ${succeeded.length} 张，失败 ${failed.length} 张`);
       } else {
-        throw (failed[0] && failed[0].error) || new Error('上传失败');
+        throw failed[0] && failed[0].error || new Error('上传失败');
       }
 
       if (succeeded.length > 0) {
         succeeded.forEach((result) => {
           if (result && result.file) removeVideoUploadPlaceholder(result.file);
         });
-        const uploadedPhotos = succeeded
-          .map((r) => (r && (r.response || r.photo)) || null)
-          .filter((photo) => !!getPhotoRecordId(photo));
+        const uploadedPhotos = succeeded.
+        map((r) => r && (r.response || r.photo) || null).
+        filter((photo) => !!getPhotoRecordId(photo));
         const uploadedIds = prependUploadedPhotos(uploadedPhotos);
         uploadedIds.forEach((photoId) => scheduleAnalysisPolling(photoId));
         cancelUpload();
         // Refresh in background; don't block upload completion feedback.
-        getProjectById(projectId, { demo: readOnly, includeFaces: false, timeoutMs: PROJECT_DETAIL_TIMEOUT_MS })
-          .then((detail) => {
-            setProject(detail);
-            const built = buildImagesAndMetas(detail);
-            // Only legacy APIs omit task state; never override a fresh authoritative state.
-            const prevById = new Map(
-              (Array.isArray(photoMetasRef.current) ? photoMetasRef.current : [])
-                .map((m) => [String(getPhotoRecordId(m) || ''), m])
-                .filter(([k]) => k)
-            );
-            const mergedMetas = built.metas.map((meta) => {
-              if (!isVideoMeta(meta) || getVideoPlaybackCandidate(meta)) return meta;
-              if (meta.processingStatus !== undefined || meta.processing_status !== undefined) return meta;
-              const prev = prevById.get(String(getPhotoRecordId(meta) || ''));
-              if (!prev || !getVideoUploadState(prev)) return meta;
-              return {
-                ...meta,
-                processingStatus: prev.processingStatus || prev.processing_status || null,
-                uploadState: prev.uploadState || prev.upload_state || null,
-              };
-            });
-            setImages(built.images);
-            setPhotoMetas(mergedMetas);
-          })
-          .catch(() => { /* ignore */ });
+        getProjectById(projectId, { demo: readOnly, includeFaces: false, timeoutMs: PROJECT_DETAIL_TIMEOUT_MS }).
+        then((detail) => {
+          setProject(detail);
+          const built = buildImagesAndMetas(detail);
+          // Only legacy APIs omit task state; never override a fresh authoritative state.
+          const prevById = new Map(
+            (Array.isArray(photoMetasRef.current) ? photoMetasRef.current : []).
+            map((m) => [String(getPhotoRecordId(m) || ''), m]).
+            filter(([k]) => k)
+          );
+          const mergedMetas = built.metas.map((meta) => {
+            if (!isVideoMeta(meta) || getVideoPlaybackCandidate(meta)) return meta;
+            if (meta.processingStatus !== undefined || meta.processing_status !== undefined) return meta;
+            const prev = prevById.get(String(getPhotoRecordId(meta) || ''));
+            if (!prev || !getVideoUploadState(prev)) return meta;
+            return {
+              ...meta,
+              processingStatus: prev.processingStatus || prev.processing_status || null,
+              uploadState: prev.uploadState || prev.upload_state || null
+            };
+          });
+          setImages(built.images);
+          setPhotoMetas(mergedMetas);
+        }).
+        catch(() => {/* ignore */});
       }
     } catch (err) {
       console.error('upload error', err);
       if (autoCollapsedUpload) setUploadMode(true);
-      Toast.error((err && err.userMessage) || '上传失败');
+      Toast.error(err && err.userMessage || '上传失败');
     } finally {
       setUploading(false);
     }
   }, [
-    stagingFiles,
-    stagingSectionIds,
-    projectId,
-    cancelUpload,
-    DISABLE_UPLOAD_FEATURE,
-    prependUploadedPhotos,
-    upsertVideoUploadPlaceholder,
-    removeVideoUploadPlaceholder,
-    scheduleAnalysisPolling,
-    readOnly,
-    buildImagesAndMetas,
-    uploadTimelineEnabled,
-    uploadTimelineSections,
-    hasUnassignedStagedFiles,
-  ]);
+  stagingFiles,
+  stagingSectionIds,
+  projectId,
+  cancelUpload,
+  DISABLE_UPLOAD_FEATURE,
+  prependUploadedPhotos,
+  upsertVideoUploadPlaceholder,
+  removeVideoUploadPlaceholder,
+  scheduleAnalysisPolling,
+  readOnly,
+  buildImagesAndMetas,
+  uploadTimelineEnabled,
+  uploadTimelineSections,
+  hasUnassignedStagedFiles]
+  );
 
   const confirmUpload = React.useCallback(async () => {
     if (DISABLE_UPLOAD_FEATURE) {
@@ -2270,15 +2270,15 @@ function ProjectDetailInner({
     });
     await performUploadGroups(groupedFiles, stagingFiles);
   }, [
-    stagingFiles,
-    stagingSectionIds,
-    projectId,
-    DISABLE_UPLOAD_FEATURE,
-    uploadTimelineEnabled,
-    uploadTimelineSections,
-    hasUnassignedStagedFiles,
-    performUploadGroups,
-  ]);
+  stagingFiles,
+  stagingSectionIds,
+  projectId,
+  DISABLE_UPLOAD_FEATURE,
+  uploadTimelineEnabled,
+  uploadTimelineSections,
+  hasUnassignedStagedFiles,
+  performUploadGroups]
+  );
 
   // 弹窗内拖文件到具体环节后自动开始上传，与弹窗外直接拖拽的行为一致。
   // 用票据等 staging 状态落定再触发（confirmUpload 闭包依赖 stagingFiles，
@@ -2297,10 +2297,10 @@ function ProjectDetailInner({
     setEditTitle(p.title || p.projectName || '');
     setEditDescription(p.description || '');
     const date = p.eventDate || p.date;
-    setEditEventDate(date ? (date instanceof Date ? date : new Date(date)) : null);
+    setEditEventDate(date ? date instanceof Date ? date : new Date(date) : null);
     // populate tags for admin
     const incomingTags = p.tags || p.labels || p.tagList || p.projectTags || [];
-    const normalized = Array.isArray(incomingTags) ? incomingTags.map((t) => (typeof t === 'string' ? t : String(t))).filter(Boolean) : (typeof incomingTags === 'string' ? incomingTags.split(/[;,\n]/).map(s => s.trim()).filter(Boolean) : []);
+    const normalized = Array.isArray(incomingTags) ? incomingTags.map((t) => typeof t === 'string' ? t : String(t)).filter(Boolean) : typeof incomingTags === 'string' ? incomingTags.split(/[;,\n]/).map((s) => s.trim()).filter(Boolean) : [];
     setEditTags(normalized);
     setEditVisible(true);
   }, [project, canEditAlbumInfo]);
@@ -2336,7 +2336,7 @@ function ProjectDetailInner({
       const detail = await getProjectById(projectId, {
         demo: readOnly,
         includeFaces: false,
-        timeoutMs: PROJECT_DETAIL_TIMEOUT_MS,
+        timeoutMs: PROJECT_DETAIL_TIMEOUT_MS
       });
       setProject(detail);
       const built = buildImagesAndMetas(detail);
@@ -2344,11 +2344,11 @@ function ProjectDetailInner({
       setPhotoMetas(built.metas);
     } catch (err) {
       console.error('saveEdit error', err);
-      const status = err && err.status ? err.status : (err && err.cause && err.cause.status) ? err.cause.status : null;
+      const status = err && err.status ? err.status : err && err.cause && err.cause.status ? err.cause.status : null;
       if (status === 403) {
         Toast.error('没有修改权限，请联系相册创建人或管理员');
       } else if (status === 401) {
-        try { localStorage.removeItem('mamage_jwt_token'); } catch (e) { }
+        try {localStorage.removeItem('mamage_jwt_token');} catch (e) {}
         Toast.error('请重新登录管理员账号');
         navigate('/login');
       } else if (status === 404) {
@@ -2369,7 +2369,7 @@ function ProjectDetailInner({
     const detail = await getProjectById(projectId, {
       demo: readOnly,
       includeFaces: false,
-      timeoutMs: PROJECT_DETAIL_TIMEOUT_MS,
+      timeoutMs: PROJECT_DETAIL_TIMEOUT_MS
     });
     setProject(detail);
     const built = buildImagesAndMetas(detail);
@@ -2400,9 +2400,9 @@ function ProjectDetailInner({
     } catch (err) {
       console.error('timeline action error', err);
       const body = err && err.body ? String(err.body) : '';
-      if (err && err.status === 409) Toast.warning('同名环节已存在');
-      else if (err && err.status === 403) Toast.error('没有权限');
-      else Toast.error(`操作失败${body ? `：${body.slice(0, 80)}` : ''}`);
+      if (err && err.status === 409) Toast.warning('同名环节已存在');else
+      if (err && err.status === 403) Toast.error('没有权限');else
+      Toast.error(`操作失败${body ? `：${body.slice(0, 80)}` : ''}`);
     } finally {
       setTimelineBusy(false);
     }
@@ -2410,7 +2410,7 @@ function ProjectDetailInner({
 
   const handleAddSection = React.useCallback(() => {
     const name = String(timelineDraftName || '').trim();
-    if (!name) { Toast.warning('请输入环节名称'); return; }
+    if (!name) {Toast.warning('请输入环节名称');return;}
     runTimelineAction(async () => {
       const created = await createTimelineSection(projectId, { name, sectionTime: String(timelineDraftTime || '').trim() || undefined });
       setTimelineDraftName('');
@@ -2425,7 +2425,7 @@ function ProjectDetailInner({
     const edit = sectionRowEdits[String(sectionId)];
     if (!edit) return;
     const name = String(edit.name || '').trim();
-    if (!name) { Toast.warning('环节名称不能为空'); return; }
+    if (!name) {Toast.warning('环节名称不能为空');return;}
     runTimelineAction(
       () => updateTimelineSection(projectId, sectionId, { name, sectionTime: String(edit.sectionTime || '').trim() || null }),
       '已保存'
@@ -2442,7 +2442,7 @@ function ProjectDetailInner({
       onOk: () => runTimelineAction(
         () => deleteTimelineSection(projectId, section.id),
         '环节已删除'
-      ),
+      )
     });
   }, [projectId, runTimelineAction]);
 
@@ -2473,12 +2473,12 @@ function ProjectDetailInner({
   const handleAssignSelectedToSection = React.useCallback(async (sectionId) => {
     if (assigningSection) return;
     const idxs = Object.keys(selectedMap || {}).map((k) => Number(k)).sort((a, b) => a - b);
-    if (idxs.some(index => !canEditItem(photoMetas?.[index]))) return Toast.warning('所选内容包含无权修改的照片或视频');
-    const photoIds = idxs
-      .map((idx) => getPhotoRecordId(photoMetas?.[idx]))
-      .map((v) => Number(v))
-      .filter((n) => Number.isFinite(n) && n > 0);
-    if (!photoIds.length) { Toast.warning('先选择照片'); return; }
+    if (idxs.some((index) => !canEditItem(photoMetas?.[index]))) return Toast.warning('所选内容包含无权修改的照片或视频');
+    const photoIds = idxs.
+    map((idx) => getPhotoRecordId(photoMetas?.[idx])).
+    map((v) => Number(v)).
+    filter((n) => Number.isFinite(n) && n > 0);
+    if (!photoIds.length) {Toast.warning('先选择照片');return;}
     setAssigningSection(true);
     try {
       const result = await assignPhotosTimelineSection(photoIds, sectionId);
@@ -2514,15 +2514,15 @@ function ProjectDetailInner({
     // 嵌套落点（占位区→环节区块→window）会让同一次松手触发多次；ref 同步守卫
     if (dropGestureGuardRef.current) return;
     dropGestureGuardRef.current = true;
-    setTimeout(() => { dropGestureGuardRef.current = false; }, 600);
-    if (!canUploadPhotos) { Toast.warning('当前账号没有上传权限'); return; }
-    if (uploading) { Toast.warning('正在上传中，请稍候再拖入'); return; }
-    const dropped = Array.from((e.dataTransfer && e.dataTransfer.files) || []);
+    setTimeout(() => {dropGestureGuardRef.current = false;}, 600);
+    if (!canUploadPhotos) {Toast.warning('当前账号没有上传权限');return;}
+    if (uploading) {Toast.warning('正在上传中，请稍候再拖入');return;}
+    const dropped = Array.from(e.dataTransfer && e.dataTransfer.files || []);
     const mediaFiles = dropped.filter((f) => /^(image|video)\//.test(f.type) || /\.(jpe?g|png|webp|gif|heic|heif|mp4|mov|m4v|webm|ogg)$/i.test(f.name || ''));
-    if (!mediaFiles.length) { if (dropped.length) Toast.warning('仅支持图片或视频文件'); return; }
+    if (!mediaFiles.length) {if (dropped.length) Toast.warning('仅支持图片或视频文件');return;}
     const accepted = [];
     let oversized = 0;
-    mediaFiles.forEach((f) => { if (getUploadFileLimitError(f)) oversized += 1; else accepted.push(f); });
+    mediaFiles.forEach((f) => {if (getUploadFileLimitError(f)) oversized += 1;else accepted.push(f);});
     if (oversized) Toast.warning(`已跳过 ${oversized} 个超限文件`);
     if (!accepted.length) return;
     const key = uploadTimelineEnabled && uploadTimelineSections.length ? String(sectionId || '') : '';
@@ -2533,7 +2533,7 @@ function ProjectDetailInner({
     performUploadGroups(new Map([[key, accepted]]), accepted);
   }, [isMobile, canUploadPhotos, uploading, uploadTimelineEnabled, uploadTimelineSections, performUploadGroups]);
 
-  React.useEffect(() => { directFileDropRef.current = handleDirectFileDrop; }, [handleDirectFileDrop]);
+  React.useEffect(() => {directFileDropRef.current = handleDirectFileDrop;}, [handleDirectFileDrop]);
 
   // 拖拽照片放到左侧环节导航：批量移入该环节（未归类=移出）；拖入系统文件则直接上传到该环节
   const handleRailDrop = React.useCallback(async (e, group) => {
@@ -2550,11 +2550,11 @@ function ProjectDetailInner({
     try {
       const raw = e.dataTransfer.getData('application/x-mamage-photo') || e.dataTransfer.getData('application/json');
       payload = raw ? JSON.parse(raw) : null;
-    } catch (err) { payload = null; }
-    const items = Array.isArray(payload) ? payload : (payload ? [payload] : []);
+    } catch (err) {payload = null;}
+    const items = Array.isArray(payload) ? payload : payload ? [payload] : [];
     const photoIds = items.map((it) => Number(it && (it.id || it.photoId))).filter((n) => Number.isFinite(n) && n > 0);
     if (!photoIds.length) return;
-    if (photoIds.some(id => !canEditItem(photoMetas?.find(meta => Number(meta.id || meta.photoId) === id)))) {
+    if (photoIds.some((id) => !canEditItem(photoMetas?.find((meta) => Number(meta.id || meta.photoId) === id)))) {
       return Toast.warning('拖动内容包含无权修改的照片或视频');
     }
     const sectionId = group && group.id ? Number(group.id) : null;
@@ -2576,12 +2576,12 @@ function ProjectDetailInner({
   React.useEffect(() => {
     if (isMobile) {
       fileDragDepthRef.current = 0;
-      setFileDragActive(false); setDragActive(false); setRailDropKey(null);
+      setFileDragActive(false);setDragActive(false);setRailDropKey(null);
       return undefined;
     }
     if (!canUploadPhotos || typeof window === 'undefined') return undefined;
     const hasFiles = (e) => {
-      try { return Array.from(e.dataTransfer?.types || []).includes('Files'); } catch (err) { return false; }
+      try {return Array.from(e.dataTransfer?.types || []).includes('Files');} catch (err) {return false;}
     };
     const onEnter = (e) => {
       if (!hasFiles(e)) return;
@@ -2591,9 +2591,9 @@ function ProjectDetailInner({
     const onLeave = (e) => {
       if (!hasFiles(e)) return;
       fileDragDepthRef.current = Math.max(0, fileDragDepthRef.current - 1);
-      if (!fileDragDepthRef.current) { setFileDragActive(false); setRailDropKey(null); }
+      if (!fileDragDepthRef.current) {setFileDragActive(false);setRailDropKey(null);}
     };
-    const onOver = (e) => { if (hasFiles(e)) e.preventDefault(); };
+    const onOver = (e) => {if (hasFiles(e)) e.preventDefault();};
     const onDrop = (e) => {
       if (!hasFiles(e)) return;
       e.preventDefault();
@@ -2631,7 +2631,7 @@ function ProjectDetailInner({
       onOk: async () => {
         setDeletingProject(true);
         try {
-          const res = await deleteProject(projectId);
+
           // assume success if no exception; backend may return { success: true }
           Toast.success('相册已删除');
           if (typeof onBack === 'function') {
@@ -2639,9 +2639,9 @@ function ProjectDetailInner({
           }
         } catch (err) {
           console.error('deleteProject error', err);
-          const status = err && err.status ? err.status : (err && err.cause && err.cause.status) ? err.cause.status : null;
+          const status = err && err.status ? err.status : err && err.cause && err.cause.status ? err.cause.status : null;
           if (status === 401 || status === 403) {
-            try { localStorage.removeItem('mamage_jwt_token'); } catch (e) { }
+            try {localStorage.removeItem('mamage_jwt_token');} catch (e) {}
             Toast.error('权限不足或登录已过期，请重新登录或联系管理员');
             navigate('/login');
           } else if (status === 404) {
@@ -2696,7 +2696,7 @@ function ProjectDetailInner({
   const toggleSelect = React.useCallback((index) => {
     const key = String(index);
     const map = Object.assign({}, selectedMap || {});
-    if (map[key]) delete map[key]; else map[key] = true;
+    if (map[key]) delete map[key];else map[key] = true;
     const count = Object.keys(map).length;
     const filteredKeys = new Set(getMediaFilteredIndexes().map((i) => String(i)));
     const visibleSelectedCount = Object.keys(map).filter((k) => filteredKeys.has(k)).length;
@@ -2711,9 +2711,9 @@ function ProjectDetailInner({
     const map = Object.assign({}, selectedMap || {});
     const everyVisibleSelected = indexes.every((i) => !!map[String(i)]);
     if (everyVisibleSelected) {
-      indexes.forEach((i) => { delete map[String(i)]; });
+      indexes.forEach((i) => {delete map[String(i)];});
     } else {
-      indexes.forEach((i) => { map[String(i)] = true; });
+      indexes.forEach((i) => {map[String(i)] = true;});
     }
     setSelectedMap(map);
     setSelectedCount(Object.keys(map).length);
@@ -2721,17 +2721,17 @@ function ProjectDetailInner({
   }, [getMediaFilteredIndexes, selectedMap]);
 
   const selectOwnUploads = React.useCallback(() => {
-    const indexes = getMediaFilteredIndexes().filter(index => canDeleteItem(photoMetas?.[index]));
-    setSelectedMap(Object.fromEntries(indexes.map(index => [String(index), true])));
+    const indexes = getMediaFilteredIndexes().filter((index) => canDeleteItem(photoMetas?.[index]));
+    setSelectedMap(Object.fromEntries(indexes.map((index) => [String(index), true])));
     setSelectedCount(indexes.length);
     setAllSelected(indexes.length > 0 && indexes.length === getMediaFilteredIndexes().length);
   }, [getMediaFilteredIndexes, canDeleteItem, photoMetas]);
 
   const getTimelineSectionSelectionIndexes = React.useCallback((sectionId) => {
     const normalizedSectionId = sectionId === null || sectionId === undefined ? '' : String(sectionId);
-    return getMediaFilteredIndexes().filter((index) => (
-      getPhotoTimelineSectionId(photoMetas?.[index]) === normalizedSectionId
-    ));
+    return getMediaFilteredIndexes().filter((index) =>
+    getPhotoTimelineSectionId(photoMetas?.[index]) === normalizedSectionId
+    );
   }, [getMediaFilteredIndexes, photoMetas]);
 
   const toggleSelectTimelineSection = React.useCallback((sectionId) => {
@@ -2740,9 +2740,9 @@ function ProjectDetailInner({
     const map = Object.assign({}, selectedMap || {});
     const everySectionPhotoSelected = indexes.every((index) => !!map[String(index)]);
     if (everySectionPhotoSelected) {
-      indexes.forEach((index) => { delete map[String(index)]; });
+      indexes.forEach((index) => {delete map[String(index)];});
     } else {
-      indexes.forEach((index) => { map[String(index)] = true; });
+      indexes.forEach((index) => {map[String(index)] = true;});
     }
     const filteredIndexes = getMediaFilteredIndexes();
     setSelectedMap(map);
@@ -2766,13 +2766,13 @@ function ProjectDetailInner({
       Toast.warning('删除功能已禁用');
       return;
     }
-    const indexes = Object.keys(selectedMap || {}).map(k => Number(k));
+    const indexes = Object.keys(selectedMap || {}).map((k) => Number(k));
     if (!indexes.length) return Toast.warning('请先选择照片或视频');
-    if (indexes.some(index => !canDeleteItem(photoMetas?.[index]))) {
+    if (indexes.some((index) => !canDeleteItem(photoMetas?.[index]))) {
       return Toast.warning('只能删除自己上传的照片和视频，请取消其他人的选择');
     }
-    const ids = indexes.map(i => {
-      const meta = (photoMetas && photoMetas[i]) || null;
+    const ids = indexes.map((i) => {
+      const meta = photoMetas && photoMetas[i] || null;
       if (!meta) return null;
       return meta.id || meta.photoId || meta.photo_id || null;
     }).filter(Boolean);
@@ -2786,8 +2786,8 @@ function ProjectDetailInner({
         try {
           const res = await deletePhotos(ids);
           // res expected to be { deletedIds: [], notFoundIds: [] } or similar
-          const deleted = (res && (res.deletedIds || res.deleted || res.deleted_ids)) || [];
-          const notFound = (res && (res.notFoundIds || res.not_found_ids || res.notFound || [])) || [];
+          const deleted = res && (res.deletedIds || res.deleted || res.deleted_ids) || [];
+          const notFound = res && (res.notFoundIds || res.not_found_ids || res.notFound || []) || [];
           if (Array.isArray(deleted) && deleted.length > 0) {
             Toast.success(`已删除 ${deleted.length} 张`);
           } else {
@@ -2804,7 +2804,7 @@ function ProjectDetailInner({
             const detail = await getProjectById(projectId, {
               demo: readOnly,
               includeFaces: false,
-              timeoutMs: PROJECT_DETAIL_TIMEOUT_MS,
+              timeoutMs: PROJECT_DETAIL_TIMEOUT_MS
             });
             setProject(detail);
             const built = buildImagesAndMetas(detail);
@@ -2813,17 +2813,17 @@ function ProjectDetailInner({
           } catch (e) {
             console.error('reload after delete failed', e);
           }
-          setDeleteMode(false); setSelectedMap({}); setSelectedCount(0); setAllSelected(false);
+          setDeleteMode(false);setSelectedMap({});setSelectedCount(0);setAllSelected(false);
         } catch (err) {
           console.error('delete error', err);
           // handle different status codes if available
-          const status = err && err.status ? err.status : (err && err.cause && err.cause.status) ? err.cause.status : null;
-          const body = err && err.body ? err.body : null;
+          const status = err && err.status ? err.status : err && err.cause && err.cause.status ? err.cause.status : null;
+
           if (status === 400) {
             Toast.warning('请选择至少一张照片');
           } else if (status === 401) {
             // clear token and redirect to login
-            try { localStorage.removeItem('mamage_jwt_token'); } catch (e) { }
+            try {localStorage.removeItem('mamage_jwt_token');} catch (e) {}
             Toast.error('权限不足或登录已过期，请重新登录或联系管理员');
             navigate('/login');
           } else {
@@ -2841,7 +2841,7 @@ function ProjectDetailInner({
 
   const getDownloadAdjustmentForMeta = React.useCallback((meta) => {
     const photoId = getPhotoRecordId(meta);
-    return normalizePhotoAdjustments((photoId && photoAdjustmentsMap[photoId]) || meta?.adjustments || DEFAULT_PHOTO_ADJUSTMENTS);
+    return normalizePhotoAdjustments(photoId && photoAdjustmentsMap[photoId] || meta?.adjustments || DEFAULT_PHOTO_ADJUSTMENTS);
   }, [photoAdjustmentsMap]);
 
   const inferDownloadExt = React.useCallback((rawUrl) => {
@@ -2857,15 +2857,15 @@ function ProjectDetailInner({
   const buildDownloadBaseName = React.useCallback((meta, index) => {
     if (isVideoMeta(meta)) {
       const parts = [...new Set([project?.name || project?.title || initialProject?.name || initialProject?.title,
-        meta?.timelineSectionName, meta?.title || meta?.name].filter(Boolean)
-        .map(value => String(value).replace(/\.[a-z0-9]{2,8}$/i, '')))];
+      meta?.timelineSectionName, meta?.title || meta?.name].filter(Boolean).
+      map((value) => String(value).replace(/\.[a-z0-9]{2,8}$/i, '')))];
       const chars = Array.from(parts.join('_').replace(/[\u0000-\u001f\u007f\\/:*?"<>|]/g, '_').replace(/^[. ]+|[. ]+$/g, ''));
       while (new TextEncoder().encode(chars.join('')).byteLength > 180) chars.pop();
       return `${chars.join('') || 'MaMage_video'}_${meta?.id || index + 1}`;
     }
-    return String(meta?.title || meta?.name || `photo-${meta?.id || index + 1}`)
-      .replace(/[\\/:*?"<>|]/g, '_')
-      .slice(0, 64) || `photo-${index + 1}`;
+    return String(meta?.title || meta?.name || `photo-${meta?.id || index + 1}`).
+    replace(/[\\/:*?"<>|]/g, '_').
+    slice(0, 64) || `photo-${index + 1}`;
   }, [project, initialProject]);
 
   const triggerBlobDownload = React.useCallback((blob, filename) => {
@@ -2884,8 +2884,8 @@ function ProjectDetailInner({
 
   const canvasToBlob = React.useCallback((canvas, type = 'image/jpeg', quality = 0.94) => new Promise((resolve, reject) => {
     canvas.toBlob((blob) => {
-      if (blob) resolve(blob);
-      else reject(new Error('无法生成下载图片'));
+      if (blob) resolve(blob);else
+      reject(new Error('无法生成下载图片'));
     }, type, quality);
   }), []);
 
@@ -2896,7 +2896,7 @@ function ProjectDetailInner({
     const response = await fetch(pixelUrl, {
       method: 'GET',
       headers: token ? { Authorization: `Bearer ${token}` } : {},
-      credentials: 'same-origin',
+      credentials: 'same-origin'
     });
     if (!response.ok) throw new Error(response.status === 401 || response.status === 403 ? '无权读取照片像素' : '无法读取照片像素');
     return response.blob();
@@ -2908,7 +2908,7 @@ function ProjectDetailInner({
       maxSize: options.maxSize || 4096,
       format: options.format || 'jpeg',
       quality: options.quality || 96,
-      cache: false,
+      cache: false
     });
   }, []);
 
@@ -2931,7 +2931,7 @@ function ProjectDetailInner({
         variant: 'original',
         maxSize: 4096,
         format: 'jpeg',
-        quality: 96,
+        quality: 96
       });
       if (renderedBlob) {
         triggerBlobDownload(renderedBlob, `${baseName}.jpg`);
@@ -2950,27 +2950,27 @@ function ProjectDetailInner({
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     }
   }, [
-    buildDownloadBaseName,
-    canvasToBlob,
-    fetchDownloadPixelSource,
-    fetchRenderedPhotoBlob,
-    getDownloadAdjustmentForMeta,
-    getDirectMediaUrl,
-    images,
-    inferDownloadExt,
-    triggerBlobDownload,
-  ]);
+  buildDownloadBaseName,
+  canvasToBlob,
+  fetchDownloadPixelSource,
+  fetchRenderedPhotoBlob,
+  getDownloadAdjustmentForMeta,
+  getDirectMediaUrl,
+  images,
+  inferDownloadExt,
+  triggerBlobDownload]
+  );
 
   const downloadCurrentPhoto = React.useCallback(async () => {
     const idx = viewerIndex;
-    const meta = (photoMetas && photoMetas[idx]) || {};
+    const meta = photoMetas && photoMetas[idx] || {};
     const url = meta.originalSrc || meta.url || meta.thumbSrc || images[idx];
     if (!url) return Toast.warning('无法获取媒体资源');
     try {
       const result = await downloadRenderedPhoto(meta, idx, viewerToneVisible ? {
-        adjustments: viewerToneDraft, forceOriginal: viewerToneComparing,
+        adjustments: viewerToneDraft, forceOriginal: viewerToneComparing
       } : {});
-      Toast.success(currentViewerIsVideo ? '已开始下载视频' : (result.rendered ? '已下载调色后的照片' : '已开始下载原图'));
+      Toast.success(currentViewerIsVideo ? '已开始下载视频' : result.rendered ? '已下载调色后的照片' : '已开始下载原图');
     } catch (err) {
       console.error('downloadCurrentPhoto error', err);
       Toast.error(err?.message || '下载失败');
@@ -2984,28 +2984,28 @@ function ProjectDetailInner({
       try {
         const idxs = getSelectedIndexes();
         // try to infer project title from available state
-        const srcProjectName = (project && (project.title || project.projectName || project.name))
-          || (initialProject && (initialProject.title || initialProject.projectName || initialProject.name))
-          || '项目';
+        const srcProjectName = project && (project.title || project.projectName || project.name) ||
+        initialProject && (initialProject.title || initialProject.projectName || initialProject.name) ||
+        '项目';
         return idxs.map((i) => {
-          const meta = (photoMetas && photoMetas[i]) || {};
+          const meta = photoMetas && photoMetas[i] || {};
           const pid = meta.id || meta.photoId || meta.photo_id || null;
-          const cachedFaces = pid ? (viewerFaceMap && viewerFaceMap[String(pid)]) : null;
+          const cachedFaces = pid ? viewerFaceMap && viewerFaceMap[String(pid)] : null;
           const faceNames = extractFaceNamesFromMeta(meta, cachedFaces);
           return {
             id: pid,
             url: meta.originalSrc || meta.url || meta.thumbSrc || images[i] || null,
             thumbSrc: meta.thumbSrc || images[i] || null,
             originalSrc: meta.originalSrc || images[i] || null,
-            description: (pid && photoDescMap && photoDescMap[pid]) ? photoDescMap[pid] : (meta.description || ''),
-            tags: (pid && photoTagsMap && photoTagsMap[pid]) ? photoTagsMap[pid] : (safeParseTags(meta.tags) || []),
+            description: pid && photoDescMap && photoDescMap[pid] ? photoDescMap[pid] : meta.description || '',
+            tags: pid && photoTagsMap && photoTagsMap[pid] ? photoTagsMap[pid] : safeParseTags(meta.tags) || [],
             adjustments: getDownloadAdjustmentForMeta(meta),
             projectTitle: srcProjectName,
             photographerId: meta.photographerId || meta.photographer_id || null,
             photographerName: meta.photographerName || meta.photographer_name || '',
             faceNames,
             personNames: faceNames,
-            faces: Array.isArray(cachedFaces) ? cachedFaces : (Array.isArray(meta.faces) ? meta.faces : []),
+            faces: Array.isArray(cachedFaces) ? cachedFaces : Array.isArray(meta.faces) ? meta.faces : []
           };
         }).filter(Boolean);
       } catch (e) {
@@ -3013,7 +3013,7 @@ function ProjectDetailInner({
       }
     };
     return () => {
-      try { delete window.__MAMAGE_GET_CURRENT_PROJECT_SELECTION; } catch (e) { window.__MAMAGE_GET_CURRENT_PROJECT_SELECTION = undefined; }
+      try {delete window.__MAMAGE_GET_CURRENT_PROJECT_SELECTION;} catch (e) {window.__MAMAGE_GET_CURRENT_PROJECT_SELECTION = undefined;}
     };
   }, [getSelectedIndexes, photoMetas, images, project, initialProject, photoDescMap, photoTagsMap, viewerFaceMap, getDownloadAdjustmentForMeta]);
 
@@ -3026,7 +3026,7 @@ function ProjectDetailInner({
     if (idxs.length > 1) Toast.info('正在准备下载照片');
 
     for (const i of idxs) {
-      const meta = (photoMetas && photoMetas[i]) || {};
+      const meta = photoMetas && photoMetas[i] || {};
       const url = meta.originalSrc || meta.url || meta.thumbSrc || images[i];
       if (!url) continue;
       try {
@@ -3065,9 +3065,9 @@ function ProjectDetailInner({
     if (!count) return Toast.warning('未选择照片或视频');
     if (count > 1) {
       if (batchVideoDownload.isRunning()) return Toast.info('已有下载任务，请先查看下载进度');
-      const ids = selectedIndexes.map(i => getPhotoRecordId(photoMetas[i]));
-      if (ids.some(id => !id)) return Toast.error('无法获取媒体信息，请刷新相册后重试');
-      const videosOnly = selectedIndexes.every(i => isVideoMeta(photoMetas?.[i]));
+      const ids = selectedIndexes.map((i) => getPhotoRecordId(photoMetas[i]));
+      if (ids.some((id) => !id)) return Toast.error('无法获取媒体信息，请刷新相册后重试');
+      const videosOnly = selectedIndexes.every((i) => isVideoMeta(photoMetas?.[i]));
       void batchVideoDownload.start(ids, { mediaKind: videosOnly ? 'video' : 'mixed', forceZip: !videosOnly });
       return;
     }
@@ -3078,7 +3078,7 @@ function ProjectDetailInner({
       cancelText: '取消',
       onOk: () => {
         downloadSelectedIndividually();
-      },
+      }
     });
   }, [getSelectedIndexes, downloadSelectedIndividually, photoMetas]);
 
@@ -3094,21 +3094,21 @@ function ProjectDetailInner({
   const rawTags = resolvedProject?.tags || resolvedProject?.labels || resolvedProject?.projectTags || resolvedProject?.tagList || null;
   const tags = React.useMemo(() => {
     if (!rawTags) return [];
-    if (Array.isArray(rawTags)) return rawTags.filter(Boolean).map((t) => (typeof t === 'string' ? t : String(t)));
+    if (Array.isArray(rawTags)) return rawTags.filter(Boolean).map((t) => typeof t === 'string' ? t : String(t));
     if (typeof rawTags === 'string') {
       const s = rawTags.trim();
       // try parse JSON array/string
-      if ((s.startsWith('[') && s.endsWith(']')) || (s.startsWith('{') && s.endsWith('}'))) {
+      if (s.startsWith('[') && s.endsWith(']') || s.startsWith('{') && s.endsWith('}')) {
         try {
           const parsed = JSON.parse(s);
-          if (Array.isArray(parsed)) return parsed.filter(Boolean).map((t) => (typeof t === 'string' ? t : String(t)));
+          if (Array.isArray(parsed)) return parsed.filter(Boolean).map((t) => typeof t === 'string' ? t : String(t));
           // if parsed is object, try to extract values
-          return Object.values(parsed).map((v) => (v && v.name) ? v.name : String(v)).filter(Boolean);
+          return Object.values(parsed).map((v) => v && v.name ? v.name : String(v)).filter(Boolean);
         } catch (e) {
+
+
           // fallthrough to splitting
-        }
-      }
-      return s.split(/[;,\n]+/).map((ss) => ss.trim()).filter(Boolean);
+        }}return s.split(/[;,\n]+/).map((ss) => ss.trim()).filter(Boolean);
     }
     // object or other shape: try to extract name properties or values
     try {
@@ -3116,7 +3116,7 @@ function ProjectDetailInner({
       if (vals.length && (typeof vals[0] === 'string' || typeof vals[0] === 'number')) {
         return vals.map((v) => String(v)).filter(Boolean);
       }
-      return vals.map((v) => (v && v.name) ? v.name : String(v)).filter(Boolean);
+      return vals.map((v) => v && v.name ? v.name : String(v)).filter(Boolean);
     } catch (e) {
       return [];
     }
@@ -3155,12 +3155,12 @@ function ProjectDetailInner({
   // expose resolved project and tags for easy debugging in browser console
   React.useEffect(() => {
     try {
-      // eslint-disable-next-line no-console
+
       console.debug('[ProjectDetail] resolvedProject:', resolvedProject);
-      // eslint-disable-next-line no-console
+
       console.debug('[ProjectDetail] parsed tags:', tags);
-      try { window.__MAMAGE_LAST_PROJECT = { resolvedProject: resolvedProject || null, tags: tags || [] }; } catch (e) { }
-    } catch (e) { }
+      try {window.__MAMAGE_LAST_PROJECT = { resolvedProject: resolvedProject || null, tags: tags || [] };} catch (e) {}
+    } catch (e) {}
   }, [resolvedProject, tags]);
   // compute display dates: start (event) and created
   const startRaw = resolvedProject?.eventDate ?? resolvedProject?.startDate ?? resolvedProject?.date ?? resolvedProject?.shootDate ?? null;
@@ -3171,7 +3171,7 @@ function ProjectDetailInner({
   const formatToMinute = (val) => {
     if (!val && val !== 0) return null;
     try {
-      const dt = (typeof val === 'string' || typeof val === 'number') ? new Date(val) : (val instanceof Date ? val : new Date(String(val)));
+      const dt = typeof val === 'string' || typeof val === 'number' ? new Date(val) : val instanceof Date ? val : new Date(String(val));
       if (isNaN(dt.getTime())) return null;
       const y = dt.getFullYear();
       const m = String(dt.getMonth() + 1).padStart(2, '0');
@@ -3188,16 +3188,16 @@ function ProjectDetailInner({
   const createdText = formatToMinute(createdRaw);
   const updatedText = formatToMinute(updatedRaw);
   const count = resolvedProject?.photoCount ?? resolvedProject?.count ?? images.length;
-  const coverSrc = resolvedProject?.coverSrc
-    || resolvedProject?.coverThumbUrl
-    || resolvedProject?.coverUrl
-    || resolvedProject?.cover
-    || photoMetas?.[0]?.thumbSrc
-    || photoMetas?.[0]?.thumbUrl
-    || photoMetas?.[0]?.thumbnail
-    || photoMetas?.[0]?.url
-    || images?.[0]
-    || '';
+  const coverSrc = resolvedProject?.coverSrc ||
+  resolvedProject?.coverThumbUrl ||
+  resolvedProject?.coverUrl ||
+  resolvedProject?.cover ||
+  photoMetas?.[0]?.thumbSrc ||
+  photoMetas?.[0]?.thumbUrl ||
+  photoMetas?.[0]?.thumbnail ||
+  photoMetas?.[0]?.url ||
+  images?.[0] ||
+  '';
   const masonryColumns = React.useMemo(() => {
     const w = galleryWidth || 0;
     if (!w) return 3;
@@ -3214,13 +3214,13 @@ function ProjectDetailInner({
       if (!src) return;
       const meta = photoMetas?.[idx] || {};
       if (onlyOwnUploads && !isPhotoUploadedBy(meta, currentUser?.id)) return;
-      if (isVideoMeta(meta)) video += 1;
-      else image += 1;
+      if (isVideoMeta(meta)) video += 1;else
+      image += 1;
     });
     return { image, video, total: image + video };
   }, [photoMetas, images, onlyOwnUploads, currentUser?.id]);
-  const ownUploadCount = React.useMemo(() => (photoMetas || []).filter(meta => isPhotoUploadedBy(meta, currentUser?.id)).length,
-    [photoMetas, currentUser?.id]);
+  const ownUploadCount = React.useMemo(() => (photoMetas || []).filter((meta) => isPhotoUploadedBy(meta, currentUser?.id)).length,
+  [photoMetas, currentUser?.id]);
 
   const galleryFilterKey = JSON.stringify([projectId, searchKeyword, mediaFilter, onlyOwnUploads]);
   const galleryFilterRef = React.useRef({ entryKey: route.entry.key, filter: galleryFilterKey });
@@ -3235,10 +3235,10 @@ function ProjectDetailInner({
   const mediaFilteredIndexes = React.useMemo(() => getMediaFilteredIndexes(), [getMediaFilteredIndexes]);
   const visiblePhotoCount = Math.min(mediaFilteredIndexes.length, Math.max(GALLERY_INITIAL_RENDER_LIMIT, galleryRenderLimit));
   const visiblePhotoItems = React.useMemo(
-    () => mediaFilteredIndexes
-      .slice(0, visiblePhotoCount)
-      .map((idx) => ({ src: images[idx], idx }))
-      .filter((item) => !!item.src),
+    () => mediaFilteredIndexes.
+    slice(0, visiblePhotoCount).
+    map((idx) => ({ src: images[idx], idx })).
+    filter((item) => !!item.src),
     [mediaFilteredIndexes, visiblePhotoCount, images]
   );
   const hasMoreGalleryPhotos = visiblePhotoCount < mediaFilteredIndexes.length;
@@ -3252,39 +3252,39 @@ function ProjectDetailInner({
     }
     if (photoFocusControllerRef.current) return undefined;
     if (mediaFilter !== 'all' || onlyOwnUploads || searchKeywordTrimmed) {
-      setMediaFilter('all'); setOnlyOwnUploads(false); setSearchKeyword('');
+      setMediaFilter('all');setOnlyOwnUploads(false);setSearchKeyword('');
       return undefined;
     }
     const finish = () => {
       consumePhotoFocusIntent(projectId, focusPhotoId);
-      setFocusPhotoId(previous => previous === focusPhotoId ? null : previous);
+      setFocusPhotoId((previous) => previous === focusPhotoId ? null : previous);
     };
-    const position = mediaFilteredIndexes.findIndex(index => String(getPhotoRecordId(photoMetas?.[index]) || '') === focusPhotoId);
+    const position = mediaFilteredIndexes.findIndex((index) => String(getPhotoRecordId(photoMetas?.[index]) || '') === focusPhotoId);
     if (position < 0) {
       Toast.warning('这张照片不在当前可见相册中');
       finish();
       return undefined;
     }
     if (position >= visiblePhotoCount) {
-      setGalleryRenderLimit(previous => Math.max(previous, position + 1));
+      setGalleryRenderLimit((previous) => Math.max(previous, position + 1));
       return undefined;
     }
     if (!galleryPrepared || !galleryRef.current) return undefined;
     photoFocusControllerRef.current = { cleanup: focusPhotoCard(galleryRef.current, focusPhotoId, finish, setHighlightedPhotoId) };
     return undefined;
   }, [focusPhotoId, loading, error, project, projectId, viewerVisible, initialOpenPhotoId, mediaFilter, onlyOwnUploads,
-    searchKeywordTrimmed, mediaFilteredIndexes, visiblePhotoCount, galleryPrepared, photoMetas]);
+  searchKeywordTrimmed, mediaFilteredIndexes, visiblePhotoCount, galleryPrepared, photoMetas]);
   const useTimelineGallery = Boolean(uploadTimelineEnabled && uploadTimelineSections.length && !searchKeywordTrimmed);
   const timelineGalleryGroups = React.useMemo(() => {
     if (!useTimelineGallery) return [];
-    const normalizeDomIdPart = (value) => String(value || '')
-      .replace(/[^a-zA-Z0-9_-]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 40);
+    const normalizeDomIdPart = (value) => String(value || '').
+    replace(/[^a-zA-Z0-9_-]+/g, '-').
+    replace(/^-+|-+$/g, '').
+    slice(0, 40);
     const groups = uploadTimelineSections.map((section, sectionIndex) => ({
       ...section,
       domId: `timeline-section-${projectId}-${sectionIndex}-${normalizeDomIdPart(section.id || section.key || section.name || sectionIndex)}`,
-      items: [],
+      items: []
     }));
     const byId = new Map(groups.filter((section) => section.id).map((section) => [String(section.id), section]));
     const uncategorized = {
@@ -3294,7 +3294,7 @@ function ProjectDetailInner({
       name: '未归类',
       sectionTime: '',
       sortOrder: 999999,
-      items: [],
+      items: []
     };
     visiblePhotoItems.forEach(({ src, idx }) => {
       const meta = photoMetas?.[idx] || {};
@@ -3303,10 +3303,10 @@ function ProjectDetailInner({
       (target || uncategorized).items.push({ src, idx });
     });
     return [
-      // 空环节保留占位：移空不消失，避免"环节被删了"的错觉
-      ...groups,
-      ...(uncategorized.items.length ? [uncategorized] : []),
-    ];
+    // 空环节保留占位：移空不消失，避免"环节被删了"的错觉
+    ...groups,
+    ...(uncategorized.items.length ? [uncategorized] : [])];
+
   }, [useTimelineGallery, uploadTimelineSections, visiblePhotoItems, photoMetas, projectId]);
 
   React.useEffect(() => {
@@ -3316,13 +3316,13 @@ function ProjectDetailInner({
       const el = railRef.current;
       if (!el) {
         // nav 可能晚于分组数据挂载（等 galleryPrepared），rAF 重试直到出现
-        if (attempts < 30) { attempts += 1; raf = requestAnimationFrame(measure); }
+        if (attempts < 30) {attempts += 1;raf = requestAnimationFrame(measure);}
         return;
       }
       setRailOverflow(el.scrollWidth > el.clientWidth + 4 || el.scrollHeight > el.clientHeight + 4);
       const spans = el.querySelectorAll('.detail-timeline-rail-text span');
       let truncated = false;
-      spans.forEach((sp) => { if (sp.scrollWidth > sp.clientWidth + 1) truncated = true; });
+      spans.forEach((sp) => {if (sp.scrollWidth > sp.clientWidth + 1) truncated = true;});
       setRailNameTruncated(truncated);
     };
     measure();
@@ -3348,17 +3348,17 @@ function ProjectDetailInner({
     setInternalGalleryMode('grid');
   }, [controlledGalleryMode, onGalleryModeChange, projectId, useTimelineGallery]);
   const detailSearchVisible = Boolean(searchOpen || searching || searchError || searchKeywordTrimmed);
-  const mediaFilterLabel = mediaFilter === 'video' ? '视频' : (mediaFilter === 'image' ? '照片' : '全部');
-  const compactCountText = onlyOwnUploads
-    ? `我上传的${mediaFilter === 'all' ? '照片和视频' : mediaFilterLabel} ${mediaFilteredIndexes.length} 项，已显示 ${visiblePhotoCount}`
-    : mediaFilter === 'all'
-    ? (hasMoreGalleryPhotos ? `${count} 张，已显示 ${visiblePhotoCount}` : `${count} 张照片`)
-    : `${mediaFilterLabel} ${mediaFilteredIndexes.length} 个，已显示 ${visiblePhotoCount}`;
-  const mediaFilterOptions = React.useMemo(() => ([
-    { key: 'all', label: '全部', count: mediaStats.total },
-    { key: 'image', label: '只看照片', count: mediaStats.image },
-    { key: 'video', label: '只看视频', count: mediaStats.video },
-  ]), [mediaStats]);
+  const mediaFilterLabel = mediaFilter === 'video' ? '视频' : mediaFilter === 'image' ? '照片' : '全部';
+  const compactCountText = onlyOwnUploads ?
+  `我上传的${mediaFilter === 'all' ? '照片和视频' : mediaFilterLabel} ${mediaFilteredIndexes.length} 项，已显示 ${visiblePhotoCount}` :
+  mediaFilter === 'all' ?
+  hasMoreGalleryPhotos ? `${count} 张，已显示 ${visiblePhotoCount}` : `${count} 张照片` :
+  `${mediaFilterLabel} ${mediaFilteredIndexes.length} 个，已显示 ${visiblePhotoCount}`;
+  const mediaFilterOptions = React.useMemo(() => [
+  { key: 'all', label: '全部', count: mediaStats.total },
+  { key: 'image', label: '只看照片', count: mediaStats.image },
+  { key: 'video', label: '只看视频', count: mediaStats.video }],
+  [mediaStats]);
   React.useEffect(() => {
     if (typeof onProjectHeaderChange !== 'function') return;
     onProjectHeaderChange({
@@ -3371,7 +3371,7 @@ function ProjectDetailInner({
       createdText,
       updatedText,
       tags,
-      coverSrc: coverSrc ? resolveAssetUrl(coverSrc) : '',
+      coverSrc: coverSrc ? resolveAssetUrl(coverSrc) : ''
     });
   }, [onProjectHeaderChange, projectId, title, subtitle, description, originLabel, count, createdText, updatedText, tags, coverSrc]);
   React.useEffect(() => () => {
@@ -3403,19 +3403,19 @@ function ProjectDetailInner({
       });
       return (
         <div className="detail-masonry-columns detail-timeline-masonry" style={{ '--masonry-cols': buckets.length }}>
-          {buckets.map((bucket, colIdx) => (
-            <div className="detail-masonry-column" key={`${group.key}-col-${colIdx}`}>
+          {buckets.map((bucket, colIdx) =>
+          <div className="detail-masonry-column" key={`${group.key}-col-${colIdx}`}>
               {bucket.items.map(({ src, idx }) => renderPhotoItem(src, idx))}
             </div>
-          ))}
-        </div>
-      );
+          )}
+        </div>);
+
     }
     return (
       <div className="detail-timeline-grid">
         {items.map(({ src, idx }) => renderPhotoItem(src, idx))}
-      </div>
-    );
+      </div>);
+
   };
 
   const handleImageLoad = React.useCallback((src, event) => {
@@ -3439,18 +3439,18 @@ function ProjectDetailInner({
     const readMetaRatio = (meta) => {
       if (!meta || typeof meta !== 'object') return null;
       const width = Number(
-        meta.width
-        ?? meta.w
-        ?? meta.imageWidth
-        ?? meta.naturalWidth
-        ?? meta.pixelWidth
+        meta.width ??
+        meta.w ??
+        meta.imageWidth ??
+        meta.naturalWidth ??
+        meta.pixelWidth
       );
       const height = Number(
-        meta.height
-        ?? meta.h
-        ?? meta.imageHeight
-        ?? meta.naturalHeight
-        ?? meta.pixelHeight
+        meta.height ??
+        meta.h ??
+        meta.imageHeight ??
+        meta.naturalHeight ??
+        meta.pixelHeight
       );
       if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
         return null;
@@ -3538,20 +3538,20 @@ function ProjectDetailInner({
           e.dataTransfer.dropEffect = 'copy';
         }
       } catch (err) {
+
+
         // ignore
-      }
-    };
-    const onDrop = (e) => {
+      }};const onDrop = (e) => {
       try {
         const types = Array.from(e.dataTransfer?.types || []);
         if (types.includes('application/x-mamage-photo')) {
           e.preventDefault();
         }
       } catch (err) {
+
+
         // ignore
-      }
-    };
-    window.addEventListener('dragover', onDragOver);
+      }};window.addEventListener('dragover', onDragOver);
     window.addEventListener('drop', onDrop);
     return () => {
       window.removeEventListener('dragover', onDragOver);
@@ -3629,51 +3629,51 @@ function ProjectDetailInner({
       const playback = video.play();
       if (playback && typeof playback.catch === 'function') playback.catch(() => null);
     } catch (e) {
-      // 某些浏览器在元数据尚未就绪时会拒绝 seek；用户可直接拖动进度条。
-    }
-  }, [currentViewerPhotoId]);
 
+
+      // 某些浏览器在元数据尚未就绪时会拒绝 seek；用户可直接拖动进度条。
+    }}, [currentViewerPhotoId]);
   // 校园网 HTTP 入口拿到的是对象存储的短时签名 URL：视频播放和查看原图不再绕行 Mac mini。
   // 公网 HTTPS / 非白名单入口会无感回退到原有的受鉴权媒体代理。
   React.useEffect(() => {
     if (!viewerVisible || !currentViewerPhotoId) return undefined;
     const meta = photoMetas?.[viewerIndex] || {};
-    const variant = currentViewerIsVideo
-      ? (getVideoPlaybackCandidate(meta) ? 'playback' : 'original')
-      : (viewerShowOriginal ? 'original' : 'thumb');
+    const variant = currentViewerIsVideo ?
+    getVideoPlaybackCandidate(meta) ? 'playback' : 'original' :
+    viewerShowOriginal ? 'original' : 'thumb';
     const mapKey = `${currentViewerPhotoId}:${variant}`;
     if (directMediaUrlMap[mapKey] || directMediaRequestRef.current[mapKey]) return undefined;
 
     let disposed = false;
     directMediaRequestRef.current[mapKey] = true;
-    getDirectMediaUrl(currentViewerPhotoId, variant)
-      .then((url) => {
-        if (!disposed && url) {
-          setDirectMediaUrlMap((previous) => ({ ...(previous || {}), [mapKey]: url }));
-        }
-      })
-      .catch(() => {
-        // 直连仅是加速层，代理链路始终是可靠回退。
-      })
-      .finally(() => {
-        delete directMediaRequestRef.current[mapKey];
-      });
-    return () => { disposed = true; };
-  }, [
-    currentViewerIsVideo,
-    currentViewerPhotoId,
-    directMediaUrlMap,
-    photoMetas,
-    viewerIndex,
-    viewerShowOriginal,
-    viewerVisible,
-  ]);
+    getDirectMediaUrl(currentViewerPhotoId, variant).
+    then((url) => {
+      if (!disposed && url) {
+        setDirectMediaUrlMap((previous) => ({ ...(previous || {}), [mapKey]: url }));
+      }
+    }).
+    catch(() => {
 
-  const currentViewerFaces = React.useMemo(() => (currentViewerPhotoId ? (viewerFaceMap[currentViewerPhotoId] || []) : []), [currentViewerPhotoId, viewerFaceMap]);
-  const currentViewerFaceError = currentViewerPhotoId ? (viewerFaceErrorMap[currentViewerPhotoId] || '') : '';
+
+      // 直连仅是加速层，代理链路始终是可靠回退。
+    }).finally(() => {delete directMediaRequestRef.current[mapKey];
+      });
+    return () => {disposed = true;};
+  }, [
+  currentViewerIsVideo,
+  currentViewerPhotoId,
+  directMediaUrlMap,
+  photoMetas,
+  viewerIndex,
+  viewerShowOriginal,
+  viewerVisible]
+  );
+
+  const currentViewerFaces = React.useMemo(() => currentViewerPhotoId ? viewerFaceMap[currentViewerPhotoId] || [] : [], [currentViewerPhotoId, viewerFaceMap]);
+  const currentViewerFaceError = currentViewerPhotoId ? viewerFaceErrorMap[currentViewerPhotoId] || '' : '';
   const getAdjustmentForPhoto = React.useCallback((meta) => {
     const photoId = getPhotoRecordId(meta);
-    return normalizePhotoAdjustments((photoId && photoAdjustmentsMap[photoId]) || meta?.adjustments || DEFAULT_PHOTO_ADJUSTMENTS);
+    return normalizePhotoAdjustments(photoId && photoAdjustmentsMap[photoId] || meta?.adjustments || DEFAULT_PHOTO_ADJUSTMENTS);
   }, [photoAdjustmentsMap]);
   const currentViewerAdjustment = React.useMemo(() => getAdjustmentForPhoto(photoMetas?.[viewerIndex]), [getAdjustmentForPhoto, photoMetas, viewerIndex]);
 
@@ -3716,22 +3716,22 @@ function ProjectDetailInner({
   const patchPhotoAdjustmentState = React.useCallback((photoId, adjustments, data = {}) => {
     if (!photoId) return;
     const normalized = normalizePhotoAdjustments(adjustments);
-    const versioned = url => url ? `${url}${url.includes('?') ? '&' : '?'}edit=${encodeURIComponent(data.editRevision || '')}` : url;
+    const versioned = (url) => url ? `${url}${url.includes('?') ? '&' : '?'}edit=${encodeURIComponent(data.editRevision || '')}` : url;
     data = { ...data, url: versioned(data.url), thumbUrl: versioned(data.thumbUrl) };
     setPhotoAdjustmentsMap((prev) => ({ ...(prev || {}), [photoId]: normalized }));
-    setPhotoMetas((prev) => (Array.isArray(prev)
-      ? prev.map((meta) => (String(getPhotoRecordId(meta) || '') === String(photoId) ? { ...(meta || {}), ...data, adjustments: normalized,
-        thumbSrc: data.thumbUrl || meta.thumbSrc, originalSrc: data.url || meta.originalSrc } : meta))
-      : prev));
-    setDirectMediaUrlMap(previous => Object.fromEntries(Object.entries(previous).filter(([key]) => !key.startsWith(`${photoId}:`))));
+    setPhotoMetas((prev) => Array.isArray(prev) ?
+    prev.map((meta) => String(getPhotoRecordId(meta) || '') === String(photoId) ? { ...(meta || {}), ...data, adjustments: normalized,
+      thumbSrc: data.thumbUrl || meta.thumbSrc, originalSrc: data.url || meta.originalSrc } : meta) :
+    prev);
+    setDirectMediaUrlMap((previous) => Object.fromEntries(Object.entries(previous).filter(([key]) => !key.startsWith(`${photoId}:`))));
     clearDirectMediaUrlCache();
-    if (data.thumbUrl) setImages(previous => previous.map((url, index) => String(getPhotoRecordId(photoMetas?.[index])) === String(photoId) ? data.thumbUrl : url));
+    if (data.thumbUrl) setImages((previous) => previous.map((url, index) => String(getPhotoRecordId(photoMetas?.[index])) === String(photoId) ? data.thumbUrl : url));
   }, [photoMetas]);
 
   const activeTonePhotoRef = React.useRef(currentViewerPhotoId);
   activeTonePhotoRef.current = currentViewerPhotoId;
-  const toneDirty = !(isDefaultPhotoAdjustments(viewerToneDraft) && isDefaultPhotoAdjustments(currentViewerAdjustment))
-    && getToneAdjustmentKey(viewerToneDraft) !== getToneAdjustmentKey(currentViewerAdjustment);
+  const toneDirty = !(isDefaultPhotoAdjustments(viewerToneDraft) && isDefaultPhotoAdjustments(currentViewerAdjustment)) &&
+  getToneAdjustmentKey(viewerToneDraft) !== getToneAdjustmentKey(currentViewerAdjustment);
 
   const openToneEditor = React.useCallback(async () => {
     if (viewerToneSaving || viewerToneLoading || !canEditItem(photoMetas?.[viewerIndex])) return;
@@ -3746,8 +3746,8 @@ function ProjectDetailInner({
         patchPhotoAdjustmentState(currentViewerPhotoId, saved, data);
         setViewerToneDraft(saved);
         setViewerToneBaseRevision(data.editRevision);
-      } catch (error) { Toast.error(error.message || '无法读取编辑信息'); return; }
-      finally { setViewerToneLoading(false); }
+      } catch (error) {Toast.error(error.message || '无法读取编辑信息');return;} finally
+      {setViewerToneLoading(false);}
       setViewerToneComparison('adjusted');
       setViewerToneMode('tone');
       setViewerToneSourceSize(null);
@@ -3756,13 +3756,13 @@ function ProjectDetailInner({
       setViewerToneAnalyzing(true);
       setViewerToneError('');
     }
-    setViewerToneVisible(prev => !prev);
+    setViewerToneVisible((prev) => !prev);
   }, [currentViewerPhotoId, canEditItem, photoMetas, viewerIndex, viewerToneVisible, viewerToneSaving, viewerToneLoading, patchPhotoAdjustmentState]);
 
   const recordToneHistory = React.useCallback(() => {
     if (toneGestureRef.current?.recorded) return;
     if (toneGestureRef.current) toneGestureRef.current.recorded = true;
-    setViewerToneHistory(previous => ({ past: [...previous.past, viewerToneDraft].slice(-10), future: [] }));
+    setViewerToneHistory((previous) => ({ past: [...previous.past, viewerToneDraft].slice(-10), future: [] }));
   }, [viewerToneDraft]);
 
   const beginToneGesture = React.useCallback(() => {
@@ -3773,7 +3773,7 @@ function ProjectDetailInner({
     const next = buildPhotoAdjustments(input, input.source || 'manual');
     if (getToneAdjustmentKey(next) === getToneAdjustmentKey(viewerToneDraft)) return;
     if (record) recordToneHistory();
-    setViewerToneComparison(mode => mode === 'original' ? 'adjusted' : mode);
+    setViewerToneComparison((mode) => mode === 'original' ? 'adjusted' : mode);
     setViewerToneHoldingOriginal(false);
     if (getToneAdjustmentKey({ ...next, rotation: 0, crop: null }) !== getToneAdjustmentKey({ ...viewerToneDraft, rotation: 0, crop: null })) setViewerToneAnalyzing(true);
     toneDraftsRef.current.set(String(currentViewerPhotoId), next);
@@ -3818,8 +3818,8 @@ function ProjectDetailInner({
 
   const autoTuneCurrentPhoto = () => {
     if (!viewerToneAnalysis?.autoAdjustments) return;
-    commitToneDraft({ ...viewerToneDraft, ...Object.fromEntries(['exposure', 'contrast', 'highlights', 'shadows', 'whites', 'blacks']
-      .map(key => [key, viewerToneAnalysis.autoAdjustments[key]])), source: 'auto' });
+    commitToneDraft({ ...viewerToneDraft, ...Object.fromEntries(['exposure', 'contrast', 'highlights', 'shadows', 'whites', 'blacks'].
+      map((key) => [key, viewerToneAnalysis.autoAdjustments[key]])), source: 'auto' });
   };
 
   const saveViewerTone = React.useCallback(async () => {
@@ -3834,7 +3834,7 @@ function ProjectDetailInner({
       if (!isDefaultPhotoAdjustments(saved) && !saved.baked) throw new Error('服务器未生成编辑图片，请检查版本');
       patchPhotoAdjustmentState(currentViewerPhotoId, saved, data);
       toneDraftsRef.current.set(String(currentViewerPhotoId), saved);
-      if (activeTonePhotoRef.current === currentViewerPhotoId) { setViewerToneDraft(saved); setViewerToneBaseRevision(data.editRevision); }
+      if (activeTonePhotoRef.current === currentViewerPhotoId) {setViewerToneDraft(saved);setViewerToneBaseRevision(data.editRevision);}
       Toast.success('编辑图片已保存');
     } catch (err) {
       console.error('saveViewerTone error', err);
@@ -3890,21 +3890,21 @@ function ProjectDetailInner({
       }
     }
 
-    const cx = Math.max(0, Math.min(1, left + (width / 2)));
-    const cy = Math.max(0, Math.min(1, top + (height / 2)));
+    const cx = Math.max(0, Math.min(1, left + width / 2));
+    const cy = Math.max(0, Math.min(1, top + height / 2));
     // Push horizontal framing slightly outward from center:
     // right-side faces move a bit more right, left-side faces a bit more left.
-    const biasedCx = Math.max(0.04, Math.min(0.96, 0.5 + ((cx - 0.5) * 1.18)));
+    const biasedCx = Math.max(0.04, Math.min(0.96, 0.5 + (cx - 0.5) * 1.18));
     const faceSize = Math.max(width, height);
     // Make avatar a face close-up: smaller face box => stronger zoom.
     const targetFaceSizeInAvatar = 0.62;
-    const rawScale = faceSize > 0 ? (targetFaceSizeInAvatar / faceSize) : 1;
+    const rawScale = faceSize > 0 ? targetFaceSizeInAvatar / faceSize : 1;
     const zoom = Math.max(1, Math.min(3.4, rawScale));
     return {
       ...base,
       objectPosition: `${(biasedCx * 100).toFixed(2)}% ${(cy * 100).toFixed(2)}%`,
       transformOrigin: `${(biasedCx * 100).toFixed(2)}% ${(cy * 100).toFixed(2)}%`,
-      transform: `scale(${zoom.toFixed(3)})`,
+      transform: `scale(${zoom.toFixed(3)})`
     };
   }, []);
 
@@ -3942,9 +3942,9 @@ function ProjectDetailInner({
 
   const loadFacePersonAvatar = React.useCallback((data, controller) => {
     if (!data.avatarFaceId || data.avatarDataUrl || !controller) return;
-    getFaceAvatar(data.avatarFaceId, { signal: controller.signal }).then(avatar => {
+    getFaceAvatar(data.avatarFaceId, { signal: controller.signal }).then((avatar) => {
       if (facePersonRequestRef.current !== controller || controller.signal.aborted || !avatar?.avatarDataUrl) return;
-      setFacePersonData(previous => previous ? { ...previous, avatarDataUrl: avatar.avatarDataUrl } : previous);
+      setFacePersonData((previous) => previous ? { ...previous, avatarDataUrl: avatar.avatarDataUrl } : previous);
     }).catch(() => {});
   }, []);
 
@@ -3955,7 +3955,7 @@ function ProjectDetailInner({
     facePersonRequestRef.current = controller;
     facePersonPageRequestRef.current = null;
     const seedData = normalizeFacePerson({}, face);
-    const sourcePhoto = photoMetas.find(meta => String(getMetaPhotoId(meta)) === String(face.photoId));
+    const sourcePhoto = photoMetas.find((meta) => String(getMetaPhotoId(meta)) === String(face.photoId));
     const seedHero = sourcePhoto ? normalizeRelatedFacePhotos([sourcePhoto])[0] : pickFacePersonHeroPhoto(seedData);
     setFacePersonError('');
     setFacePersonPhotosError('');
@@ -3976,7 +3976,7 @@ function ProjectDetailInner({
         faceId: face.faceId || undefined,
         personId: face.personId || undefined,
         projectId: projectId || undefined,
-        signal: controller.signal,
+        signal: controller.signal
       });
       if (facePersonRequestRef.current !== controller || controller.signal.aborted) return;
       const normalized = normalizeFacePerson(data, face);
@@ -3997,17 +3997,17 @@ function ProjectDetailInner({
     const controller = facePersonRequestRef.current;
     if (!controller || facePersonPageRequestRef.current === controller || !facePersonData?.personId || !facePersonData.photoHasMore) return;
     facePersonPageRequestRef.current = controller;
-    setFacePersonPhotosLoading(true); setFacePersonPhotosError('');
+    setFacePersonPhotosLoading(true);setFacePersonPhotosError('');
     try {
       const data = await getFacePersonPhotos({ personId: facePersonData.personId, page: facePersonData.photoPage + 1, signal: controller.signal });
       if (facePersonRequestRef.current !== controller || controller.signal.aborted) return;
       const photos = normalizeRelatedFacePhotos(data.photos || []);
-      setFacePersonData(previous => {
+      setFacePersonData((previous) => {
         if (!previous || previous.personId !== facePersonData.personId) return previous;
-        const ids = new Set(previous.relatedPhotos.map(photo => photo.id));
-        return { ...previous, relatedPhotos: [...previous.relatedPhotos, ...photos.filter(photo => {
-          if (ids.has(photo.id)) return false; ids.add(photo.id); return true;
-        })], photoTotal: Number(data.total) || 0, photoPage: Number(data.page), photoHasMore: Boolean(data.hasMore) };
+        const ids = new Set(previous.relatedPhotos.map((photo) => photo.id));
+        return { ...previous, relatedPhotos: [...previous.relatedPhotos, ...photos.filter((photo) => {
+            if (ids.has(photo.id)) return false;ids.add(photo.id);return true;
+          })], photoTotal: Number(data.total) || 0, photoPage: Number(data.page), photoHasMore: Boolean(data.hasMore) };
       });
     } catch (err) {
       if (facePersonRequestRef.current === controller && !controller.signal.aborted) setFacePersonPhotosError(err?.message || '照片加载失败，请重试');
@@ -4084,8 +4084,8 @@ function ProjectDetailInner({
     if (!sid) return;
     setFaceSplitSeedIds((prev) => {
       const next = new Set(prev);
-      if (next.has(sid)) next.delete(sid);
-      else next.add(sid);
+      if (next.has(sid)) next.delete(sid);else
+      next.add(sid);
       return next;
     });
   }, []);
@@ -4100,13 +4100,13 @@ function ProjectDetailInner({
     try {
       const data = await previewPersonSplit({
         personId: facePersonData.personId,
-        seedFaceIds: Array.from(faceSplitSeedIds),
+        seedFaceIds: Array.from(faceSplitSeedIds)
       });
       const preview = {
         stats: data?.stats || {},
         moveFaces: Array.isArray(data?.moveFaces) ? data.moveFaces : [],
         keepFaces: Array.isArray(data?.keepFaces) ? data.keepFaces : [],
-        undecidedFaces: Array.isArray(data?.undecidedFaces) ? data.undecidedFaces : [],
+        undecidedFaces: Array.isArray(data?.undecidedFaces) ? data.undecidedFaces : []
       };
       setFaceSplitPreview(preview);
       setFaceSplitMoveIds(new Set(preview.moveFaces.map((x) => String(x?.faceId || '')).filter(Boolean)));
@@ -4124,8 +4124,8 @@ function ProjectDetailInner({
     if (!fid) return;
     setFaceSplitMoveIds((prev) => {
       const next = new Set(prev);
-      if (next.has(fid)) next.delete(fid);
-      else next.add(fid);
+      if (next.has(fid)) next.delete(fid);else
+      next.add(fid);
       return next;
     });
   }, []);
@@ -4134,9 +4134,9 @@ function ProjectDetailInner({
     if (faceSplitSubmittingRef.current || !facePersonData?.personId || !faceSplitMoveIds.size || !faceSplitPreview) return;
     const stats = faceSplitPreview.stats || {};
     const totalFaces = Number(stats.totalFaces) || new Set([
-      ...(faceSplitPreview.moveFaces || []), ...(faceSplitPreview.keepFaces || []),
-      ...(faceSplitPreview.undecidedFaces || []),
-    ].map((face) => String(face.faceId))).size;
+    ...(faceSplitPreview.moveFaces || []), ...(faceSplitPreview.keepFaces || []),
+    ...(faceSplitPreview.undecidedFaces || [])].
+    map((face) => String(face.faceId))).size;
     if (faceSplitMoveIds.size >= totalFaces) {
       setFaceSplitError('至少保留一张脸给原人物');
       return;
@@ -4155,26 +4155,26 @@ function ProjectDetailInner({
         personId: facePersonData.personId,
         moveFaceIds: Array.from(faceSplitMoveIds),
         seedFaceIds: Array.from(faceSplitSeedIds).filter((id) => faceSplitMoveIds.has(String(id))),
-        newPersonName: String(faceSplitNewName || '').trim(),
+        newPersonName: String(faceSplitNewName || '').trim()
       });
       Toast.success(`已拆出 ${res?.movedFaces ?? faceSplitMoveIds.size} 张脸到新人物 #${res?.newPersonId || ''}`);
 
       // 受影响照片的人脸缓存作废，查看器里的人脸框标签会重新拉取
       const allPreviewFaces = [
-        ...(faceSplitPreview.moveFaces || []),
-        ...(faceSplitPreview.keepFaces || []),
-        ...(faceSplitPreview.undecidedFaces || []),
-      ];
+      ...(faceSplitPreview.moveFaces || []),
+      ...(faceSplitPreview.keepFaces || []),
+      ...(faceSplitPreview.undecidedFaces || [])];
+
       const movedPhotoIds = new Set(
-        allPreviewFaces
-          .filter((x) => x && faceSplitMoveIds.has(String(x.faceId)))
-          .map((x) => String(x.photoId || ''))
-          .filter(Boolean)
+        allPreviewFaces.
+        filter((x) => x && faceSplitMoveIds.has(String(x.faceId))).
+        map((x) => String(x.photoId || '')).
+        filter(Boolean)
       );
       if (movedPhotoIds.size) {
         setViewerFaceMap((prev) => {
           const next = { ...(prev || {}) };
-          movedPhotoIds.forEach((id) => { delete next[id]; });
+          movedPhotoIds.forEach((id) => {delete next[id];});
           return next;
         });
       }
@@ -4189,7 +4189,7 @@ function ProjectDetailInner({
         const data = await getFacePersonInfo({
           personId: facePersonData.personId,
           projectId: projectId || undefined,
-          signal: controller.signal,
+          signal: controller.signal
         });
         if (facePersonRequestRef.current !== controller || controller.signal.aborted) return;
         const normalized = normalizeFacePerson(data, facePersonData.sourceFace || null);
@@ -4216,7 +4216,7 @@ function ProjectDetailInner({
     const controller = new AbortController();
     facePersonRequestRef.current = controller;
     facePersonPageRequestRef.current = null;
-    setFacePersonPhotosLoading(false); setFacePersonPhotosError('');
+    setFacePersonPhotosLoading(false);setFacePersonPhotosError('');
     setFaceMergeVisible(false);
     setFacePersonError('');
     setFacePersonNameConflict(null);
@@ -4228,24 +4228,24 @@ function ProjectDetailInner({
       setFacePersonHeroPhoto(pickFacePersonHeroPhoto(normalized));
       loadFacePersonAvatar(result.profile, controller);
     } else if (result?.targetPersonId) {
-      getFacePersonInfo({ personId: result.targetPersonId, projectId: projectId || undefined, signal: controller.signal })
-        .then((data) => {
-          if (facePersonRequestRef.current !== controller || controller.signal.aborted) return;
-          const normalized = normalizeFacePerson(data, null);
-          setFacePersonData(normalized);
-          setFacePersonEditName(normalized.personName || '');
-          setFacePersonHeroPhoto(pickFacePersonHeroPhoto(normalized));
-          loadFacePersonAvatar(data, controller);
-        })
-        .catch((error) => console.warn('refresh merged person failed', error));
+      getFacePersonInfo({ personId: result.targetPersonId, projectId: projectId || undefined, signal: controller.signal }).
+      then((data) => {
+        if (facePersonRequestRef.current !== controller || controller.signal.aborted) return;
+        const normalized = normalizeFacePerson(data, null);
+        setFacePersonData(normalized);
+        setFacePersonEditName(normalized.personName || '');
+        setFacePersonHeroPhoto(pickFacePersonHeroPhoto(normalized));
+        loadFacePersonAvatar(data, controller);
+      }).
+      catch((error) => console.warn('refresh merged person failed', error));
     }
-    refreshProjectDetail()
-      .catch((error) => console.warn('refresh album after person merge failed', error))
-      .finally(() => {
-        setViewerFaceMap({});
-        setViewerFaceErrorMap({});
-        viewerFaceFetchPromiseRef.current = {};
-      });
+    refreshProjectDetail().
+    catch((error) => console.warn('refresh album after person merge failed', error)).
+    finally(() => {
+      setViewerFaceMap({});
+      setViewerFaceErrorMap({});
+      viewerFaceFetchPromiseRef.current = {};
+    });
   }, [pickFacePersonHeroPhoto, projectId, refreshProjectDetail, loadFacePersonAvatar]);
 
   const saveFacePersonName = React.useCallback(async () => {
@@ -4270,12 +4270,12 @@ function ProjectDetailInner({
       if (facePersonData.personId) {
         data = await renameFacePerson({
           personId: facePersonData.personId,
-          personName: nextName,
+          personName: nextName
         });
       } else {
         data = await labelFacePerson({
           faceId: facePersonData.faceId,
-          personName: nextName,
+          personName: nextName
         });
       }
       if (facePersonRequestRef.current !== controller) return;
@@ -4283,13 +4283,13 @@ function ProjectDetailInner({
       const normalized = normalizeFacePerson(data, {
         faceId: facePersonData.faceId || '',
         personId: facePersonData.personId || '',
-        personName: nextName,
+        personName: nextName
       });
       const patched = {
         ...facePersonData,
         ...normalized,
         personName: nextName,
-        displayName: nextName,
+        displayName: nextName
       };
       setFacePersonData(patched);
       setFacePersonEditName(nextName);
@@ -4307,7 +4307,7 @@ function ProjectDetailInner({
           }
           let listChanged = false;
           const nextList = list.map((face) => {
-            const row = (face && typeof face === 'object') ? face : {};
+            const row = face && typeof face === 'object' ? face : {};
             const rowFaceId = row.faceId || row.face_id ? String(row.faceId || row.face_id) : '';
             const rowPersonId = row.personId || row.person_id ? String(row.personId || row.person_id) : '';
             const matchedByFace = targetFaceId && rowFaceId && rowFaceId === targetFaceId;
@@ -4320,7 +4320,7 @@ function ProjectDetailInner({
               ...row,
               personId: nextPersonId,
               personName: nextName,
-              label: nextName || (nextPersonId ? `人物#${nextPersonId}` : row.label),
+              label: nextName || (nextPersonId ? `人物#${nextPersonId}` : row.label)
             };
           });
           nextMap[photoIdKey] = listChanged ? nextList : list;
@@ -4386,10 +4386,10 @@ function ProjectDetailInner({
         if (navigate(url)) closeFacePersonModal();
         return;
       } catch (e) {
+
+
         // fallback below
-      }
-    }
-    const url = photo.url || photo.thumbUrl || '';
+      }}const url = photo.url || photo.thumbUrl || '';
     if (url) window.open(url, '_blank', 'noopener,noreferrer');
   }, [photoMetas, getMetaPhotoId, closeFacePersonModal]);
 
@@ -4456,10 +4456,10 @@ function ProjectDetailInner({
   React.useEffect(() => {
     if (!viewerToneVisible || !currentViewerPhotoId) return undefined;
     const sid = String(currentViewerPhotoId);
-    if (Array.isArray(viewerFaceMap[sid])) { setViewerToneFacesLoading(false); return undefined; }
+    if (Array.isArray(viewerFaceMap[sid])) {setViewerToneFacesLoading(false);return undefined;}
     const stored = getStoredFacesByPhotoId(sid);
     if (stored) {
-      setViewerFaceMap(previous => ({ ...previous, [sid]: stored }));
+      setViewerFaceMap((previous) => ({ ...previous, [sid]: stored }));
       setViewerToneFacesLoading(false);
       return undefined;
     }
@@ -4469,16 +4469,16 @@ function ProjectDetailInner({
     setViewerToneFacesLoading(true);
     // Read existing detections only. Missing/unavailable faces fall back to global
     // metering; opening the tone editor must never start an inference job.
-    getPhotoFaces(sid, { projectId, signal: controller.signal }).then(payload => {
+    getPhotoFaces(sid, { projectId, signal: controller.signal }).then((payload) => {
       if (!active) return;
       const faces = normalizeFaceDetections(payload);
       if (faces.length) setViewerToneAnalyzing(true);
-      setViewerFaceMap(previous => ({ ...previous, [sid]: faces }));
+      setViewerFaceMap((previous) => ({ ...previous, [sid]: faces }));
     }).catch(() => {}).finally(() => {
       window.clearTimeout(timer);
       if (active) setViewerToneFacesLoading(false);
     });
-    return () => { active = false; window.clearTimeout(timer); controller.abort(); };
+    return () => {active = false;window.clearTimeout(timer);controller.abort();};
   }, [viewerToneVisible, currentViewerPhotoId, projectId, getStoredFacesByPhotoId, viewerFaceMap]);
 
   const handleDetectViewerFaces = React.useCallback(async () => {
@@ -4521,7 +4521,7 @@ function ProjectDetailInner({
         setViewerFaceErrorMap((prev) => ({ ...(prev || {}), [currentViewerPhotoId]: '人脸未识别完成，请稍后重试' }));
       }
     })();
-    return () => { active = false; };
+    return () => {active = false;};
   }, [viewerVisible, viewerFaceOverlayVisible, currentViewerPhotoId, viewerFaceMap, ensureViewerFacesCached]);
 
   React.useEffect(() => {
@@ -4546,19 +4546,19 @@ function ProjectDetailInner({
     if (!viewerCount) return { width: '100%', transform: 'translate3d(0, 0, 0)' };
     return {
       width: `${viewerCount * 100}%`,
-      transform: `translate3d(-${(viewerIndex * 100) / viewerCount}%, 0, 0)`,
+      transform: `translate3d(-${viewerIndex * 100 / viewerCount}%, 0, 0)`
     };
   }, [viewerCount, viewerIndex]);
-  const viewerSlideStyle = React.useMemo(() => (
-    viewerCount ? { width: `${100 / viewerCount}%` } : { width: '100%' }
-  ), [viewerCount]);
+  const viewerSlideStyle = React.useMemo(() =>
+  viewerCount ? { width: `${100 / viewerCount}%` } : { width: '100%' },
+  [viewerCount]);
 
   React.useEffect(() => {
     if (!viewerVisible || !viewerCount || viewerIndex < 0) return undefined;
     // 视频 slide 的目标是视频文件，new Image() 预加载只会白拉字节，跳过
-    const srcForPreload = (idx, showOriginal) => (
-      isVideoMeta(photoMetas?.[idx]) ? '' : getViewerTargetSrc(idx, showOriginal)
-    );
+    const srcForPreload = (idx, showOriginal) =>
+    isVideoMeta(photoMetas?.[idx]) ? '' : getViewerTargetSrc(idx, showOriginal);
+
     const currentThumb = srcForPreload(viewerIndex, false);
     const prevThumb = srcForPreload(prevViewerIndex, false);
     const nextThumb = srcForPreload(nextViewerIndex, false);
@@ -4570,7 +4570,7 @@ function ProjectDetailInner({
       img.src = src;
       if (!img.complete) {
         if (typeof img.decode === 'function') {
-          img.decode().catch(() => { /* ignore */ });
+          img.decode().catch(() => {/* ignore */});
         }
       }
       preloads.push(img);
@@ -4628,10 +4628,10 @@ function ProjectDetailInner({
       return raw != null && String(raw) === String(pid);
     });
     const idx = indexById(m && m.photoId);
-    if (idx < 0) { Toast.info('这张照片当前不在画廊列表里（可能被筛选条件过滤）'); return; }
-    const seq = (Array.isArray(allMatches) ? allMatches : [])
-      .map((x) => indexById(x.photoId))
-      .filter((i) => i >= 0);
+    if (idx < 0) {Toast.info('这张照片当前不在画廊列表里（可能被筛选条件过滤）');return;}
+    const seq = (Array.isArray(allMatches) ? allMatches : []).
+    map((x) => indexById(x.photoId)).
+    filter((i) => i >= 0);
     setFindMeOpen(false);
     openViewerAt(idx); // 内部清序列
     if (seq.length > 1) setViewerSeq(seq); // 同一批 setState,序列最终生效
@@ -4642,8 +4642,8 @@ function ProjectDetailInner({
     if (!routePhotoId && !initialOpenPhotoSrc) {
       if (lastAutoOpenedPhotoKeyRef.current) {
         lastAutoOpenedPhotoKeyRef.current = '';
-        setViewerVisible(false); setViewerToneVisible(false);
-        setViewerEnableOpenZoom(false); setViewerShowOriginal(false);
+        setViewerVisible(false);setViewerToneVisible(false);
+        setViewerEnableOpenZoom(false);setViewerShowOriginal(false);
       }
       return;
     }
@@ -4663,7 +4663,7 @@ function ProjectDetailInner({
 
   const closeViewer = React.useCallback(() => {
     if (new URLSearchParams(window.location.search).has('photoId')) {
-      closeMediaRoute(); return;
+      closeMediaRoute();return;
     }
     setViewerVisible(false);
     setViewerToneVisible(false);
@@ -4697,7 +4697,7 @@ function ProjectDetailInner({
       active: true,
       pointerId: e.pointerId,
       startX: e.clientX,
-      startY: e.clientY,
+      startY: e.clientY
     };
   }, [viewerToneVisible]);
 
@@ -4718,8 +4718,8 @@ function ProjectDetailInner({
   React.useEffect(() => {
     if (!initialOpenUpload || uploadLinkHandled.current || loading) return;
     uploadLinkHandled.current = true;
-    if (!error && project && canUploadPhotos) setUploadMode(true);
-    else if (!error) Toast.warning('当前账号没有该相册的上传权限');
+    if (!error && project && canUploadPhotos) setUploadMode(true);else
+    if (!error) Toast.warning('当前账号没有该相册的上传权限');
     onInitialUploadHandled?.();
   }, [initialOpenUpload, loading, error, project, canUploadPhotos, onInitialUploadHandled]);
 
@@ -4744,23 +4744,23 @@ function ProjectDetailInner({
   const viewerDraftTags = Array.from(new Set([...viewerEditTags, viewerEditTagInput.trim()].filter(Boolean)));
   const viewerEditDirty = viewerEditDescription !== viewerSavedDescription || JSON.stringify(viewerDraftTags) !== viewerSavedTagsKey;
   React.useEffect(() => {
-    if (!viewerVisible || !(viewerEditDirty || (viewerToneVisible && toneDirty) || viewerToneSaving || viewerEditSaving)) return undefined;
-    const unblock = getNavigation().block(next => {
-      const current = new URL(window.location.origin + route.url), target = new URL(next, window.location.origin);
-      if (current.pathname === target.pathname && ['projectId', 'photoId'].every(key => current.searchParams.get(key) === target.searchParams.get(key))) return true;
-      if (viewerToneSaving || viewerEditSaving) { Toast.info('正在保存，请稍候再离开'); return false; }
+    if (!viewerVisible || !(viewerEditDirty || viewerToneVisible && toneDirty || viewerToneSaving || viewerEditSaving)) return undefined;
+    const unblock = getNavigation().block((next) => {
+      const current = new URL(window.location.origin + route.url),target = new URL(next, window.location.origin);
+      if (current.pathname === target.pathname && ['projectId', 'photoId'].every((key) => current.searchParams.get(key) === target.searchParams.get(key))) return true;
+      if (viewerToneSaving || viewerEditSaving) {Toast.info('正在保存，请稍候再离开');return false;}
       return window.confirm('有尚未保存的照片修改，离开将丢弃这些修改。是否继续？');
     });
-    const beforeUnload = event => { event.preventDefault(); event.returnValue = ''; };
+    const beforeUnload = (event) => {event.preventDefault();event.returnValue = '';};
     window.addEventListener('beforeunload', beforeUnload);
-    return () => { unblock(); window.removeEventListener('beforeunload', beforeUnload); };
+    return () => {unblock();window.removeEventListener('beforeunload', beforeUnload);};
   }, [viewerVisible, viewerEditDirty, viewerToneVisible, toneDirty, viewerToneSaving, viewerEditSaving, route.url]);
 
 
   const saveViewerPhotoEdit = React.useCallback(async () => {
     if (viewerEditSaving) return;
     const idx = viewerIndex;
-    const meta = (photoMetas && photoMetas[idx]) || {};
+    const meta = photoMetas && photoMetas[idx] || {};
     if (!canEditItem(meta)) return Toast.warning('没有修改这张照片或视频的权限');
     const photoId = meta.id;
     if (!photoId) return Toast.warning('无法获取照片 ID');
@@ -4779,10 +4779,10 @@ function ProjectDetailInner({
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify(payload),
-        signal: controller.signal,
+        signal: controller.signal
       });
       if (res.status === 401 || res.status === 403) {
         throw new Error(res.status === 401 ? '登录已失效，请重新登录后保存' : '没有修改这张照片或视频的权限');
@@ -4792,9 +4792,9 @@ function ProjectDetailInner({
       }
       const data = await res.json();
       const updatedTags = safeParseTags(data.tags);
-      setPhotoTagsMap(prev => ({ ...prev, [photoId]: updatedTags }));
-      setPhotoDescMap(prev => ({ ...prev, [photoId]: data.description || '' }));
-      setPhotoMetas(prev => prev.map(item => String(item.id) === String(photoId) ? { ...item, tags: updatedTags, description: data.description || '' } : item));
+      setPhotoTagsMap((prev) => ({ ...prev, [photoId]: updatedTags }));
+      setPhotoDescMap((prev) => ({ ...prev, [photoId]: data.description || '' }));
+      setPhotoMetas((prev) => prev.map((item) => String(item.id) === String(photoId) ? { ...item, tags: updatedTags, description: data.description || '' } : item));
       Toast.success('已保存信息');
     } catch (err) {
       if (viewerEditPhotoRef.current === String(photoId)) setViewerEditError(err.name === 'AbortError' ? '保存超时，请重试' : err.message || '保存失败，请重试');
@@ -4811,30 +4811,30 @@ function ProjectDetailInner({
     const controller = new AbortController();
     const active = { controller, promise: null };
     simRequestRef.current = active;
-    const timeout = setTimeout(() => { active.timedOut = true; controller.abort(); }, 90000);
+    const timeout = setTimeout(() => {active.timedOut = true;controller.abort();}, 90000);
     setSimLoading(simGroups === null);
     setSimError(null);
     active.promise = (async () => {
-    try {
-      const url = `/api/similarity/groups/simple?projectId=${projectId}${readOnly ? '&demo=1' : ''}`;
-      const data = await request(url, { signal: controller.signal });
-      if (!Array.isArray(data?.groups) || data.groups.some(group => !Array.isArray(group))) throw Error('分组数据不完整，请重试');
-      const groups = data.groups;
-      const map = await hydrateSimilarityPhotos(groups, photoMetas,
-        id => request(`/api/photos/${id}`, { signal: controller.signal }), { readOnly, signal: controller.signal });
-      if (controller.signal.aborted) return { groups: [], photos: {} };
-      setSimGroups(groups); setSimPhotos(map);
-      return { groups, photos: map };
-    } catch (e) {
-      if (!controller.signal.aborted || (active.timedOut && simRequestRef.current === active)) {
-        setSimError(e.message || '加载失败，请重试');
-        setSimGroups(null); setSimPhotos({});
+      try {
+        const url = `/api/similarity/groups/simple?projectId=${projectId}${readOnly ? '&demo=1' : ''}`;
+        const data = await request(url, { signal: controller.signal });
+        if (!Array.isArray(data?.groups) || data.groups.some((group) => !Array.isArray(group))) throw Error('分组数据不完整，请重试');
+        const groups = data.groups;
+        const map = await hydrateSimilarityPhotos(groups, photoMetas,
+        (id) => request(`/api/photos/${id}`, { signal: controller.signal }), { readOnly, signal: controller.signal });
+        if (controller.signal.aborted) return { groups: [], photos: {} };
+        setSimGroups(groups);setSimPhotos(map);
+        return { groups, photos: map };
+      } catch (e) {
+        if (!controller.signal.aborted || active.timedOut && simRequestRef.current === active) {
+          setSimError(e.message || '加载失败，请重试');
+          setSimGroups(null);setSimPhotos({});
+        }
+        return { groups: [], photos: {} };
+      } finally {
+        clearTimeout(timeout);
+        if (simRequestRef.current === active) {simRequestRef.current = null;setSimLoading(false);}
       }
-      return { groups: [], photos: {} };
-    } finally {
-      clearTimeout(timeout);
-      if (simRequestRef.current === active) { simRequestRef.current = null; setSimLoading(false); }
-    }
     })();
     return active.promise;
   }, [projectId, simGroups, readOnly, photoMetas]);
@@ -4857,7 +4857,7 @@ function ProjectDetailInner({
     if (!canDeleteItem(simPhotos[id])) return;
     setSimSelectedMap((prev) => {
       const next = Object.assign({}, prev || {});
-      if (next[id]) delete next[id]; else next[id] = true;
+      if (next[id]) delete next[id];else next[id] = true;
       const count = Object.keys(next).length;
       setSimSelectedCount(count);
       return next;
@@ -4866,7 +4866,7 @@ function ProjectDetailInner({
 
   // 相似弹窗删除公共例程：批量与单张共用（同步剪除分组/元数据/主画廊/选中态）
   const performSimDelete = React.useCallback(async (ids) => {
-    if (ids.some(id => !canDeleteItem(simPhotos[id]))) {
+    if (ids.some((id) => !canDeleteItem(simPhotos[id]))) {
       Toast.warning('只能删除自己上传的照片和视频');
       return false;
     }
@@ -4874,18 +4874,18 @@ function ProjectDetailInner({
       setSimDeleting(true);
       const res = await deletePhotos(ids);
       // 与主画廊 confirmDelete 一致：只按服务端确认的结果提示；已不存在的照片也从本地剪掉
-      const deleted = ((res && (res.deletedIds || res.deleted || res.deleted_ids)) || []).map(String);
-      const notFound = ((res && (res.notFoundIds || res.not_found_ids || res.notFound)) || []).map(String);
-      const removed = (deleted.length || notFound.length)
-        ? Array.from(new Set(deleted.concat(notFound)))
-        : ids.map(String); // 服务端未回明细时退回按请求剪除
+      const deleted = (res && (res.deletedIds || res.deleted || res.deleted_ids) || []).map(String);
+      const notFound = (res && (res.notFoundIds || res.not_found_ids || res.notFound) || []).map(String);
+      const removed = deleted.length || notFound.length ?
+      Array.from(new Set(deleted.concat(notFound))) :
+      ids.map(String); // 服务端未回明细时退回按请求剪除
       if (notFound.length) Toast.warning(`${notFound.length} 张照片已不存在，已同步移除`);
-      if (deleted.length) Toast.success(`已删除 ${deleted.length} 张照片`);
-      else if (!notFound.length) Toast.success('删除成功');
-      setSimGroups((prev) => (prev || []).map(g => g.filter(id => !removed.includes(String(id)))).filter(g => g.length > 1));
-      setSimPhotos((prev) => { const next = Object.assign({}, prev || {}); removed.forEach(id => delete next[id]); return next; });
-      setImages((prev) => (prev || []).filter((src, idx) => { const m = photoMetas && photoMetas[idx]; return !(m && removed.includes(String(m.id))); }));
-      setPhotoMetas((prev) => (prev || []).filter(m => !removed.includes(String(m.id))));
+      if (deleted.length) Toast.success(`已删除 ${deleted.length} 张照片`);else
+      if (!notFound.length) Toast.success('删除成功');
+      setSimGroups((prev) => (prev || []).map((g) => g.filter((id) => !removed.includes(String(id)))).filter((g) => g.length > 1));
+      setSimPhotos((prev) => {const next = Object.assign({}, prev || {});removed.forEach((id) => delete next[id]);return next;});
+      setImages((prev) => (prev || []).filter((src, idx) => {const m = photoMetas && photoMetas[idx];return !(m && removed.includes(String(m.id)));}));
+      setPhotoMetas((prev) => (prev || []).filter((m) => !removed.includes(String(m.id))));
       setSimSelectedMap((prev) => {
         const next = Object.assign({}, prev || {});
         removed.forEach((id) => delete next[id]);
@@ -4936,7 +4936,7 @@ function ProjectDetailInner({
   const getSimAiLabel = React.useCallback((p) => {
     if (!p) return null;
     let tags = p.tags;
-    if (typeof tags === 'string') { try { tags = JSON.parse(tags); } catch (e) { tags = []; } }
+    if (typeof tags === 'string') {try {tags = JSON.parse(tags);} catch (e) {tags = [];}}
     if (Array.isArray(tags)) {
       if (tags.includes('AI rejected')) return 'rejected';
       if (tags.includes('AI recommended')) return 'recommended';
@@ -4954,8 +4954,8 @@ function ProjectDetailInner({
     setSimSelectedMap((prev) => {
       const next = Object.assign({}, prev || {});
       (group || []).map((id) => String(id)).forEach((id) => {
-        if (id === bestId) delete next[id];
-        else if (canDeleteItem(simPhotos[id])) next[id] = true;
+        if (id === bestId) delete next[id];else
+        if (canDeleteItem(simPhotos[id])) next[id] = true;
       });
       setSimSelectedCount(Object.keys(next).length);
       return next;
@@ -4967,7 +4967,7 @@ function ProjectDetailInner({
   const isGroupPhotoMeta = React.useCallback((meta) => {
     if (!meta) return false;
     let tags = meta.tags;
-    if (typeof tags === 'string') { try { tags = JSON.parse(tags); } catch (e) { tags = []; } }
+    if (typeof tags === 'string') {try {tags = JSON.parse(tags);} catch (e) {tags = [];}}
     if (Array.isArray(tags) && tags.some((t) => String(t).includes('合影'))) return true;
     return String(meta.description || meta.desc || '').includes('合影');
   }, []);
@@ -4998,7 +4998,7 @@ function ProjectDetailInner({
     const group = (groups || []).find((g) => (g || []).map(String).includes(sid));
     const refIds = (group || []).map(String).filter((id) => id !== sid).slice(0, 4);
     const picked = {};
-    refIds.forEach((id) => { picked[id] = true; });
+    refIds.forEach((id) => {picked[id] = true;});
     setViewerRescue({ phase: 'pick', photoId: sid, refIds, pickedMap: picked });
   }, [loadSimGroups]);
 
@@ -5006,7 +5006,7 @@ function ProjectDetailInner({
     setViewerRescue((prev) => {
       if (!prev || prev.phase !== 'pick') return prev;
       const next = Object.assign({}, prev.pickedMap || {});
-      if (next[id]) delete next[id]; else next[id] = true;
+      if (next[id]) delete next[id];else next[id] = true;
       return { ...prev, pickedMap: next };
     });
   }, []);
@@ -5014,24 +5014,24 @@ function ProjectDetailInner({
   const startViewerRescue = React.useCallback(async () => {
     if (!viewerRescue || viewerRescue.phase !== 'pick') return;
     const refs = Object.keys(viewerRescue.pickedMap || {});
-    if (refs.length > 4) { Toast.warning('参考照片最多 4 张'); return; }
+    if (refs.length > 4) {Toast.warning('参考照片最多 4 张');return;}
     setViewerRescue({ ...viewerRescue, phase: 'running', step: '排队中' });
     try {
       const job = await runGroupRescueJob({ basePhotoId: viewerRescue.photoId, referencePhotoIds: refs }, (step) => {
-        setViewerRescue((prev) => (prev && prev.phase === 'running' ? { ...prev, step } : prev));
+        setViewerRescue((prev) => prev && prev.phase === 'running' ? { ...prev, step } : prev);
       });
       if (job.status === 'done') {
         if (job.resultPhotoId) appendRescuedPhoto(job.resultPhotoId);
         Toast.success(`合影救场完成：替换了 ${job.replacedCount} 张人脸，新照片已加入相册`);
-        setViewerRescue((prev) => (prev ? { ...prev, phase: 'done', replacedCount: job.replacedCount, resultPhotoId: job.resultPhotoId } : prev));
+        setViewerRescue((prev) => prev ? { ...prev, phase: 'done', replacedCount: job.replacedCount, resultPhotoId: job.resultPhotoId } : prev);
       } else if (job.status === 'done_noop') {
-        setViewerRescue((prev) => (prev ? { ...prev, phase: 'noop', step: job.step || '这张合影里每个人已是最佳状态' } : prev));
+        setViewerRescue((prev) => prev ? { ...prev, phase: 'noop', step: job.step || '这张合影里每个人已是最佳状态' } : prev);
       } else {
-        setViewerRescue((prev) => (prev ? { ...prev, phase: 'failed', error: job.error || '未知错误' } : prev));
+        setViewerRescue((prev) => prev ? { ...prev, phase: 'failed', error: job.error || '未知错误' } : prev);
       }
     } catch (e) {
       console.error('viewer rescue failed', e);
-      setViewerRescue((prev) => (prev ? { ...prev, phase: 'failed', error: '任务提交或进度查询失败' } : prev));
+      setViewerRescue((prev) => prev ? { ...prev, phase: 'failed', error: '任务提交或进度查询失败' } : prev);
     }
   }, [viewerRescue, appendRescuedPhoto]);
 
@@ -5049,10 +5049,10 @@ function ProjectDetailInner({
   const toggleSimSelectGroup = React.useCallback((group) => {
     setSimSelectedMap((prev) => {
       const next = Object.assign({}, prev || {});
-      const ids = (group || []).map((id) => String(id)).filter(id => canDeleteItem(simPhotos[id]));
+      const ids = (group || []).map((id) => String(id)).filter((id) => canDeleteItem(simPhotos[id]));
       const allSelected = ids.length > 0 && ids.every((id) => next[id]);
-      if (allSelected) ids.forEach((id) => delete next[id]);
-      else ids.forEach((id) => { next[id] = true; });
+      if (allSelected) ids.forEach((id) => delete next[id]);else
+      ids.forEach((id) => {next[id] = true;});
       setSimSelectedCount(Object.keys(next).length);
       return next;
     });
@@ -5092,9 +5092,9 @@ function ProjectDetailInner({
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
+          'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ tags: newTags }),
+        body: JSON.stringify({ tags: newTags })
       });
 
       if (res.status === 401 || res.status === 403) {
@@ -5110,7 +5110,7 @@ function ProjectDetailInner({
 
       const data = await res.json();
       const updatedTags = safeParseTags(data.tags);
-      setPhotoTagsMap(prev => ({ ...prev, [photoId]: updatedTags }));
+      setPhotoTagsMap((prev) => ({ ...prev, [photoId]: updatedTags }));
       Toast.success('已添加推荐标签');
     } catch (err) {
       console.error('add recommendation failed:', err);
@@ -5140,13 +5140,13 @@ function ProjectDetailInner({
   }, []);
 
   const buildTransferItem = React.useCallback((index) => {
-    const meta = (photoMetas && photoMetas[index]) || {};
+    const meta = photoMetas && photoMetas[index] || {};
     const pid = meta.id || meta.photoId || meta.photo_id || null;
     const url = meta.originalSrc || meta.url || images[index] || '';
     const thumbSrc = meta.thumbSrc || images[index] || url;
     const description = photoDescMap[pid] || meta.description || '';
     const tags = Array.isArray(photoTagsMap[pid]) ? photoTagsMap[pid] : safeParseTags(meta.tags);
-    const cachedFaces = pid ? (viewerFaceMap && viewerFaceMap[String(pid)]) : null;
+    const cachedFaces = pid ? viewerFaceMap && viewerFaceMap[String(pid)] : null;
     const faceNames = extractFaceNamesFromMeta(meta, cachedFaces);
     return {
       id: pid || url,
@@ -5159,7 +5159,7 @@ function ProjectDetailInner({
       photographerName: meta.photographerName || meta.photographer_name || '',
       faceNames,
       personNames: faceNames,
-      faces: Array.isArray(cachedFaces) ? cachedFaces : (Array.isArray(meta.faces) ? meta.faces : []),
+      faces: Array.isArray(cachedFaces) ? cachedFaces : Array.isArray(meta.faces) ? meta.faces : []
     };
   }, [photoMetas, images, photoDescMap, photoTagsMap, title, viewerFaceMap]);
 
@@ -5167,10 +5167,10 @@ function ProjectDetailInner({
     const key = String(index);
     const isDraggedPhotoSelected = !!(selectedMap && selectedMap[key]);
     if (!isDraggedPhotoSelected) return [index];
-    return Object.keys(selectedMap || {})
-      .map((k) => Number(k))
-      .filter((i) => Number.isInteger(i) && i >= 0 && i < images.length && !!selectedMap[String(i)])
-      .sort((a, b) => a - b);
+    return Object.keys(selectedMap || {}).
+    map((k) => Number(k)).
+    filter((i) => Number.isInteger(i) && i >= 0 && i < images.length && !!selectedMap[String(i)]).
+    sort((a, b) => a - b);
   }, [selectedMap, images.length]);
 
   const handlePhotoDragStart = React.useCallback((e, index) => {
@@ -5178,14 +5178,14 @@ function ProjectDetailInner({
     try {
       const dragIndexes = getDragSelectionIndexes(index);
       const items = dragIndexes.map((i) => buildTransferItem(i)).filter((it) => !!it && !!it.url);
-      const payload = items.length <= 1 ? (items[0] || buildTransferItem(index)) : items;
+      const payload = items.length <= 1 ? items[0] || buildTransferItem(index) : items;
       const lead = Array.isArray(payload) ? payload[0] : payload;
       const count = Array.isArray(payload) ? payload.length : 1;
 
       e.dataTransfer.effectAllowed = 'copy';
       e.dataTransfer.setData('application/x-mamage-photo', JSON.stringify(payload));
       e.dataTransfer.setData('application/json', JSON.stringify(payload));
-      e.dataTransfer.setData('text/plain', Array.isArray(payload) ? payload.map((it) => it.url || '').filter(Boolean).join('\n') : (payload.url || ''));
+      e.dataTransfer.setData('text/plain', Array.isArray(payload) ? payload.map((it) => it.url || '').filter(Boolean).join('\n') : payload.url || '');
 
       // Create a "real photo card" drag preview.
       const preview = document.createElement('div');
@@ -5236,10 +5236,10 @@ function ProjectDetailInner({
       try {
         window.dispatchEvent(new CustomEvent('mamage-photo-drag-start'));
       } catch (evtErr) {
+
+
         // ignore
-      }
-    } catch (err) {
-      console.warn('photo dragstart failed', err);
+      }} catch (err) {console.warn('photo dragstart failed', err);
     }
   }, [buildTransferItem, getDragSelectionIndexes]);
 
@@ -5254,13 +5254,13 @@ function ProjectDetailInner({
       try {
         window.dispatchEvent(new CustomEvent('mamage-photo-drag-end'));
       } catch (evtErr) {
-        // ignore
-      }
-    } catch (err) {
-      // ignore
-    }
-  }, []);
 
+
+        // ignore
+      }} catch (err) {
+
+      // ignore
+    }}, []);
   const renderPhotoItem = React.useCallback((src, overallIndex) => {
     const readyKey = `${overallIndex}|${src}`;
     const isReady = !!detailImageReadyMap[readyKey];
@@ -5269,7 +5269,7 @@ function ProjectDetailInner({
     const isVideo = isVideoMeta(meta);
     const videoUploadState = isVideo ? getVideoUploadState(meta) : '';
     const videoUnavailable = videoUploadState === 'processing' || videoUploadState === 'failed';
-    const mediaSrc = isVideo ? (meta.thumbSrc || meta.thumbUrl || src || meta.originalSrc || meta.url) : src;
+    const mediaSrc = isVideo ? meta.thumbSrc || meta.thumbUrl || src || meta.originalSrc || meta.url : src;
     const videoPosterSrc = isVideo && isImageUrl(mediaSrc) ? mediaSrc : '';
     const semanticState = isVideo ? { tags: [], description: '', pending: false, failed: false } : getPhotoSemanticState(meta);
     const timelineLabel = getPhotoTimelineSectionLabel(meta, uploadTimelineSections);
@@ -5277,16 +5277,16 @@ function ProjectDetailInner({
     const adjustmentStyle = getPhotoAdjustmentStyle(adjustments);
     const useExactThumbnailTone = !isDefaultPhotoAdjustments(adjustments);
     const rippleStyle = getRippleStyle(overallIndex) || {};
-    const itemStyle = galleryMode === 'grid' || searchKeywordTrimmed
-      ? { ...rippleStyle, aspectRatio: '1 / 1' }
-      : rippleStyle;
+    const itemStyle = galleryMode === 'grid' || searchKeywordTrimmed ?
+    { ...rippleStyle, aspectRatio: '1 / 1' } :
+    rippleStyle;
     return (
-    <div className={`detail-photo-item${searchKeywordTrimmed ? ' search-result-enter' : ''}${String(getPhotoRecordId(meta) || '') === highlightedPhotoId ? ' is-photo-focused' : ''}`} key={meta.id || overallIndex}
+      <div className={`detail-photo-item${searchKeywordTrimmed ? ' search-result-enter' : ''}${String(getPhotoRecordId(meta) || '') === highlightedPhotoId ? ' is-photo-focused' : ''}`} key={meta.id || overallIndex}
       data-photo-id={getPhotoRecordId(meta) || undefined} tabIndex={-1}
       style={{ ...itemStyle, '--search-order': overallIndex % 8 }}>
       <div className="detail-photo">
         <div style={{ position: 'relative' }}>
-          {isVideo ? (
+          {isVideo ?
             <button
               type="button"
               className={`detail-video-thumb${videoUnavailable ? ' is-unavailable' : ''}${videoUploadState === 'failed' ? ' is-failed' : ''}`}
@@ -5310,37 +5310,37 @@ function ProjectDetailInner({
                   openViewerAt(overallIndex, mediaSrc || images[overallIndex] || '');
                 }
               }}
-              style={{ cursor: videoUnavailable ? 'not-allowed' : (deleteMode ? 'pointer' : 'zoom-in'), aspectRatio: galleryMode === 'masonry' ? `${ratio}` : undefined }}
+              style={{ cursor: videoUnavailable ? 'not-allowed' : deleteMode ? 'pointer' : 'zoom-in', aspectRatio: galleryMode === 'masonry' ? `${ratio}` : undefined }}
               aria-label={videoUnavailable ? '视频转码中' : '打开视频'}
-              aria-disabled={videoUnavailable ? 'true' : undefined}
-            >
-              {videoPosterSrc ? (
-                <img
-                  src={videoPosterSrc}
-                  className={`detail-photo-img detail-video-thumb-media${isReady ? ' is-ready' : ''}`}
-                  alt={`${title}-${overallIndex}`}
-                  loading="lazy"
-                  decoding="async"
-                  onLoad={(event) => {
-                    handleImageLoad(src, event);
-                    setDetailImageReadyMap((prev) => (prev[readyKey] ? prev : { ...prev, [readyKey]: true }));
-                  }}
-                />
-              ) : (
-                <span className="detail-video-thumb-placeholder" aria-hidden="true">
+              aria-disabled={videoUnavailable ? 'true' : undefined}>
+              
+              {videoPosterSrc ?
+              <img
+                src={videoPosterSrc}
+                className={`detail-photo-img detail-video-thumb-media${isReady ? ' is-ready' : ''}`}
+                alt={`${title}-${overallIndex}`}
+                loading="lazy"
+                decoding="async"
+                onLoad={(event) => {
+                  handleImageLoad(src, event);
+                  setDetailImageReadyMap((prev) => prev[readyKey] ? prev : { ...prev, [readyKey]: true });
+                }} /> :
+
+
+              <span className="detail-video-thumb-placeholder" aria-hidden="true">
                   <span>VIDEO</span>
                 </span>
-              )}
-              {videoUnavailable ? (
-                <span className="detail-video-processing-mark" aria-hidden="true" />
-              ) : (
-                <span className="detail-video-play" aria-hidden="true">▶</span>
-              )}
+              }
+              {videoUnavailable ?
+              <span className="detail-video-processing-mark" aria-hidden="true" /> :
+
+              <span className="detail-video-play" aria-hidden="true">▶</span>
+              }
               <span className={`detail-video-badge${videoUnavailable ? ' is-processing' : ''}`}>
-                {videoUploadState === 'failed' ? '处理失败' : (videoUploadState === 'processing' ? '已上传 · 转码中' : '视频')}
+                {videoUploadState === 'failed' ? '处理失败' : videoUploadState === 'processing' ? '已上传 · 转码中' : '视频'}
               </span>
-            </button>
-          ) : (
+            </button> :
+
             <ViewerToneImage
               src={src}
               photoId={getPhotoRecordId(meta)}
@@ -5358,10 +5358,10 @@ function ProjectDetailInner({
               onDragEnd={handlePhotoDragEnd}
               onLoad={(event) => {
                 handleImageLoad(src, event);
-                setDetailImageReadyMap((prev) => (prev[readyKey] ? prev : { ...prev, [readyKey]: true }));
+                setDetailImageReadyMap((prev) => prev[readyKey] ? prev : { ...prev, [readyKey]: true });
               }}
               style={{ display: 'block', cursor: deleteMode ? 'pointer' : 'zoom-in', aspectRatio: galleryMode === 'masonry' ? `${ratio}` : undefined, ...(adjustmentStyle || {}) }}
-              data-original={photoMetas && photoMetas[overallIndex] ? (photoMetas[overallIndex].originalSrc || images[overallIndex]) : images[overallIndex]}
+              data-original={photoMetas && photoMetas[overallIndex] ? photoMetas[overallIndex].originalSrc || images[overallIndex] : images[overallIndex]}
               data-tried="0"
               onError={(e) => {
                 try {
@@ -5372,7 +5372,7 @@ function ProjectDetailInner({
                     const original = img.getAttribute('data-original');
                     if (original) img.src = original;
                   }
-                } catch (err) { }
+                } catch (err) {}
               }}
               onMouseEnter={() => setHoveredPhotoIdx(overallIndex)}
               onMouseLeave={() => setHoveredPhotoIdx(-1)}
@@ -5382,45 +5382,45 @@ function ProjectDetailInner({
                 } else if (overallIndex >= 0) {
                   openViewerAt(overallIndex, e.currentTarget.currentSrc || e.currentTarget.src || images[overallIndex] || '');
                 }
-              }}
-            />
-          )}
-          {(() => {
-            const rawName = meta.photographerName || meta.photographer_name || meta.photographer || (meta.photographerId ? String(meta.photographerId) : null) || (meta.photographer_id ? String(meta.photographer_id) : null);
-            const hasName = rawName && String(rawName).trim();
-            let photographerLabel = null;
-            if (hasName) {
-              photographerLabel = String(rawName);
-            } else {
-              try {
-                const list = (project && (project.photos || project.images || project.gallery)) || (initialProject && (initialProject.photos || initialProject.images || initialProject.gallery)) || [];
-                const found = Array.isArray(list) ? list.find(p => p && (String(p.id) === String(meta.id) || String(p.photoId) === String(meta.id))) : null;
-                const fb = found ? (found.photographerName || found.photographer || found.photographer_name || found.photographerId || found.photographer_id) : null;
-                if (fb) photographerLabel = String(fb);
-              } catch (e) { }
-              if (!photographerLabel) {
-                photographerLabel = meta.photographerId ? `摄影师#${meta.photographerId}` : (meta.photographer_id ? `摄影师#${meta.photographer_id}` : '未知摄影师');
-              }
+              }} />
+
             }
-            return (
-              <div className="detail-photo-chip-row">
+          {(() => {
+              const rawName = meta.photographerName || meta.photographer_name || meta.photographer || (meta.photographerId ? String(meta.photographerId) : null) || (meta.photographer_id ? String(meta.photographer_id) : null);
+              const hasName = rawName && String(rawName).trim();
+              let photographerLabel = null;
+              if (hasName) {
+                photographerLabel = String(rawName);
+              } else {
+                try {
+                  const list = project && (project.photos || project.images || project.gallery) || initialProject && (initialProject.photos || initialProject.images || initialProject.gallery) || [];
+                  const found = Array.isArray(list) ? list.find((p) => p && (String(p.id) === String(meta.id) || String(p.photoId) === String(meta.id))) : null;
+                  const fb = found ? found.photographerName || found.photographer || found.photographer_name || found.photographerId || found.photographer_id : null;
+                  if (fb) photographerLabel = String(fb);
+                } catch (e) {}
+                if (!photographerLabel) {
+                  photographerLabel = meta.photographerId ? `摄影师#${meta.photographerId}` : meta.photographer_id ? `摄影师#${meta.photographer_id}` : '未知摄影师';
+                }
+              }
+              return (
+                <div className="detail-photo-chip-row">
                 <div className="detail-photo-chip" title={photographerLabel}>{photographerLabel}</div>
-                {timelineLabel ? (
-                  <div className="detail-photo-chip detail-photo-chip--section" title={timelineLabel}>{timelineLabel}</div>
-                ) : null}
-              </div>
-            );
-          })()}
-          {deleteMode && (
+                {timelineLabel ?
+                  <div className="detail-photo-chip detail-photo-chip--section" title={timelineLabel}>{timelineLabel}</div> :
+                  null}
+              </div>);
+
+            })()}
+          {deleteMode &&
             <label className="detail-photo-select" onClick={(event) => event.stopPropagation()}>
               <input type="checkbox" className="mamage-photo-check-input"
-                checked={!!selectedMap[String(overallIndex)]}
-                onChange={() => toggleSelect(overallIndex)}
-                aria-label={`${selectedMap[String(overallIndex)] ? '取消选择' : '选择'}第 ${overallIndex + 1} 个${isVideo ? '视频' : '照片'}`} />
+              checked={!!selectedMap[String(overallIndex)]}
+              onChange={() => toggleSelect(overallIndex)}
+              aria-label={`${selectedMap[String(overallIndex)] ? '取消选择' : '选择'}第 ${overallIndex + 1} 个${isVideo ? '视频' : '照片'}`} />
               <span className="mamage-photo-checkmark" aria-hidden="true" />
             </label>
-          )}
-          {!isVideo && (hoveredPhotoIdx === overallIndex || semanticState.pending || semanticState.failed) && !deleteMode && (
+            }
+          {!isVideo && (hoveredPhotoIdx === overallIndex || semanticState.pending || semanticState.failed) && !deleteMode &&
             <div className={`detail-tag-overlay${semanticState.pending ? ' is-analysis-pending' : ''}${semanticState.failed ? ' is-analysis-failed' : ''}`}>
               {(() => {
                 const tags = semanticState.tags;
@@ -5428,97 +5428,97 @@ function ProjectDetailInner({
                 if (semanticState.pending || semanticState.failed || hasTags) {
                   return (
                     <div className="detail-tag-strip">
-                      {semanticState.pending && (
-                        <span className="detail-tag-chip detail-tag-chip--analysis">
+                      {semanticState.pending &&
+                      <span className="detail-tag-chip detail-tag-chip--analysis">
                           <span className="detail-analysis-dot" />
                           分析中
                         </span>
-                      )}
-                      {semanticState.failed && !hasTags && (
-                        <span className="detail-tag-chip detail-tag-chip--failed">分析失败</span>
-                      )}
-                    {tags.slice(0, 5).map((tag, i) => (
+                      }
+                      {semanticState.failed && !hasTags &&
+                      <span className="detail-tag-chip detail-tag-chip--failed">分析失败</span>
+                      }
+                    {tags.slice(0, 5).map((tag, i) =>
                       <span key={i} className="detail-tag-chip">{tag}</span>
-                    ))}
-                    </div>
-                  );
+                      )}
+                    </div>);
+
                 }
                 return <span className="detail-tag-empty">暂无标签</span>;
               })()}
             </div>
-          )}
+            }
           {!isVideo && showAILabels && photoAILabelMap[photoMetas?.[overallIndex]?.id] && (() => {
-            const label = photoAILabelMap[photoMetas?.[overallIndex]?.id];
-            const score = getPhotoAiScore(photoMetas?.[overallIndex]);
-            return (
-              <div className="detail-photo-chip detail-photo-chip--floating" style={{ right: 8, top: 8, color: getAISelectionColor(label) }}>
+              const label = photoAILabelMap[photoMetas?.[overallIndex]?.id];
+              const score = getPhotoAiScore(photoMetas?.[overallIndex]);
+              return (
+                <div className="detail-photo-chip detail-photo-chip--floating" style={{ right: 8, top: 8, color: getAISelectionColor(label) }}>
                 {getAISelectionLabel(label)}{score !== null ? ` ${score}` : ''}
-              </div>
-            );
-          })()}
+              </div>);
+
+            })()}
           {(() => {
-            const pid = photoMetas?.[overallIndex]?.id;
-            if (isVideo || !pid) return null;
-            const hasRecommend = (photoTagsMap[pid] || []).includes('推荐');
-            if (!hasRecommend) return null;
-            return (
-              <div className="detail-photo-chip detail-photo-chip--floating" style={{ right: 8, top: showAILabels && photoAILabelMap[pid] ? 40 : 8 }}>
+              const pid = photoMetas?.[overallIndex]?.id;
+              if (isVideo || !pid) return null;
+              const hasRecommend = (photoTagsMap[pid] || []).includes('推荐');
+              if (!hasRecommend) return null;
+              return (
+                <div className="detail-photo-chip detail-photo-chip--floating" style={{ right: 8, top: showAILabels && photoAILabelMap[pid] ? 40 : 8 }}>
                 推荐
-              </div>
-            );
-          })()}
+              </div>);
+
+            })()}
         </div>
       </div>
-    </div>
-    );
+    </div>);
+
   }, [title, handlePhotoDragStart, handlePhotoDragEnd, handleImageLoad, deleteMode, photoMetas, images, hoveredPhotoIdx, photoTagsMap, showAILabels, photoAILabelMap, selectedMap, toggleSelect, project, initialProject, getRippleStyle, openViewerAt, detailImageReadyMap, imageRatios, galleryMode, searchKeywordTrimmed, highlightedPhotoId, getPhotoSemanticState, getAdjustmentForPhoto, uploadTimelineSections]);
 
   return (
     <div className="detail-page">
-      {canUploadPhotos ? (
-        <input
-          id="project-file-input"
-          ref={fileInputRef}
-          style={{ position: 'fixed', width: 1, height: 1, opacity: 0, pointerEvents: 'none', left: -1, top: -1 }}
-          type="file"
-          accept={isMobile ? MOBILE_MEDIA_ACCEPT : DESKTOP_MEDIA_ACCEPT}
-          multiple
-          tabIndex={-1}
-          onChange={(e) => {
-            handleFilesSelected(e.target.files);
-            try { e.target.value = ''; } catch (err) { }
-          }}
-          aria-hidden="true"
-        />
-      ) : null}
+      {canUploadPhotos ?
+      <input
+        id="project-file-input"
+        ref={fileInputRef}
+        style={{ position: 'fixed', width: 1, height: 1, opacity: 0, pointerEvents: 'none', left: -1, top: -1 }}
+        type="file"
+        accept={isMobile ? MOBILE_MEDIA_ACCEPT : DESKTOP_MEDIA_ACCEPT}
+        multiple
+        tabIndex={-1}
+        onChange={(e) => {
+          handleFilesSelected(e.target.files);
+          try {e.target.value = '';} catch (err) {}
+        }}
+        aria-hidden="true" /> :
 
-      {detailSearchVisible ? (
-        <div className="detail-header detail-header--search-only">
+      null}
+
+      {detailSearchVisible ?
+      <div className="detail-header detail-header--search-only">
           <div className="detail-header-inner">
             <div className="scoped-search-heading"><strong>当前相册内检索</strong></div>
             <div className="detail-search-row">
               <Input
-                className="detail-search-input"
-                value={searchKeyword}
-                onChange={(v) => { setSearchPage(1); setSearchRelated(false); setSearchKeyword(v); }}
-                placeholder="描述画面、人物或质量要求"
-                prefix={<IconSearch />}
-                showClear
-              />
+              className="detail-search-input"
+              value={searchKeyword}
+              onChange={(v) => {setSearchPage(1);setSearchRelated(false);setSearchKeyword(v);}}
+              placeholder="描述画面、人物或质量要求"
+              prefix={<IconSearch />}
+              showClear />
+            
               <Button
-                className="detail-search-close"
-                icon={<IconClose />}
-                theme="borderless"
-                onClick={() => {
-                  if (searchKeywordTrimmed) setSearchKeyword('');
-                  setSearchOpen(false);
-                }}
-                aria-label="收起搜索"
-                title="收起搜索"
-              />
+              className="detail-search-close"
+              icon={<IconClose />}
+              theme="borderless"
+              onClick={() => {
+                if (searchKeywordTrimmed) setSearchKeyword('');
+                setSearchOpen(false);
+              }}
+              aria-label="收起搜索"
+              title="收起搜索" />
+            
             </div>
-            {searchMeta && Array.isArray(searchMeta.chips) && searchMeta.chips.length ? (
-              <div className="detail-search-insight" aria-label="智能搜索理解结果">
+            {searchMeta && Array.isArray(searchMeta.chips) && searchMeta.chips.length ?
+          <div className="detail-search-insight" aria-label="智能搜索理解结果">
                 <span className={`detail-search-insight-mode${searchMeta.aiUsed ? ' is-ai' : ''}`}>
                   <IconSparkleAI />
                   {searchMeta.visual ? '视觉核验' : searchMeta.aiUsed ? 'AI 解析' : '条件匹配'}
@@ -5526,60 +5526,60 @@ function ProjectDetailInner({
                 <div className="detail-search-insight-chips">
                   {searchMeta.chips.map((chip) => <span key={chip}>{chip}</span>)}
                 </div>
-              </div>
-            ) : null}
+              </div> :
+          null}
             <SearchFeedback search={searchMeta} loading={searching}
-              phase={searchPhase} found={images.length}
-              onRefresh={() => { setSearchPage(1); setSearchRefresh(value=>value+1); }}
-              onRelated={() => { setSearchPage(1); setSearchRelated(true); }} onStrict={() => { setSearchPage(1); setSearchRelated(false); }} />
-            {searchError ? (
-              <Text type="danger" className="detail-search-error">{searchError}</Text>
-            ) : null}
+          phase={searchPhase} found={images.length}
+          onRefresh={() => {setSearchPage(1);setSearchRefresh((value) => value + 1);}}
+          onRelated={() => {setSearchPage(1);setSearchRelated(true);}} onStrict={() => {setSearchPage(1);setSearchRelated(false);}} />
+            {searchError ?
+          <Text type="danger" className="detail-search-error">{searchError}</Text> :
+          null}
           </div>
-        </div>
-      ) : null}
+        </div> :
+      null}
 
       <AlbumActionBar variant="adaptive-album" selecting={deleteMode} selectedCount={selectedCount} onSelect={toggleDeleteMode}
-        inactive={uploadMode || editVisible}
-        onDelete={canDeletePhotos ? confirmDelete : undefined}
-        deleteDisabled={deletingPhotos || !canDeletePhotos || !canDeleteSelection}
-        onFunctions={() => setActionSheetOpen(true)} functionsOpen={actionSheetOpen}
-        dragActive={!isMobile && dragActive} hovered={uploadHover} primaryDisabled={!canUploadPhotos}
-        primaryLabel={!canUploadPhotos ? '上传不可用' : stagingFiles?.length ? `${stagingFiles.length} 个待上传` : '上传照片或视频'}
-        primaryHint={!isMobile && dragActive ? '松开上传' : '上传'} primaryProps={canUploadPhotos ? {
-            ref: uploadDockRef,
-            onClick: openUploadPicker,
-            title: stagingFiles?.length ? `${stagingFiles.length} 个待上传` : isMobile ? '选择照片或视频' : '点击或拖入照片/视频',
-            onMouseEnter: () => setUploadHover(true),
-            onMouseLeave: () => setUploadHover(false),
-            onDragOver: isMobile ? undefined : (e) => {
-              e.preventDefault();
-              if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
-              setDragActive(true);
-            },
-            onDragEnter: isMobile ? undefined : (e) => {
-              e.preventDefault();
-              setDragActive(true);
-            },
-            onDragLeave: isMobile ? undefined : (e) => {
-              e.preventDefault();
-              setDragActive(false);
-            },
-            onDrop: isMobile ? undefined : (e) => {
-              e.preventDefault();
-              setDragActive(false);
-              if (e.dataTransfer && e.dataTransfer.files) handleFilesSelected(e.dataTransfer.files);
-            },
-          } : {}} />
+      inactive={uploadMode || editVisible}
+      onDelete={canDeletePhotos ? confirmDelete : undefined}
+      deleteDisabled={deletingPhotos || !canDeletePhotos || !canDeleteSelection}
+      onFunctions={() => setActionSheetOpen(true)} functionsOpen={actionSheetOpen}
+      dragActive={!isMobile && dragActive} hovered={uploadHover} primaryDisabled={!canUploadPhotos}
+      primaryLabel={!canUploadPhotos ? '上传不可用' : stagingFiles?.length ? `${stagingFiles.length} 个待上传` : '上传照片或视频'}
+      primaryHint={!isMobile && dragActive ? '松开上传' : '上传'} primaryProps={canUploadPhotos ? {
+        ref: uploadDockRef,
+        onClick: openUploadPicker,
+        title: stagingFiles?.length ? `${stagingFiles.length} 个待上传` : isMobile ? '选择照片或视频' : '点击或拖入照片/视频',
+        onMouseEnter: () => setUploadHover(true),
+        onMouseLeave: () => setUploadHover(false),
+        onDragOver: isMobile ? undefined : (e) => {
+          e.preventDefault();
+          if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+          setDragActive(true);
+        },
+        onDragEnter: isMobile ? undefined : (e) => {
+          e.preventDefault();
+          setDragActive(true);
+        },
+        onDragLeave: isMobile ? undefined : (e) => {
+          e.preventDefault();
+          setDragActive(false);
+        },
+        onDrop: isMobile ? undefined : (e) => {
+          e.preventDefault();
+          setDragActive(false);
+          if (e.dataTransfer && e.dataTransfer.files) handleFilesSelected(e.dataTransfer.files);
+        }
+      } : {}} />
 
-      {actionSheetOpen ? (
-        <button
-          type="button"
-          className="detail-actions-backdrop"
-          onClick={() => setActionSheetOpen(false)}
-          aria-label="关闭相册操作"
-        />
-      ) : null}
+      {actionSheetOpen ?
+      <button
+        type="button"
+        className="detail-actions-backdrop"
+        onClick={() => setActionSheetOpen(false)}
+        aria-label="关闭相册操作" /> :
+
+      null}
 
       <div className={`detail-actions-sheet${actionSheetOpen ? ' is-open' : ''}`} role="dialog" aria-modal="true" aria-hidden={!actionSheetOpen}>
         <div className="detail-actions-grip" />
@@ -5593,71 +5593,71 @@ function ProjectDetailInner({
             icon={<IconClose />}
             theme="borderless"
             onClick={() => setActionSheetOpen(false)}
-            aria-label="关闭"
-          />
+            aria-label="关闭" />
+          
         </div>
 
         <div className={`detail-media-filter${currentUser?.id && !readOnly ? ' has-owner-filter' : ''}`} role="group" aria-label="媒体类型筛选">
-          {mediaFilterOptions.map((option) => (
-            <button
-              key={option.key}
-              type="button"
-              className={`detail-media-filter-btn${mediaFilter === option.key ? ' is-active' : ''}`}
-              onClick={() => {
-                setMediaFilter(option.key);
-                setActionSheetOpen(false);
-              }}
-              aria-pressed={mediaFilter === option.key}
-            >
+          {mediaFilterOptions.map((option) =>
+          <button
+            key={option.key}
+            type="button"
+            className={`detail-media-filter-btn${mediaFilter === option.key ? ' is-active' : ''}`}
+            onClick={() => {
+              setMediaFilter(option.key);
+              setActionSheetOpen(false);
+            }}
+            aria-pressed={mediaFilter === option.key}>
+            
               <span>{option.label}</span>
               <strong>{option.count}</strong>
             </button>
-          ))}
-          {currentUser?.id && !readOnly ? (
-            <label className="detail-media-owner-filter">
+          )}
+          {currentUser?.id && !readOnly ?
+          <label className="detail-media-owner-filter">
               <span>只看我上传的</span>
               <strong>{ownUploadCount}</strong>
               <input type="checkbox" checked={onlyOwnUploads} onChange={toggleOwnUploadFilter} aria-label="只看我上传的" />
               <span className="detail-media-owner-switch" aria-hidden="true" />
-            </label>
-          ) : null}
+            </label> :
+          null}
         </div>
 
         <div className="detail-actions-grid">
-          {onShareAlbum && shareUnitId && Number(resolvedProject?.unitId) === Number(shareUnitId) ? (
-            <Button
-              className="detail-action-tile"
-              theme="borderless"
-              onClick={() => {
-                setActionSheetOpen(false);
-                onShareAlbum({ id: Number(projectId), title, unitId: Number(shareUnitId) });
-              }}
-              aria-label="分享当前相册"
-            >
+          {onShareAlbum && shareUnitId && Number(resolvedProject?.unitId) === Number(shareUnitId) ?
+          <Button
+            className="detail-action-tile"
+            theme="borderless"
+            onClick={() => {
+              setActionSheetOpen(false);
+              onShareAlbum({ id: Number(projectId), title, unitId: Number(shareUnitId) });
+            }}
+            aria-label="分享当前相册">
+            
               <span className="detail-action-icon is-accent-teal" aria-hidden="true"><IconShare /></span>
               <span className="detail-action-copy">
                 <span className="detail-action-title">分享相册</span>
                 <span className="detail-action-desc">部门或公开链接</span>
               </span>
-            </Button>
-          ) : null}
-          {canUploadPhotos ? (
-            <Button
-              className="detail-action-tile"
-              theme="borderless"
-              onClick={() => {
-                setActionSheetOpen(false);
-                setExternalImportVisible(true);
-              }}
-              aria-label="从外部链接转存照片"
-            >
+            </Button> :
+          null}
+          {canUploadPhotos ?
+          <Button
+            className="detail-action-tile"
+            theme="borderless"
+            onClick={() => {
+              setActionSheetOpen(false);
+              setExternalImportVisible(true);
+            }}
+            aria-label="从外部链接转存照片">
+            
               <span className="detail-action-icon is-accent-teal" aria-hidden="true"><IconDownload /></span>
               <span className="detail-action-copy">
                 <span className="detail-action-title">链接转存</span>
                 <span className="detail-action-desc">从外部相册导入</span>
               </span>
-            </Button>
-          ) : null}
+            </Button> :
+          null}
           <Button
             className="detail-action-tile"
             theme="borderless"
@@ -5665,8 +5665,8 @@ function ProjectDetailInner({
               handleGalleryModeChange(galleryMode === 'grid' ? 'masonry' : 'grid');
               setActionSheetOpen(false);
             }}
-            aria-label="切换照片布局"
-          >
+            aria-label="切换照片布局">
+            
             <span className="detail-action-icon is-accent-slate" aria-hidden="true">{galleryMode === 'grid' ? <IconMasonryView /> : <IconGridView />}</span>
             <span className="detail-action-copy">
               <span className="detail-action-title">{galleryMode === 'grid' ? '瀑布流' : '网格'}</span>
@@ -5681,8 +5681,8 @@ function ProjectDetailInner({
               toggleAILabels();
               setActionSheetOpen(false);
             }}
-            aria-label="AI 选片"
-          >
+            aria-label="AI 选片">
+            
             <span className="detail-action-icon is-accent-violet" aria-hidden="true"><IconSparkleAI /></span>
             <span className="detail-action-copy">
               <span className="detail-action-title">AI 选片</span>
@@ -5697,8 +5697,8 @@ function ProjectDetailInner({
               setActionSheetOpen(false);
               openSimilarityModal();
             }}
-            aria-label="查看相似照片"
-          >
+            aria-label="查看相似照片">
+            
             <span className="detail-action-icon is-accent-teal" aria-hidden="true"><IconSimilarStack /></span>
             <span className="detail-action-copy">
               <span className="detail-action-title">相似照片</span>
@@ -5713,8 +5713,8 @@ function ProjectDetailInner({
               setActionSheetOpen(false);
               setFindMeOpen(true);
             }}
-            aria-label="拍照找我"
-          >
+            aria-label="拍照找我">
+            
             <span className="detail-action-icon is-accent-violet" aria-hidden="true">📸</span>
             <span className="detail-action-copy">
               <span className="detail-action-title">拍照找我</span>
@@ -5729,8 +5729,8 @@ function ProjectDetailInner({
               setSearchOpen(true);
               setActionSheetOpen(false);
             }}
-            aria-label="搜索照片"
-          >
+            aria-label="搜索照片">
+            
             <span className="detail-action-icon is-accent-blue" aria-hidden="true"><IconSearch /></span>
             <span className="detail-action-copy">
               <span className="detail-action-title">搜索</span>
@@ -5746,8 +5746,8 @@ function ProjectDetailInner({
                 setActionSheetOpen(false);
                 openEdit();
               }}
-              aria-label="修改相册信息"
-            >
+              aria-label="修改相册信息">
+              
               <span className="detail-action-icon is-accent-amber" aria-hidden="true"><IconInfoEdit /></span>
               <span className="detail-action-copy">
                 <span className="detail-action-title">修改信息</span>
@@ -5763,8 +5763,8 @@ function ProjectDetailInner({
                 setActionSheetOpen(false);
                 openTimelineEdit();
               }}
-              aria-label="编辑时间线环节"
-            >
+              aria-label="编辑时间线环节">
+              
               <span className="detail-action-icon is-accent-green" aria-hidden="true"><IconTimelineFlow /></span>
               <span className="detail-action-copy">
                 <span className="detail-action-title">编辑时间线</span>
@@ -5774,278 +5774,278 @@ function ProjectDetailInner({
           </IfCan>}
         </div>
 
-        {(description || (tags && tags.length > 0) || startText || createdText || date) ? (
-          <div className="detail-actions-info">
-            {(startText || createdText || date) ? (
-              <div className="detail-actions-info-row">
+        {description || tags && tags.length > 0 || startText || createdText || date ?
+        <div className="detail-actions-info">
+            {startText || createdText || date ?
+          <div className="detail-actions-info-row">
                 {startText ? <span>开始 {startText}</span> : null}
                 {createdText ? <span>创建 {createdText}</span> : null}
                 {!startText && !createdText && date ? <span>{date}</span> : null}
-              </div>
-            ) : null}
+              </div> :
+          null}
             {description ? <p>{description}</p> : null}
-            {tags && tags.length > 0 ? (
-              <div className="detail-actions-tags">
-                {tags.map((t, idx) => (
-                  <Tag key={idx} size="small" type="light" color="grey">
+            {tags && tags.length > 0 ?
+          <div className="detail-actions-tags">
+                {tags.map((t, idx) =>
+            <Tag key={idx} size="small" type="light" color="grey">
                     {t}
                   </Tag>
-                ))}
-              </div>
-            ) : null}
-          </div>
-        ) : null}
+            )}
+              </div> :
+          null}
+          </div> :
+        null}
       </div>
 
-      {originLabel ? (
-        <div className="detail-copy-origin" aria-label="相册来源">
+      {originLabel ?
+      <div className="detail-copy-origin" aria-label="相册来源">
           <span>来自 {originLabel}</span>
           {latestShare.sharedByName ? <span>分享人 {latestShare.sharedByName}</span> : null}
-        </div>
-      ) : null}
+        </div> :
+      null}
 
-      {!readOnly ? (
-        <ExternalImportStatus
-          projectId={projectId}
-          loading={loading}
-          initialPhotoCursor={importedPhotoCursor}
-          refreshKey={externalImportRefreshKey}
-          onPhotos={appendImportedPhotos}
-          onSections={mergeImportedSections}
-          onSourceTitle={applyImportedSourceTitle}
-        />
-      ) : null}
+      {!readOnly ?
+      <ExternalImportStatus
+        projectId={projectId}
+        loading={loading}
+        initialPhotoCursor={importedPhotoCursor}
+        refreshKey={externalImportRefreshKey}
+        onPhotos={appendImportedPhotos}
+        onSections={mergeImportedSections}
+        onSourceTitle={applyImportedSourceTitle} /> :
+
+      null}
 
       <div
         className={`detail-gallery ${galleryMode === 'masonry' && !searchKeywordTrimmed ? 'detail-gallery--masonry' : 'detail-gallery--grid'} ${useTimelineGallery ? 'detail-gallery--timeline' : ''} ${isGalleryPreparing ? 'is-preparing' : ''}`}
-        ref={galleryRef}
-      >
-        {loading && (
-          <div className="detail-loading-state">
+        ref={galleryRef}>
+        
+        {loading &&
+        <div className="detail-loading-state">
             <HexLoader size={60} className="detail-loading-mark" />
             <div className="detail-loading-title">正在加载相册</div>
             <div className="detail-loading-subtitle">照片马上出现</div>
           </div>
-        )}
+        }
 
-        {!loading && error && (
-          <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '60px 0' }}>
+        {!loading && error &&
+        <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '60px 0' }}>
             <Text type="danger">{error}</Text>
           </div>
-        )}
+        }
 
         {!loading && !error && images.length === 0 && searching ? <SearchSkeleton square /> : null}
-        {!loading && !error && !searching && images.length === 0 && (
-          <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '60px 0' }}>
-            <Empty description={searchKeywordTrimmed ? (searchMeta?.visual && !searchMeta.visual.coverageComplete
-              ? '暂未确认符合条件的照片' : '没有匹配的照片') : '该项目暂无图片'} />
+        {!loading && !error && !searching && images.length === 0 &&
+        <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '60px 0' }}>
+            <Empty description={searchKeywordTrimmed ? searchMeta?.visual && !searchMeta.visual.coverageComplete ?
+          '暂未确认符合条件的照片' : '没有匹配的照片' : '该项目暂无图片'} />
           </div>
-        )}
+        }
 
-        {!loading && !error && images.length > 0 && mediaFilteredIndexes.length === 0 && (
-          <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '60px 0' }}>
-            <Empty description={onlyOwnUploads ? (mediaFilter === 'all' ? '你还没有在这个相册上传照片或视频' : `没有你上传的${mediaFilterLabel}`)
-              : (mediaFilter === 'video' ? '当前相册暂无视频' : '当前相册暂无照片')} />
+        {!loading && !error && images.length > 0 && mediaFilteredIndexes.length === 0 &&
+        <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '60px 0' }}>
+            <Empty description={onlyOwnUploads ? mediaFilter === 'all' ? '你还没有在这个相册上传照片或视频' : `没有你上传的${mediaFilterLabel}` :
+          mediaFilter === 'video' ? '当前相册暂无视频' : '当前相册暂无照片'} />
           </div>
-        )}
+        }
 
         {isGalleryPreparing && (
-          galleryMode === 'masonry' ? (
-            <div className="detail-masonry-columns detail-masonry-columns--placeholder" style={{ '--masonry-cols': masonryColumns }}>
-              {masonryBuckets.map((bucket, colIdx) => (
-                <div className="detail-masonry-column" key={`masonry-placeholder-col-${colIdx}`}>
-                  {bucket.map(({ src, idx }) => (
-                    <div className="detail-photo-item detail-photo-item--skeleton" key={`masonry-placeholder-${idx}`}>
+        galleryMode === 'masonry' ?
+        <div className="detail-masonry-columns detail-masonry-columns--placeholder" style={{ '--masonry-cols': masonryColumns }}>
+              {masonryBuckets.map((bucket, colIdx) =>
+          <div className="detail-masonry-column" key={`masonry-placeholder-col-${colIdx}`}>
+                  {bucket.map(({ src, idx }) =>
+            <div className="detail-photo-item detail-photo-item--skeleton" key={`masonry-placeholder-${idx}`}>
                       <div className="detail-photo detail-photo--skeleton" style={{ aspectRatio: `${imageRatios[src] || 1.5}` }} />
                     </div>
-                  ))}
+            )}
                 </div>
-              ))}
-            </div>
-          ) : (
-            visiblePhotoItems.map(({ src, idx }) => (
-              <div className="detail-photo-item detail-photo-item--skeleton" key={`grid-placeholder-${idx}`}>
+          )}
+            </div> :
+
+        visiblePhotoItems.map(({ src, idx }) =>
+        <div className="detail-photo-item detail-photo-item--skeleton" key={`grid-placeholder-${idx}`}>
                 <div className="detail-photo detail-photo--skeleton" />
               </div>
-            ))
-          )
-        )}
+        ))
+
+        }
 
         {!loading && !error && galleryPrepared && (
-          useTimelineGallery ? (
-            <div className={`detail-timeline-layout${railWide ? ' is-rail-wide' : ''}`}>
+        useTimelineGallery ?
+        <div className={`detail-timeline-layout${railWide ? ' is-rail-wide' : ''}`}>
               <nav ref={railRef} className={`detail-timeline-rail${photoDragActive || fileDragActive ? ' is-drop-mode' : ''}${railExpanded ? ' is-expanded-full' : ''}`} data-file-drop-zone="1" aria-label="时间轴快速导航">
                 <span className="detail-timeline-rail-line" aria-hidden="true" />
-                {photoDragActive || fileDragActive ? (
-                  <span className="detail-timeline-rail-hint">{fileDragActive ? '松手上传到环节' : '松手移入环节'}</span>
-                ) : null}
+                {photoDragActive || fileDragActive ?
+            <span className="detail-timeline-rail-hint">{fileDragActive ? '松手上传到环节' : '松手移入环节'}</span> :
+            null}
                 {timelineGalleryGroups.map((group) => {
-                  const railKey = group.key || group.id || group.name;
-                  return (
-                  <a
-                    key={`rail-${railKey}`}
-                    className={`detail-timeline-rail-item${(photoDragActive || fileDragActive) && railDropKey === railKey ? ' is-drag-over' : ''}`}
-                    href={`#${group.domId}`}
-                    title={group.sectionTime ? `${group.name} · ${group.sectionTime}` : group.name}
-                    onDragOver={(e) => {
-                      if (!photoDragActive && !fileDragActive) return;
-                      e.preventDefault();
-                      e.dataTransfer.dropEffect = fileDragActive ? 'copy' : 'move';
-                      if (railDropKey !== railKey) setRailDropKey(railKey);
-                    }}
-                    onDragLeave={() => {
-                      setRailDropKey((prev) => (prev === railKey ? null : prev));
-                    }}
-                    onDrop={(e) => handleRailDrop(e, group)}
-                  >
+              const railKey = group.key || group.id || group.name;
+              return (
+                <a
+                  key={`rail-${railKey}`}
+                  className={`detail-timeline-rail-item${(photoDragActive || fileDragActive) && railDropKey === railKey ? ' is-drag-over' : ''}`}
+                  href={`#${group.domId}`}
+                  title={group.sectionTime ? `${group.name} · ${group.sectionTime}` : group.name}
+                  onDragOver={(e) => {
+                    if (!photoDragActive && !fileDragActive) return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = fileDragActive ? 'copy' : 'move';
+                    if (railDropKey !== railKey) setRailDropKey(railKey);
+                  }}
+                  onDragLeave={() => {
+                    setRailDropKey((prev) => prev === railKey ? null : prev);
+                  }}
+                  onDrop={(e) => handleRailDrop(e, group)}>
+                  
                     <span className="detail-timeline-rail-dot" aria-hidden="true" />
                     <span className="detail-timeline-rail-text">
                       <span>{group.name}</span>
                       {group.sectionTime ? <em>{group.sectionTime}</em> : null}
                     </span>
                     <strong>{group.items.length}</strong>
-                  </a>
-                  );
-                })}
-                {(railOverflow || railExpanded) ? (
-                  <button
-                    type="button"
-                    className="detail-timeline-rail-toggle"
-                    onClick={() => setRailExpanded((v) => !v)}
-                    aria-expanded={railExpanded}
-                  >
+                  </a>);
+
+            })}
+                {railOverflow || railExpanded ?
+            <button
+              type="button"
+              className="detail-timeline-rail-toggle"
+              onClick={() => setRailExpanded((v) => !v)}
+              aria-expanded={railExpanded}>
+              
                     {railExpanded ? '收起' : `展开全部 (${timelineGalleryGroups.length})`}
-                  </button>
-                ) : null}
-                {(railNameTruncated || railWide) ? (
-                  <button
-                    type="button"
-                    className="detail-timeline-rail-widen"
-                    onClick={() => setRailWide((v) => !v)}
-                    title={railWide ? '收起导航宽度' : '向右展开显示完整环节名'}
-                    aria-label={railWide ? '收起导航宽度' : '向右展开显示完整环节名'}
-                  >{railWide ? '«' : '»'}</button>
-                ) : null}
+                  </button> :
+            null}
+                {railNameTruncated || railWide ?
+            <button
+              type="button"
+              className="detail-timeline-rail-widen"
+              onClick={() => setRailWide((v) => !v)}
+              title={railWide ? '收起导航宽度' : '向右展开显示完整环节名'}
+              aria-label={railWide ? '收起导航宽度' : '向右展开显示完整环节名'}>
+              {railWide ? '«' : '»'}</button> :
+            null}
               </nav>
               <div className="detail-timeline-gallery">
                 {timelineGalleryGroups.map((group) => {
-                  const sectionRailKey = group.key || group.id || group.name;
-                  const sectionSelectionIndexes = deleteMode ? getTimelineSectionSelectionIndexes(group.id) : [];
-                  const selectedSectionPhotoCount = sectionSelectionIndexes.filter((index) => !!selectedMap[String(index)]).length;
-                  const sectionAllSelected = sectionSelectionIndexes.length > 0 && selectedSectionPhotoCount === sectionSelectionIndexes.length;
-                  const sectionPartiallySelected = selectedSectionPhotoCount > 0 && !sectionAllSelected;
-                  return (
-                  <section
-                    id={group.domId}
-                    className={`detail-timeline-section${fileDragActive && railDropKey === sectionRailKey ? ' is-file-drop-over' : ''}`}
-                    key={sectionRailKey}
-                    data-file-drop-zone="1"
-                    onDragOver={(e) => {
-                      if (!fileDragActive) return;
-                      e.preventDefault();
-                      e.dataTransfer.dropEffect = 'copy';
-                      if (railDropKey !== sectionRailKey) setRailDropKey(sectionRailKey);
-                    }}
-                    onDragLeave={() => {
-                      if (fileDragActive) setRailDropKey((prev) => (prev === sectionRailKey ? null : prev));
-                    }}
-                    onDrop={(e) => { if (fileDragActive) handleDirectFileDrop(e, group.id || ''); }}
-                  >
+              const sectionRailKey = group.key || group.id || group.name;
+              const sectionSelectionIndexes = deleteMode ? getTimelineSectionSelectionIndexes(group.id) : [];
+              const selectedSectionPhotoCount = sectionSelectionIndexes.filter((index) => !!selectedMap[String(index)]).length;
+              const sectionAllSelected = sectionSelectionIndexes.length > 0 && selectedSectionPhotoCount === sectionSelectionIndexes.length;
+              const sectionPartiallySelected = selectedSectionPhotoCount > 0 && !sectionAllSelected;
+              return (
+                <section
+                  id={group.domId}
+                  className={`detail-timeline-section${fileDragActive && railDropKey === sectionRailKey ? ' is-file-drop-over' : ''}`}
+                  key={sectionRailKey}
+                  data-file-drop-zone="1"
+                  onDragOver={(e) => {
+                    if (!fileDragActive) return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'copy';
+                    if (railDropKey !== sectionRailKey) setRailDropKey(sectionRailKey);
+                  }}
+                  onDragLeave={() => {
+                    if (fileDragActive) setRailDropKey((prev) => prev === sectionRailKey ? null : prev);
+                  }}
+                  onDrop={(e) => {if (fileDragActive) handleDirectFileDrop(e, group.id || '');}}>
+                  
                     <div className="detail-timeline-head">
                       <div className="detail-timeline-title">
                         <span>{group.name}</span>
-                        {deleteMode && sectionSelectionIndexes.length ? (
-                          <label
-                            className="detail-timeline-section-selectall"
-                            title={sectionAllSelected ? `取消全选${group.name}` : `全选${group.name}`}
-                            onClick={(event) => event.stopPropagation()}
-                          >
+                        {deleteMode && sectionSelectionIndexes.length ?
+                      <label
+                        className="detail-timeline-section-selectall"
+                        title={sectionAllSelected ? `取消全选${group.name}` : `全选${group.name}`}
+                        onClick={(event) => event.stopPropagation()}>
+                        
                             <input
-                              type="checkbox"
-                              className="mamage-photo-check-input"
-                              checked={sectionAllSelected}
-                              ref={(node) => { if (node) node.indeterminate = sectionPartiallySelected; }}
-                              onChange={() => toggleSelectTimelineSection(group.id)}
-                              aria-label={`${sectionAllSelected ? '取消全选' : '全选'}${group.name}`}
-                            />
+                          type="checkbox"
+                          className="mamage-photo-check-input"
+                          checked={sectionAllSelected}
+                          ref={(node) => {if (node) node.indeterminate = sectionPartiallySelected;}}
+                          onChange={() => toggleSelectTimelineSection(group.id)}
+                          aria-label={`${sectionAllSelected ? '取消全选' : '全选'}${group.name}`} />
+                        
                             <span className="mamage-photo-checkmark" aria-hidden="true" />
                             <span>全选</span>
-                          </label>
-                        ) : null}
+                          </label> :
+                      null}
                         {group.sectionTime ? <em>{group.sectionTime}</em> : null}
                       </div>
                       <span className="detail-timeline-count">{deleteMode ? sectionSelectionIndexes.length : group.items.length} 张</span>
                     </div>
-                    {group.items.length ? renderTimelineGroupItems(group) : (
-                      <div
-                        className={`detail-timeline-empty${isMobile ? ' is-mobile-upload' : photoDragActive || fileDragActive ? ' is-drop-ready' : ''}`}
-                        onDragOver={(e) => { if (photoDragActive || fileDragActive) { e.preventDefault(); e.dataTransfer.dropEffect = fileDragActive ? 'copy' : 'move'; } }}
-                        onDrop={(e) => handleRailDrop(e, group)}
-                      >
-                        {isMobile ? '该环节暂无照片' : fileDragActive ? '松手上传到该环节' : (photoDragActive ? '松手移入该环节' : '该环节暂无照片 · 可拖拽照片移入')}
+                    {group.items.length ? renderTimelineGroupItems(group) :
+                  <div
+                    className={`detail-timeline-empty${isMobile ? ' is-mobile-upload' : photoDragActive || fileDragActive ? ' is-drop-ready' : ''}`}
+                    onDragOver={(e) => {if (photoDragActive || fileDragActive) {e.preventDefault();e.dataTransfer.dropEffect = fileDragActive ? 'copy' : 'move';}}}
+                    onDrop={(e) => handleRailDrop(e, group)}>
+                    
+                        {isMobile ? '该环节暂无照片' : fileDragActive ? '松手上传到该环节' : photoDragActive ? '松手移入该环节' : '该环节暂无照片 · 可拖拽照片移入'}
                       </div>
-                    )}
-                  </section>
-                  );
-                })}
+                  }
+                  </section>);
+
+            })}
               </div>
-            </div>
-          ) : galleryMode === 'masonry' && !searchKeywordTrimmed ? (
-            <div className="detail-masonry-columns" style={{ '--masonry-cols': masonryColumns }}>
-              {masonryBuckets.map((bucket, colIdx) => (
-                <div className="detail-masonry-column" key={`masonry-col-${colIdx}`}>
+            </div> :
+        galleryMode === 'masonry' && !searchKeywordTrimmed ?
+        <div className="detail-masonry-columns" style={{ '--masonry-cols': masonryColumns }}>
+              {masonryBuckets.map((bucket, colIdx) =>
+          <div className="detail-masonry-column" key={`masonry-col-${colIdx}`}>
                   {bucket.map(({ src, idx }) => renderPhotoItem(src, idx))}
                 </div>
-              ))}
-            </div>
-          ) : (
-            visiblePhotoItems.map(({ src, idx }) => renderPhotoItem(src, idx))
-          )
-        )}
-        {!loading && !error && galleryPrepared && hasMoreGalleryPhotos ? (
-          <div className="detail-gallery-more" ref={galleryMoreRef}>
+          )}
+            </div> :
+
+        visiblePhotoItems.map(({ src, idx }) => renderPhotoItem(src, idx)))
+
+        }
+        {!loading && !error && galleryPrepared && hasMoreGalleryPhotos ?
+        <div className="detail-gallery-more" ref={galleryMoreRef}>
             <Button type="tertiary" onClick={loadMoreGalleryPhotos}>
               加载更多{mediaFilter === 'video' ? '视频' : '照片'}（已显示 {visiblePhotoCount} / {mediaFilteredIndexes.length}）
             </Button>
-          </div>
-        ) : null}
+          </div> :
+        null}
         {searchKeywordTrimmed && !hasMoreGalleryPhotos && searchHasMore ? <div className="detail-gallery-more">
-          <Button disabled={searching} loading={searching} onClick={() => setSearchPage(value => value + 1)}
-            aria-label="加载更多检索结果">加载更多检索结果{Number.isFinite(searchTotal) ? `（已检索 ${images.length} / ${searchTotal}）` : ''}</Button>
+          <Button disabled={searching} loading={searching} onClick={() => setSearchPage((value) => value + 1)}
+          aria-label="加载更多检索结果">加载更多检索结果{Number.isFinite(searchTotal) ? `（已检索 ${images.length} / ${searchTotal}）` : ''}</Button>
         </div> : null}
-        {deleteMode ? (
-          <div className="detail-selection-inline is-expanded">
+        {deleteMode ?
+        <div className="detail-selection-inline is-expanded">
             <div className="detail-selection-actions">
               <Button className="detail-selection-btn detail-selection-btn--select" onClick={toggleSelectAll}>{allSelected ? '取消全选' : '全选'}</Button>
-              {canDeletePhotos && ownPhotosOnly ? (
-                <Button className="detail-selection-btn" onClick={selectOwnUploads} type="tertiary">仅选我上传的</Button>
-              ) : null}
+              {canDeletePhotos && ownPhotosOnly ?
+            <Button className="detail-selection-btn" onClick={selectOwnUploads} type="tertiary">仅选我上传的</Button> :
+            null}
               {canPackDownload ? <Button className="detail-selection-btn detail-selection-btn--download" onClick={packDownloadSelected} type="tertiary">直接下载</Button> : null}
-              {uploadTimelineSections.length > 0 ? (
-                <IfCan perms={['photos.edit']}>
+              {uploadTimelineSections.length > 0 ?
+            <IfCan perms={['photos.edit']}>
                   <Button
-                    className="detail-selection-btn"
-                    type="tertiary"
-                    disabled={selectedCount <= 0 || assigningSection}
-                    loading={assigningSection}
-                    onClick={() => setMoveSectionVisible(true)}
-                    title={selectedCount > 0 ? `把 ${selectedCount} 张照片移入环节` : '先选择照片'}
-                  >
+                className="detail-selection-btn"
+                type="tertiary"
+                disabled={selectedCount <= 0 || assigningSection}
+                loading={assigningSection}
+                onClick={() => setMoveSectionVisible(true)}
+                title={selectedCount > 0 ? `把 ${selectedCount} 张照片移入环节` : '先选择照片'}>
+                
                     移入环节{selectedCount > 0 ? ` (${selectedCount})` : ''}
                   </Button>
-                </IfCan>
-              ) : null}
+                </IfCan> :
+            null}
             </div>
-          </div>
-        ) : null}
+          </div> :
+        null}
 
-        {!isMobile && fileDragActive && canUploadPhotos ? (
-          <div className="detail-file-drop-overlay" aria-hidden="true">
+        {!isMobile && fileDragActive && canUploadPhotos ?
+        <div className="detail-file-drop-overlay" aria-hidden="true">
             <div className="detail-file-drop-overlay-card">
               {useTimelineGallery ? '拖到目标环节或左侧导航，松手上传' : '松手上传到相册'}
             </div>
-          </div>
-        ) : null}
+          </div> :
+        null}
 
         {/* 编辑弹窗 */}
         <AlbumFormModal
@@ -6053,34 +6053,34 @@ function ProjectDetailInner({
           className="detail-edit-modal"
           visible={editVisible}
           onOk={saveEdit}
-          onCancel={() => { if (!editSaving) setEditVisible(false); }}
+          onCancel={() => {if (!editSaving) setEditVisible(false);}}
           okText="保存"
           cancelText="取消"
           okButtonProps={{ loading: editSaving }}
           closable={!editSaving}
           maskClosable={!editSaving}
-          width={560}
-        >
+          width={560}>
+          
           <div className="detail-edit-modal-body">
             <AlbumDetailsFields
               title={editTitle}
               onTitleChange={setEditTitle}
               description={editDescription}
               onDescriptionChange={setEditDescription}
-              eventDate={editEventDate instanceof Date && !Number.isNaN(editEventDate.getTime())
-                ? `${editEventDate.getFullYear()}-${String(editEventDate.getMonth() + 1).padStart(2, '0')}-${String(editEventDate.getDate()).padStart(2, '0')}`
-                : ''}
+              eventDate={editEventDate instanceof Date && !Number.isNaN(editEventDate.getTime()) ?
+              `${editEventDate.getFullYear()}-${String(editEventDate.getMonth() + 1).padStart(2, '0')}-${String(editEventDate.getDate()).padStart(2, '0')}` :
+              ''}
               onEventDateChange={(value) => setEditEventDate(value ? new Date(`${value}T00:00:00`) : null)}
               tags={editTags}
               onTagsChange={setEditTags}
               showTags={canUpdateProject || canEditTags}
-              disabled={editSaving}
-            />
-            {canDeleteProject ? (
-              <div className="detail-edit-danger-zone">
+              disabled={editSaving} />
+            
+            {canDeleteProject ?
+            <div className="detail-edit-danger-zone">
                 <Button className="detail-edit-delete-btn" type="danger" onClick={handleDeleteProject} loading={deletingProject} disabled={deletingProject || editSaving}>删除相册</Button>
-              </div>
-            ) : null}
+              </div> :
+            null}
           </div>
         </AlbumFormModal>
 
@@ -6090,16 +6090,16 @@ function ProjectDetailInner({
           className="detail-edit-modal"
           visible={timelineEditVisible}
           onCancel={() => setTimelineEditVisible(false)}
-          footer={(
-            <Button type="primary" onClick={() => setTimelineEditVisible(false)}>完成</Button>
-          )}
+          footer={
+          <Button type="primary" onClick={() => setTimelineEditVisible(false)}>完成</Button>
+          }
           width={isMobile ? 'calc(100vw - 16px)' : 560}
-          bodyStyle={{ maxHeight: '62vh', overflowY: 'auto', padding: isMobile ? '12px' : undefined }}
-        >
+          bodyStyle={{ maxHeight: '62vh', overflowY: 'auto', padding: isMobile ? '12px' : undefined }}>
+          
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {uploadTimelineSections.length === 0 ? (
-              <Text style={{ color: 'var(--mg-text-2, #888)' }}>还没有环节，先在下方添加一个。</Text>
-            ) : uploadTimelineSections.map((section, idx) => {
+            {uploadTimelineSections.length === 0 ?
+            <Text style={{ color: 'var(--mg-text-2, #888)' }}>还没有环节，先在下方添加一个。</Text> :
+            uploadTimelineSections.map((section, idx) => {
               const key = String(section.id || '');
               const edit = sectionRowEdits[key] || { name: section.name || '', sectionTime: section.sectionTime || '' };
               const dirty = edit.name !== (section.name || '') || (edit.sectionTime || '') !== (section.sectionTime || '');
@@ -6109,54 +6109,54 @@ function ProjectDetailInner({
               return (
                 <div
                   key={key || section.key}
-                  onDragOver={(e) => { if (dragSectionIdx !== null) { e.preventDefault(); setDragOverSectionIdx(idx); } }}
-                  onDrop={(e) => { e.preventDefault(); commitSectionDrag(idx); }}
+                  onDragOver={(e) => {if (dragSectionIdx !== null) {e.preventDefault();setDragOverSectionIdx(idx);}}}
+                  onDrop={(e) => {e.preventDefault();commitSectionDrag(idx);}}
                   style={{
                     display: 'flex', gap: 6, alignItems: 'center', flexWrap: isMobile ? 'wrap' : 'nowrap',
                     borderRadius: 8, padding: '2px 0',
                     outline: isDragOver ? '2px solid rgba(76,141,255,0.75)' : 'none',
-                    opacity: dragSectionIdx === idx ? 0.5 : 1,
-                  }}
-                >
-                  {!isMobile ? (
-                    <span
-                      draggable={!timelineBusy}
-                      onDragStart={(e) => {
-                        setDragSectionIdx(idx);
-                        try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', key); } catch (err) { }
-                      }}
-                      onDragEnd={() => { setDragSectionIdx(null); setDragOverSectionIdx(null); }}
-                      title="拖拽调整顺序"
-                      style={{ cursor: 'grab', userSelect: 'none', padding: '0 4px', color: 'var(--mg-text-2, #999)', fontSize: 16, lineHeight: 1 }}
-                      aria-label={`拖拽移动环节 ${section.name}`}
-                    >⠿</span>
-                  ) : null}
+                    opacity: dragSectionIdx === idx ? 0.5 : 1
+                  }}>
+                  
+                  {!isMobile ?
+                  <span
+                    draggable={!timelineBusy}
+                    onDragStart={(e) => {
+                      setDragSectionIdx(idx);
+                      try {e.dataTransfer.effectAllowed = 'move';e.dataTransfer.setData('text/plain', key);} catch (err) {}
+                    }}
+                    onDragEnd={() => {setDragSectionIdx(null);setDragOverSectionIdx(null);}}
+                    title="拖拽调整顺序"
+                    style={{ cursor: 'grab', userSelect: 'none', padding: '0 4px', color: 'var(--mg-text-2, #999)', fontSize: 16, lineHeight: 1 }}
+                    aria-label={`拖拽移动环节 ${section.name}`}>
+                    ⠿</span> :
+                  null}
                   <Input
                     value={edit.name}
                     onChange={(v) => setSectionRowEdits((prev) => ({ ...prev, [key]: { ...edit, name: v } }))}
                     placeholder="环节名称"
-                    style={{ flex: 2, minWidth: 110 }}
-                  />
+                    style={{ flex: 2, minWidth: 110 }} />
+                  
                   <DateTimePicker
                     value={timeInputValue}
                     onChange={(v) => setSectionRowEdits((prev) => ({ ...prev, [key]: { ...edit, sectionTime: inputValueToSectionTime(v) } }))}
                     clearable
                     title={legacyTimeText ? `原时间文本：${legacyTimeText}（重新选择后覆盖）` : '环节时间'}
-                    style={{ flex: 1.4, minWidth: 168 }}
-                  />
-                  {isMobile ? (
-                    <>
+                    style={{ flex: 1.4, minWidth: 168 }} />
+                  
+                  {isMobile ?
+                  <>
                       <Button theme="borderless" disabled={timelineBusy || idx === 0} onClick={() => handleMoveSectionOrder(section.id, -1)} title="上移">↑</Button>
                       <Button theme="borderless" disabled={timelineBusy || idx === uploadTimelineSections.length - 1} onClick={() => handleMoveSectionOrder(section.id, 1)} title="下移">↓</Button>
-                    </>
-                  ) : null}
+                    </> :
+                  null}
                   <Button type="primary" theme="borderless" disabled={timelineBusy || !dirty} onClick={() => handleSaveSectionRow(section.id)}>保存</Button>
                   <Button type="danger" theme="borderless" disabled={timelineBusy} onClick={() => handleDeleteSection(section)}>删除</Button>
-                  {legacyTimeText ? (
-                    <span style={{ flexBasis: '100%', fontSize: 12, color: 'var(--mg-text-2, #999)' }}>原时间文本：{legacyTimeText}（重新选择后覆盖）</span>
-                  ) : null}
-                </div>
-              );
+                  {legacyTimeText ?
+                  <span style={{ flexBasis: '100%', fontSize: 12, color: 'var(--mg-text-2, #999)' }}>原时间文本：{legacyTimeText}（重新选择后覆盖）</span> :
+                  null}
+                </div>);
+
             })}
             <div style={{ borderTop: '1px solid rgba(128,128,128,0.25)', paddingTop: 10, display: 'flex', gap: 6, alignItems: 'center', flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
               <Input value={timelineDraftName} onChange={(v) => setTimelineDraftName(v)} placeholder="新环节名称" style={{ flex: 2, minWidth: 110 }} />
@@ -6165,8 +6165,8 @@ function ProjectDetailInner({
                 onChange={(v) => setTimelineDraftTime(inputValueToSectionTime(v))}
                 clearable
                 title="环节时间（可选）"
-                style={{ flex: 1.4, minWidth: 168 }}
-              />
+                style={{ flex: 1.4, minWidth: 168 }} />
+              
               <Button type="primary" loading={timelineBusy} disabled={timelineBusy} onClick={handleAddSection}>添加环节</Button>
             </div>
             <Text style={{ fontSize: 12, color: 'var(--mg-text-2, #888)' }}>{isMobile ? '重命名/改时间后点该行"保存"；删除环节时照片会回落到"未归类"。' : '拖动 ⠿ 调整顺序；重命名/改时间后点该行"保存"；删除环节时照片会回落到"未归类"。'}</Text>
@@ -6180,26 +6180,26 @@ function ProjectDetailInner({
           visible={moveSectionVisible}
           onCancel={() => setMoveSectionVisible(false)}
           footer={null}
-          width={isMobile ? 'calc(100vw - 16px)' : 420}
-        >
+          width={isMobile ? 'calc(100vw - 16px)' : 420}>
+          
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: '52vh', overflowY: 'auto' }}>
-            {uploadTimelineSections.map((section) => (
-              <Button
-                key={String(section.id || section.key)}
-                theme="light"
-                disabled={assigningSection || !section.id}
-                onClick={() => handleAssignSelectedToSection(section.id)}
-                style={{ justifyContent: 'flex-start', textAlign: 'left' }}
-              >
+            {uploadTimelineSections.map((section) =>
+            <Button
+              key={String(section.id || section.key)}
+              theme="light"
+              disabled={assigningSection || !section.id}
+              onClick={() => handleAssignSelectedToSection(section.id)}
+              style={{ justifyContent: 'flex-start', textAlign: 'left' }}>
+              
                 {section.name}{section.sectionTime ? `（${section.sectionTime}）` : ''}
               </Button>
-            ))}
+            )}
             <Button
               theme="borderless"
               disabled={assigningSection}
               onClick={() => handleAssignSelectedToSection(null)}
-              style={{ justifyContent: 'flex-start', textAlign: 'left' }}
-            >
+              style={{ justifyContent: 'flex-start', textAlign: 'left' }}>
+              
               移出环节（未归类）
             </Button>
           </div>
@@ -6214,77 +6214,77 @@ function ProjectDetailInner({
           footer={null}
           size="large"
           width={isMobile ? 'calc(100vw - 16px)' : undefined}
-          bodyStyle={isMobile ? { maxHeight: '72vh', overflowY: 'auto', padding: '10px 12px 12px' } : undefined}
-        >
+          bodyStyle={isMobile ? { maxHeight: '72vh', overflowY: 'auto', padding: '10px 12px 12px' } : undefined}>
+          
           <div className="similarity-modal-body">
-            {canDeletePhotos ? (
-              <div className="similarity-toolbar">
-                {!simDeleteMode ? (
-                  <Button onClick={() => setSimDeleteMode(true)} type="tertiary">批量选择</Button>
-                ) : (
-                  <>
-                    <Button onClick={() => { setSimDeleteMode(false); setSimSelectedMap({}); setSimSelectedCount(0); }} type="tertiary">取消选择</Button>
+            {canDeletePhotos ?
+            <div className="similarity-toolbar">
+                {!simDeleteMode ?
+              <Button onClick={() => setSimDeleteMode(true)} type="tertiary">批量选择</Button> :
+
+              <>
+                    <Button onClick={() => {setSimDeleteMode(false);setSimSelectedMap({});setSimSelectedCount(0);}} type="tertiary">取消选择</Button>
                     <PermButton perms={['photos.delete']} onClick={confirmSimDelete} type="danger" loading={simDeleting}
-                      disabled={simDeleting || !simSelectedCount || Object.keys(simSelectedMap).some(id => !canDeleteItem(simPhotos[id]))}>
+                disabled={simDeleting || !simSelectedCount || Object.keys(simSelectedMap).some((id) => !canDeleteItem(simPhotos[id]))}>
                       {ownPhotosOnly ? '删除我的' : '删除'} ({simSelectedCount})
                     </PermButton>
                   </>
-                )}
-              </div>
-            ) : null}
-            {simLoading ? (
-              <div className="similarity-state">
+              }
+              </div> :
+            null}
+            {simLoading ?
+            <div className="similarity-state">
                 <Spin tip="正在加载相似照片" />
-              </div>
-            ) : simError ? (
-              <div className="similarity-state">
+              </div> :
+            simError ?
+            <div className="similarity-state">
                 <Text type="danger">{simError}</Text>
                 <Button onClick={loadSimGroups}>重试</Button>
-              </div>
-            ) : (simGroups && simGroups.length) ? (
-              <div className="similarity-list">
+              </div> :
+            simGroups && simGroups.length ?
+            <div className="similarity-list">
                 {simGroups.map((g, gi) => {
-                  const deletableGroup = g.filter(id => canDeleteItem(simPhotos[id]));
-                  // 组内 AI 最高分 = 建议保留（至少两张有分才有比较意义）
-                  const scoredIds = g
-                    .map((id) => ({ id: String(id), score: getPhotoAiScore(simPhotos[id]) }))
-                    .filter((x) => x.score !== null);
-                  const bestId = scoredIds.length >= 2
-                    ? scoredIds.reduce((a, b) => (b.score > a.score ? b : a)).id
-                    : null;
-                  return (
+                const deletableGroup = g.filter((id) => canDeleteItem(simPhotos[id]));
+                // 组内 AI 最高分 = 建议保留（至少两张有分才有比较意义）
+                const scoredIds = g.
+                map((id) => ({ id: String(id), score: getPhotoAiScore(simPhotos[id]) })).
+                filter((x) => x.score !== null);
+                const bestId = scoredIds.length >= 2 ?
+                scoredIds.reduce((a, b) => b.score > a.score ? b : a).id :
+                null;
+                return (
                   <div key={gi} className="similarity-group">
                     <div className="similarity-group-head">
                       <span>相似组 {gi + 1}</span>
                       <span className="similarity-group-head-side">
                         <span className="similarity-group-count">{g.length} 张照片</span>
-                        {canDeletePhotos && simDeleteMode && bestId && deletableGroup.length > 0 ? (
-                          <button
-                            type="button"
-                            className="similarity-group-selectall similarity-group-keepbest"
-                            title="选中有删除权限且非 AI 最高分的照片"
-                            onClick={() => selectSimGroupExceptBest(g, bestId)}
-                          >
+                        {canDeletePhotos && simDeleteMode && bestId && deletableGroup.length > 0 ?
+                        <button
+                          type="button"
+                          className="similarity-group-selectall similarity-group-keepbest"
+                          title="选中有删除权限且非 AI 最高分的照片"
+                          onClick={() => selectSimGroupExceptBest(g, bestId)}>
+                          
                             仅留最佳
-                          </button>
-                        ) : null}
-                        {canDeletePhotos && simDeleteMode && deletableGroup.length > 0 ? (
-                          <button
-                            type="button"
-                            className="similarity-group-selectall"
-                            onClick={() => toggleSimSelectGroup(deletableGroup)}
-                          >
-                            {deletableGroup.every((id) => simSelectedMap[String(id)]) ? '取消全选' : (ownPhotosOnly ? '全选我的' : '全选本组')}
-                          </button>
-                        ) : null}
+                          </button> :
+                        null}
+                        {canDeletePhotos && simDeleteMode && deletableGroup.length > 0 ?
+                        <button
+                          type="button"
+                          className="similarity-group-selectall"
+                          onClick={() => toggleSimSelectGroup(deletableGroup)}>
+                          
+                            {deletableGroup.every((id) => simSelectedMap[String(id)]) ? '取消全选' : ownPhotosOnly ? '全选我的' : '全选本组'}
+                          </button> :
+                        null}
                       </span>
                     </div>
                     <div className="similarity-group-images">
                       {g.map((id) => {
                         const p = simPhotos[id];
-                        const thumb = p ? (p.thumbUrl || p.url || p.thumbSrc || p.originalSrc) : null;
-                        const titleText = p ? (p.title || p.name || `#${id}`) : `#${id}`;
-                        const url = thumb || (p && (p.url || p.originalSrc)) || (BASE_URL ? `${BASE_URL}/photos/${id}` : `/api/photos/${id}`);
+                        const thumb = p ? p.thumbUrl || p.url || p.thumbSrc || p.originalSrc : null;
+                        const titleText = p ? p.title || p.name || `#${id}` : `#${id}`;
+                        const url = thumb || p && (p.url || p.originalSrc) || (BASE_URL ? `${BASE_URL}/photos/${id}` : `/api/photos/${id}`);
                         const selected = !!simSelectedMap[String(id)];
                         const aiScore = getPhotoAiScore(p);
                         const aiLabel = getSimAiLabel(p);
@@ -6292,70 +6292,70 @@ function ProjectDetailInner({
                         const isBest = bestId !== null && String(id) === bestId;
                         return (
                           <div key={id} className={`similarity-thumb${selected ? ' is-selected' : ''}`}>
-                            {aiScore !== null ? (
-                              <div
-                                className={`similarity-thumb-ai${isBest ? ' is-best' : ''}`}
-                                style={isBest ? undefined : { color: getAISelectionColor(aiLabel) }}
-                                title={formatAiQualityTooltip(aiQuality, aiScore) || undefined}
-                              >
+                            {aiScore !== null ?
+                            <div
+                              className={`similarity-thumb-ai${isBest ? ' is-best' : ''}`}
+                              style={isBest ? undefined : { color: getAISelectionColor(aiLabel) }}
+                              title={formatAiQualityTooltip(aiQuality, aiScore) || undefined}>
+                              
                                 {isBest ? `建议保留 ${aiScore}` : `${getAISelectionLabel(aiLabel).replace(/^AI/, '')} ${aiScore}`}
-                              </div>
-                            ) : null}
-                            {thumb ? (
-                              <img src={thumb} alt={titleText} className="similarity-thumb-img" onClick={() => {
-                                if (simDeleteMode && canDeleteItem(p)) {
-                                  toggleSimSelect(String(id));
-                                  return;
-                                }
-                                // try to open in viewer by finding index
-                                const findIdx = (photoMetas || []).findIndex(m => String(m.id) === String(id));
-                                if (findIdx >= 0) {
-                                  closeSimilarityModal();
-                                  setTimeout(() => {
-                                    openViewerAt(findIdx, thumb || url);
-                                  }, 0);
-                                } else {
-                                  window.open(url, '_blank');
-                                }
-                              }} />
-                            ) : (
-                              <div className="similarity-thumb-empty" />
-                            )}
-                            {canDeletePhotos && canDeleteItem(p) && simDeleteMode && (
-                              <label className="similarity-select-mark" onClick={(event) => event.stopPropagation()}>
+                              </div> :
+                            null}
+                            {thumb ?
+                            <img src={thumb} alt={titleText} className="similarity-thumb-img" onClick={() => {
+                              if (simDeleteMode && canDeleteItem(p)) {
+                                toggleSimSelect(String(id));
+                                return;
+                              }
+                              // try to open in viewer by finding index
+                              const findIdx = (photoMetas || []).findIndex((m) => String(m.id) === String(id));
+                              if (findIdx >= 0) {
+                                closeSimilarityModal();
+                                setTimeout(() => {
+                                  openViewerAt(findIdx, thumb || url);
+                                }, 0);
+                              } else {
+                                window.open(url, '_blank');
+                              }
+                            }} /> :
+
+                            <div className="similarity-thumb-empty" />
+                            }
+                            {canDeletePhotos && canDeleteItem(p) && simDeleteMode &&
+                            <label className="similarity-select-mark" onClick={(event) => event.stopPropagation()}>
                                 <input type="checkbox" className="mamage-photo-check-input" checked={selected}
-                                  onChange={() => toggleSimSelect(String(id))}
-                                  aria-label={`${selected ? '取消选择' : '选择'}${titleText}`} />
+                              onChange={() => toggleSimSelect(String(id))}
+                              aria-label={`${selected ? '取消选择' : '选择'}${titleText}`} />
                                 <span className="mamage-photo-checkmark" aria-hidden="true" />
                               </label>
-                            )}
+                            }
                             <div className="similarity-thumb-foot">
                               <div className="similarity-thumb-title">{titleText}</div>
-                              {canDeletePhotos && canDeleteItem(p) && !simDeleteMode && (
-                                <button
-                                  type="button"
-                                  className="similarity-thumb-delete"
-                                  aria-label={`删除 ${titleText}`}
-                                  disabled={simDeleting}
-                                  onClick={(e) => { e.stopPropagation(); confirmSimDeleteOne(id, titleText); }}
-                                >
+                              {canDeletePhotos && canDeleteItem(p) && !simDeleteMode &&
+                              <button
+                                type="button"
+                                className="similarity-thumb-delete"
+                                aria-label={`删除 ${titleText}`}
+                                disabled={simDeleting}
+                                onClick={(e) => {e.stopPropagation();confirmSimDeleteOne(id, titleText);}}>
+                                
                                   <IconTrash />
                                 </button>
-                              )}
+                              }
                             </div>
-                          </div>
-                        );
+                          </div>);
+
                       })}
                     </div>
-                  </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="similarity-state">
+                  </div>);
+
+              })}
+              </div> :
+
+            <div className="similarity-state">
                 <Empty description="未发现相似分组" />
               </div>
-            )}
+            }
           </div>
         </Modal>
 
@@ -6363,8 +6363,8 @@ function ProjectDetailInner({
           visible={externalImportVisible}
           onClose={() => setExternalImportVisible(false)}
           projectId={projectId}
-          onStarted={() => setExternalImportRefreshKey((value) => value + 1)}
-        />
+          onStarted={() => setExternalImportRefreshKey((value) => value + 1)} />
+        
 
         <AlbumFormModal
           title="上传照片与视频"
@@ -6375,47 +6375,47 @@ function ProjectDetailInner({
           onCancel={uploading ? () => Toast.warning('正在上传，请等待完成') : cancelUpload}
           okButtonProps={{
             loading: uploading,
-            disabled: !stagingFiles.length || (uploadTimelineEnabled && uploadTimelineSections.length && hasUnassignedStagedFiles),
+            disabled: !stagingFiles.length || uploadTimelineEnabled && uploadTimelineSections.length && hasUnassignedStagedFiles
           }}
           okText="确认上传"
           cancelText="取消"
           closable={!uploading}
           width={isMobile ? 'calc(100vw - 12px)' : 720}
-          className="detail-upload-modal"
-        >
+          className="detail-upload-modal">
+          
           <div className={`detail-upload-body${isMobile ? ' is-mobile-upload' : ''}`}>
-            {uploadTimelineEnabled && uploadTimelineSections.length ? (
-              <div className="detail-upload-timeline-panel">
+            {uploadTimelineEnabled && uploadTimelineSections.length ?
+            <div className="detail-upload-timeline-panel">
                 <div className="detail-upload-timeline-title">选择上传环节</div>
                 <div className="detail-upload-timeline" role="radiogroup" aria-label="上传环节">
                   <div className="detail-upload-timeline-track" aria-hidden="true" />
                   {uploadTimelineSections.map((section, index) => {
-                    const sectionId = String(section.id || '');
-                    const active = sectionId === String(selectedUploadSectionId || '');
-                    const stagedCount = stagingCountBySectionId.get(sectionId) || 0;
-                    return (
-                      <button
-                        key={section.key || sectionId}
-                        type="button"
-                        disabled={uploading}
-                        className={`detail-upload-timeline-node ${index % 2 ? 'is-lower' : 'is-upper'}${active ? ' is-active' : ''}`}
-                        onClick={() => setSelectedUploadSectionId(sectionId)}
-                        role="radio"
-                        aria-checked={active}
-                      >
+                  const sectionId = String(section.id || '');
+                  const active = sectionId === String(selectedUploadSectionId || '');
+                  const stagedCount = stagingCountBySectionId.get(sectionId) || 0;
+                  return (
+                    <button
+                      key={section.key || sectionId}
+                      type="button"
+                      disabled={uploading}
+                      className={`detail-upload-timeline-node ${index % 2 ? 'is-lower' : 'is-upper'}${active ? ' is-active' : ''}`}
+                      onClick={() => setSelectedUploadSectionId(sectionId)}
+                      role="radio"
+                      aria-checked={active}>
+                      
                         <span className="detail-upload-node-dot" aria-hidden="true" />
                         <span className="detail-upload-node-label">{section.name || '未命名环节'}</span>
                         {section.sectionTime ? <span className="detail-upload-node-time">{section.sectionTime}</span> : null}
                         {stagedCount ? <span className="detail-upload-node-count">{stagedCount}</span> : null}
-                      </button>
-                    );
-                  })}
+                      </button>);
+
+                })}
                 </div>
                 <div className="detail-upload-current-hint">
                   {selectedUploadSection ? `请上传「${selectedUploadSection.name}」环节照片或视频` : '请选择要上传的环节'}
                 </div>
-              </div>
-            ) : null}
+              </div> :
+            null}
 
             {!uploading ? <button
               type="button"
@@ -6444,35 +6444,35 @@ function ProjectDetailInner({
                 e.preventDefault();
                 setDragActive(false);
                 if (e.dataTransfer && e.dataTransfer.files) handleFilesSelected(e.dataTransfer.files, selectedUploadSectionId);
-              }}
-            >
+              }}>
+              
               <IconPlus />
               <span>
-                {uploadTimelineEnabled && uploadTimelineSections.length
-                  ? (selectedUploadSection ? `为「${selectedUploadSection.name}」添加照片/视频` : '请选择环节后上传')
-                  : (stagingFiles.length ? `继续添加（${stagingFiles.length} 个）` : isMobile ? '选择照片或视频' : '选择或拖入照片/视频')}
+                {uploadTimelineEnabled && uploadTimelineSections.length ?
+                selectedUploadSection ? `为「${selectedUploadSection.name}」添加照片/视频` : '请选择环节后上传' :
+                stagingFiles.length ? `继续添加（${stagingFiles.length} 个）` : isMobile ? '选择照片或视频' : '选择或拖入照片/视频'}
               </span>
             </button> : null}
 
             <UploadProgressSummary progress={uploadProgress} />
 
             <div className="detail-upload-section-groups">
-              {stagedUploadGroups.map((group) => (
-                <section
-                  key={group.key}
-                  className={`detail-upload-section-group${group.active ? ' is-active' : ''}`}
-                  onDragOver={isMobile ? undefined : (e) => {
-                    e.preventDefault();
-                    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
-                  }}
-                  onDrop={isMobile ? undefined : (e) => {
-                    e.preventDefault();
-                    if (uploading) { Toast.warning('正在上传，请等待完成'); return; }
-                    if (e.dataTransfer && e.dataTransfer.files) handleFilesSelected(e.dataTransfer.files, group.sectionId);
-                    // 拖到明确环节=明确上传意图：空闲时暂存落定后自动开始，无需再点「确认上传」
-                    if (!uploading) setAutoUploadTicket((t) => t + 1);
-                  }}
-                >
+              {stagedUploadGroups.map((group) =>
+              <section
+                key={group.key}
+                className={`detail-upload-section-group${group.active ? ' is-active' : ''}`}
+                onDragOver={isMobile ? undefined : (e) => {
+                  e.preventDefault();
+                  if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+                }}
+                onDrop={isMobile ? undefined : (e) => {
+                  e.preventDefault();
+                  if (uploading) {Toast.warning('正在上传，请等待完成');return;}
+                  if (e.dataTransfer && e.dataTransfer.files) handleFilesSelected(e.dataTransfer.files, group.sectionId);
+                  // 拖到明确环节=明确上传意图：空闲时暂存落定后自动开始，无需再点「确认上传」
+                  if (!uploading) setAutoUploadTicket((t) => t + 1);
+                }}>
+                
                   <div className="detail-upload-section-head">
                     <div className="detail-upload-section-title">
                       <span>{group.name}</span>
@@ -6480,92 +6480,92 @@ function ProjectDetailInner({
                     </div>
                     <span className="detail-upload-section-count">{group.items.length} 个</span>
                   </div>
-                  {group.items.length ? (
-                    <div className="detail-upload-preview-grid">
+                  {group.items.length ?
+                <div className="detail-upload-preview-grid">
                       {group.items.map((item) => {
-                        const itemProgress = uploadProgress?.items?.[getUploadFileKey(item.file)] || null;
-                        const showItemStatus = itemProgress && itemProgress.phase !== 'queued';
-                        const itemFailed = itemProgress?.status === 'rejected' || itemProgress?.phase === 'failed';
-                        const itemDone = itemProgress?.status === 'fulfilled' || itemProgress?.phase === 'done';
-                        const isPreviewVideo = isVideoMeta(item.file);
-                        const isPreviewUndisplayable = !isPreviewVideo && isBrowserUndisplayableImage(item.file);
-                        // 占位：视频 / 铁定显示不了(tiff/raw) / heic 试真预览但解码失败(非 Safari)
-                        const showPreviewPlaceholder = !isPreviewVideo && (
-                          isNeverBrowserPreviewable(item.file) || !item.preview || failedPreviews.has(item.preview)
-                        );
-                        return (
-                          <div
-                            key={`${item.index}-${item.preview || item.file.name}`}
-                            className={`detail-upload-preview-item${isPreviewVideo ? ' is-video' : ''}${uploadTimelineEnabled && uploadTimelineSections.length ? ' has-section-select' : ''}`}
-                          >
-                            {isPreviewVideo ? (
-                              <>
+                    const itemProgress = uploadProgress?.items?.[getUploadFileKey(item.file)] || null;
+                    const showItemStatus = itemProgress && itemProgress.phase !== 'queued';
+                    const itemFailed = itemProgress?.status === 'rejected' || itemProgress?.phase === 'failed';
+                    const itemDone = itemProgress?.status === 'fulfilled' || itemProgress?.phase === 'done';
+                    const isPreviewVideo = isVideoMeta(item.file);
+                    const isPreviewUndisplayable = !isPreviewVideo && isBrowserUndisplayableImage(item.file);
+                    // 占位：视频 / 铁定显示不了(tiff/raw) / heic 试真预览但解码失败(非 Safari)
+                    const showPreviewPlaceholder = !isPreviewVideo && (
+                    isNeverBrowserPreviewable(item.file) || !item.preview || failedPreviews.has(item.preview));
+
+                    return (
+                      <div
+                        key={`${item.index}-${item.preview || item.file.name}`}
+                        className={`detail-upload-preview-item${isPreviewVideo ? ' is-video' : ''}${uploadTimelineEnabled && uploadTimelineSections.length ? ' has-section-select' : ''}`}>
+                        
+                            {isPreviewVideo ?
+                        <>
                                 <span className="detail-upload-preview-video-placeholder">
                                   <span>VIDEO</span>
                                 </span>
                                 {!showItemStatus && <span className="detail-upload-preview-video-badge">视频</span>}
-                              </>
-                            ) : showPreviewPlaceholder ? (
-                              <>
+                              </> :
+                        showPreviewPlaceholder ?
+                        <>
                                 <span className="detail-upload-preview-video-placeholder">
                                   <span>{undisplayableFormatLabel(item.file)}</span>
                                 </span>
                                 <span className="detail-upload-preview-video-badge">{isPreviewUndisplayable ? '转JPEG' : '预览失败'}</span>
-                              </>
-                            ) : (
-                              <img
-                                src={item.preview}
-                                alt={`preview-${item.index}`}
-                                className="detail-upload-preview-media"
-                                onError={() => markPreviewFailed(item.preview)}
-                              />
-                            )}
+                              </> :
+
+                        <img
+                          src={item.preview}
+                          alt={`preview-${item.index}`}
+                          className="detail-upload-preview-media"
+                          onError={() => markPreviewFailed(item.preview)} />
+
+                        }
                             <button
-                              type="button"
-                              className="detail-upload-preview-remove"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                removeStagingFile(item.index);
-                              }}
-                              disabled={uploading}
-                              aria-label="移除媒体"
-                              title="移除"
-                            >
+                          type="button"
+                          className="detail-upload-preview-remove"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeStagingFile(item.index);
+                          }}
+                          disabled={uploading}
+                          aria-label="移除媒体"
+                          title="移除">
+                          
                               ×
                             </button>
-                            {showItemStatus ? (
-                              <span className={`detail-upload-preview-status${itemDone ? ' is-done' : itemFailed ? ' is-failed' : ''}`}>
+                            {showItemStatus ?
+                        <span className={`detail-upload-preview-status${itemDone ? ' is-done' : itemFailed ? ' is-failed' : ''}`}>
                                 {getUploadPhaseLabel(itemProgress.phase, itemProgress.status)}
-                              </span>
-                            ) : null}
-                            {uploadTimelineEnabled && uploadTimelineSections.length ? (
-                              <select
-                                className="detail-upload-preview-section"
-                                value={item.sectionId}
-                                onChange={(e) => assignStagingFileSection(item.index, e.target.value)}
-                                disabled={uploading}
-                                aria-label="调整媒体环节"
-                              >
+                              </span> :
+                        null}
+                            {uploadTimelineEnabled && uploadTimelineSections.length ?
+                        <select
+                          className="detail-upload-preview-section"
+                          value={item.sectionId}
+                          onChange={(e) => assignStagingFileSection(item.index, e.target.value)}
+                          disabled={uploading}
+                          aria-label="调整媒体环节">
+                          
                                 <option value="">未选择环节</option>
-                                {uploadTimelineSections.map((section) => (
-                                  <option key={section.key || section.id} value={section.id}>
+                                {uploadTimelineSections.map((section) =>
+                          <option key={section.key || section.id} value={section.id}>
                                     {section.name || '未命名环节'}
                                   </option>
-                                ))}
-                              </select>
-                            ) : null}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="detail-upload-section-empty">{isMobile ? '暂无媒体' : '暂无媒体，可直接拖入这一环节'}</div>
-                  )}
+                          )}
+                              </select> :
+                        null}
+                          </div>);
+
+                  })}
+                    </div> :
+
+                <div className="detail-upload-section-empty">{isMobile ? '暂无媒体' : '暂无媒体，可直接拖入这一环节'}</div>
+                }
                 </section>
-              ))}
-              {!stagedUploadGroups.length ? (
-                <div className="detail-upload-section-empty">请选择照片或视频后上传</div>
-              ) : null}
+              )}
+              {!stagedUploadGroups.length ?
+              <div className="detail-upload-section-empty">请选择照片或视频后上传</div> :
+              null}
             </div>
           </div>
         </AlbumFormModal>
@@ -6579,347 +6579,347 @@ function ProjectDetailInner({
           footer={null}
           zIndex={10050}
           width={isMobile ? 'calc(100vw - 12px)' : 760}
-          bodyStyle={{ maxHeight: isMobile ? '72vh' : '70vh', overflowY: 'auto' }}
-        >
-          {facePersonLoading ? (
-            <div className="person-sheet-progress" role="status"><span aria-hidden="true" />正在读取人物资料…</div>
-          ) : null}
+          bodyStyle={{ maxHeight: isMobile ? '72vh' : '70vh', overflowY: 'auto' }}>
+          
+          {facePersonLoading ?
+          <div className="person-sheet-progress" role="status"><span aria-hidden="true" />正在读取人物资料…</div> :
+          null}
 
-          {facePersonError ? (
-            <div className="person-sheet-error">
+          {facePersonError ?
+          <div className="person-sheet-error">
               <Text type="danger">{facePersonError}</Text>
-              {facePersonNameConflict && canSplitFacePerson && facePersonData?.personId && !faceMergeVisible ? (
-                <Button size="small" theme="light" onClick={() => { resetFaceSplitState(); setFaceMergeVisible(true); }}>查找同名人物</Button>
-              ) : facePersonNameConflict && !canSplitFacePerson ? (
-                <span>如需合并，请联系有合并权限的管理员。</span>
-              ) : null}
-            </div>
-          ) : null}
+              {facePersonNameConflict && canSplitFacePerson && facePersonData?.personId && !faceMergeVisible ?
+            <Button size="small" theme="light" onClick={() => {resetFaceSplitState();setFaceMergeVisible(true);}}>查找同名人物</Button> :
+            facePersonNameConflict && !canSplitFacePerson ?
+            <span>如需合并，请联系有合并权限的管理员。</span> :
+            null}
+            </div> :
+          null}
 
-          {facePersonData ? (
-            (() => {
-              const relatedPhotos = Array.isArray(facePersonData.relatedPhotos) ? facePersonData.relatedPhotos : [];
-              const heroPhoto = facePersonHeroPhoto || relatedPhotos[0] || null;
-              // 主图优先用服务端裁好的头像(data URI)：直接铺满，无需下原图、无需 CSS 缩放定位 → 秒开不卡。
-              // 没有(旧数据/裁剪失败)才回退老路径：缩略图优先，再退原图。
-              const avatarSrc = facePersonData.avatarDataUrl || '';
-              const heroSrc = avatarSrc || (heroPhoto ? (heroPhoto.thumbUrl || heroPhoto.url || '') : '');
-              const heroImgStyle = avatarSrc
-                ? { width: '100%', height: '100%', objectFit: 'cover' }
-                : getFaceHeroImageStyle(facePersonData, heroPhoto);
+          {facePersonData ?
+          (() => {
+            const relatedPhotos = Array.isArray(facePersonData.relatedPhotos) ? facePersonData.relatedPhotos : [];
+            const heroPhoto = facePersonHeroPhoto || relatedPhotos[0] || null;
+            // 主图优先用服务端裁好的头像(data URI)：直接铺满，无需下原图、无需 CSS 缩放定位 → 秒开不卡。
+            // 没有(旧数据/裁剪失败)才回退老路径：缩略图优先，再退原图。
+            const avatarSrc = facePersonData.avatarDataUrl || '';
+            const heroSrc = avatarSrc || (heroPhoto ? heroPhoto.thumbUrl || heroPhoto.url || '' : '');
+            const heroImgStyle = avatarSrc ?
+            { width: '100%', height: '100%', objectFit: 'cover' } :
+            getFaceHeroImageStyle(facePersonData, heroPhoto);
 
-              return (
-                <div className="person-sheet">
+            return (
+              <div className="person-sheet">
                   <div className="person-sheet-hero">
                     <div className="person-sheet-avatar">
-                      {heroSrc ? (
-                        <img src={heroSrc} alt={facePersonData.displayName} style={heroImgStyle} loading="lazy" decoding="async" />
-                      ) : (
-                        <div className="person-sheet-avatar-empty">无头像</div>
-                      )}
+                      {heroSrc ?
+                    <img src={heroSrc} alt={facePersonData.displayName} style={heroImgStyle} loading="lazy" decoding="async" /> :
+
+                    <div className="person-sheet-avatar-empty">无头像</div>
+                    }
                     </div>
                     <div className="person-sheet-meta">
                       <div className="person-sheet-name-row">
                         <Tag size="large" type="solid" color="blue">
                           {facePersonData.displayName}
                         </Tag>
-                        {facePersonData.personId ? (
-                          <Tag size="small" type="light" color="grey">人物ID: {facePersonData.personId}</Tag>
-                        ) : null}
-                        {facePersonData.faceId ? (
-                          <Tag size="small" type="light" color="grey">人脸ID: {facePersonData.faceId}</Tag>
-                        ) : null}
+                        {facePersonData.personId ?
+                      <Tag size="small" type="light" color="grey">人物ID: {facePersonData.personId}</Tag> :
+                      null}
+                        {facePersonData.faceId ?
+                      <Tag size="small" type="light" color="grey">人脸ID: {facePersonData.faceId}</Tag> :
+                      null}
                       </div>
 
-                      {facePersonData.description ? (
-                        <div className="person-sheet-desc">{facePersonData.description}</div>
-                      ) : null}
+                      {facePersonData.description ?
+                    <div className="person-sheet-desc">{facePersonData.description}</div> :
+                    null}
 
                       <div className="person-sheet-stats">该组织下该人物照片：{facePersonLoading ? '读取中…' : facePersonError && !facePersonData.photoTotalKnown ? '暂不可用' : facePersonData.photoTotal}</div>
 
                       <div className="person-sheet-edit-row">
                         <Input
-                          value={facePersonEditName}
-                          onChange={(v) => {
-                            setFacePersonEditName(v);
-                            if (facePersonNameConflict) { setFacePersonNameConflict(null); setFacePersonError(''); }
-                          }}
-                          placeholder={facePersonData.personId ? '输入人物姓名' : '输入姓名并绑定到该人脸'}
-                          disabled={!canEditFacePersonName || facePersonSaving || facePersonLoading}
-                          maxLength={80}
-                          style={{ flex: 1 }}
-                        />
+                        value={facePersonEditName}
+                        onChange={(v) => {
+                          setFacePersonEditName(v);
+                          if (facePersonNameConflict) {setFacePersonNameConflict(null);setFacePersonError('');}
+                        }}
+                        placeholder={facePersonData.personId ? '输入人物姓名' : '输入姓名并绑定到该人脸'}
+                        disabled={!canEditFacePersonName || facePersonSaving || facePersonLoading}
+                        maxLength={80}
+                        style={{ flex: 1 }} />
+                      
                         <Button
-                          theme="solid"
-                          type="primary"
-                          onClick={saveFacePersonName}
-                          loading={facePersonSaving}
-                          disabled={!canEditFacePersonName || facePersonSaving || facePersonLoading}
-                        >
+                        theme="solid"
+                        type="primary"
+                        onClick={saveFacePersonName}
+                        loading={facePersonSaving}
+                        disabled={!canEditFacePersonName || facePersonSaving || facePersonLoading}>
+                        
                           保存姓名
                         </Button>
                       </div>
-                      {!canEditFacePersonName ? (
-                        <Text type="tertiary" size="small">你没有人物档案维护权限</Text>
-                      ) : null}
+                      {!canEditFacePersonName ?
+                    <Text type="tertiary" size="small">你没有人物档案维护权限</Text> :
+                    null}
                     </div>
                   </div>
 
-                  {!faceSplitMode && !faceMergeVisible && canSplitFacePerson && facePersonData.personId ? (
-                    <div className="person-sheet-face-actions">
-                      <Button size="small" theme="light" onClick={() => { setFacePersonNameConflict(null); setFaceMergeVisible(true); }}>合并人物</Button>
-                      {facePersonData.photoTotal >= 2 ? (
-                        <Button size="small" theme="light" onClick={startFaceSplit} loading={faceSplitLoading}>拆分人物</Button>
-                      ) : null}
-                    </div>
-                  ) : null}
+                  {!faceSplitMode && !faceMergeVisible && canSplitFacePerson && facePersonData.personId ?
+                <div className="person-sheet-face-actions">
+                      <Button size="small" theme="light" onClick={() => {setFacePersonNameConflict(null);setFaceMergeVisible(true);}}>合并人物</Button>
+                      {facePersonData.photoTotal >= 2 ?
+                  <Button size="small" theme="light" onClick={startFaceSplit} loading={faceSplitLoading}>拆分人物</Button> :
+                  null}
+                    </div> :
+                null}
 
-                  {faceMergeVisible && facePersonData.personId ? (
-                    <FacePersonMerge currentPerson={facePersonData} initialQuery={facePersonNameConflict?.name || ''} onCancel={() => setFaceMergeVisible(false)} onMerged={handleFacePersonsMerged} />
-                  ) : null}
+                  {faceMergeVisible && facePersonData.personId ?
+                <FacePersonMerge currentPerson={facePersonData} initialQuery={facePersonNameConflict?.name || ''} onCancel={() => setFaceMergeVisible(false)} onMerged={handleFacePersonsMerged} /> :
+                null}
 
-                  {faceSplitMode === 'select' ? (
-                    <div className="person-split">
+                  {faceSplitMode === 'select' ?
+                <div className="person-split">
                       <div className="person-split-head">
                         <div className="person-split-title">系统认错人了？</div>
                         <div className="person-split-sub">
                           点选不属于「{facePersonData.displayName || `人物#${facePersonData.personId}`}」的脸（可多选），预览中会建议本人物下相似的人脸一起拆出，由你确认后保存
                         </div>
                       </div>
-                      {faceSplitError ? (
-                        <div className="person-split-error"><Text type="danger">{faceSplitError}</Text></div>
-                      ) : null}
-                      {faceSplitLoading ? (
-                        <div className="person-split-loading"><Text type="tertiary">正在整理该人物的人脸…</Text></div>
-                      ) : (
-                        <>
+                      {faceSplitError ?
+                  <div className="person-split-error"><Text type="danger">{faceSplitError}</Text></div> :
+                  null}
+                      {faceSplitLoading ?
+                  <div className="person-split-loading"><Text type="tertiary">正在整理该人物的人脸…</Text></div> :
+
+                  <>
                           <div className="person-split-grid">
-                            {faceSplitFaces.map((f) => (
-                              <button
-                                type="button"
-                                key={`split-seed-${f.faceId}`}
-                                className={`person-split-chip${faceSplitSeedIds.has(String(f.faceId)) ? ' is-selected' : ''}`}
-                                onClick={(e) => { e.stopPropagation(); toggleFaceSplitSeed(f.faceId); }}
-                                title={f.photoTitle || `照片 ${f.photoId}`}
-                              >
-                                {f.avatarDataUrl || f.thumbUrl ? (
-                                  <img src={f.avatarDataUrl || f.thumbUrl} alt={f.photoTitle || '人脸'} loading="lazy" decoding="async" />
-                                ) : (
-                                  <span className="person-split-chip-empty">无图</span>
-                                )}
+                            {faceSplitFaces.map((f) =>
+                      <button
+                        type="button"
+                        key={`split-seed-${f.faceId}`}
+                        className={`person-split-chip${faceSplitSeedIds.has(String(f.faceId)) ? ' is-selected' : ''}`}
+                        onClick={(e) => {e.stopPropagation();toggleFaceSplitSeed(f.faceId);}}
+                        title={f.photoTitle || `照片 ${f.photoId}`}>
+                        
+                                {f.avatarDataUrl || f.thumbUrl ?
+                        <img src={f.avatarDataUrl || f.thumbUrl} alt={f.photoTitle || '人脸'} loading="lazy" decoding="async" /> :
+
+                        <span className="person-split-chip-empty">无图</span>
+                        }
                                 {faceSplitSeedIds.has(String(f.faceId)) ? <span className="person-split-chip-check">✓</span> : null}
                               </button>
-                            ))}
+                      )}
                             {!faceSplitFaces.length ? <Text type="tertiary">该人物暂无人脸数据</Text> : null}
                           </div>
-                          {faceSplitHasMore ? (
-                            <div className="person-split-more">
+                          {faceSplitHasMore ?
+                    <div className="person-split-more">
                               <Button size="small" theme="borderless" loading={faceSplitLoadingMore} onClick={loadMoreFaceSplitFaces}>
                                 加载更多（已显示 {faceSplitFaces.length}/{faceSplitTotal}）
                               </Button>
-                            </div>
-                          ) : null}
+                            </div> :
+                    null}
                         </>
-                      )}
+                  }
                       <div className="person-split-actions">
                         <Text type="tertiary" size="small">已选 {faceSplitSeedIds.size} 张</Text>
                         <div className="person-split-actions-btns">
                           <Button size="small" theme="borderless" onClick={exitFaceSplit}>取消</Button>
                           <Button
-                            size="small"
-                            theme="solid"
-                            type="warning"
-                            disabled={!faceSplitSeedIds.size}
-                            loading={faceSplitPreviewing}
-                            onClick={runFaceSplitPreview}
-                          >
+                        size="small"
+                        theme="solid"
+                        type="warning"
+                        disabled={!faceSplitSeedIds.size}
+                        loading={faceSplitPreviewing}
+                        onClick={runFaceSplitPreview}>
+                        
                             智能拆分预览
                           </Button>
                         </div>
                       </div>
-                    </div>
-                  ) : null}
+                    </div> :
+                null}
 
                   {faceSplitMode === 'preview' && faceSplitPreview ? (() => {
-                    const allSplitFaces = [
-                      ...(faceSplitPreview.moveFaces || []),
-                      ...(faceSplitPreview.keepFaces || []),
-                      ...(faceSplitPreview.undecidedFaces || []),
-                    ];
-                    const seenFaceIds = new Set();
-                    const uniqueSplitFaces = allSplitFaces.filter((f) => {
-                      const fid = String(f?.faceId || '');
-                      if (!fid || seenFaceIds.has(fid)) return false;
-                      seenFaceIds.add(fid);
-                      return true;
-                    });
-                    const undecidedIds = new Set((faceSplitPreview.undecidedFaces || []).map((f) => String(f?.faceId || '')));
-                    const seedBadgeIds = faceSplitSeedIds;
-                    const moveList = uniqueSplitFaces.filter((f) => faceSplitMoveIds.has(String(f.faceId)));
-                    const keepList = uniqueSplitFaces.filter((f) => !faceSplitMoveIds.has(String(f.faceId)));
-                    const totalFaces = Number(faceSplitPreview.stats?.totalFaces) || uniqueSplitFaces.length;
-                    return (
-                      <div className="person-split">
+                  const allSplitFaces = [
+                  ...(faceSplitPreview.moveFaces || []),
+                  ...(faceSplitPreview.keepFaces || []),
+                  ...(faceSplitPreview.undecidedFaces || [])];
+
+                  const seenFaceIds = new Set();
+                  const uniqueSplitFaces = allSplitFaces.filter((f) => {
+                    const fid = String(f?.faceId || '');
+                    if (!fid || seenFaceIds.has(fid)) return false;
+                    seenFaceIds.add(fid);
+                    return true;
+                  });
+                  const undecidedIds = new Set((faceSplitPreview.undecidedFaces || []).map((f) => String(f?.faceId || '')));
+                  const seedBadgeIds = faceSplitSeedIds;
+                  const moveList = uniqueSplitFaces.filter((f) => faceSplitMoveIds.has(String(f.faceId)));
+                  const keepList = uniqueSplitFaces.filter((f) => !faceSplitMoveIds.has(String(f.faceId)));
+                  const totalFaces = Number(faceSplitPreview.stats?.totalFaces) || uniqueSplitFaces.length;
+                  return (
+                    <div className="person-split">
                         <div className="person-split-head">
                           <div className="person-split-title">拆分预览</div>
                           <div className="person-split-sub">
                             拆出 {moveList.length} 张 · 保留 {Math.max(0, totalFaces - moveList.length)} 张 · 点头像可调整分组
                           </div>
                         </div>
-                        {faceSplitError ? (
-                          <div className="person-split-error"><Text type="danger">{faceSplitError}</Text></div>
-                        ) : null}
+                        {faceSplitError ?
+                      <div className="person-split-error"><Text type="danger">{faceSplitError}</Text></div> :
+                      null}
                         <div className="person-split-group">
                           <div className="person-split-group-title">拆出成新人物（{moveList.length}）</div>
                           <div className="person-split-grid">
-                            {moveList.map((f) => (
-                              <button
-                                type="button"
-                                key={`split-move-${f.faceId}`}
-                                disabled={faceSplitConfirming || faceSplitSubmitting}
-                                className="person-split-chip is-move"
-                                onClick={(e) => { e.stopPropagation(); toggleFaceSplitMove(f.faceId); }}
-                                title={`${f.photoTitle || `照片 ${f.photoId}`}${Number.isFinite(Number(f.scoreSeed)) ? ` · 与种子相似度 ${f.scoreSeed}` : ''}`}
-                              >
-                                {f.avatarDataUrl || f.thumbUrl ? (
-                                  <img src={f.avatarDataUrl || f.thumbUrl} alt={f.photoTitle || '人脸'} loading="lazy" decoding="async" />
-                                ) : (
-                                  <span className="person-split-chip-empty">无图</span>
-                                )}
+                            {moveList.map((f) =>
+                          <button
+                            type="button"
+                            key={`split-move-${f.faceId}`}
+                            disabled={faceSplitConfirming || faceSplitSubmitting}
+                            className="person-split-chip is-move"
+                            onClick={(e) => {e.stopPropagation();toggleFaceSplitMove(f.faceId);}}
+                            title={`${f.photoTitle || `照片 ${f.photoId}`}${Number.isFinite(Number(f.scoreSeed)) ? ` · 与种子相似度 ${f.scoreSeed}` : ''}`}>
+                            
+                                {f.avatarDataUrl || f.thumbUrl ?
+                            <img src={f.avatarDataUrl || f.thumbUrl} alt={f.photoTitle || '人脸'} loading="lazy" decoding="async" /> :
+
+                            <span className="person-split-chip-empty">无图</span>
+                            }
                                 {seedBadgeIds.has(String(f.faceId)) ? <span className="person-split-chip-badge">种子</span> : null}
                               </button>
-                            ))}
+                          )}
                             {!moveList.length ? <Text type="tertiary">没有要拆出的脸</Text> : null}
                           </div>
                         </div>
                         <div className="person-split-group">
                           <div className="person-split-group-title">保留给「{facePersonData.displayName || `人物#${facePersonData.personId}`}」（{keepList.length}）</div>
                           <div className="person-split-grid">
-                            {keepList.map((f) => (
-                              <button
-                                type="button"
-                                key={`split-keep-${f.faceId}`}
-                                disabled={faceSplitConfirming || faceSplitSubmitting}
-                                className="person-split-chip"
-                                onClick={(e) => { e.stopPropagation(); toggleFaceSplitMove(f.faceId); }}
-                                title={f.photoTitle || `照片 ${f.photoId}`}
-                              >
-                                {f.avatarDataUrl || f.thumbUrl ? (
-                                  <img src={f.avatarDataUrl || f.thumbUrl} alt={f.photoTitle || '人脸'} loading="lazy" decoding="async" />
-                                ) : (
-                                  <span className="person-split-chip-empty">无图</span>
-                                )}
+                            {keepList.map((f) =>
+                          <button
+                            type="button"
+                            key={`split-keep-${f.faceId}`}
+                            disabled={faceSplitConfirming || faceSplitSubmitting}
+                            className="person-split-chip"
+                            onClick={(e) => {e.stopPropagation();toggleFaceSplitMove(f.faceId);}}
+                            title={f.photoTitle || `照片 ${f.photoId}`}>
+                            
+                                {f.avatarDataUrl || f.thumbUrl ?
+                            <img src={f.avatarDataUrl || f.thumbUrl} alt={f.photoTitle || '人脸'} loading="lazy" decoding="async" /> :
+
+                            <span className="person-split-chip-empty">无图</span>
+                            }
                                 {undecidedIds.has(String(f.faceId)) ? <span className="person-split-chip-badge is-undecided">拿不准</span> : null}
                               </button>
-                            ))}
+                          )}
                           </div>
                         </div>
                         <div className="person-split-name">
                           <Input
-                            value={faceSplitNewName}
-                            disabled={faceSplitConfirming || faceSplitSubmitting}
-                            onChange={(v) => setFaceSplitNewName(v)}
-                            placeholder="新人物姓名（可选，可稍后再改）"
-                            maxLength={80}
-                          />
+                          value={faceSplitNewName}
+                          disabled={faceSplitConfirming || faceSplitSubmitting}
+                          onChange={(v) => setFaceSplitNewName(v)}
+                          placeholder="新人物姓名（可选，可稍后再改）"
+                          maxLength={80} />
+                        
                         </div>
-                        {faceSplitConfirming ? (
-                          <div className="person-split-confirm" role="alertdialog" aria-label="确认拆分"
-                            aria-describedby="person-split-confirm-description" tabIndex={-1} ref={faceSplitConfirmRef}>
+                        {faceSplitConfirming ?
+                      <div className="person-split-confirm" role="alertdialog" aria-label="确认拆分"
+                      aria-describedby="person-split-confirm-description" tabIndex={-1} ref={faceSplitConfirmRef}>
                             <strong>确认拆分</strong>
                             <p id="person-split-confirm-description">从「{facePersonData.displayName || `人物#${facePersonData.personId}`}」拆出 {moveList.length} 张脸到{faceSplitNewName.trim() ? `「${faceSplitNewName.trim()}」` : '新人物'}，原人物保留 {Math.max(0, totalFaces - moveList.length)} 张。不会删除照片。</p>
                             <div className="person-split-actions-btns">
                               <Button size="small" theme="borderless" disabled={faceSplitSubmitting}
-                                onClick={() => setFaceSplitConfirming(false)}>返回检查</Button>
+                          onClick={() => setFaceSplitConfirming(false)}>返回检查</Button>
                               <Button size="small" theme="solid" type="danger" loading={faceSplitSubmitting}
-                                onClick={confirmFaceSplit}>确认并保存</Button>
+                          onClick={confirmFaceSplit}>确认并保存</Button>
                             </div>
-                          </div>
-                        ) : <div className="person-split-actions">
+                          </div> :
+                      <div className="person-split-actions">
                           <Text type="tertiary" size="small">确认后保存本次分组，拿不准的人脸可继续手动调整</Text>
                           <div className="person-split-actions-btns">
                             <Button size="small" theme="borderless" onClick={() => setFaceSplitMode('select')}>返回重选</Button>
                             <Button
-                              size="small"
-                              theme="solid"
-                              type="danger"
-                              disabled={!faceSplitMoveIds.size}
-                              loading={faceSplitSubmitting}
-                              onClick={confirmFaceSplit}
-                            >
+                            size="small"
+                            theme="solid"
+                            type="danger"
+                            disabled={!faceSplitMoveIds.size}
+                            loading={faceSplitSubmitting}
+                            onClick={confirmFaceSplit}>
+                            
                               确认拆分
                             </Button>
                           </div>
                         </div>}
-                      </div>
-                    );
-                  })() : null}
+                      </div>);
 
-                  {!faceSplitMode && !faceMergeVisible && relatedPhotos.length > 0 ? (
-                    <div className="person-sheet-grid">
+                })() : null}
+
+                  {!faceSplitMode && !faceMergeVisible && relatedPhotos.length > 0 ?
+                <div className="person-sheet-grid">
                       {relatedPhotos.map((item, idx) => {
-                        const thumb = item.thumbUrl || item.url || '';
-                        const titleText = item.title || `照片 ${idx + 1}`;
-                        const albumLabel = item.projectName || (item.projectId ? `相册 #${item.projectId}` : '原图');
-                        return (
-                          <article className="person-sheet-card" key={`${item.id || 'face-photo'}-${idx}`}>
+                    const thumb = item.thumbUrl || item.url || '';
+                    const titleText = item.title || `照片 ${idx + 1}`;
+                    const albumLabel = item.projectName || (item.projectId ? `相册 #${item.projectId}` : '原图');
+                    return (
+                      <article className="person-sheet-card" key={`${item.id || 'face-photo'}-${idx}`}>
                             <button
-                              type="button"
-                              className="person-sheet-thumb-btn"
-                              onClick={() => openRelatedFacePhoto(item)}
-                              title="点击预览照片"
-                            >
-                              {thumb ? (
-                                <img
-                                  src={thumb}
-                                  alt={titleText}
-                                  className="person-sheet-thumb"
-                                  loading="lazy"
-                                  decoding="async"
-                                />
-                              ) : (
-                                <div className="person-sheet-thumb person-sheet-thumb-empty">无图</div>
-                              )}
+                          type="button"
+                          className="person-sheet-thumb-btn"
+                          onClick={() => openRelatedFacePhoto(item)}
+                          title="点击预览照片">
+                          
+                              {thumb ?
+                          <img
+                            src={thumb}
+                            alt={titleText}
+                            className="person-sheet-thumb"
+                            loading="lazy"
+                            decoding="async" /> :
+
+
+                          <div className="person-sheet-thumb person-sheet-thumb-empty">无图</div>
+                          }
                             </button>
 
                             <div className="person-sheet-card-body">
                               <div className="person-sheet-card-title" title={titleText}>{titleText}</div>
                               <button
-                                type="button"
-                                className="person-sheet-album-link"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (!item.projectId || typeof window === 'undefined') return;
-                                  const target = buildPhotoFocusUrl(item.projectId, item.id || item.photoId || item.photo_id);
-                                  if (target) window.open(target, '_blank', 'noopener,noreferrer');
-                                }}
-                                title="跳转相册"
-                              >
+                            type="button"
+                            className="person-sheet-album-link"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (!item.projectId || typeof window === 'undefined') return;
+                              const target = buildPhotoFocusUrl(item.projectId, item.id || item.photoId || item.photo_id);
+                              if (target) window.open(target, '_blank', 'noopener,noreferrer');
+                            }}
+                            title="跳转相册">
+                            
                                 {albumLabel}
                               </button>
                             </div>
-                          </article>
-                        );
-                      })}
-                    </div>
-                  ) : !faceSplitMode && !faceMergeVisible ? (
-                    !facePersonLoading && <Empty description="暂无关联照片" />
-                  ) : null}
-                  {!faceSplitMode && !faceMergeVisible && facePersonData.photoHasMore ? (
-                    <div className="person-sheet-more">
+                          </article>);
+
+                  })}
+                    </div> :
+                !faceSplitMode && !faceMergeVisible ?
+                !facePersonLoading && <Empty description="暂无关联照片" /> :
+                null}
+                  {!faceSplitMode && !faceMergeVisible && facePersonData.photoHasMore ?
+                <div className="person-sheet-more">
                       {facePersonPhotosError && <div role="alert">{facePersonPhotosError}</div>}
                       <Button loading={facePersonPhotosLoading} onClick={loadMoreFacePersonPhotos}>加载更多（已显示 {relatedPhotos.length}/{facePersonData.photoTotal}）</Button>
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })()
-          ) : null}
+                    </div> :
+                null}
+                </div>);
+
+          })() :
+          null}
         </Modal>
 
         {/* Image viewer overlay (no container) */}
         {viewerVisible ? createPortal(
-        <div className="viewer-overlay viewer-overlay--workspace is-open" {...viewerAppearance.surfaceProps} onClick={closeViewer} role="dialog" aria-modal="true" aria-label="媒体查看器">
+          <div className="viewer-overlay viewer-overlay--workspace is-open" {...viewerAppearance.surfaceProps} onClick={closeViewer} role="dialog" aria-modal="true" aria-label="媒体查看器">
             <div className="mamage-dynamic-backdrop viewer-backdrop" aria-hidden="true" />
             <div className={`viewer-wrap${viewerDetailsVisible || viewerToneVisible ? ' has-details' : ''}${viewerToneVisible ? ' has-tone-editor' : ''}`} style={{ '--viewer-direction': viewerDirection }}>
               {/* 顶部状态栏：关闭+计数+摄影师·环节 | AI 分+推荐+原图开关（只读状态集中于此） */}
@@ -6929,25 +6929,25 @@ function ProjectDetailInner({
                     <IconClose />
                   </button>
                   <span className="viewer-topbar-counter">
-                    {(activeViewerSeq && activeViewerSeq.length && activeViewerSeq.indexOf(viewerIndex) >= 0)
-                      ? `${activeViewerSeq.indexOf(viewerIndex) + 1} / ${activeViewerSeq.length} · ${viewerSeq ? '找我结果' : '我上传的'}`
-                      : `${Math.min(viewerIndex + 1, images.length)} / ${images.length}`}
+                    {activeViewerSeq && activeViewerSeq.length && activeViewerSeq.indexOf(viewerIndex) >= 0 ?
+                    `${activeViewerSeq.indexOf(viewerIndex) + 1} / ${activeViewerSeq.length} · ${viewerSeq ? '找我结果' : '我上传的'}` :
+                    `${Math.min(viewerIndex + 1, images.length)} / ${images.length}`}
                   </span>
                   <strong className="viewer-topbar-title" title={photoMetas?.[viewerIndex]?.title || ''}>
                     {photoMetas?.[viewerIndex]?.title || (currentViewerIsVideo ? '视频预览' : '照片预览')}
                   </strong>
                   {(() => {
-                    const meta = (photoMetas && photoMetas[viewerIndex]) || {};
+                    const meta = photoMetas && photoMetas[viewerIndex] || {};
                     const rawName = meta.photographerName || meta.photographer_name || meta.photographer || (meta.photographerId ? String(meta.photographerId) : null) || (meta.photographer_id ? String(meta.photographer_id) : null);
                     let label = rawName && String(rawName).trim() ? String(rawName) : null;
                     if (!label) {
                       try {
-                        const list = (project && (project.photos || project.images || project.gallery)) || (initialProject && (initialProject.photos || initialProject.images || initialProject.gallery)) || [];
-                        const found = Array.isArray(list) ? list.find(p => p && (String(p.id) === String(meta.id) || String(p.photoId) === String(meta.id))) : null;
-                        const fb = found ? (found.photographerName || found.photographer || found.photographer_name || found.photographerId || found.photographer_id) : null;
+                        const list = project && (project.photos || project.images || project.gallery) || initialProject && (initialProject.photos || initialProject.images || initialProject.gallery) || [];
+                        const found = Array.isArray(list) ? list.find((p) => p && (String(p.id) === String(meta.id) || String(p.photoId) === String(meta.id))) : null;
+                        const fb = found ? found.photographerName || found.photographer || found.photographer_name || found.photographerId || found.photographer_id : null;
                         if (fb) label = String(fb);
-                      } catch (e) { /* ignore */ }
-                      if (!label) label = meta.photographerId ? `摄影师#${meta.photographerId}` : (meta.photographer_id ? `摄影师#${meta.photographer_id}` : null);
+                      } catch (e) {/* ignore */}
+                      if (!label) label = meta.photographerId ? `摄影师#${meta.photographerId}` : meta.photographer_id ? `摄影师#${meta.photographer_id}` : null;
                     }
                     const section = meta.timelineSectionName || null;
                     const text = [label, section].filter(Boolean).join(' · ');
@@ -6963,11 +6963,11 @@ function ProjectDetailInner({
                     return (
                       <span
                         className={`viewer-chip viewer-topbar-chip ${getAISelectionChipClass(label)}`}
-                        title={formatAiQualityTooltip(quality, score) || undefined}
-                      >
+                        title={formatAiQualityTooltip(quality, score) || undefined}>
+                        
                         {getAISelectionLabel(label)}{score !== null ? ` ${score}` : ''}
-                      </span>
-                    );
+                      </span>);
+
                   })() : null}
                   {(() => {
                     const pid = photoMetas?.[viewerIndex]?.id;
@@ -6975,15 +6975,15 @@ function ProjectDetailInner({
                     if (!(photoTagsMap[pid] || []).includes('推荐')) return null;
                     return <span className="viewer-chip viewer-topbar-chip viewer-chip--recommend">推荐</span>;
                   })()}
-                  {!currentViewerIsVideo && photoMetas && photoMetas[viewerIndex] ? (
-                    <button
-                      type="button"
-                      className={`viewer-topbar-toggle${viewerShowOriginal ? ' is-on' : ''}`}
-                      onClick={() => { setViewerEnableOpenZoom(false); setViewerShowOriginal((v) => !v); }}
-                    >
+                  {!currentViewerIsVideo && photoMetas && photoMetas[viewerIndex] ?
+                  <button
+                    type="button"
+                    className={`viewer-topbar-toggle${viewerShowOriginal ? ' is-on' : ''}`}
+                    onClick={() => {setViewerEnableOpenZoom(false);setViewerShowOriginal((v) => !v);}}>
+                    
                       {viewerShowOriginal ? '缩略图' : '原图'}
-                    </button>
-                  ) : null}
+                    </button> :
+                  null}
                   <ViewerDisplaySettings appearance={viewerAppearance.appearance} onChange={viewerAppearance.update} />
                 </div>
               </div>
@@ -6991,163 +6991,163 @@ function ProjectDetailInner({
                 className="viewer-img-wrap"
                 onPointerDown={handleViewerPointerDown}
                 onPointerUp={handleViewerPointerUp}
-                onPointerCancel={handleViewerPointerCancel}
-              >
-                {photoMetas && photoMetas[viewerIndex] ? (
-                  <>
+                onPointerCancel={handleViewerPointerCancel}>
+                
+                {photoMetas && photoMetas[viewerIndex] ?
+                <>
                     <div className="viewer-img-stage" onClick={(e) => e.stopPropagation()}>
                       <div className="viewer-carousel" style={viewerTrackStyle}>
                         {images.map((_, idx) => {
-                          const slideSrc = idx === viewerIndex && viewerShowOriginal
-                            ? getViewerTargetSrc(idx, true)
-                            : getViewerTargetSrc(idx, false);
-                          const slideMeta = photoMetas?.[idx] || null;
-                          const isSlideVideo = isVideoMeta(slideMeta);
-                          const slidePhotoId = getMetaPhotoId(slideMeta);
-                          const slideFaces = slidePhotoId ? (viewerFaceMap[slidePhotoId] || []) : [];
-                          const showFaceBoxes = !isSlideVideo && idx === viewerIndex && viewerFaceOverlayVisible && !viewerToneVisible && slideFaces.length > 0;
-                          const slideAdjustments = idx === viewerIndex && viewerToneVisible ? viewerToneDraft : getAdjustmentForPhoto(slideMeta);
-                          const slideAdjustmentStyle = getPhotoAdjustmentStyle(slideAdjustments);
-                          const useExactTonePreview = !isSlideVideo && idx === viewerIndex && !isDefaultPhotoAdjustments(slideAdjustments);
-                          return (
-                            <div className={`viewer-slide${idx === viewerIndex ? ' is-active' : ''}`} style={viewerSlideStyle} key={`viewer-slide-${idx}`}>
+                        const slideSrc = idx === viewerIndex && viewerShowOriginal ?
+                        getViewerTargetSrc(idx, true) :
+                        getViewerTargetSrc(idx, false);
+                        const slideMeta = photoMetas?.[idx] || null;
+                        const isSlideVideo = isVideoMeta(slideMeta);
+                        const slidePhotoId = getMetaPhotoId(slideMeta);
+                        const slideFaces = slidePhotoId ? viewerFaceMap[slidePhotoId] || [] : [];
+                        const showFaceBoxes = !isSlideVideo && idx === viewerIndex && viewerFaceOverlayVisible && !viewerToneVisible && slideFaces.length > 0;
+                        const slideAdjustments = idx === viewerIndex && viewerToneVisible ? viewerToneDraft : getAdjustmentForPhoto(slideMeta);
+                        const slideAdjustmentStyle = getPhotoAdjustmentStyle(slideAdjustments);
+                        const useExactTonePreview = !isSlideVideo && idx === viewerIndex && !isDefaultPhotoAdjustments(slideAdjustments);
+                        return (
+                          <div className={`viewer-slide${idx === viewerIndex ? ' is-active' : ''}`} style={viewerSlideStyle} key={`viewer-slide-${idx}`}>
                               <div className="viewer-face-image-surface">
-                                {isSlideVideo ? (
-                                  slideSrc ? (
-                                    <video
-                                      ref={(node) => {
-                                        if (!slidePhotoId) return;
-                                        if (node) viewerVideoRefs.current[slidePhotoId] = node;
-                                        else delete viewerVideoRefs.current[slidePhotoId];
-                                      }}
-                                      src={slideSrc}
-                                      className="viewer-carousel-img viewer-carousel-video"
-                                      controls
-                                      playsInline
-                                      preload="metadata"
-                                      onLoadedMetadata={(e) => {
-                                        if (!slidePhotoId || !e?.target) return;
-                                        const width = toFiniteNumber(e.target.videoWidth);
-                                        const height = toFiniteNumber(e.target.videoHeight);
-                                        if (!width || !height) return;
-                                        setViewerImageNaturalMap((prev) => ({ ...(prev || {}), [slidePhotoId]: { width, height } }));
-                                      }}
-                                    />
-                                  ) : (
-                                    <div className="viewer-carousel-img viewer-video-processing">
+                                {isSlideVideo ?
+                              slideSrc ?
+                              <video
+                                ref={(node) => {
+                                  if (!slidePhotoId) return;
+                                  if (node) viewerVideoRefs.current[slidePhotoId] = node;else
+                                  delete viewerVideoRefs.current[slidePhotoId];
+                                }}
+                                src={slideSrc}
+                                className="viewer-carousel-img viewer-carousel-video"
+                                controls
+                                playsInline
+                                preload="metadata"
+                                onLoadedMetadata={(e) => {
+                                  if (!slidePhotoId || !e?.target) return;
+                                  const width = toFiniteNumber(e.target.videoWidth);
+                                  const height = toFiniteNumber(e.target.videoHeight);
+                                  if (!width || !height) return;
+                                  setViewerImageNaturalMap((prev) => ({ ...(prev || {}), [slidePhotoId]: { width, height } }));
+                                }} /> :
+
+
+                              <div className="viewer-carousel-img viewer-video-processing">
                                       {getVideoUploadState(slideMeta) === 'failed' ? '视频处理失败' : '视频转码中，稍后可播放'}
-                                    </div>
-                                  )
-                                ) : (
-                                  <ViewerToneImage
-                                    src={slideSrc}
-                                    photoId={slidePhotoId}
-                                    adjustments={slideAdjustments}
-                                    exact={useExactTonePreview}
-                                    interactive={idx === viewerIndex && viewerToneVisible}
-                                    comparison={viewerToneHoldingOriginal ? 'original' : viewerToneComparison}
-                                    cropMode={viewerToneMode === 'crop'} cropAspect={viewerToneAspect} editingDisabled={viewerToneSaving}
-                                    onCropChange={crop => updateToneDraft('crop', crop)} onCropStart={beginToneGesture}
-                                    onCropEnd={() => { toneGestureRef.current = false; }} onSourceSize={setViewerToneSourceSize}
-                                    faces={idx === viewerIndex && viewerToneVisible ? slideFaces : undefined}
-                                    onAnalysis={receiveToneAnalysis}
-                                    onToneError={receiveToneError}
-                                    maxSize={viewerShowOriginal ? 2600 : 1600}
-                                    pixelVariant={viewerShowOriginal ? 'original' : 'thumb'}
-                                    alt={`viewer-${idx}`}
-                                    className={`viewer-carousel-img${idx === viewerIndex && viewerEnableOpenZoom ? ' viewer-img--open-zoom' : ''}`}
-                                    style={slideAdjustmentStyle}
-                                    onLoad={(e) => handleViewerImageLoad(slidePhotoId, e)}
-                                  />
-                                )}
-                                {showFaceBoxes ? (
-                                  <div className="viewer-face-layer">
-                                    {slideFaces.map((face, fidx) => (
-                                      <button
-                                        key={`${face.faceId || 'face'}-${fidx}`}
-                                        type="button"
-                                        className="viewer-face-box"
-                                        style={getViewerFaceBoxStyle(face, slidePhotoId)}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          openFacePersonModal(face);
-                                        }}
-                                        title={face.label || `人脸#${face.faceNo || (fidx + 1)}`}
-                                      >
-                                        <span className="viewer-face-box-label">
-                                          {face.label || `人脸#${face.faceNo || (fidx + 1)}`}
-                                        </span>
-                                      </button>
-                                    ))}
-                                  </div>
-                                ) : null}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </>
-                ) : images[viewerIndex] ? (
-                    <div className="viewer-img-stage" onClick={(e) => e.stopPropagation()}>
-                      <div className="viewer-carousel" style={viewerTrackStyle}>
-                        {images.map((src, idx) => {
-                          const fallbackAdjustments = idx === viewerIndex && viewerToneVisible ? viewerToneDraft : getAdjustmentForPhoto(photoMetas?.[idx]);
-                          const fallbackAdjustmentStyle = getPhotoAdjustmentStyle(fallbackAdjustments);
-                          const useExactTonePreview = idx === viewerIndex && !isDefaultPhotoAdjustments(fallbackAdjustments);
-                          return (
-                          <div className={`viewer-slide${idx === viewerIndex ? ' is-active' : ''}`} style={viewerSlideStyle} key={`viewer-fallback-slide-${idx}`}>
-                            <div className="viewer-face-image-surface">
+                                    </div> :
+
+
                               <ViewerToneImage
-                                src={src}
-                                photoId={getMetaPhotoId(photoMetas?.[idx])}
-                                adjustments={fallbackAdjustments}
+                                src={slideSrc}
+                                photoId={slidePhotoId}
+                                adjustments={slideAdjustments}
                                 exact={useExactTonePreview}
                                 interactive={idx === viewerIndex && viewerToneVisible}
                                 comparison={viewerToneHoldingOriginal ? 'original' : viewerToneComparison}
                                 cropMode={viewerToneMode === 'crop'} cropAspect={viewerToneAspect} editingDisabled={viewerToneSaving}
-                                onCropChange={crop => updateToneDraft('crop', crop)} onCropStart={beginToneGesture}
-                                onCropEnd={() => { toneGestureRef.current = false; }} onSourceSize={setViewerToneSourceSize}
-                                faces={idx === viewerIndex && viewerToneVisible ? currentViewerFaces : undefined}
+                                onCropChange={(crop) => updateToneDraft('crop', crop)} onCropStart={beginToneGesture}
+                                onCropEnd={() => {toneGestureRef.current = false;}} onSourceSize={setViewerToneSourceSize}
+                                faces={idx === viewerIndex && viewerToneVisible ? slideFaces : undefined}
                                 onAnalysis={receiveToneAnalysis}
                                 onToneError={receiveToneError}
+                                maxSize={viewerShowOriginal ? 2600 : 1600}
+                                pixelVariant={viewerShowOriginal ? 'original' : 'thumb'}
                                 alt={`viewer-${idx}`}
                                 className={`viewer-carousel-img${idx === viewerIndex && viewerEnableOpenZoom ? ' viewer-img--open-zoom' : ''}`}
-                                style={fallbackAdjustmentStyle}
-                              />
-                            </div>
-                          </div>
-                          );
-                        })}
+                                style={slideAdjustmentStyle}
+                                onLoad={(e) => handleViewerImageLoad(slidePhotoId, e)} />
+
+                              }
+                                {showFaceBoxes ?
+                              <div className="viewer-face-layer">
+                                    {slideFaces.map((face, fidx) =>
+                                <button
+                                  key={`${face.faceId || 'face'}-${fidx}`}
+                                  type="button"
+                                  className="viewer-face-box"
+                                  style={getViewerFaceBoxStyle(face, slidePhotoId)}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openFacePersonModal(face);
+                                  }}
+                                  title={face.label || `人脸#${face.faceNo || fidx + 1}`}>
+                                  
+                                        <span className="viewer-face-box-label">
+                                          {face.label || `人脸#${face.faceNo || fidx + 1}`}
+                                        </span>
+                                      </button>
+                                )}
+                                  </div> :
+                              null}
+                              </div>
+                            </div>);
+
+                      })}
                       </div>
                     </div>
-                ) : null}
+                  </> :
+                images[viewerIndex] ?
+                <div className="viewer-img-stage" onClick={(e) => e.stopPropagation()}>
+                      <div className="viewer-carousel" style={viewerTrackStyle}>
+                        {images.map((src, idx) => {
+                      const fallbackAdjustments = idx === viewerIndex && viewerToneVisible ? viewerToneDraft : getAdjustmentForPhoto(photoMetas?.[idx]);
+                      const fallbackAdjustmentStyle = getPhotoAdjustmentStyle(fallbackAdjustments);
+                      const useExactTonePreview = idx === viewerIndex && !isDefaultPhotoAdjustments(fallbackAdjustments);
+                      return (
+                        <div className={`viewer-slide${idx === viewerIndex ? ' is-active' : ''}`} style={viewerSlideStyle} key={`viewer-fallback-slide-${idx}`}>
+                            <div className="viewer-face-image-surface">
+                              <ViewerToneImage
+                              src={src}
+                              photoId={getMetaPhotoId(photoMetas?.[idx])}
+                              adjustments={fallbackAdjustments}
+                              exact={useExactTonePreview}
+                              interactive={idx === viewerIndex && viewerToneVisible}
+                              comparison={viewerToneHoldingOriginal ? 'original' : viewerToneComparison}
+                              cropMode={viewerToneMode === 'crop'} cropAspect={viewerToneAspect} editingDisabled={viewerToneSaving}
+                              onCropChange={(crop) => updateToneDraft('crop', crop)} onCropStart={beginToneGesture}
+                              onCropEnd={() => {toneGestureRef.current = false;}} onSourceSize={setViewerToneSourceSize}
+                              faces={idx === viewerIndex && viewerToneVisible ? currentViewerFaces : undefined}
+                              onAnalysis={receiveToneAnalysis}
+                              onToneError={receiveToneError}
+                              alt={`viewer-${idx}`}
+                              className={`viewer-carousel-img${idx === viewerIndex && viewerEnableOpenZoom ? ' viewer-img--open-zoom' : ''}`}
+                              style={fallbackAdjustmentStyle} />
+                            
+                            </div>
+                          </div>);
+
+                    })}
+                      </div>
+                    </div> :
+                null}
               </div>
 
-              {viewerToneVisible && !currentViewerIsVideo && (photoMetas && photoMetas[viewerIndex]) ? (
-                <GlassReveal open className="viewer-panel-slot">
+              {viewerToneVisible && !currentViewerIsVideo && photoMetas && photoMetas[viewerIndex] ?
+              <GlassReveal open className="viewer-panel-slot">
                 <PhotoToneControls
                   draft={viewerToneDraft} analysis={viewerToneAnalysis}
                   busy={viewerToneMode === 'crop' ? false : viewerToneAnalyzing} saving={viewerToneSaving}
                   error={viewerToneMode === 'crop' ? '' : viewerToneError}
                   facesLoading={viewerToneFacesLoading}
-                  mode={viewerToneMode} onMode={mode => { setViewerToneMode(mode);
-                    if (mode === 'crop') { setViewerToneComparison('adjusted'); setViewerToneAnalyzing(false); setViewerToneError(''); } }}
+                  mode={viewerToneMode} onMode={(mode) => {setViewerToneMode(mode);
+                    if (mode === 'crop') {setViewerToneComparison('adjusted');setViewerToneAnalyzing(false);setViewerToneError('');}}}
                   aspect={viewerToneAspect} onAspect={setToneAspect}
-                  onRotate={degrees => updateToneDraft('rotation', degrees)}
+                  onRotate={(degrees) => updateToneDraft('rotation', degrees)}
                   onResetCrop={() => commitToneDraft({ ...viewerToneDraft, rotation: 0, crop: null })}
                   sourceSize={viewerToneSourceSize} outputSize={toneOutputSize}
                   dirty={toneDirty} comparison={viewerToneComparison} holdingOriginal={viewerToneHoldingOriginal}
                   onCompare={setViewerToneComparison} onHoldOriginal={setViewerToneHoldingOriginal} onChange={updateToneDraft}
-                  onGestureStart={beginToneGesture} onGestureEnd={() => { toneGestureRef.current = false; }}
+                  onGestureStart={beginToneGesture} onGestureEnd={() => {toneGestureRef.current = false;}}
                   onAuto={autoTuneCurrentPhoto} onReset={resetViewerTone} onSave={saveViewerTone}
                   onClose={() => setViewerToneVisible(false)}
                   onUndo={undoViewerTone} onRedo={redoViewerTone}
                   canUndo={viewerToneHistory.past.length > 0} canRedo={viewerToneHistory.future.length > 0}
-                  histogram={<HistogramView histogram={viewerToneAnalysis?.adjustedHistogram} />}
-                />
-                </GlassReveal>
-              ) : null}
+                  histogram={<HistogramView histogram={viewerToneAnalysis?.adjustedHistogram} />} />
+                
+                </GlassReveal> :
+              null}
 
               {/* 底部信息+操作坞：语义信息卡 + 一条图标操作栏，全部集中在此 */}
               <div className="viewer-dock" onClick={(e) => e.stopPropagation()}>
@@ -7158,261 +7158,261 @@ function ProjectDetailInner({
                     <button type="button" aria-label="关闭信息" title="关闭信息" onClick={() => setViewerDetailsVisible(false)}><IconClose /></button>
                   </div>
                 {photoMetas && photoMetas[viewerIndex] ? (() => {
-                       const meta = photoMetas[viewerIndex] || {};
-                       const state = getPhotoSemanticState(meta);
-                       const { description, tags, pending } = state;
-                       const hasDesc = !!description;
-                       const hasTags = tags.length > 0;
-                       const videoAnalysis = currentViewerIsVideo ? currentViewerVideoAnalysis : null;
-                       const videoGlobal = getVideoSemanticGlobal(videoAnalysis);
-                       const videoTotalSemantic = String(videoGlobal.totalSemantic || videoAnalysis?.totalSemantic || videoAnalysis?.detailedSummary || '').trim();
-                       const videoSummary = String(videoGlobal.description || videoGlobal.summary || videoAnalysis?.summary || description || '').trim();
-                       const videoTags = toVideoSemanticList([...(Array.isArray(videoGlobal.tags) ? videoGlobal.tags : []), ...tags], 18);
-                       const videoEntities = toVideoSemanticList(videoGlobal.keyEntities || videoGlobal.entities || videoGlobal.keyObjects, 12);
-                       const videoVisibleText = toVideoSemanticList(videoGlobal.visibleText, 12);
-                       const videoSearchTerms = toVideoSemanticList(videoGlobal.searchTerms, 16);
-                       const videoNarrative = toVideoSemanticList(videoGlobal.narrative, 8);
-                       const videoKeyMoments = (Array.isArray(videoGlobal.keyMoments) ? videoGlobal.keyMoments : [])
-                         .filter((item) => item && typeof item === 'object')
-                         .slice(0, 8);
-                       const videoSegments = (Array.isArray(videoAnalysis?.segments) ? videoAnalysis.segments : [])
-                         .filter((item) => item && typeof item === 'object')
-                         .slice(0, 24);
-                       const videoTranscript = getVideoTranscript(videoAnalysis);
-                       const videoTranscriptStatus = String(videoTranscript?.status || '').toLowerCase();
-                       const videoTranscriptSegments = getVideoTranscriptSegments(videoTranscript);
-                       const shownVideoTranscriptSegments = viewerVideoTranscriptExpanded
-                         ? videoTranscriptSegments
-                         : videoTranscriptSegments.slice(0, 8);
-                       const videoTranscriptCoverage = Number(videoTranscript?.coverage?.duration || videoTranscript?.coverage?.end || 0);
-                       const videoTranscriptStatusText = videoTranscriptStatus === 'done'
-                         ? '已完成转写'
-                         : videoTranscriptStatus === 'partial'
-                           ? `已转写前 ${formatVideoSemanticTime(videoTranscriptCoverage)}`
-                           : videoTranscriptStatus === 'no-speech'
-                             ? '未检测到可转写语音'
-                             : videoTranscriptStatus === 'failed'
-                               ? '转写暂未完成'
-                               : videoTranscriptStatus === 'unavailable'
-                                 ? '该视频没有可用音轨'
-                                 : videoTranscriptStatus === 'disabled'
-                                   ? '未启用声音转写'
-                                   : '声音转写准备中';
-                       const videoCoverage = videoAnalysis?.coverage || {};
-                       const videoDuration = Number(videoCoverage.duration || videoCoverage.end || 0);
-                       const videoPending = currentViewerIsVideo && !videoAnalysis && (pending || currentViewerVideoAnalysisLoading);
-                       const editable = canEditItem(meta);
-                       return (
-                         <div
-                           className={`viewer-info-card${editable ? ' is-editable' : ''}${currentViewerIsVideo ? ' has-video-semantic' : ''}${currentViewerIsVideo && viewerVideoAnalysisExpanded ? ' is-expanded' : ''}`}
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          {editable ? (
-                            <fieldset className="viewer-edit-panel" disabled={viewerEditSaving}>
+                      const meta = photoMetas[viewerIndex] || {};
+                      const state = getPhotoSemanticState(meta);
+                      const { description, tags, pending } = state;
+                      const hasDesc = !!description;
+                      const hasTags = tags.length > 0;
+                      const videoAnalysis = currentViewerIsVideo ? currentViewerVideoAnalysis : null;
+                      const videoGlobal = getVideoSemanticGlobal(videoAnalysis);
+                      const videoTotalSemantic = String(videoGlobal.totalSemantic || videoAnalysis?.totalSemantic || videoAnalysis?.detailedSummary || '').trim();
+                      const videoSummary = String(videoGlobal.description || videoGlobal.summary || videoAnalysis?.summary || description || '').trim();
+                      const videoTags = toVideoSemanticList([...(Array.isArray(videoGlobal.tags) ? videoGlobal.tags : []), ...tags], 18);
+                      const videoEntities = toVideoSemanticList(videoGlobal.keyEntities || videoGlobal.entities || videoGlobal.keyObjects, 12);
+                      const videoVisibleText = toVideoSemanticList(videoGlobal.visibleText, 12);
+                      const videoSearchTerms = toVideoSemanticList(videoGlobal.searchTerms, 16);
+                      const videoNarrative = toVideoSemanticList(videoGlobal.narrative, 8);
+                      const videoKeyMoments = (Array.isArray(videoGlobal.keyMoments) ? videoGlobal.keyMoments : []).
+                      filter((item) => item && typeof item === 'object').
+                      slice(0, 8);
+                      const videoSegments = (Array.isArray(videoAnalysis?.segments) ? videoAnalysis.segments : []).
+                      filter((item) => item && typeof item === 'object').
+                      slice(0, 24);
+                      const videoTranscript = getVideoTranscript(videoAnalysis);
+                      const videoTranscriptStatus = String(videoTranscript?.status || '').toLowerCase();
+                      const videoTranscriptSegments = getVideoTranscriptSegments(videoTranscript);
+                      const shownVideoTranscriptSegments = viewerVideoTranscriptExpanded ?
+                      videoTranscriptSegments :
+                      videoTranscriptSegments.slice(0, 8);
+                      const videoTranscriptCoverage = Number(videoTranscript?.coverage?.duration || videoTranscript?.coverage?.end || 0);
+                      const videoTranscriptStatusText = videoTranscriptStatus === 'done' ?
+                      '已完成转写' :
+                      videoTranscriptStatus === 'partial' ?
+                      `已转写前 ${formatVideoSemanticTime(videoTranscriptCoverage)}` :
+                      videoTranscriptStatus === 'no-speech' ?
+                      '未检测到可转写语音' :
+                      videoTranscriptStatus === 'failed' ?
+                      '转写暂未完成' :
+                      videoTranscriptStatus === 'unavailable' ?
+                      '该视频没有可用音轨' :
+                      videoTranscriptStatus === 'disabled' ?
+                      '未启用声音转写' :
+                      '声音转写准备中';
+                      const videoCoverage = videoAnalysis?.coverage || {};
+                      const videoDuration = Number(videoCoverage.duration || videoCoverage.end || 0);
+                      const videoPending = currentViewerIsVideo && !videoAnalysis && (pending || currentViewerVideoAnalysisLoading);
+                      const editable = canEditItem(meta);
+                      return (
+                        <div
+                          className={`viewer-info-card${editable ? ' is-editable' : ''}${currentViewerIsVideo ? ' has-video-semantic' : ''}${currentViewerIsVideo && viewerVideoAnalysisExpanded ? ' is-expanded' : ''}`}
+                          onClick={(e) => e.stopPropagation()}>
+                          
+                          {editable ?
+                          <fieldset className="viewer-edit-panel" disabled={viewerEditSaving}>
                               <label className="viewer-edit-label" htmlFor="viewer-description">描述</label>
                               <textarea id="viewer-description" className="viewer-edit-textarea" value={viewerEditDescription} onChange={(e) => setViewerEditDescription(e.target.value)} rows={4} placeholder="添加描述" />
                               <label className="viewer-edit-label" htmlFor="viewer-tag-input">标签</label>
                               <div className="viewer-edit-tags">
-                                {(viewerEditTags || []).map((t, i) => (
-                                  <span key={t + i} className="viewer-edit-tag">{t}
-                                    <button type="button" className="viewer-edit-tag-remove" aria-label={`移除标签 ${t}`} title={`移除标签 ${t}`} onClick={() => setViewerEditTags((s) => s.filter(x => x !== t))}><IconClose /></button>
+                                {(viewerEditTags || []).map((t, i) =>
+                              <span key={t + i} className="viewer-edit-tag">{t}
+                                    <button type="button" className="viewer-edit-tag-remove" aria-label={`移除标签 ${t}`} title={`移除标签 ${t}`} onClick={() => setViewerEditTags((s) => s.filter((x) => x !== t))}><IconClose /></button>
                                   </span>
-                                ))}
+                              )}
                                 <input id="viewer-tag-input" className="viewer-edit-tag-input" value={viewerEditTagInput} onChange={(e) => setViewerEditTagInput(e.target.value)} onKeyDown={(e) => {
-                                  if (!e.nativeEvent.isComposing && (e.key === 'Enter' || e.key === ',')) {
-                                    e.preventDefault();
-                                    const v = (viewerEditTagInput || '').trim();
-                                    if (v && !(viewerEditTags || []).includes(v)) setViewerEditTags((s) => [...(s || []), v]);
-                                    setViewerEditTagInput('');
-                                  }
-                                }} placeholder="添加标签" />
+                                if (!e.nativeEvent.isComposing && (e.key === 'Enter' || e.key === ',')) {
+                                  e.preventDefault();
+                                  const v = (viewerEditTagInput || '').trim();
+                                  if (v && !(viewerEditTags || []).includes(v)) setViewerEditTags((s) => [...(s || []), v]);
+                                  setViewerEditTagInput('');
+                                }
+                              }} placeholder="添加标签" />
                               </div>
-                              {viewerEditDirty || viewerEditSaving || viewerEditError ? (
-                                <div className="viewer-edit-actions">
+                              {viewerEditDirty || viewerEditSaving || viewerEditError ?
+                            <div className="viewer-edit-actions">
                                   <span role="status">{viewerEditSaving ? '保存中' : '未保存'}</span>
                                   <Button size="small" onClick={resetViewerPhotoEdit} disabled={viewerEditSaving}>撤销</Button>
                                   <Button size="small" theme="solid" type="primary" onClick={saveViewerPhotoEdit} loading={viewerEditSaving}>保存</Button>
-                                </div>
-                              ) : null}
+                                </div> :
+                            null}
                               {viewerEditError ? <p className="viewer-edit-error" role="alert">{viewerEditError}</p> : null}
-                            </fieldset>
-                          ) : null}
-                          {currentViewerIsVideo ? (
-                             <div className="viewer-video-semantic">
+                            </fieldset> :
+                          null}
+                          {currentViewerIsVideo ?
+                          <div className="viewer-video-semantic">
                                <div className="viewer-video-semantic-head">
                                  <div className="viewer-video-semantic-title">
                                    <IconSparkleAI />
                                    <div>
                                      <strong>全片理解</strong>
                                      <span>
-                                       {videoAnalysis
-                                         ? `已覆盖 ${videoDuration ? formatVideoSemanticTime(videoDuration) : '全片'}${videoCoverage.segmentCount ? ` · ${videoCoverage.segmentCount} 个时段` : ''}`
-                                         : (videoPending ? '正在抽样理解全片' : '尚未生成全片时间线')}
+                                       {videoAnalysis ?
+                                    `已覆盖 ${videoDuration ? formatVideoSemanticTime(videoDuration) : '全片'}${videoCoverage.segmentCount ? ` · ${videoCoverage.segmentCount} 个时段` : ''}` :
+                                    videoPending ? '正在抽样理解全片' : '尚未生成全片时间线'}
                                      </span>
                                    </div>
                                  </div>
-                                 {videoAnalysis ? (
-                                   <button
-                                     type="button"
-                                     className="viewer-video-semantic-toggle"
-                                     onClick={(e) => { e.stopPropagation(); setViewerVideoAnalysisExpanded((value) => !value); }}
-                                   >
+                                 {videoAnalysis ?
+                              <button
+                                type="button"
+                                className="viewer-video-semantic-toggle"
+                                onClick={(e) => {e.stopPropagation();setViewerVideoAnalysisExpanded((value) => !value);}}>
+                                
                                      {viewerVideoAnalysisExpanded ? '收起' : '展开'}
-                                   </button>
-                                 ) : null}
+                                   </button> :
+                              null}
                                </div>
-                               {videoPending ? (
-                                 <div className="viewer-video-semantic-pending">
+                               {videoPending ?
+                            <div className="viewer-video-semantic-pending">
                                    <span className="detail-analysis-dot" />
                                    正在理解全片，结果完成后会自动显示
-                                 </div>
-                               ) : null}
-                               {videoAnalysis ? (
-                                 <>
+                                 </div> :
+                            null}
+                               {videoAnalysis ?
+                            <>
                                    {videoSummary ? <div className="viewer-video-semantic-summary">{videoSummary}</div> : null}
-                                   {videoTags.length ? (
-                                     <div className="viewer-semantic-tags viewer-video-semantic-tags">
+                                   {videoTags.length ?
+                              <div className="viewer-semantic-tags viewer-video-semantic-tags">
                                        {videoTags.map((tag) => <span key={tag} className="viewer-semantic-tag">{tag}</span>)}
-                                     </div>
-                                   ) : null}
-                                   {viewerVideoAnalysisExpanded ? (
-                                     <div className="viewer-video-semantic-details">
-                                       {videoTotalSemantic ? (
-                                         <section className="viewer-video-semantic-section">
+                                     </div> :
+                              null}
+                                   {viewerVideoAnalysisExpanded ?
+                              <div className="viewer-video-semantic-details">
+                                       {videoTotalSemantic ?
+                                <section className="viewer-video-semantic-section">
                                            <h4>总语义</h4>
                                            <p>{videoTotalSemantic}</p>
-                                         </section>
-                                       ) : null}
-                                       {(videoGlobal.event || videoGlobal.setting) ? (
-                                         <div className="viewer-video-semantic-facts">
+                                         </section> :
+                                null}
+                                       {videoGlobal.event || videoGlobal.setting ?
+                                <div className="viewer-video-semantic-facts">
                                            {videoGlobal.event ? <span><b>活动</b>{videoGlobal.event}</span> : null}
                                            {videoGlobal.setting ? <span><b>场景</b>{videoGlobal.setting}</span> : null}
-                                         </div>
-                                       ) : null}
-                                       {videoKeyMoments.length ? (
-                                         <section className="viewer-video-semantic-section">
+                                         </div> :
+                                null}
+                                       {videoKeyMoments.length ?
+                                <section className="viewer-video-semantic-section">
                                            <h4>重点片段</h4>
                                            <div className="viewer-video-timeline">
-                                             {videoKeyMoments.map((moment, index) => (
-                                               <button type="button" key={`${moment.start || 0}-${index}`} onClick={(e) => { e.stopPropagation(); seekViewerVideo(moment.start); }}>
+                                             {videoKeyMoments.map((moment, index) =>
+                                    <button type="button" key={`${moment.start || 0}-${index}`} onClick={(e) => {e.stopPropagation();seekViewerVideo(moment.start);}}>
                                                  <time>{formatVideoSemanticTime(moment.start)} - {formatVideoSemanticTime(moment.end)}</time>
                                                  <span>{moment.summary || moment.reason || `第 ${index + 1} 个重点片段`}</span>
                                                </button>
-                                             ))}
+                                    )}
                                            </div>
-                                         </section>
-                                       ) : null}
-                                       {videoSegments.length ? (
-                                         <section className="viewer-video-semantic-section">
+                                         </section> :
+                                null}
+                                       {videoSegments.length ?
+                                <section className="viewer-video-semantic-section">
                                            <h4>全程时间线</h4>
                                            <div className="viewer-video-timeline viewer-video-timeline--full">
-                                             {videoSegments.map((segment, index) => (
-                                               <button type="button" key={`${segment.start || 0}-${segment.end || 0}-${index}`} onClick={(e) => { e.stopPropagation(); seekViewerVideo(segment.start); }}>
+                                             {videoSegments.map((segment, index) =>
+                                    <button type="button" key={`${segment.start || 0}-${segment.end || 0}-${index}`} onClick={(e) => {e.stopPropagation();seekViewerVideo(segment.start);}}>
                                                  <time>{formatVideoSemanticTime(segment.start)} - {formatVideoSemanticTime(segment.end)}</time>
                                                  <span>{segment.summary || segment.eventStage || `第 ${index + 1} 段`}</span>
                                                </button>
-                                             ))}
+                                    )}
                                            </div>
-                                         </section>
-                                       ) : null}
-                                       {videoTranscript ? (
-                                         <section className="viewer-video-semantic-section viewer-video-transcript-section">
+                                         </section> :
+                                null}
+                                       {videoTranscript ?
+                                <section className="viewer-video-semantic-section viewer-video-transcript-section">
                                            <div className="viewer-video-transcript-head">
                                              <h4>声音转文字</h4>
                                              <span>{videoTranscriptStatusText}</span>
                                            </div>
-                                           {videoTranscriptSegments.length ? (
-                                             <>
+                                           {videoTranscriptSegments.length ?
+                                  <>
                                                <div className="viewer-video-timeline viewer-video-transcript-list">
-                                                 {shownVideoTranscriptSegments.map((segment, index) => (
-                                                   <button type="button" key={`${segment.start}-${segment.end}-${index}`} onClick={(e) => { e.stopPropagation(); seekViewerVideo(segment.start); }}>
+                                                 {shownVideoTranscriptSegments.map((segment, index) =>
+                                      <button type="button" key={`${segment.start}-${segment.end}-${index}`} onClick={(e) => {e.stopPropagation();seekViewerVideo(segment.start);}}>
                                                      <time>{formatVideoSemanticTime(segment.start)} - {formatVideoSemanticTime(segment.end)}</time>
                                                      <span>{segment.text}</span>
                                                    </button>
-                                                 ))}
+                                      )}
                                                </div>
-                                               {videoTranscriptSegments.length > 8 ? (
-                                                 <button
-                                                   type="button"
-                                                   className="viewer-video-transcript-toggle"
-                                                   onClick={(e) => { e.stopPropagation(); setViewerVideoTranscriptExpanded((value) => !value); }}
-                                                 >
+                                               {videoTranscriptSegments.length > 8 ?
+                                    <button
+                                      type="button"
+                                      className="viewer-video-transcript-toggle"
+                                      onClick={(e) => {e.stopPropagation();setViewerVideoTranscriptExpanded((value) => !value);}}>
+                                      
                                                    {viewerVideoTranscriptExpanded ? '收起转写' : `查看完整转写（${videoTranscriptSegments.length} 段）`}
-                                                 </button>
-                                               ) : null}
-                                             </>
-                                           ) : (
-                                             <p className="viewer-video-transcript-empty">{videoTranscriptStatusText}</p>
-                                           )}
-                                         </section>
-                                       ) : null}
-                                       {videoNarrative.length ? (
-                                         <section className="viewer-video-semantic-section">
+                                                 </button> :
+                                    null}
+                                             </> :
+
+                                  <p className="viewer-video-transcript-empty">{videoTranscriptStatusText}</p>
+                                  }
+                                         </section> :
+                                null}
+                                       {videoNarrative.length ?
+                                <section className="viewer-video-semantic-section">
                                            <h4>叙事索引</h4>
                                            <div className="viewer-video-semantic-lines">{videoNarrative.map((line, index) => <span key={`${line}-${index}`}>{line}</span>)}</div>
-                                         </section>
-                                       ) : null}
-                                       {(videoEntities.length || videoVisibleText.length || videoSearchTerms.length) ? (
-                                         <div className="viewer-video-semantic-lists">
+                                         </section> :
+                                null}
+                                       {videoEntities.length || videoVisibleText.length || videoSearchTerms.length ?
+                                <div className="viewer-video-semantic-lists">
                                            {videoEntities.length ? <div><b>人物与物件</b><span>{videoEntities.join(' · ')}</span></div> : null}
                                            {videoVisibleText.length ? <div><b>画面文字</b><span>{videoVisibleText.join(' · ')}</span></div> : null}
                                            {videoSearchTerms.length ? <div><b>检索词</b><span>{videoSearchTerms.join(' · ')}</span></div> : null}
-                                         </div>
-                                       ) : null}
-                                     </div>
-                                   ) : null}
-                                 </>
-                               ) : (
-                                 <>
+                                         </div> :
+                                null}
+                                     </div> :
+                              null}
+                                 </> :
+
+                            <>
                                    {!editable && hasDesc ? <div className="viewer-description">{description}</div> : null}
                                    {!editable && hasTags ? <div className="viewer-semantic-tags">{tags.map((tag, index) => <span key={index} className="viewer-semantic-tag">{tag}</span>)}</div> : null}
                                  </>
-                               )}
-                             </div>
-                           ) : (
-                             <div className="viewer-semantic-panel">
-                               {pending && !hasDesc && !hasTags && (
-                                 <div className="viewer-analysis-pending">
+                            }
+                             </div> :
+
+                          <div className="viewer-semantic-panel">
+                               {pending && !hasDesc && !hasTags &&
+                            <div className="viewer-analysis-pending">
                                    <span className="detail-analysis-dot" />
                                    语义分析中
                                  </div>
-                               )}
+                            }
                                <PhotoDescription
-                                 key={state.photoId || viewerIndex}
-                                 photoId={state.photoId}
-                                 summary={editable ? '' : description}
-                                 initialDetail={meta.detailedDescription}
-                                 initialPeopleEnabled={meta.personObservationsEnabled}
-                                 analysisStatus={state.aiStatus}
-                                 loadPhoto={readOnly ? undefined : getPhotoById}
-                                 loadPeople={readOnly ? undefined : getPhotoPersonObservations}
-                               />
-                               {!editable && hasTags && (
-                                 <div className="viewer-semantic-tags">
-                                   {tags.map((tag, i) => (
-                                     <span key={i} className="viewer-semantic-tag">{tag}</span>
-                                   ))}
-                                 </div>
+                              key={state.photoId || viewerIndex}
+                              photoId={state.photoId}
+                              summary={editable ? '' : description}
+                              initialDetail={meta.detailedDescription}
+                              initialPeopleEnabled={meta.personObservationsEnabled}
+                              analysisStatus={state.aiStatus}
+                              loadPhoto={readOnly ? undefined : getPhotoById}
+                              loadPeople={readOnly ? undefined : getPhotoPersonObservations} />
+                            
+                               {!editable && hasTags &&
+                            <div className="viewer-semantic-tags">
+                                   {tags.map((tag, i) =>
+                              <span key={i} className="viewer-semantic-tag">{tag}</span>
                               )}
+                                 </div>
+                            }
                               {(() => {
-                                const meta = photoMetas[viewerIndex] || {};
-                                const quality = getPhotoAiQuality(meta);
-                                const score = getPhotoAiScore(meta);
-                                if (!quality || (!quality.reason && score === null)) return null;
-                                return (
-                                  <div className="viewer-ai-verdict" title={formatAiQualityTooltip(quality, score) || undefined}>
+                              const meta = photoMetas[viewerIndex] || {};
+                              const quality = getPhotoAiQuality(meta);
+                              const score = getPhotoAiScore(meta);
+                              if (!quality || !quality.reason && score === null) return null;
+                              return (
+                                <div className="viewer-ai-verdict" title={formatAiQualityTooltip(quality, score) || undefined}>
                                     <span className="viewer-ai-verdict-score">AI 选片{score !== null ? ` ${score} 分` : ''}</span>
                                     {quality.reason ? <span className="viewer-ai-verdict-reason">{quality.reason}</span> : null}
-                                    {Array.isArray(quality.flags) && quality.flags.length ? (
-                                      <span className="viewer-ai-verdict-flags">{quality.flags.join(' · ')}</span>
-                                    ) : null}
-                                  </div>
-                                );
-                              })()}
+                                    {Array.isArray(quality.flags) && quality.flags.length ?
+                                  <span className="viewer-ai-verdict-flags">{quality.flags.join(' · ')}</span> :
+                                  null}
+                                  </div>);
+
+                            })()}
                             </div>
-                          )}
-                        </div>
-                      );
+                          }
+                        </div>);
+
                     })() : null}
                 </aside>
                 </GlassReveal>
@@ -7422,37 +7422,37 @@ function ProjectDetailInner({
                     <button type="button" className="viewer-dock-btn viewer-step-btn" onClick={() => navigateViewer(1)} aria-label="下一张" title="下一张"><IconChevronRight /></button>
                     <span className="viewer-dock-divider" aria-hidden="true" />
                   </> : null}
-                  {!readOnly && !currentViewerIsVideo && (photoMetas && photoMetas[viewerIndex]) && (
-                    <button
-                      type="button"
-                      className={`viewer-dock-btn${viewerFaceOverlayVisible ? ' is-active' : ''}`}
-                      title={viewerFaceOverlayVisible ? '隐藏人脸框' : '显示人脸框'}
-                      onClick={(e) => { e.stopPropagation(); handleDetectViewerFaces(); }}
-                    >
+                  {!readOnly && !currentViewerIsVideo && photoMetas && photoMetas[viewerIndex] &&
+                  <button
+                    type="button"
+                    className={`viewer-dock-btn${viewerFaceOverlayVisible ? ' is-active' : ''}`}
+                    title={viewerFaceOverlayVisible ? '隐藏人脸框' : '显示人脸框'}
+                    onClick={(e) => {e.stopPropagation();handleDetectViewerFaces();}}>
+                    
                       <IconFaceScan />
                       <span>人脸框</span>
                     </button>
-                  )}
-                  {!readOnly && !currentViewerIsVideo && canEditPhotos && canEditItem(photoMetas?.[viewerIndex]) && (
-                    <button
-                      type="button"
-                      className={`viewer-dock-btn${viewerToneVisible ? ' is-active' : ''}`}
-                      title={viewerToneVisible ? '关闭调色' : '调色'}
-                      onClick={(e) => { e.stopPropagation(); openToneEditor(); }}
-                    >
+                  }
+                  {!readOnly && !currentViewerIsVideo && canEditPhotos && canEditItem(photoMetas?.[viewerIndex]) &&
+                  <button
+                    type="button"
+                    className={`viewer-dock-btn${viewerToneVisible ? ' is-active' : ''}`}
+                    title={viewerToneVisible ? '关闭调色' : '调色'}
+                    onClick={(e) => {e.stopPropagation();openToneEditor();}}>
+                    
                       <IconSliders />
                       <span>调色</span>
                     </button>
-                  )}
+                  }
                     <button
-                      type="button"
-                      className={`viewer-dock-btn viewer-dock-btn--info${viewerDetailsVisible && !viewerToneVisible ? ' is-active' : ''}`}
-                      aria-label={viewerDetailsVisible && !viewerToneVisible ? '隐藏信息' : '显示信息'}
-                      aria-expanded={viewerDetailsVisible && !viewerToneVisible}
-                      aria-controls="viewer-details-panel"
-                      title={viewerDetailsVisible && !viewerToneVisible ? '隐藏信息' : '显示信息'}
-                      onClick={() => { setViewerDetailsVisible(viewerToneVisible || !viewerDetailsVisible); setViewerToneVisible(false); }}
-                    >
+                    type="button"
+                    className={`viewer-dock-btn viewer-dock-btn--info${viewerDetailsVisible && !viewerToneVisible ? ' is-active' : ''}`}
+                    aria-label={viewerDetailsVisible && !viewerToneVisible ? '隐藏信息' : '显示信息'}
+                    aria-expanded={viewerDetailsVisible && !viewerToneVisible}
+                    aria-controls="viewer-details-panel"
+                    title={viewerDetailsVisible && !viewerToneVisible ? '隐藏信息' : '显示信息'}
+                    onClick={() => {setViewerDetailsVisible(viewerToneVisible || !viewerDetailsVisible);setViewerToneVisible(false);}}>
+                    
                       <IconListView />
                       <span>信息</span>
                     </button>
@@ -7467,136 +7467,136 @@ function ProjectDetailInner({
                         type="button"
                         className="viewer-dock-btn"
                         title="添加推荐标记"
-                        onClick={(e) => { e.stopPropagation(); addRecommendationTag(); }}
-                      >
+                        onClick={(e) => {e.stopPropagation();addRecommendationTag();}}>
+                        
                         <IconStar />
                         <span>推荐</span>
-                      </button>
-                    );
+                      </button>);
+
                   })()}
-                  {GROUP_RESCUE_VISIBLE && !readOnly && !currentViewerIsVideo && canEditPhotos && isGroupPhotoMeta(photoMetas?.[viewerIndex]) ? (
-                    <button
-                      type="button"
-                      className="viewer-dock-btn"
-                      title="AI 从连拍中为每个人挑最佳表情，合成一张新合影"
-                      onClick={(e) => { e.stopPropagation(); openViewerRescue(photoMetas?.[viewerIndex]); }}
-                    >
+                  {GROUP_RESCUE_VISIBLE && !readOnly && !currentViewerIsVideo && canEditPhotos && isGroupPhotoMeta(photoMetas?.[viewerIndex]) ?
+                  <button
+                    type="button"
+                    className="viewer-dock-btn"
+                    title="AI 从连拍中为每个人挑最佳表情，合成一张新合影"
+                    onClick={(e) => {e.stopPropagation();openViewerRescue(photoMetas?.[viewerIndex]);}}>
+                    
                       <IconGroupRescue />
                       <span>合影救场</span>
-                    </button>
-                  ) : null}
+                    </button> :
+                  null}
                   <button
                     type="button"
                     className="viewer-dock-btn viewer-dock-btn--primary"
-                    title={currentViewerIsVideo ? '下载该视频' : viewerToneVisible ? (viewerToneComparing ? '下载原图' : '下载当前调色') : '下载该照片'}
+                    title={currentViewerIsVideo ? '下载该视频' : viewerToneVisible ? viewerToneComparing ? '下载原图' : '下载当前调色' : '下载该照片'}
                     disabled={viewerToneVisible && (viewerToneAnalyzing || Boolean(viewerToneError))}
-                    onClick={(e) => { e.stopPropagation(); downloadCurrentPhoto(); }}
-                  >
+                    onClick={(e) => {e.stopPropagation();downloadCurrentPhoto();}}>
+                    
                     <IconDownload />
                     <span>下载</span>
                   </button>
                 </div>
-                {currentViewerFaceError ? (
-                  <div className="viewer-dock-error" title={currentViewerFaceError}>{currentViewerFaceError}</div>
-                ) : null}
+                {currentViewerFaceError ?
+                <div className="viewer-dock-error" title={currentViewerFaceError}>{currentViewerFaceError}</div> :
+                null}
               </div>
 
             </div>
-          </div>
-        , document.body) : null}
+          </div>,
+          document.body) : null}
 
         {/* Inline viewer edit 鈥?replaced modal with inline editor under the photo */}
 
         {/* 合影救场确认层：查看器语义入口打开，自动圈出连拍组 */}
-        {GROUP_RESCUE_VISIBLE && viewerRescue && !viewerRescue.hidden ? (
-          <Modal
-            title="合影救场"
-            className="viewer-rescue-modal"
-            visible
-            onCancel={closeViewerRescue}
-            footer={null}
-            width={isMobile ? 'calc(100vw - 16px)' : 560}
-          >
+        {GROUP_RESCUE_VISIBLE && viewerRescue && !viewerRescue.hidden ?
+        <Modal
+          title="合影救场"
+          className="viewer-rescue-modal"
+          visible
+          onCancel={closeViewerRescue}
+          footer={null}
+          width={isMobile ? 'calc(100vw - 16px)' : 560}>
+          
             <div className="viewer-rescue-body">
-              {viewerRescue.phase === 'loading' ? (
-                <div className="viewer-rescue-state"><Spin tip="正在寻找这张照片的连拍参考" /></div>
-              ) : viewerRescue.phase === 'pick' ? (
-                <>
+              {viewerRescue.phase === 'loading' ?
+            <div className="viewer-rescue-state"><Spin tip="正在寻找这张照片的连拍参考" /></div> :
+            viewerRescue.phase === 'pick' ?
+            <>
                   <div className="viewer-rescue-hint">
                     以<b>当前照片为基底</b>，AI 会为里面的每个人检查表情：闭眼或状态不佳的，从参考照片
                     {viewerRescue.refIds && viewerRescue.refIds.length ? '和人脸库' : '（这张没有连拍参考）或人脸库'}
                     里找同一人的最佳瞬间换上。原照片不受影响。
                   </div>
-                  {viewerRescue.refIds && viewerRescue.refIds.length ? (
-                    <>
+                  {viewerRescue.refIds && viewerRescue.refIds.length ?
+              <>
                       <div className="viewer-rescue-subtitle">连拍参考（可取消勾选）</div>
                       <div className="viewer-rescue-grid">
                         {viewerRescue.refIds.map((id) => {
-                          const p = simPhotos[id];
-                          const thumb = p ? (p.thumbUrl || p.url || p.thumbSrc) : null;
-                          const picked = !!(viewerRescue.pickedMap && viewerRescue.pickedMap[id]);
-                          return (
-                            <button
-                              key={id}
-                              type="button"
-                              className={`viewer-rescue-thumb${picked ? ' is-picked' : ''}`}
-                              aria-pressed={picked}
-                              onClick={() => toggleViewerRescuePick(id)}
-                              title={picked ? '点击取消选择' : '点击选择'}
-                            >
+                    const p = simPhotos[id];
+                    const thumb = p ? p.thumbUrl || p.url || p.thumbSrc : null;
+                    const picked = !!(viewerRescue.pickedMap && viewerRescue.pickedMap[id]);
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        className={`viewer-rescue-thumb${picked ? ' is-picked' : ''}`}
+                        aria-pressed={picked}
+                        onClick={() => toggleViewerRescuePick(id)}
+                        title={picked ? '点击取消选择' : '点击选择'}>
+                        
                               {thumb ? <img src={thumb} alt={`#${id}`} loading="lazy" /> : <span className="viewer-rescue-thumb-fallback">#{id}</span>}
                               <span className={`mamage-photo-checkmark viewer-rescue-thumb-check${picked ? ' is-on' : ''}`} aria-hidden="true" />
-                            </button>
-                          );
-                        })}
+                            </button>);
+
+                  })}
                       </div>
-                    </>
-                  ) : (
-                    <div className="viewer-rescue-subtitle">没有找到连拍，将直接从人脸库为每个人寻找替补脸。</div>
-                  )}
+                    </> :
+
+              <div className="viewer-rescue-subtitle">没有找到连拍，将直接从人脸库为每个人寻找替补脸。</div>
+              }
                   <div className="viewer-rescue-actions">
                     <Button onClick={closeViewerRescue} type="tertiary">取消</Button>
                     <Button type="primary" onClick={startViewerRescue}>
                       开始修复{Object.keys(viewerRescue.pickedMap || {}).length ? `（${Object.keys(viewerRescue.pickedMap || {}).length} 张参考）` : '（用人脸库）'}
                     </Button>
                   </div>
-                </>
-              ) : viewerRescue.phase === 'running' ? (
-                <div className="viewer-rescue-state">
+                </> :
+            viewerRescue.phase === 'running' ?
+            <div className="viewer-rescue-state">
                   <Spin tip={viewerRescue.step || '合成中'} />
                   <Text type="secondary">大约需要 1-2 分钟。可以关闭此窗口，完成后会提示。</Text>
-                </div>
-              ) : viewerRescue.phase === 'done' ? (
-                <div className="viewer-rescue-state">
+                </div> :
+            viewerRescue.phase === 'done' ?
+            <div className="viewer-rescue-state">
                   <Text>合成完成：替换了 {viewerRescue.replacedCount} 张人脸，新照片已加入相册末尾。</Text>
                   <Button type="primary" onClick={() => setViewerRescue(null)}>好的</Button>
-                </div>
-              ) : viewerRescue.phase === 'noop' ? (
-                <div className="viewer-rescue-state">
+                </div> :
+            viewerRescue.phase === 'noop' ?
+            <div className="viewer-rescue-state">
                   <Text>{viewerRescue.step || '这张合影里每个人已是最佳状态，无需合成。'}</Text>
                   <Button onClick={() => setViewerRescue(null)} type="tertiary">知道了</Button>
-                </div>
-              ) : (
-                <div className="viewer-rescue-state">
+                </div> :
+
+            <div className="viewer-rescue-state">
                   <Text type="danger">合成失败：{viewerRescue.error || '未知错误'}</Text>
                   <Button onClick={() => setViewerRescue(null)} type="tertiary">关闭</Button>
                 </div>
-              )}
+            }
             </div>
-          </Modal>
-        ) : null}
+          </Modal> :
+        null}
 
         <FindMeModal
           visible={findMeOpen}
           mode="album"
           projectId={projectId}
           onClose={() => setFindMeOpen(false)}
-          onPickPhoto={handleFindMePick}
-        />
+          onPickPhoto={handleFindMePick} />
+        
 
       </div>
-    </div>
-  );
+    </div>);
+
 }
 
 // 守卫必须在 hooks 之前：直接在主组件里提前 return 会让 hooks 变成条件调用。

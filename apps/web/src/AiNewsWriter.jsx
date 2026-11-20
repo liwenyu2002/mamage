@@ -6,7 +6,7 @@ import { getToken } from './services/authService';
 import { CHANNELS, startBatch, getBatch, retryJob } from './services/newsMatrixService';
 import { pollNewsBatch } from './services/newsBatchPolling';
 import { newsDraftKey, importLegacyNewsDraft, formatNewsDate, recordNewsEdit, stepNewsEdit, isNewsBatchDone, resolveNewsPhotos,
-  restoreNewsForm, hasNewsSource } from './utils/newsWriterState';
+restoreNewsForm, hasNewsSource } from './utils/newsWriterState';
 import { newsAlbumDefaults } from './utils/newsPhotoSelection';
 import { wechatImportKey } from './utils/wechatDraftState';
 import { copyText } from './utils/clipboard';
@@ -23,7 +23,7 @@ import WechatContentTemplatePicker from './WechatContentTemplatePicker';
 import WechatReferencePicker from './WechatReferencePicker';
 import { referenceFindings } from './utils/wechatReferences';
 import { NewsInsights, NewsReferencePanel } from './NewsInsights';
-import { copyWechatRichTextLegacy, downloadImagePack } from './wechat/wechatExport';
+import { downloadImagePack } from './wechat/wechatExport';
 
 // 渠道状态中文标签（ai_jobs.status 取值集：pending/running/succeeded/failed/cancelled）
 const CHANNEL_STATUS_LABEL = {
@@ -31,7 +31,7 @@ const CHANNEL_STATUS_LABEL = {
   running: '生成中',
   succeeded: '已完成',
   failed: '失败',
-  cancelled: '已取消',
+  cancelled: '已取消'
 };
 
 // 事实校验 issue.type 中文化（后端 lib/news_fact_check.js 的四类可比对项）
@@ -39,7 +39,7 @@ const FACT_ISSUE_TYPE_LABEL = {
   name: '人名',
   date: '日期',
   location: '地点',
-  number: '数字',
+  number: '数字'
 };
 
 const CHANNEL_USAGE = {
@@ -47,7 +47,7 @@ const CHANNEL_USAGE = {
   xiaohongshu: '小红书',
   press_release: '官网新闻',
   report_brief: '工作简报',
-  weibo: '微博',
+  weibo: '微博'
 };
 
 function emptyChannelContent() {
@@ -61,7 +61,7 @@ function hasFactIssues(content) {
   const fc = content && content.factCheck;
   if (!fc) return false;
   const issues = Array.isArray(fc.issues) ? fc.issues : [];
-  const hits = Array.isArray(fc.forbiddenHits) ? fc.forbiddenHits : (Array.isArray(fc.hits) ? fc.hits : []);
+  const hits = Array.isArray(fc.forbiddenHits) ? fc.forbiddenHits : Array.isArray(fc.hits) ? fc.hits : [];
   return issues.length > 0 || hits.length > 0;
 }
 
@@ -82,18 +82,18 @@ function toNameList(input) {
 
 function extractFaceNames(photo) {
   const direct = toNameList(
-    photo?.faceNames
-    || photo?.personNames
-    || photo?.personNameList
-    || photo?.face_name_list
-    || photo?.person_name_list
-    || photo?.people
+    photo?.faceNames ||
+    photo?.personNames ||
+    photo?.personNameList ||
+    photo?.face_name_list ||
+    photo?.person_name_list ||
+    photo?.people
   );
   if (direct.length) return direct;
   const faces = Array.isArray(photo?.faces) ? photo.faces : [];
   const names = [];
   faces.forEach((f) => {
-    const n = String((f && (f.personName || f.person_name || f.name || f.label)) || '').trim();
+    const n = String(f && (f.personName || f.person_name || f.name || f.label) || '').trim();
     if (!n) return;
     if (/^人脸#?\d+$/i.test(n) || /^face#?\d+$/i.test(n)) return;
     if (!names.includes(n)) names.push(n);
@@ -108,8 +108,8 @@ function NewsGenerationStatus({ startedAt, jobs, submitting, error }) {
     return () => clearInterval(timer);
   }, []);
   const list = Object.values(jobs);
-  const complete = list.filter(job => isNewsBatchDone(job.status)).length;
-  const running = list.some(job => job.status === 'running');
+  const complete = list.filter((job) => isNewsBatchDone(job.status)).length;
+  const running = list.some((job) => job.status === 'running');
   const elapsed = Math.max(0, Math.floor((now - (startedAt || now)) / 1000));
   return <div className="news-generation-status" role="status" aria-live="polite">
     <div><span className="news-status-dot" aria-hidden="true" />
@@ -139,12 +139,12 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
     highlights: '',
     usage: '官网新闻',
     tone: '正式',
-    targetWords: '500-800',
+    targetWords: '500-800'
   };
   const skipNextAutoSaveRef = React.useRef(false);
   const draftSnapshotRef = React.useRef(null);
   const storedDraftRef = React.useRef(null);
-  const storeDraft = React.useCallback(draft => {
+  const storeDraft = React.useCallback((draft) => {
     if (!DRAFT_STORAGE_KEY) return;
     const serialized = JSON.stringify(draft);
     localStorage.setItem(DRAFT_STORAGE_KEY, serialized);
@@ -191,12 +191,12 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
   const hasManuscript = Boolean(activeContent.markdownText || activeContent.history?.length || activeContent.redoHistory?.length);
   const inlineDocImages = ((activeContent.markdownText || '').match(/!\[[^\]]*\]\([^)]*\)/g) || []).length;
   const setActiveMarkdownText = React.useCallback((v, options) => {
-    if (activeChannelKey) updateChannelContent(activeChannelKey, base => ({ ...base,
+    if (activeChannelKey) updateChannelContent(activeChannelKey, (base) => ({ ...base,
       markdownText: v, generatedHtml: '', factCheck: null,
       title: String(v || '').match(/^#[ \t]+([^\r\n]*)$/m)?.[1]?.trim() ?? base.title }), options);
   }, [activeChannelKey, updateChannelContent]);
-  const stepActiveEdit = React.useCallback(direction => {
-    updateChannelContent(activeChannelKey, base => stepNewsEdit(base, direction), { restore: true });
+  const stepActiveEdit = React.useCallback((direction) => {
+    updateChannelContent(activeChannelKey, (base) => stepNewsEdit(base, direction), { restore: true });
     setEditSelection(null);
   }, [activeChannelKey, updateChannelContent]);
   // 小红书 Tab 话题标签的输入框草稿（回车确认后写入 activeContent.extra.hashtags）
@@ -211,10 +211,10 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
     references: Array.isArray(activeContent.references) ? activeContent.references : null,
     referenceStatus: activeContent.referenceStatus || null, sourceJobId: activeContent.sourceJobId || null }),
   [activeContent.title, activeContent.markdownText, activeContent.extra, activeContent.references, activeContent.referenceStatus, activeContent.sourceJobId,
-    selectedPhotos, formValues, interviewText, participantChips]);
+  selectedPhotos, formValues, interviewText, participantChips]);
   const articleReadyRef = React.useRef(false);
   React.useEffect(() => {
-    if (!articleReadyRef.current) { articleReadyRef.current = true; return; }
+    if (!articleReadyRef.current) {articleReadyRef.current = true;return;}
     onArticleChange?.(articleSnapshot);
   }, [articleSnapshot, onArticleChange]);
   // 校验标红：某渠道被用户点「忽略」后折叠警示条，channelKey -> true
@@ -225,7 +225,7 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
   const [trackingError, setTrackingError] = React.useState('');
   const [trackingEpoch, setTrackingEpoch] = React.useState(0);
   const isGenerating = isSubmitting || ['pending', 'running'].includes(batchStatus);
-  React.useEffect(() => { onBusyChange?.(isGenerating); }, [isGenerating, onBusyChange]);
+  React.useEffect(() => {onBusyChange?.(isGenerating);}, [isGenerating, onBusyChange]);
   const generationRunningRef = React.useRef(false);
   const mountedRef = React.useRef(true);
   const REFERENCE_MAX = 20000;
@@ -235,37 +235,37 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
   const [editSelection, setEditSelection] = React.useState(null);
   const [editHighlight, setEditHighlight] = React.useState(null);
   const [selectedReference, setSelectedReference] = React.useState(null);
-  React.useEffect(() => { setSelectedReference(null); }, [activeChannelKey, activeContent.sourceJobId]);
+  React.useEffect(() => {setSelectedReference(null);}, [activeChannelKey, activeContent.sourceJobId]);
   React.useEffect(() => {
-    const jobId = Number(activeContent.sourceJobId), channel = activeChannelKey;
+    const jobId = Number(activeContent.sourceJobId),channel = activeChannelKey;
     if (!Number.isSafeInteger(jobId) || jobId < 1 || activeContent.references !== null && activeContent.references !== undefined) return undefined;
     const controller = new AbortController();
     request(`/api/ai/news/jobs/${jobId}/references`, { signal: controller.signal,
-      headers: { 'X-Mamage-Unit-Id': workspaceId ? String(workspaceId) : 'legacy' } }).then(result => {
+      headers: { 'X-Mamage-Unit-Id': workspaceId ? String(workspaceId) : 'legacy' } }).then((result) => {
       if (controller.signal.aborted || !Array.isArray(result.references)) return;
-      updateChannelContent(channel, base => Number(base.sourceJobId) === jobId && base.references == null
-        ? { ...base, references: result.references } : base, { record: false });
-    }).catch(() => { /* Older or inaccessible jobs remain explicitly unrecorded. */ });
+      updateChannelContent(channel, (base) => Number(base.sourceJobId) === jobId && base.references == null ?
+      { ...base, references: result.references } : base, { record: false });
+    }).catch(() => {/* Older or inaccessible jobs remain explicitly unrecorded. */});
     return () => controller.abort();
   }, [activeChannelKey, activeContent.sourceJobId, activeContent.references, workspaceId, updateChannelContent]);
-  React.useEffect(() => { setDocumentView('editor'); setEditSelection(null); }, [activeChannelKey]);
+  React.useEffect(() => {setDocumentView('editor');setEditSelection(null);}, [activeChannelKey]);
   const restoreIdRef = React.useRef(null);
   React.useEffect(() => {
     if (!restoredArticle?.restoreId || restoreIdRef.current === restoredArticle.restoreId || isGenerating) return;
     restoreIdRef.current = restoredArticle.restoreId;
     const article = restoredArticle.article;
     if (typeof article?.markdown !== 'string') return;
-    updateChannelContent('wechat_article', base => ({ ...emptyChannelContent(), title: article.title || '',
+    updateChannelContent('wechat_article', (base) => ({ ...emptyChannelContent(), title: article.title || '',
       markdownText: article.markdown, photos: article.photos || [], extra: article.extra || {},
       references: Array.isArray(article.references) ? article.references : null,
       referenceStatus: article.referenceStatus || null, sourceJobId: article.sourceJobId || null }));
-    setActiveChannelKey('wechat_article'); setSelectedChannels(['wechat_article']);
+    setActiveChannelKey('wechat_article');setSelectedChannels(['wechat_article']);
     setSelectedPhotos(article.photos || []);
-    if (article.formValues) setFormValues(previous => ({ ...previous, ...restoreNewsForm(article.formValues) }));
-    setInterviewText(article.interviewText || ''); setParticipantChips(article.participantChips || []);
-    setBatchId(null); setBatchStatus(''); setChannelJobs({}); setPendingResults({}); setDocumentView('editor');
+    if (article.formValues) setFormValues((previous) => ({ ...previous, ...restoreNewsForm(article.formValues) }));
+    setInterviewText(article.interviewText || '');setParticipantChips(article.participantChips || []);
+    setBatchId(null);setBatchStatus('');setChannelJobs({});setPendingResults({});setDocumentView('editor');
   }, [restoredArticle, isGenerating, updateChannelContent]);
-  const [isMobile, setIsMobile] = React.useState(() => (typeof window !== 'undefined' ? window.innerWidth <= 768 : false));
+  const [isMobile, setIsMobile] = React.useState(() => typeof window !== 'undefined' ? window.innerWidth <= 768 : false);
   const previewContentRef = React.useRef(null);
   const [previewImageUrl, setPreviewImageUrl] = React.useState('');
   const [showPreviewImage, setShowPreviewImage] = React.useState(false);
@@ -274,7 +274,7 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
   const updatePreviewImageUrl = React.useCallback((nextUrl) => {
     setPreviewImageUrl((prev) => {
       if (prev && prev !== nextUrl && /^blob:/i.test(String(prev))) {
-        try { URL.revokeObjectURL(prev); } catch (e) { /* ignore */ }
+        try {URL.revokeObjectURL(prev);} catch (e) {/* ignore */}
       }
       return nextUrl;
     });
@@ -282,21 +282,21 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
 
   React.useEffect(() => () => {
     if (previewImageUrl && /^blob:/i.test(String(previewImageUrl))) {
-      try { URL.revokeObjectURL(previewImageUrl); } catch (e) { /* ignore */ }
+      try {URL.revokeObjectURL(previewImageUrl);} catch (e) {/* ignore */}
     }
   }, [previewImageUrl]);
 
   const clearAllDraft = React.useCallback(() => {
-    if (isGenerating) { Toast.info('生成任务仍在后台处理，请完成后再清空'); return; }
+    if (isGenerating) {Toast.info('生成任务仍在后台处理，请完成后再清空');return;}
     try {
       skipNextAutoSaveRef.current = true;
       draftSnapshotRef.current = null;
       window.localStorage.removeItem(DRAFT_STORAGE_KEY);
       storedDraftRef.current = null;
     } catch (e) {
+
       // ignore
     }
-
     setSelectedPhotos([]);
     setSourceAlbumDefaults({});
     setFormValues(INITIAL_FORM_VALUES);
@@ -339,7 +339,7 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
       }
       const draft = JSON.parse(raw);
       if (!draft || typeof draft !== 'object') return;
-      if (!draft.batchId && !Object.values(draft.channelContent || {}).some(content => content?.markdownText)) {
+      if (!draft.batchId && !Object.values(draft.channelContent || {}).some((content) => content?.markdownText)) {
         setHasLegacyDraft(Boolean(localStorage.getItem('mamage.aiNewsWriter.draft.v1')));
       }
 
@@ -375,9 +375,9 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
         setBatchId(draft.batchId);
       }
     } catch (e) {
+
       // ignore storage/parse errors
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    } // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 从全媒体编辑台切换平台时，默认只生成当前平台；用户仍可在页面里继续勾选其他渠道。
@@ -386,57 +386,57 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
     setSelectedChannels([preferredChannelKey]);
     setActiveChannelKey(preferredChannelKey);
     const usage = CHANNEL_USAGE[preferredChannelKey];
-    if (usage) setFormValues((prev) => (prev.usage === usage ? prev : { ...prev, usage }));
+    if (usage) setFormValues((prev) => prev.usage === usage ? prev : { ...prev, usage });
   }, [preferredChannelKey]);
 
   // Auto-save draft (debounced) whenever key fields change.
   React.useEffect(() => {
     if (skipNextAutoSaveRef.current) {
       skipNextAutoSaveRef.current = false;
-      try { window.localStorage.removeItem(DRAFT_STORAGE_KEY); } catch (e) { }
+      try {window.localStorage.removeItem(DRAFT_STORAGE_KEY);} catch (e) {}
       return;
     }
     const payload = {
-          formValues: {
-            ...formValues,
-            eventDate: formatNewsDate(formValues?.eventDate) || null,
-          },
-          referenceArticle,
-          interviewText,
-          selectedPhotos,
-          sourceAlbumDefaults,
-          selectedChannels,
-          channelContent,
-          activeChannelKey,
-          advancedPrompt,
-          participantChips,
-          batchId, batchStatus, channelJobs, generationStartedAt,
-          processedJobIds: [...processedJobIdsRef.current],
-          savedAt: Date.now(),
-        };
+      formValues: {
+        ...formValues,
+        eventDate: formatNewsDate(formValues?.eventDate) || null
+      },
+      referenceArticle,
+      interviewText,
+      selectedPhotos,
+      sourceAlbumDefaults,
+      selectedChannels,
+      channelContent,
+      activeChannelKey,
+      advancedPrompt,
+      participantChips,
+      batchId, batchStatus, channelJobs, generationStartedAt,
+      processedJobIds: [...processedJobIdsRef.current],
+      savedAt: Date.now()
+    };
     draftSnapshotRef.current = payload;
     const t = setTimeout(() => {
       try {
         if (!DRAFT_STORAGE_KEY) return;
         storeDraft(draftSnapshotRef.current);
       } catch (e) {
+
         // ignore storage quota / disabled storage
-      }
-    }, 350);
+      }}, 350);
     return () => clearTimeout(t);
   }, [
-    formValues,
-    referenceArticle,
-    interviewText,
-    selectedPhotos,
-    sourceAlbumDefaults,
-    selectedChannels,
-    channelContent,
-    activeChannelKey,
-    advancedPrompt,
-    participantChips,
-    batchId, batchStatus, channelJobs, generationStartedAt, DRAFT_STORAGE_KEY, storeDraft,
-  ]);
+  formValues,
+  referenceArticle,
+  interviewText,
+  selectedPhotos,
+  sourceAlbumDefaults,
+  selectedChannels,
+  channelContent,
+  activeChannelKey,
+  advancedPrompt,
+  participantChips,
+  batchId, batchStatus, channelJobs, generationStartedAt, DRAFT_STORAGE_KEY, storeDraft]
+  );
   React.useEffect(() => {
     const flush = () => {
       if (!DRAFT_STORAGE_KEY || !draftSnapshotRef.current) return;
@@ -444,13 +444,13 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
         // Do not overwrite a manual legacy import or a newer draft from another tab on exit.
         if (localStorage.getItem(DRAFT_STORAGE_KEY) !== storedDraftRef.current) return;
         storeDraft(draftSnapshotRef.current);
-      } catch (error) { /* ignore */ }
+      } catch (error) {/* ignore */}
     };
-    const onHidden = () => { if (document.hidden) flush(); };
+    const onHidden = () => {if (document.hidden) flush();};
     window.addEventListener('pagehide', flush);
     document.addEventListener('visibilitychange', onHidden);
     return () => {
-      flush(); window.removeEventListener('pagehide', flush);
+      flush();window.removeEventListener('pagehide', flush);
       document.removeEventListener('visibilitychange', onHidden);
     };
   }, [DRAFT_STORAGE_KEY, storeDraft]);
@@ -458,9 +458,9 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
   const participantCandidates = React.useMemo(() => {
     const names = [];
     (selectedPhotos || []).forEach((p) => {
-      extractFaceNames(p).forEach((n) => { if (!names.includes(n)) names.push(n); });
+      extractFaceNames(p).forEach((n) => {if (!names.includes(n)) names.push(n);});
     });
-    return names.filter(name => !participantChips.includes(name));
+    return names.filter((name) => !participantChips.includes(name));
   }, [selectedPhotos, participantChips]);
 
   // 智能预填 3/3：活动亮点为空时给出的建议文案 —— 取标签命中频次最高的 3 张照片的
@@ -476,18 +476,18 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
       });
     });
     if (!tagFreq.size) return '';
-    const scored = photos
-      .map((p) => {
-        const score = (Array.isArray(p.tags) ? p.tags : [])
-          .reduce((sum, t) => sum + (tagFreq.get(String(t || '').trim()) || 0), 0);
-        return { p, score };
-      })
-      .filter((x) => x.score > 0)
-      .sort((a, b) => b.score - a.score);
+    const scored = photos.
+    map((p) => {
+      const score = (Array.isArray(p.tags) ? p.tags : []).
+      reduce((sum, t) => sum + (tagFreq.get(String(t || '').trim()) || 0), 0);
+      return { p, score };
+    }).
+    filter((x) => x.score > 0).
+    sort((a, b) => b.score - a.score);
     const descs = scored.slice(0, 3).map((x) => String(x.p.description || '').trim()).filter(Boolean);
     if (!descs.length) return '';
     return `现场亮点：${descs.join('；')}。`;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [selectedPhotos]);
 
   React.useEffect(() => {
@@ -507,7 +507,7 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
     try {
       return DOMPurify.sanitize(String(dirty || ''), {
         FORBID_TAGS: ['style', 'form', 'input', 'iframe', 'object', 'embed'],
-        FORBID_ATTR: ['style'],
+        FORBID_ATTR: ['style']
       });
     } catch (e) {
       console.error('sanitizeHtml error', e);
@@ -516,10 +516,10 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
   };
 
   // small helper to escape HTML in inserted captions
-  const escapeHtml = (str) => {
-    if (!str) return '';
-    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-  };
+
+
+
+
 
   // Use marked for robust markdown -> HTML rendering
   const renderMarkdownToHtml = (md) => {
@@ -530,7 +530,7 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
         mangle: false,
         headerIds: false,
         // disable raw HTML to avoid server-provided malicious html; we will sanitize later
-        gfm: true,
+        gfm: true
       });
       return renderDraftArticle(md);
     } catch (e) {
@@ -546,9 +546,9 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
       if (!md) return 0;
       let s = withoutImageGroupMarkers(md);
       // Replace markdown image syntax ![alt](url) with the alt text only
-      s = s.replace(/!\[([^\]]*?)\]\([^\)]*?\)/g, (m, alt) => (alt || ''));
+      s = s.replace(/!\[([^\]]*?)\]\([^\)]*?\)/g, (m, alt) => alt || '');
       // Replace HTML <img ... alt="..." ...> with its alt text when available
-      s = s.replace(/<img\b[^>]*alt=(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>/gi, (m, a, b, c) => (a || b || c || ''));
+      s = s.replace(/<img\b[^>]*alt=(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>/gi, (m, a, b, c) => a || b || c || '');
       // Remove any remaining http(s) URLs
       s = s.replace(/https?:\/\/[^\s)"']+/g, '');
       // Collapse whitespace and return length
@@ -571,7 +571,7 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
       // replace fullwidth hash with ascii hash
       s = s.replace(/＃/g, '#');
       // remove leading invisible chars on each line (helps when copy-paste introduces ZWSP)
-      s = s.split('\n').map(line => line.replace(/^[\uFEFF\u200B\u200C\u200D\u200E\u200F\s]+/, '')).join('\n');
+      s = s.split('\n').map((line) => line.replace(/^[\uFEFF\u200B\u200C\u200D\u200E\u200F\s]+/, '')).join('\n');
       // ensure headings have a space after the hashes (e.g. '#标题' -> '# 标题')
       s = s.replace(/^(#{1,6})([^\s#])/gm, (m, hashes, rest) => `${hashes} ${rest}`);
       return s;
@@ -581,56 +581,56 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
   };
 
   // Remove consecutive duplicate <img> tags with the same src to avoid double-inserted images
-  const dedupeConsecutiveImages = (htmlStr) => {
-    try {
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(htmlStr || '', 'text/html');
-      const imgs = Array.from(doc.querySelectorAll('img'));
-      imgs.forEach((img) => {
-        const prev = img.previousElementSibling;
-        if (prev && prev.tagName && prev.tagName.toLowerCase() === 'img') {
-          try {
-            const prevSrc = prev.getAttribute('src') || '';
-            const curSrc = img.getAttribute('src') || '';
-            if (prevSrc && curSrc && prevSrc === curSrc) {
-              img.remove();
-            }
-          } catch (e) {
-            // ignore
-          }
-        }
-      });
-      return doc.body.innerHTML;
-    } catch (e) {
-      return htmlStr;
-    }
-  };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
   // Clean stray markdown fragments that may surround <img> tags in server HTML
-  const cleanImageSurroundingText = (htmlStr) => {
-    try {
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(htmlStr || '', 'text/html');
-      const imgs = Array.from(doc.querySelectorAll('img'));
-      imgs.forEach((img) => {
-        // previous sibling text cleanup (remove trailing '![' or similar)
-        const prev = img.previousSibling;
-        if (prev && prev.nodeType === Node.TEXT_NODE) {
-          prev.nodeValue = prev.nodeValue.replace(/!\[\s*$/g, '').replace(/\s+$/g, '');
-          if (!prev.nodeValue.trim()) prev.remove();
-        }
-        // next sibling text cleanup (remove leading ')', numbering, or ')(...' fragments)
-        const next = img.nextSibling;
-        if (next && next.nodeType === Node.TEXT_NODE) {
-          next.nodeValue = next.nodeValue.replace(/^\s*\)\s*\d*/g, '').replace(/^\s*\)\s*/g, '');
-          if (!next.nodeValue.trim()) next.remove();
-        }
-      });
-      return doc.body.innerHTML;
-    } catch (e) {
-      return htmlStr;
-    }
-  };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
   // Fix cases where an <img> tag's src attribute accidentally contains markdown
   // like "![alt](https://...)" or a URL-encoded version of that. Decode and
@@ -641,7 +641,7 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
       try {
         htmlStr = htmlStr.replace(/(<img\b[^>]*\bsrc=)(["'])(.*?)\2/gi, (full, prefix, quote, val) => {
           let decoded = val;
-          try { decoded = decodeURIComponent(val); } catch (e) { /* ignore */ }
+          try {decoded = decodeURIComponent(val);} catch (e) {/* ignore */}
           // if decoded contains markdown like [alt](http...)
           const urlMatch = decoded.match(/https?:\/\/(?:[\w\-@:%._\+~#=]{1,256})(?:\/[\w\-@:%_+.~#?&//=]*)?/i);
           if (urlMatch && urlMatch[0]) {
@@ -651,9 +651,9 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
           return full;
         });
       } catch (e) {
+
         // ignore string-level failures
       }
-
       // Second pass: DOM-level robust cleanup
       const parser = new DOMParser();
       const doc = parser.parseFromString(htmlStr || '', 'text/html');
@@ -664,9 +664,9 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
           const dec = decodeURIComponent(raw);
           if (dec && dec !== raw) raw = dec;
         } catch (e) {
+
           // ignore decode errors
         }
-
         const urlMatch = raw.match(/https?:\/\/(?:[\w\-@:%._\+~#=]{1,256})(?:\/[\w\-@:%_+.~#?&//=]*)?/i);
         if (urlMatch && urlMatch[0]) {
           const url = urlMatch[0];
@@ -716,7 +716,7 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
           const nextEl = figure.nextElementSibling;
           if ((!captionText || captionText.trim() === '') && nextEl) {
             const tag = (nextEl.tagName || '').toLowerCase();
-            if (tag === 'em' || tag === 'small' || (nextEl.className && /caption/i.test(nextEl.className))) {
+            if (tag === 'em' || tag === 'small' || nextEl.className && /caption/i.test(nextEl.className)) {
               captionText = nextEl.textContent.trim();
               nextEl.parentNode && nextEl.parentNode.removeChild(nextEl);
             }
@@ -728,9 +728,9 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
             figure.appendChild(figcap);
           }
         } catch (e) {
+
           // ignore per-image errors
-        }
-      });
+        }});
 
       return doc.body.innerHTML;
     } catch (e) {
@@ -748,7 +748,7 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
         // inner may already be a nested markdown image or an encoded version
         let innerRaw = inner || '';
         let innerDecoded = innerRaw;
-        try { innerDecoded = decodeURIComponent(innerRaw); } catch (e) { /* ignore decode errors */ }
+        try {innerDecoded = decodeURIComponent(innerRaw);} catch (e) {/* ignore decode errors */}
 
         // prefer decoded inner if it contains nested markdown
         const candidate = innerDecoded.includes('![') ? innerDecoded : innerRaw;
@@ -756,7 +756,7 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
         if (nested) {
           const innerAlt = nested[1] || '';
           const url = nested[2] || '';
-          const alt = (outerAlt && outerAlt.trim()) ? outerAlt.trim() : (innerAlt && innerAlt.trim() ? innerAlt.trim() : '');
+          const alt = outerAlt && outerAlt.trim() ? outerAlt.trim() : innerAlt && innerAlt.trim() ? innerAlt.trim() : '';
           return `![${alt}](${url})`;
         }
         return full;
@@ -775,22 +775,22 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
     try {
       if (!markdown) return markdown;
       const photos = Array.isArray(selectedPhotosArg) ? selectedPhotosArg : [];
-      const map = Object.fromEntries(photos.map(p => [String(p.id), p]));
+      const map = Object.fromEntries(photos.map((p) => [String(p.id), p]));
       const fallbackMap = Object.fromEntries((selectedPhotos || []).map((p) => [String(p.id), p]));
-      const placeholder = (typeof resolveAssetUrl === 'function') ? resolveAssetUrl('/static/img/placeholder.png') : '/static/img/placeholder.png';
+      const placeholder = typeof resolveAssetUrl === 'function' ? resolveAssetUrl('/static/img/placeholder.png') : '/static/img/placeholder.png';
       return String(markdown).replace(/!\[([^\]]*?)\]\(PHOTO:([^\)]+)\)/g, (m, alt, id) => {
         const pid = String(id);
         const ph = {
           ...(fallbackMap[pid] || {}),
-          ...(map[pid] || {}),
+          ...(map[pid] || {})
         };
         const cand = ph && (ph.url || ph.thumbUrl || ph.thumbSrc || ph.thumb || ph.src);
         let finalAlt = String(alt || '').trim();
         // Prefer backend-provided photographerName. If missing, fall back to photographerId.
         const name = ph && (ph.photographerName || ph.photographer_name || null);
         const fallbackId = ph && (ph.photographerId || ph.photographer_id || ph.photographer || null);
-        const displayName = name ? name : (fallbackId ? `摄影师 #${fallbackId}` : '未知摄影师');
-        const imgMd = (cand && cand.length) ? `![${finalAlt}](${cand})` : `![${finalAlt || '图片'}](${placeholder})`;
+        const displayName = name ? name : fallbackId ? `摄影师 #${fallbackId}` : '未知摄影师';
+        const imgMd = cand && cand.length ? `![${finalAlt}](${cand})` : `![${finalAlt || '图片'}](${placeholder})`;
         if (displayName) return `${imgMd}\n\n*摄影：${displayName}*`;
         return imgMd;
       });
@@ -807,15 +807,15 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
   // 组件卸载后停止一切轮询（否则任务不结束就永远轮询 + 卸载后 setState）
   React.useEffect(() => {
     mountedRef.current = true;
-    return () => { mountedRef.current = false; };
+    return () => {mountedRef.current = false;};
   }, []);
 
   // 把单个渠道的生成结果（PHOTO:id 占位符）处理成可编辑 markdown，写入该渠道的 keyed state。
   // Results use the existing photo map; no serial per-photo network requests.
   const applyChannelResult = React.useCallback(async (channelKey, result, jobId, isCurrent) => {
     try {
-      const photos = (result.photos || []).map(photo => {
-        const source = selectedPhotos.find(item => String(item.id) === String(photo.id)) || {};
+      const photos = (result.photos || []).map((photo) => {
+        const source = selectedPhotos.find((item) => String(item.id) === String(photo.id)) || {};
         return { ...source, ...photo,
           url: photo.url || source.url || source.thumbUrl || source.thumbSrc || source.thumb };
       });
@@ -828,16 +828,16 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
       }
       if (!isCurrent()) return false;
       const base = generationBaseRef.current?.[channelKey];
-      const current = (channelContentRef.current?.[channelKey]) || {};
+      const current = channelContentRef.current?.[channelKey] || {};
       if (base && (String(current.markdownText || '') !== base.markdown || String(current.title || '') !== base.title)) {
         // 生成期间用户改过草稿：不静默覆盖，结果先留存，由用户选择采用或保留修改。
-        setPendingResults(previous => ({ ...previous, [channelKey]: {
-          result: processed, cleaned, jobId, title: processed.title || formValues.eventName || '',
-        } }));
+        setPendingResults((previous) => ({ ...previous, [channelKey]: {
+            result: processed, cleaned, jobId, title: processed.title || formValues.eventName || ''
+          } }));
         if (mountedRef.current) Toast.info('生成完成，但你在生成期间修改过草稿；结果已保留，可在稿件上方选择采用');
         return false;
       }
-      updateChannelContent(channelKey, base => ({
+      updateChannelContent(channelKey, (base) => ({
         title: processed.title || formValues.eventName || '',
         subtitle: processed.subtitle || '',
         markdownText: cleaned,
@@ -847,21 +847,21 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
         factCheck: processed.factCheck || null,
         references: Array.isArray(processed.references) ? processed.references : null,
         referenceStatus: processed.referenceStatus || null,
-        sourceJobId: jobId,
+        sourceJobId: jobId
       }));
       setActiveChannelKey((prev) => prev || channelKey);
       setSourceOpen(false);
       // 新结果落地：展开该渠道的校验警示条（若旧一轮曾被用户「忽略」过）
-      setCollapsedWarnings((prev) => (prev[channelKey] ? { ...prev, [channelKey]: false } : prev));
+      setCollapsedWarnings((prev) => prev[channelKey] ? { ...prev, [channelKey]: false } : prev);
       return true;
     } catch (e) {
       console.error('[AiNewsWriter] apply channel result failed', channelKey, e);
       throw e;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [selectedPhotos, formValues.eventName, updateChannelContent]);
 
-  const adoptPendingResult = React.useCallback(channelKey => {
+  const adoptPendingResult = React.useCallback((channelKey) => {
     const pending = pendingResults[channelKey];
     if (!pending) return;
     updateChannelContent(channelKey, () => ({ ...emptyChannelContent(),
@@ -869,13 +869,13 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
       generatedHtml: '', extra: pending.result.extra || {}, photos: pending.result.photos || [],
       factCheck: pending.result.factCheck || null, references: Array.isArray(pending.result.references) ? pending.result.references : null,
       referenceStatus: pending.result.referenceStatus || null, sourceJobId: pending.jobId }));
-    setPendingResults(previous => { const next = { ...previous }; delete next[channelKey]; return next; });
-    setActiveChannelKey(previous => previous || channelKey);
+    setPendingResults((previous) => {const next = { ...previous };delete next[channelKey];return next;});
+    setActiveChannelKey((previous) => previous || channelKey);
     setSourceOpen(false);
     Toast.success('已采用生成结果');
   }, [pendingResults, updateChannelContent]);
-  const discardPendingResult = React.useCallback(channelKey => {
-    setPendingResults(previous => { const next = { ...previous }; delete next[channelKey]; return next; });
+  const discardPendingResult = React.useCallback((channelKey) => {
+    setPendingResults((previous) => {const next = { ...previous };delete next[channelKey];return next;});
     Toast.info('已保留你的修改，生成结果已丢弃');
   }, []);
 
@@ -893,7 +893,7 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
     });
     for (const job of jobs) {
       if (job.status === 'succeeded' && job.result && !processedJobIdsRef.current.has(job.jobId)) {
-        // eslint-disable-next-line no-await-in-loop
+
         if (await applyChannelResult(job.channelKey, job.result, job.jobId, isCurrent)) {
           processedJobIdsRef.current.add(job.jobId);
         }
@@ -910,15 +910,15 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
     pollNewsBatch({ id: batchId, getBatch, signal: controller.signal,
       onResponse: (response, isCurrent) => batchResponseRef.current(response, isCurrent),
       onError: (error, fatal) => {
-        setTrackingError(error ? (fatal ? '任务状态无法读取，请检查账号或工作空间' : '连接暂时中断') : '');
+        setTrackingError(error ? fatal ? '任务状态无法读取，请检查账号或工作空间' : '连接暂时中断' : '');
         if (fatal) setBatchStatus('unavailable');
-      },
-    }).catch(() => { if (!controller.signal.aborted) setTrackingError('读取结果失败，请重新连接'); });
+      }
+    }).catch(() => {if (!controller.signal.aborted) setTrackingError('读取结果失败，请重新连接');});
     return () => controller.abort();
   }, [batchId, trackingEpoch]);
 
   const toggleChannel = React.useCallback((key) => {
-    setSelectedChannels((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
+    setSelectedChannels((prev) => prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]);
   }, []);
 
   const handleGenerate = async () => {
@@ -952,14 +952,14 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
       // 智能预填：出席人物 chips 只在提交时并入 form.participants，不回写到可见输入框，
       // 避免用户还在编辑时输入框被静默改写
       const mergedParticipantNames = toNameList(formValues.participants);
-      participantChips.forEach((n) => { if (!mergedParticipantNames.includes(n)) mergedParticipantNames.push(n); });
+      participantChips.forEach((n) => {if (!mergedParticipantNames.includes(n)) mergedParticipantNames.push(n);});
       const payload = {
         form: { ...formValues, eventDate: formatNewsDate(formValues.eventDate), participants: mergedParticipantNames.join('、'),
           confirmedParticipantNames: participantChips },
         referenceArticle: combinedReference,
         interviewText: interviewText || '',
         channels: selectedChannels,
-        writingRequirements: advancedPrompt,
+        writingRequirements: advancedPrompt
       };
       if (selectedPhotos && selectedPhotos.length) {
         // Per backend request: only send a single thumbnail field (thumbUrl) and projectTitle
@@ -967,21 +967,21 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
           // core id/url
           id: p.id || p.url || `transfer-${idx}`,
           // use a single canonical thumbnail field
-          thumbUrl: p.thumbUrl || p.thumbSrc || p.thumb || (p.url || null),
+          thumbUrl: p.thumbUrl || p.thumbSrc || p.thumb || p.url || null,
           // metadata
           description: p.description || '',
-          tags: Array.isArray(p.tags) ? p.tags : (p.tagList || []),
+          tags: Array.isArray(p.tags) ? p.tags : p.tagList || [],
           projectTitle: p.projectTitle || '',
           faceNames: extractFaceNames(p),
           personNames: extractFaceNames(p),
           // 摄影师署名：名字直接进 prompt，id 留作占位符元数据
           photographerId: p.photographerId || p.photographer_id || null,
-          photographerName: p.photographerName || p.photographer_name || '',
+          photographerName: p.photographerName || p.photographer_name || ''
         }));
       }
 
       const baseSnapshot = {};
-      selectedChannels.forEach(channelKey => {
+      selectedChannels.forEach((channelKey) => {
         const content = channelContentRef.current?.[channelKey] || {};
         baseSnapshot[channelKey] = { markdown: String(content.markdownText || ''), title: String(content.title || '') };
       });
@@ -990,7 +990,7 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
       const resp = await startBatch(payload);
       if (!resp || !resp.batchId) throw new Error('批次创建失败：响应缺少 batchId');
       const initialJobs = {};
-      (resp.jobs || []).forEach((j) => { initialJobs[j.channelKey] = { jobId: j.jobId, status: 'pending', error: null }; });
+      (resp.jobs || []).forEach((j) => {initialJobs[j.channelKey] = { jobId: j.jobId, status: 'pending', error: null };});
       try {
         if (DRAFT_STORAGE_KEY) {
           const draft = { ...(draftSnapshotRef.current || {}),
@@ -1001,7 +1001,7 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
           draftSnapshotRef.current = draft;
           storeDraft(draft);
         }
-      } catch (e) { if (mountedRef.current) Toast.warning('任务已提交，但本地存储不可用；请保留页面'); }
+      } catch (e) {if (mountedRef.current) Toast.warning('任务已提交，但本地存储不可用；请保留页面');}
       if (!mountedRef.current) return;
       // Keep the previous draft editable until a new result has actually arrived.
       processedJobIdsRef.current = new Set();
@@ -1011,7 +1011,7 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
       Toast.info('生成已提交，正在处理中');
     } catch (e) {
       console.error('[AiNewsWriter] generate failed', e);
-      const reason = e && (e.message || (e.data && e.data.message)) ? String(e.message || e.data.message).slice(0, 140) : '';
+      const reason = e && (e.message || e.data && e.data.message) ? String(e.message || e.data.message).slice(0, 140) : '';
       setInputError(reason ? `生成请求失败：${reason}` : '生成请求失败，请稍后重试');
       Toast.error(reason ? `生成请求失败：${reason}` : '生成请求失败');
     } finally {
@@ -1031,10 +1031,10 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
       setBatchStatus('pending');
       setTrackingError('');
       setGenerationStartedAt(Date.now());
-      setTrackingEpoch(value => value + 1);
+      setTrackingEpoch((value) => value + 1);
     } catch (e) {
       console.error('[AiNewsWriter] retry job failed', channelKey, e);
-      const reason = e && (e.message || (e.data && e.data.message)) ? String(e.message || e.data.message).slice(0, 140) : '';
+      const reason = e && (e.message || e.data && e.data.message) ? String(e.message || e.data.message).slice(0, 140) : '';
       Toast.error(reason ? `重试失败：${reason}` : '重试失败');
     }
   }, [channelJobs, batchId]);
@@ -1089,25 +1089,25 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
 
   // 导出用图片列表 [{id,url}]：优先用后端结果里的 photos，没有则退回已选照片
   const getPhotosForExport = React.useCallback((content) => {
-    const list = (content?.photos && content.photos.length) ? content.photos : (selectedPhotos || []);
-    return list
-      .map((p) => ({ id: p.id, url: p.url || p.thumbUrl || p.thumbSrc || p.thumb }))
-      .filter((p) => p.url);
+    const list = content?.photos && content.photos.length ? content.photos : selectedPhotos || [];
+    return list.
+    map((p) => ({ id: p.id, url: p.url || p.thumbUrl || p.thumbSrc || p.thumb })).
+    filter((p) => p.url);
   }, [selectedPhotos]);
 
   // markdown 纯文本化：去图片行/标题符号/加粗星号/列表短横，供小红书、微博的「复制正文」使用
-  const markdownToPlainText = (md) => withoutImageGroupMarkers(md)
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
-    .replace(/^#{1,6}\s*/gm, '')
-    .replace(/\*\*([^*]+)\*\*/g, '$1')
-    .replace(/\*([^*]+)\*/g, '$1')
-    .replace(/^-\s+/gm, '')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
+  const markdownToPlainText = (md) => withoutImageGroupMarkers(md).
+  replace(/!\[[^\]]*\]\([^)]*\)/g, '').
+  replace(/^#{1,6}\s*/gm, '').
+  replace(/\*\*([^*]+)\*\*/g, '$1').
+  replace(/\*([^*]+)\*/g, '$1').
+  replace(/^-\s+/gm, '').
+  replace(/\n{3,}/g, '\n\n').
+  trim();
 
-  const hashtagsToText = (content) => (Array.isArray(content?.extra?.hashtags) ? content.extra.hashtags : [])
-    .map((t) => `#${t}#`)
-    .join(' ');
+  const hashtagsToText = (content) => (Array.isArray(content?.extra?.hashtags) ? content.extra.hashtags : []).
+  map((t) => `#${t}#`).
+  join(' ');
 
   const [isCheckingFacts, setIsCheckingFacts] = React.useState(false);
   const handleCheckFacts = async () => {
@@ -1117,11 +1117,11 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
     setIsCheckingFacts(true);
     try {
       const factCheck = await request('/api/ai/news/check', { method: 'POST', timeoutMs: 15000, data: {
-        markdown, form: { ...formValues, eventDate: formatNewsDate(formValues.eventDate), interviewText },
-        personNames: participantChips,
-      } });
-      if (mountedRef.current) updateChannelContent(channel, base => (
-        base.markdownText === markdown ? { ...base, factCheck } : base));
+          markdown, form: { ...formValues, eventDate: formatNewsDate(formValues.eventDate), interviewText },
+          personNames: participantChips
+        } });
+      if (mountedRef.current) updateChannelContent(channel, (base) =>
+      base.markdownText === markdown ? { ...base, factCheck } : base);
     } catch (error) {
       Toast.error(error.message || '核对失败，请稍后重试');
     } finally {
@@ -1129,18 +1129,18 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
     }
   };
 
-  const handleCopyWechatRich = async () => {
-    try {
-      const { imageCount } = await copyWechatRichTextLegacy({
-        title: activeContent.title,
-        markdown: activeContent.markdownText,
-        photosMap: buildPhotosMapForContent(activeContent),
-      });
-      Toast.success(`已复制图文，含 ${imageCount} 张配图`);
-    } catch (e) {
-      Toast.error(e && e.message ? e.message : '复制失败');
-    }
-  };
+
+
+
+
+
+
+
+
+
+
+
+
 
   const handleDownloadWechatImages = async () => {
     try {
@@ -1153,14 +1153,14 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
 
   const handleExportWord = async () => {
     try {
-      const { exportNewsDocx } = await import(/* webpackChunkName: "news-word-export" */ './utils/newsWordExport');
+      const { exportNewsDocx } = await import(/* webpackChunkName: "news-word-export" */'./utils/newsWordExport');
       await exportNewsDocx({
         title: activeContent.title,
         subtitle: activeContent.subtitle,
         markdown: activeContent.markdownText,
         photosMap: buildPhotosMapForContent(activeContent),
         captions: {},
-        photographerLine,
+        photographerLine
       });
       Toast.success('已导出 Word 文档');
     } catch (e) {
@@ -1217,12 +1217,12 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
     return '';
   };
 
-  const escapeSvgText = (input) => String(input || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+  const escapeSvgText = (input) => String(input || '').
+  replace(/&/g, '&amp;').
+  replace(/</g, '&lt;').
+  replace(/>/g, '&gt;').
+  replace(/"/g, '&quot;').
+  replace(/'/g, '&#39;');
 
   const blobToDataUrl = (blob) => new Promise((resolve, reject) => {
     try {
@@ -1235,19 +1235,19 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
     }
   });
 
-  const buildExportPlaceholder = (altText) => (
-    `data:image/svg+xml;utf8,${encodeURIComponent(
-      `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360">
+  const buildExportPlaceholder = (altText) =>
+  `data:image/svg+xml;utf8,${encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360">
         <rect width="100%" height="100%" fill="#f1f5f9"/>
         <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#64748b" font-size="20">
           ${escapeSvgText(altText || '图片')}
         </text>
       </svg>`
-    )}`
-  );
+  )}`;
+
 
   const inlineCrossOriginImagesForExport = async (root) => {
-    const imgs = Array.from((root && root.querySelectorAll) ? root.querySelectorAll('img') : []);
+    const imgs = Array.from(root && root.querySelectorAll ? root.querySelectorAll('img') : []);
     let inlinedCount = 0;
     let unresolvedCount = 0;
     for (const img of imgs) {
@@ -1298,7 +1298,7 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
   };
 
   const replaceUnresolvedImagesWithPlaceholdersForExport = (root) => {
-    const imgs = Array.from((root && root.querySelectorAll) ? root.querySelectorAll('img[data-export-unresolved="1"]') : []);
+    const imgs = Array.from(root && root.querySelectorAll ? root.querySelectorAll('img[data-export-unresolved="1"]') : []);
     imgs.forEach((img) => {
       img.setAttribute('src', buildExportPlaceholder(img.getAttribute('alt') || '图片'));
       img.removeAttribute('srcset');
@@ -1308,7 +1308,7 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
   };
 
   const replaceAllImagesWithPlaceholdersForExport = (root) => {
-    const imgs = Array.from((root && root.querySelectorAll) ? root.querySelectorAll('img') : []);
+    const imgs = Array.from(root && root.querySelectorAll ? root.querySelectorAll('img') : []);
     imgs.forEach((img) => {
       img.setAttribute('src', buildExportPlaceholder(img.getAttribute('alt') || '图片'));
       img.removeAttribute('srcset');
@@ -1328,8 +1328,8 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
       fetchRequestInit: {
         method: 'GET',
         mode: 'cors',
-        credentials: 'include',
-      },
+        credentials: 'include'
+      }
     });
   };
 
@@ -1340,16 +1340,16 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
       credentials: 'same-origin',
       headers: {
         'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
       },
       body: JSON.stringify({
         html: String(html || ''),
         width,
         height,
-        baseHref: (typeof window !== 'undefined' && window.location && window.location.origin)
-          ? `${window.location.origin}/`
-          : '',
-      }),
+        baseHref: typeof window !== 'undefined' && window.location && window.location.origin ?
+        `${window.location.origin}/` :
+        ''
+      })
     });
 
     if (!resp.ok) {
@@ -1364,9 +1364,9 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
           if (text) msg = text.slice(0, 300);
         }
       } catch (e) {
+
         // ignore parse error
-      }
-      throw new Error(msg);
+      }throw new Error(msg);
     }
 
     const blob = await resp.blob();
@@ -1441,8 +1441,8 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
           }
         }
         if (!dataUrl) {
-          const msg = String((nextErr && (nextErr.message || nextErr.name)) || '');
-          const isSecurityError = (nextErr && nextErr.name === 'SecurityError') || /tainted canvas/i.test(msg);
+          const msg = String(nextErr && (nextErr.message || nextErr.name) || '');
+          const isSecurityError = nextErr && nextErr.name === 'SecurityError' || /tainted canvas/i.test(msg);
           if (!isSecurityError && fallbackPlaceholderCount <= 0) throw nextErr;
           fullFallbackPlaceholderCount = replaceAllImagesWithPlaceholdersForExport(wrapper);
           dataUrl = await exportWrapperToDataUrl(wrapper, width, height);
@@ -1479,30 +1479,30 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
   };
 
   const finalPreviewHtml = React.useMemo(() => getFinalPreviewHtml(),
-    [activeContent.markdownText, activeContent.generatedHtml, selectedPhotos]);
-  const reviewNotes = Array.isArray(activeContent.extra?.reviewNotes)
-    ? activeContent.extra.reviewNotes.filter(note => typeof note === 'string' && note.trim()) : [];
+  [activeContent.markdownText, activeContent.generatedHtml, selectedPhotos]);
+  const reviewNotes = Array.isArray(activeContent.extra?.reviewNotes) ?
+  activeContent.extra.reviewNotes.filter((note) => typeof note === 'string' && note.trim()) : [];
 
-  const acceptPhotos = photos => {
+  const acceptPhotos = (photos) => {
     setSelectedPhotos(photos);
     const defaults = newsAlbumDefaults(photos);
-    setFormValues(previous => ({ ...previous,
+    setFormValues((previous) => ({ ...previous,
       eventName: !previous.eventName || previous.eventName === sourceAlbumDefaults.eventName ? defaults.eventName || '' : previous.eventName,
-      eventDate: !previous.eventDate || formatNewsDate(previous.eventDate) === formatNewsDate(sourceAlbumDefaults.eventDate)
-        ? defaults.eventDate || null : previous.eventDate }));
+      eventDate: !previous.eventDate || formatNewsDate(previous.eventDate) === formatNewsDate(sourceAlbumDefaults.eventDate) ?
+      defaults.eventDate || null : previous.eventDate }));
     setSourceAlbumDefaults(defaults);
     setPhotoPickerOpen(false);
   };
 
   const openComposer = () => {
     const article = articleSnapshot;
-    if (onOpenComposer) { onOpenComposer(article); return; }
+    if (onOpenComposer) {onOpenComposer(article);return;}
     try {
       const key = wechatImportKey(currentUser?.id, workspaceId);
       if (!key) throw new Error('请先登录');
       localStorage.setItem(key, JSON.stringify(article));
       navigate('/function/wechat-composer');
-    } catch (error) { Toast.error('暂时无法打开排版，请稍后重试'); }
+    } catch (error) {Toast.error('暂时无法打开排版，请稍后重试');}
   };
 
   const photoAttachments = <div className="news-photo-attachment">
@@ -1521,7 +1521,7 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
     {highlightSuggestion ? <details className="news-photo-clues">
       <summary>查看照片分析 <span>待确认</span></summary>
       <p>{highlightSuggestion}</p>
-      <Button size="small" onClick={() => setFormValues(previous => ({ ...previous,
+      <Button size="small" onClick={() => setFormValues((previous) => ({ ...previous,
         sourceMaterial: [previous.sourceMaterial, `已确认的画面描述：${highlightSuggestion}`].filter(Boolean).join('\n\n') }))}>确认采用画面描述</Button>
     </details> : null}
   </div>;
@@ -1533,16 +1533,16 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
           <h2><IconSparkleAI />{preferredChannelKey === 'wechat_article' ? '公众号内容稿' : preferredChannel ? preferredChannel.name : 'AI 写稿'}</h2>
           <div className="news-page-actions">{headerActions}
           <Button theme="borderless" size="small" icon={<IconTrash />} title="清空草稿" aria-label="清空草稿" onClick={() => Modal.confirm({
-            title: '清空当前草稿？', content: '将清空本机保存的写作材料与稿件，已生成的后台任务不会被删除。',
-            okText: '清空草稿', onOk: clearAllDraft,
-          })} disabled={isGenerating} />
+              title: '清空当前草稿？', content: '将清空本机保存的写作材料与稿件，已生成的后台任务不会被删除。',
+              okText: '清空草稿', onOk: clearAllDraft
+            })} disabled={isGenerating} />
           </div>
         </div>
         {isGenerating && <NewsGenerationStatus startedAt={generationStartedAt} jobs={channelJobs}
-          submitting={isSubmitting} error={trackingError} />}
+        submitting={isSubmitting} error={trackingError} />}
         {hasManuscript && !sourceOpen && !isGenerating ? Object.entries(channelJobs).filter(([, job]) => job.status === 'failed').map(([key, job]) =>
-          <div className="news-reconnect" role="alert" key={key}>
-            <span>{CHANNELS.find(channel => channel.key === key)?.name}生成失败，原稿已保留{job.error ? `：${String(job.error).slice(0, 140)}` : ''}</span>
+        <div className="news-reconnect" role="alert" key={key}>
+            <span>{CHANNELS.find((channel) => channel.key === key)?.name}生成失败，原稿已保留{job.error ? `：${String(job.error).slice(0, 140)}` : ''}</span>
             <Button size="small" onClick={() => handleRetryChannel(key)}>重试</Button>
           </div>) : null}
         {hasLegacyDraft && !isGenerating ? <div className="news-legacy-draft">
@@ -1554,7 +1554,7 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
                 const legacy = JSON.parse(localStorage.getItem('mamage.aiNewsWriter.draft.v1'));
                 localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(importLegacyNewsDraft(legacy)));
                 window.location.reload();
-              } catch (error) { Toast.error(error.message || '导入失败'); }
+              } catch (error) {Toast.error(error.message || '导入失败');}
             } })}>导入旧稿</Button>
           <Button size="small" theme="borderless" onClick={() => setHasLegacyDraft(false)}>暂不导入</Button>
         </div> : null}
@@ -1568,7 +1568,7 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
               {hasManuscript ? <div className="news-source-summary">
                 <div><strong>写作材料</strong><span>{selectedPhotos.length} 张配图{inlineDocImages && !selectedPhotos.length ? ` · 稿件内 ${inlineDocImages} 张图` : ''}{formValues.eventName ? ` · ${formValues.eventName}` : ''}</span></div>
                 <Button theme="borderless" size="small" icon={<IconEditStroked />} aria-expanded={sourceOpen}
-                  onClick={() => setSourceOpen(value => !value)}>{sourceOpen ? '收起材料' : '补充材料 / 重新生成'}</Button>
+                onClick={() => setSourceOpen((value) => !value)}>{sourceOpen ? '收起材料' : '补充材料 / 重新生成'}</Button>
               </div> : null}
               <section className="news-material-surface" aria-label="写作材料" hidden={hasManuscript && !sourceOpen}>
                 <div className="news-material-heading">
@@ -1577,11 +1577,11 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
                 </div>
                 {preferredChannelKey === 'wechat_article' ? <div className="news-draft-choices">
                   <WechatReferencePicker key={`references:${currentUser?.id || 'none'}:${workspaceId || 'legacy'}`} workspaceId={workspaceId}
-                    selected={Array.isArray(formValues.monitorReferences) ? formValues.monitorReferences : []}
-                    onChange={items => setFormValues(previous => ({ ...previous, monitorReferences: items }))} />
+                  selected={Array.isArray(formValues.monitorReferences) ? formValues.monitorReferences : []}
+                  onChange={(items) => setFormValues((previous) => ({ ...previous, monitorReferences: items }))} />
                   <WechatContentTemplatePicker key={`${currentUser?.id || 'none'}:${workspaceId || 'legacy'}`}
-                    form={formValues} workspaceId={workspaceId}
-                    onChange={patch => { setFormValues(previous => ({ ...previous, ...patch })); setInputError(''); }} />
+                  form={formValues} workspaceId={workspaceId}
+                  onChange={(patch) => {setFormValues((previous) => ({ ...previous, ...patch }));setInputError('');}} />
                 </div> : null}
                 {photoAttachments}
                 {formValues.eventName || formValues.eventDate ? <div className="news-event-context">
@@ -1589,12 +1589,12 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
                 </div> : null}
                 <label className="news-material-label" htmlFor="news-source-material">{formValues.writingMode === 'rewrite' ? '稿件原文' : preferredChannelKey === 'wechat_article' ? '详细信息补充' : '现场情况'}</label>
                 <TextArea id="news-source-material" className="news-material-input" aria-label={preferredChannelKey === 'wechat_article' ? '详细信息补充' : '写作材料'} value={formValues.sourceMaterial || ''}
-                  aria-invalid={Boolean(inputError)} aria-describedby={inputError ? 'news-input-error' : undefined}
-                  onChange={value => { setFormValues(previous => ({ ...previous, sourceMaterial: value })); setInputError(''); }}
-                  rows={5} placeholder={formValues.writingMode === 'rewrite'
-                    ? '粘贴需要润色的新闻稿原文……'
-                    : preferredChannelKey === 'wechat_article' ? '补充文章需要的信息，例如活动时间、地点、参与人员、具体经过，以及希望突出的内容。'
-                    : '例如：今天在报告厅举行学生实践交流，几组同学分享了项目，老师现场点评。重点写学生的实践收获。'} />
+                aria-invalid={Boolean(inputError)} aria-describedby={inputError ? 'news-input-error' : undefined}
+                onChange={(value) => {setFormValues((previous) => ({ ...previous, sourceMaterial: value }));setInputError('');}}
+                rows={5} placeholder={formValues.writingMode === 'rewrite' ?
+                '粘贴需要润色的新闻稿原文……' :
+                preferredChannelKey === 'wechat_article' ? '补充文章需要的信息，例如活动时间、地点、参与人员、具体经过，以及希望突出的内容。' :
+                '例如：今天在报告厅举行学生实践交流，几组同学分享了项目，老师现场点评。重点写学生的实践收获。'} />
                 <div className="news-field-count" data-over-limit={String(formValues.sourceMaterial || '').length > 20000}>
                   {String(formValues.sourceMaterial || '').length} 字{String(formValues.sourceMaterial || '').length > 18000 ? ' / 20000' : ''}
                 </div>
@@ -1607,11 +1607,11 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
                 <details className="news-more-options">
                   <summary><IconChevronRight />更多设置<span>{formValues.eventName || '活动信息、文风与篇幅'}</span></summary>
                   {preferredChannelKey === 'wechat_article' ? <label className="news-content-template-credit"><input type="checkbox" checked={formValues.reviewCredits !== false}
-                    onChange={event => { const checked = event.target.checked; setFormValues(previous => ({ ...previous, reviewCredits: checked })); }} /><span>预留初审、终审署名</span></label> : null}
+                    onChange={(event) => {const checked = event.target.checked;setFormValues((previous) => ({ ...previous, reviewCredits: checked }));}} /><span>预留初审、终审署名</span></label> : null}
                   <div className="news-task-setting"><span>写作任务</span>
                     <SegmentedControl label="写作任务" value={formValues.writingMode || 'draft'}
-                      options={[{ value: 'draft', label: '写初稿' }, { value: 'rewrite', label: '润色稿' }]}
-                      onChange={value => setFormValues(previous => ({ ...previous, writingMode: value }))} />
+                    options={[{ value: 'draft', label: '写初稿' }, { value: 'rewrite', label: '润色稿' }]}
+                    onChange={(value) => setFormValues((previous) => ({ ...previous, writingMode: value }))} />
                   </div>
                 <details className="news-source-fields news-fact-details">
                   <summary><IconChevronRight />活动信息 <span>{[formValues.eventName, formatNewsDate(formValues.eventDate)].filter(Boolean).join(' · ') || '可选'}</span></summary>
@@ -1642,35 +1642,35 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
                     <TextArea value={formValues.participants} onChange={(v) => setFormValues((s) => ({ ...s, participants: v }))} rows={3} placeholder="出席嘉宾 / 参与对象（可选）" />
                     {participantCandidates.length ? <div className="news-name-candidates">
                       <span>待确认人物</span>
-                      {participantCandidates.map(name => <Button key={name} size="small"
-                        onClick={() => setParticipantChips(previous => [...previous, name])}>确认 {name}</Button>)}
+                      {participantCandidates.map((name) => <Button key={name} size="small"
+                          onClick={() => setParticipantChips((previous) => [...previous, name])}>确认 {name}</Button>)}
                     </div> : null}
                     <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                      {participantChips.length ? (
-                        <span style={{ fontSize: 11, color: '#888' }}>已确认：</span>
-                      ) : null}
-                      {participantChips.map((name) => (
-                        <Tag
-                          key={name}
-                          size="small"
-                          type="light"
-                          onClick={() => setParticipantChips((prev) => prev.filter((n) => n !== name))}
-                        >
+                      {participantChips.length ?
+                          <span style={{ fontSize: 11, color: '#888' }}>已确认：</span> :
+                          null}
+                      {participantChips.map((name) =>
+                          <Tag
+                            key={name}
+                            size="small"
+                            type="light"
+                            onClick={() => setParticipantChips((prev) => prev.filter((n) => n !== name))}>
+                            
                           {name} ×
                         </Tag>
-                      ))}
+                          )}
                       <Input
-                        placeholder="添加已确认人物"
-                        style={{ width: 160 }}
-                        value={participantDraft}
-                        onChange={setParticipantDraft}
-                        onEnterPress={() => {
-                          const n = participantDraft.trim();
-                          if (!n) return;
-                          setParticipantChips((prev) => (prev.includes(n) ? prev : [...prev, n]));
-                          setParticipantDraft('');
-                        }}
-                      />
+                            placeholder="添加已确认人物"
+                            style={{ width: 160 }}
+                            value={participantDraft}
+                            onChange={setParticipantDraft}
+                            onEnterPress={() => {
+                              const n = participantDraft.trim();
+                              if (!n) return;
+                              setParticipantChips((prev) => prev.includes(n) ? prev : [...prev, n]);
+                              setParticipantDraft('');
+                            }} />
+                          
                     </div>
                   </div>
 
@@ -1678,33 +1678,33 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
                     <div style={{ marginBottom: 6, fontSize: 12, color: '#444' }}>主要事实与报道重点</div>
                     <TextArea value={formValues.highlights} onChange={(v) => setFormValues((s) => ({ ...s, highlights: v }))} rows={4} placeholder="本次活动实际发生的过程、成果与报道重点" />
                     {/* 智能预填：亮点为空且能从照片标签拼出建议时才展示，纯前端字符串拼接，不调用模型 */}
-                    {!formValues.highlights && highlightSuggestion ? (
-                      <div style={{ marginTop: 6, display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12, color: '#666', background: 'rgba(0,0,0,0.03)', borderRadius: 6, padding: '6px 8px' }}>
+                    {!formValues.highlights && highlightSuggestion ?
+                        <div style={{ marginTop: 6, display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12, color: '#666', background: 'rgba(0,0,0,0.03)', borderRadius: 6, padding: '6px 8px' }}>
                         <span style={{ flex: 1 }}>照片线索：{highlightSuggestion}</span>
                         <Button size="small" onClick={() => setFormValues((s) => ({ ...s, highlights: highlightSuggestion }))}>确认采用</Button>
-                      </div>
-                    ) : null}
+                      </div> :
+                        null}
                   </div>
 
                 </div>
                 </details>
 
                 <details className="news-source-fields news-writing-settings">
-                  <summary><IconChevronRight />写作设置 <span>{selectedChannels.map(key => CHANNELS.find(channel => channel.key === key)?.name).filter(Boolean).join('、')} · {formValues.targetWords} 字</span></summary>
+                  <summary><IconChevronRight />写作设置 <span>{selectedChannels.map((key) => CHANNELS.find((channel) => channel.key === key)?.name).filter(Boolean).join('、')} · {formValues.targetWords} 字</span></summary>
                   <div className="news-settings-grid">
                     {!preferredChannelKey ? <GlassSelect label="主要渠道" value={selectedChannels[0] || 'press_release'}
-                      options={CHANNELS.map(channel => ({ value: channel.key, label: channel.name }))}
-                      onChange={value => setSelectedChannels([value])} /> : null}
+                      options={CHANNELS.map((channel) => ({ value: channel.key, label: channel.name }))}
+                      onChange={(value) => setSelectedChannels([value])} /> : null}
                     <GlassSelect label="篇幅" value={formValues.targetWords}
-                      options={[...new Set(['300-500', '500-800', '800-1200', formValues.targetWords])].filter(Boolean)
-                        .map(value => ({ value, label: `${value} 字` }))}
-                      onChange={value => setFormValues(previous => ({ ...previous, targetWords: value }))} />
+                      options={[...new Set(['300-500', '500-800', '800-1200', formValues.targetWords])].filter(Boolean).
+                      map((value) => ({ value, label: `${value} 字` }))}
+                      onChange={(value) => setFormValues((previous) => ({ ...previous, targetWords: value }))} />
                   </div>
                   <details className="news-additional-channels">
                     <summary>同时生成其他平台</summary>
-                    <div className="news-channel-checks">{CHANNELS.filter(channel => channel.key !== selectedChannels[0]).map(channel =>
-                      <label key={channel.key}><input type="checkbox" checked={selectedChannels.includes(channel.key)}
-                        onChange={() => toggleChannel(channel.key)} />{channel.name}</label>)}</div>
+                    <div className="news-channel-checks">{CHANNELS.filter((channel) => channel.key !== selectedChannels[0]).map((channel) =>
+                        <label key={channel.key}><input type="checkbox" checked={selectedChannels.includes(channel.key)}
+                          onChange={() => toggleChannel(channel.key)} />{channel.name}</label>)}</div>
                   </details>
                   <Button size="small" onClick={() => setShowAdvancedEditor(true)}>写作要求{advancedPrompt ? ' · 已设置' : ''}</Button>
                   <div className="news-settings-field">
@@ -1724,56 +1724,56 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
                 <div className="news-submit-area">
                   {!isGenerating && trackingError ? <div className="news-reconnect" role="alert">
                     <span>{trackingError}</span><Button size="small" onClick={() => {
-                      setTrackingError(''); setBatchStatus('pending'); setTrackingEpoch(value => value + 1);
+                      setTrackingError('');setBatchStatus('pending');setTrackingEpoch((value) => value + 1);
                     }}>重新连接</Button>
                   </div> : null}
-                  {(Object.values(channelJobs).some(job => job.status === 'failed') || (Object.keys(channelJobs).length > 1 && isGenerating)) && (
-                    <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {(Object.values(channelJobs).some((job) => job.status === 'failed') || Object.keys(channelJobs).length > 1 && isGenerating) &&
+                  <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 6 }}>
                       {CHANNELS.filter((ch) => channelJobs[ch.key]).map((ch) => {
-                        const job = channelJobs[ch.key];
-                        const label = CHANNEL_STATUS_LABEL[job.status] || job.status || '未知';
-                        const isFailed = job.status === 'failed';
-                        const isDone = job.status === 'succeeded';
-                        return (
-                          <div
-                            key={ch.key}
-                            style={{
-                              display: 'flex',
-                              flexDirection: 'column',
-                              gap: 2,
-                              padding: '7px 10px',
-                              borderRadius: 8,
-                              background: 'rgba(0,0,0,0.03)',
-                            }}
-                          >
+                      const job = channelJobs[ch.key];
+                      const label = CHANNEL_STATUS_LABEL[job.status] || job.status || '未知';
+                      const isFailed = job.status === 'failed';
+                      const isDone = job.status === 'succeeded';
+                      return (
+                        <div
+                          key={ch.key}
+                          style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 2,
+                            padding: '7px 10px',
+                            borderRadius: 8,
+                            background: 'rgba(0,0,0,0.03)'
+                          }}>
+                          
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                 <span style={{ fontSize: 13, fontWeight: 600 }}>{ch.name}</span>
                                 <span
-                                  style={{
-                                    fontSize: 11.5,
-                                    padding: '2px 8px',
-                                    borderRadius: 999,
-                                    background: isDone ? '#111' : isFailed ? 'rgba(220,38,38,0.12)' : 'rgba(0,0,0,0.08)',
-                                    color: isDone ? '#fff' : isFailed ? '#b91c1c' : '#444',
-                                    fontWeight: 700,
-                                  }}
-                                >
+                                style={{
+                                  fontSize: 11.5,
+                                  padding: '2px 8px',
+                                  borderRadius: 999,
+                                  background: isDone ? '#111' : isFailed ? 'rgba(220,38,38,0.12)' : 'rgba(0,0,0,0.08)',
+                                  color: isDone ? '#fff' : isFailed ? '#b91c1c' : '#444',
+                                  fontWeight: 700
+                                }}>
+                                
                                   {label}
                                 </span>
                               </div>
-                              {isFailed ? (
-                                <Button size="small" type="danger" theme="borderless" disabled={isGenerating} onClick={() => handleRetryChannel(ch.key)}>重试</Button>
-                              ) : null}
+                              {isFailed ?
+                            <Button size="small" type="danger" theme="borderless" disabled={isGenerating} onClick={() => handleRetryChannel(ch.key)}>重试</Button> :
+                            null}
                             </div>
-                            {isFailed && job.error ? (
-                              <div style={{ fontSize: 11, color: '#b91c1c' }}>{String(job.error).slice(0, 140)}</div>
-                            ) : null}
-                          </div>
-                        );
-                      })}
+                            {isFailed && job.error ?
+                          <div style={{ fontSize: 11, color: '#b91c1c' }}>{String(job.error).slice(0, 140)}</div> :
+                          null}
+                          </div>);
+
+                    })}
                     </div>
-                  )}
+                  }
                 </div>
               </section>
             </div>
@@ -1785,11 +1785,11 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
               onOk={() => {
                 setShowAdvancedEditor(false);
               }}
-              okText="保存要求"
-            >
+              okText="保存要求">
+              
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <TextArea value={advancedPrompt} onChange={setAdvancedPrompt} rows={isMobile ? 6 : 10}
-                  placeholder="本篇的报道角度、语气、需要保留或避免的表达" />
+                placeholder="本篇的报道角度、语气、需要保留或避免的表达" />
                 <div className="news-field-count" data-over-limit={advancedPrompt.length > 4000}>{advancedPrompt.length} / 4000</div>
               </div>
             </Modal>
@@ -1799,25 +1799,25 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
               visible={showPreviewImage}
               footer={null}
               width={isMobile ? '96vw' : 920}
-              onCancel={() => setShowPreviewImage(false)}
-            >
+              onCancel={() => setShowPreviewImage(false)}>
+              
               <div style={{ maxHeight: isMobile ? '68vh' : '72vh', overflow: 'auto', background: '#f8fafc', borderRadius: 8, padding: 10 }}>
-                {previewImageUrl ? (
-                  <img
-                    src={previewImageUrl}
-                    alt="preview"
-                    style={{ width: '100%', height: 'auto', display: 'block', borderRadius: 6, background: '#fff' }}
-                  />
-                ) : (
-                  <div style={{ color: '#64748b' }}>No preview image</div>
-                )}
+                {previewImageUrl ?
+                <img
+                  src={previewImageUrl}
+                  alt="preview"
+                  style={{ width: '100%', height: 'auto', display: 'block', borderRadius: 6, background: '#fff' }} /> :
+
+
+                <div style={{ color: '#64748b' }}>No preview image</div>
+                }
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
                 <Button onClick={downloadPreviewImage} disabled={!previewImageUrl}>下载图片</Button>
               </div>
             </Modal>
 
-            <div className="news-result-pane" onKeyDown={event => {
+            <div className="news-result-pane" onKeyDown={(event) => {
               if (event.defaultPrevented || event.nativeEvent.isComposing || event.target.closest('.news-context-chat') || !(event.ctrlKey || event.metaKey)) return;
               const key = event.key.toLowerCase();
               if (key !== 'z' && key !== 'y') return;
@@ -1840,54 +1840,54 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
                       <Button size="small" theme="borderless" icon={<IconChevronRight />} aria-label="重做编辑" title="重做编辑" disabled={isGenerating || !activeContent.redoHistory?.length} onClick={() => stepActiveEdit('redo')} />
                     </div>
                     <SegmentedControl label="稿件视图" kind="tabs" value={documentView}
-                      options={[{ value: 'preview', label: '预览' }, { value: 'editor', label: '编辑' }]}
-                      onChange={setDocumentView} />
+                    options={[{ value: 'preview', label: '预览' }, { value: 'editor', label: '编辑' }]}
+                    onChange={setDocumentView} />
                     <Button size="small" theme="borderless" onClick={handleCopyBodyWithHashtags}>
                       {activeChannelKey === 'xiaohongshu' ? '复制正文+话题' : '复制正文'}
                     </Button>
                     {activeChannelKey === 'wechat_article' ? <Button size="small" type="primary" disabled={isGenerating} onClick={openComposer}>确认内容，选择样式</Button> : null}
                     {['wechat_article', 'press_release', 'report_brief'].includes(activeChannelKey) ?
-                      <Button size="small" icon={<IconDownload />} title="导出 Word 文档" aria-label="导出 Word 文档" onClick={handleExportWord}>Word</Button> : null}
+                    <Button size="small" icon={<IconDownload />} title="导出 Word 文档" aria-label="导出 Word 文档" onClick={handleExportWord}>Word</Button> : null}
                   </div> : null}
                 </div>
 
                 <div className={`news-document-layout${hasManuscript ? ' has-insights' : ''}${selectedReference ? ' has-reference' : ''}`}>
                 <div className="news-document-main">
-                {Object.keys(channelContent).length ? (
-                  <>
+                {Object.keys(channelContent).length ?
+                    <>
                     {activeContent.markdownText && ['wechat_article', 'press_release', 'report_brief'].includes(activeChannelKey) ? <NewsDraftChat
-                      key={`${DRAFT_STORAGE_KEY}:${activeChannelKey}:chat`} article={articleSnapshot} disabled={isGenerating} selection={editSelection}
-                      onHighlightChange={setEditHighlight}
-                      storageKey={DRAFT_STORAGE_KEY ? `${DRAFT_STORAGE_KEY}:${activeChannelKey}:chat` : null}
-                      onApply={proposal => updateChannelContent(activeChannelKey, base => {
-                        if (base.markdownText !== proposal.base.markdown || (base.title || '') !== proposal.base.title) return base;
-                        return { ...base, title: proposal.title, markdownText: proposal.markdown, generatedHtml: '', factCheck: null };
-                      })} /> : null}
+                        key={`${DRAFT_STORAGE_KEY}:${activeChannelKey}:chat`} article={articleSnapshot} disabled={isGenerating} selection={editSelection}
+                        onHighlightChange={setEditHighlight}
+                        storageKey={DRAFT_STORAGE_KEY ? `${DRAFT_STORAGE_KEY}:${activeChannelKey}:chat` : null}
+                        onApply={(proposal) => updateChannelContent(activeChannelKey, (base) => {
+                          if (base.markdownText !== proposal.base.markdown || (base.title || '') !== proposal.base.title) return base;
+                          return { ...base, title: proposal.title, markdownText: proposal.markdown, generatedHtml: '', factCheck: null };
+                        })} /> : null}
                     {/* 渠道 Tab：胶囊按钮组，选中黑底白字，切换后下方编辑器/预览随之切到该渠道的 keyed state；
-                        存在待核对的事实/禁用词命中时右上角加红点 */}
-                    {CHANNELS.filter(channel => channelContent[channel.key] && (!preferredChannelKey || selectedChannels.includes(channel.key))).length > 1 ? <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
-                      {CHANNELS.filter(ch => channelContent[ch.key] && (!preferredChannelKey || selectedChannels.includes(ch.key))).map((ch) => {
-                        const isActive = ch.key === activeChannelKey;
-                        const flagged = hasFactIssues(channelContent[ch.key]);
-                        return (
-                          <button
-                            key={ch.key}
-                            type="button"
-                            onClick={() => setActiveChannelKey(ch.key)}
-                            style={{
-                              position: 'relative',
-                              padding: '8px 16px',
-                              borderRadius: 999,
-                              border: `1px solid ${isActive ? '#111' : 'rgba(0,0,0,0.16)'}`,
-                              background: isActive ? 'linear-gradient(135deg, #2f2f2f, #101010)' : 'rgba(255,255,255,0.5)',
-                              color: isActive ? '#fff' : '#111',
-                              fontSize: 13,
-                              fontWeight: 800,
-                              cursor: 'pointer',
-                            }}
-                          >
+                           存在待核对的事实/禁用词命中时右上角加红点 */}
+                    {CHANNELS.filter((channel) => channelContent[channel.key] && (!preferredChannelKey || selectedChannels.includes(channel.key))).length > 1 ? <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+                      {CHANNELS.filter((ch) => channelContent[ch.key] && (!preferredChannelKey || selectedChannels.includes(ch.key))).map((ch) => {
+                          const isActive = ch.key === activeChannelKey;
+                          const flagged = hasFactIssues(channelContent[ch.key]);
+                          return (
+                            <button
+                              key={ch.key}
+                              type="button"
+                              onClick={() => setActiveChannelKey(ch.key)}
+                              style={{
+                                position: 'relative',
+                                padding: '8px 16px',
+                                borderRadius: 999,
+                                border: `1px solid ${isActive ? '#111' : 'rgba(0,0,0,0.16)'}`,
+                                background: isActive ? 'linear-gradient(135deg, #2f2f2f, #101010)' : 'rgba(255,255,255,0.5)',
+                                color: isActive ? '#fff' : '#111',
+                                fontSize: 13,
+                                fontWeight: 800,
+                                cursor: 'pointer'
+                              }}>
+                              
                             {ch.name}
-                            {flagged ? (
+                            {flagged ?
                               <span
                                 aria-hidden
                                 title="存在待核对信息"
@@ -1899,134 +1899,134 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
                                   height: 9,
                                   borderRadius: '50%',
                                   background: '#dc2626',
-                                  border: '1px solid #fff',
-                                }}
-                              />
-                            ) : null}
-                          </button>
-                        );
-                      })}
+                                  border: '1px solid #fff'
+                                }} /> :
+
+                              null}
+                          </button>);
+
+                        })}
                     </div> : null}
 
                     {/* 校验标红：事实核对/禁用词命中列表，可点「忽略」折叠（不删除数据，仅隐藏本渠道的提示条） */}
-                    {hasFactIssues(activeContent) && !collapsedWarnings[activeChannelKey] ? (
+                    {hasFactIssues(activeContent) && !collapsedWarnings[activeChannelKey] ?
                       <div style={{ marginBottom: 14, padding: '10px 12px', borderRadius: 8, border: '1px solid rgba(220,38,38,0.35)', background: 'rgba(220,38,38,0.06)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
                           <strong style={{ fontSize: 13, color: '#b91c1c' }}>待核对：规则提醒不代表已判定有误</strong>
                           <Button size="small" theme="borderless" onClick={() => setCollapsedWarnings((prev) => ({ ...prev, [activeChannelKey]: true }))}>收起</Button>
                         </div>
                         <ul style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 12.5, color: '#7f1d1d', lineHeight: 1.7 }}>
-                          {(activeContent.factCheck?.issues || []).map((iss, idx) => (
-                            <li key={`issue-${idx}`}>
+                          {(activeContent.factCheck?.issues || []).map((iss, idx) =>
+                          <li key={`issue-${idx}`}>
                               {iss.message || `${FACT_ISSUE_TYPE_LABEL[iss.type] || iss.type}：素材为「${iss.expect}」，正文出现「${iss.found}」`}
                               {iss.snippet ? <span style={{ color: '#991b1b' }}>（原文：…{iss.snippet}…）</span> : null}
                             </li>
-                          ))}
-                          {(activeContent.factCheck?.forbiddenHits || activeContent.factCheck?.hits || []).map((hit, idx) => (
-                            <li key={`forbidden-${idx}`}>
+                          )}
+                          {(activeContent.factCheck?.forbiddenHits || activeContent.factCheck?.hits || []).map((hit, idx) =>
+                          <li key={`forbidden-${idx}`}>
                               禁用词：命中「{hit.word}」
                               {hit.snippet ? <span style={{ color: '#991b1b' }}>（原文：…{hit.snippet}…）</span> : null}
                             </li>
-                          ))}
+                          )}
                         </ul>
-                      </div>
-                    ) : null}
-                    {hasFactIssues(activeContent) && collapsedWarnings[activeChannelKey] ? (
-                      <Button size="small" theme="borderless" onClick={() => setCollapsedWarnings(previous => ({ ...previous, [activeChannelKey]: false }))}>展开待核对项</Button>
-                    ) : null}
+                      </div> :
+                      null}
+                    {hasFactIssues(activeContent) && collapsedWarnings[activeChannelKey] ?
+                      <Button size="small" theme="borderless" onClick={() => setCollapsedWarnings((previous) => ({ ...previous, [activeChannelKey]: false }))}>展开待核对项</Button> :
+                      null}
 
                       <>
                       {documentView === 'editor' ? <div className="news-markdown-editor" role="tabpanel" aria-label="编辑稿件">
                           <NewsArticleEditor markdown={activeContent.markdownText} onChange={setActiveMarkdownText}
-                            onUndo={() => { if (!isGenerating) stepActiveEdit('undo'); }} onRedo={() => { if (!isGenerating) stepActiveEdit('redo'); }}
-                            onSelectionChange={setEditSelection} highlight={editHighlight}
-                            onPhotosAdded={photos => setSelectedPhotos(previous => {
-                              const map = new Map(previous.map(photo => [String(photo.id), photo]));
-                              photos.forEach(photo => map.set(String(photo.id), photo)); return [...map.values()].slice(0, 30);
-                            })}
-                            title={activeContent.title} onChangeTitle={value => updateChannelContent(activeChannelKey, { title: value, generatedHtml: '', factCheck: null }, { group: `title:${activeChannelKey}` })} />
+                          onUndo={() => {if (!isGenerating) stepActiveEdit('undo');}} onRedo={() => {if (!isGenerating) stepActiveEdit('redo');}}
+                          onSelectionChange={setEditSelection} highlight={editHighlight}
+                          onPhotosAdded={(photos) => setSelectedPhotos((previous) => {
+                            const map = new Map(previous.map((photo) => [String(photo.id), photo]));
+                            photos.forEach((photo) => map.set(String(photo.id), photo));return [...map.values()].slice(0, 30);
+                          })}
+                          title={activeContent.title} onChangeTitle={(value) => updateChannelContent(activeChannelKey, { title: value, generatedHtml: '', factCheck: null }, { group: `title:${activeChannelKey}` })} />
                           <details className="news-source-editor"><summary>源码与导出</summary>
-                          <TextArea aria-label="稿件正文" value={activeContent.markdownText} onChange={value => setActiveMarkdownText(value, { group: `source:${activeChannelKey}` })} rows={isMobile ? 8 : 12} />
+                          <TextArea aria-label="稿件正文" value={activeContent.markdownText} onChange={(value) => setActiveMarkdownText(value, { group: `source:${activeChannelKey}` })} rows={isMobile ? 8 : 12} />
                           <div className="news-editor-footer">
                             <span>Markdown</span>
                             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: isMobile ? 'flex-end' : 'flex-start' }}>
                               <Button size="small" theme="borderless" onClick={copyMarkdown}>复制 Markdown</Button>
                               <Button size="small" theme="borderless" onClick={copyHtml}>复制 HTML</Button>
                               {/* 渠道专属导出：新闻稿/通讯稿导出 Word；小红书复制标题/正文+话题/保存图片；微博复制全文 */}
-                              {activeChannelKey === 'xiaohongshu' ? (
+                              {activeChannelKey === 'xiaohongshu' ?
                                 <>
                                   <Button onClick={handleCopyXhsTitle}>复制标题</Button>
                                   <Button onClick={handleCopyBodyWithHashtags}>复制正文+话题</Button>
                                   <Button onClick={handleSaveActiveImages}>保存图片</Button>
-                                </>
-                              ) : null}
-                              {activeChannelKey === 'weibo' ? (
-                                <Button onClick={handleCopyBodyWithHashtags}>复制全文</Button>
-                              ) : null}
+                                </> :
+                                null}
+                              {activeChannelKey === 'weibo' ?
+                                <Button onClick={handleCopyBodyWithHashtags}>复制全文</Button> :
+                                null}
                             </div>
                           </div>
                           </details>
 
                           {/* 小红书专属：extra.hashtags 话题胶囊，可删、可输入添加，不写进 markdown 正文 */}
-                          {activeChannelKey === 'xiaohongshu' ? (
-                            <div style={{ marginTop: 14 }}>
+                          {activeChannelKey === 'xiaohongshu' ?
+                          <div style={{ marginTop: 14 }}>
                               <div style={{ fontSize: 12, color: '#444', marginBottom: 6 }}>话题标签</div>
                               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                                {(Array.isArray(activeContent.extra?.hashtags) ? activeContent.extra.hashtags : []).map((tagText, idx) => (
-                                  <Tag
-                                    key={`${tagText}-${idx}`}
-                                    size="small"
-                                    type="light"
-                                    onClick={() => {
-                                      updateChannelContent(activeChannelKey, (base) => ({
-                                        ...base,
-                                        extra: { ...base.extra, hashtags: (base.extra?.hashtags || []).filter((_, i) => i !== idx) },
-                                      }));
-                                    }}
-                                  >
+                                {(Array.isArray(activeContent.extra?.hashtags) ? activeContent.extra.hashtags : []).map((tagText, idx) =>
+                              <Tag
+                                key={`${tagText}-${idx}`}
+                                size="small"
+                                type="light"
+                                onClick={() => {
+                                  updateChannelContent(activeChannelKey, (base) => ({
+                                    ...base,
+                                    extra: { ...base.extra, hashtags: (base.extra?.hashtags || []).filter((_, i) => i !== idx) }
+                                  }));
+                                }}>
+                                
                                     #{tagText} ×
                                   </Tag>
-                                ))}
+                              )}
                                 <Input
-                                  placeholder="添加话题，回车确认"
-                                  style={{ width: 140 }}
-                                  value={hashtagDraft}
-                                  onChange={setHashtagDraft}
-                                  onEnterPress={() => {
-                                    const t = hashtagDraft.trim().replace(/^#/, '');
-                                    if (!t) return;
-                                    updateChannelContent(activeChannelKey, (base) => ({
-                                      ...base,
-                                      extra: { ...base.extra, hashtags: [...(base.extra?.hashtags || []), t] },
-                                    }));
-                                    setHashtagDraft('');
-                                  }}
-                                />
+                                placeholder="添加话题，回车确认"
+                                style={{ width: 140 }}
+                                value={hashtagDraft}
+                                onChange={setHashtagDraft}
+                                onEnterPress={() => {
+                                  const t = hashtagDraft.trim().replace(/^#/, '');
+                                  if (!t) return;
+                                  updateChannelContent(activeChannelKey, (base) => ({
+                                    ...base,
+                                    extra: { ...base.extra, hashtags: [...(base.extra?.hashtags || []), t] }
+                                  }));
+                                  setHashtagDraft('');
+                                }} />
+                              
                               </div>
-                            </div>
-                          ) : null}
+                            </div> :
+                          null}
                         </div> : <div className="news-paper-stage" role="tabpanel" aria-label="稿件预览">
                           <article className="news-article-preview" ref={previewContentRef}>
                             {activeContent.title && !/^#[ \t]+\S/m.test(activeContent.markdownText) ? <h1>{activeContent.title}</h1> : null}
-                            {finalPreviewHtml ? (
-                              <div dangerouslySetInnerHTML={{ __html: finalPreviewHtml }} />
-                            ) : (
-                              <div style={{ color: '#999' }}>暂无内容</div>
-                            )}
+                            {finalPreviewHtml ?
+                            <div dangerouslySetInnerHTML={{ __html: finalPreviewHtml }} /> :
+
+                            <div style={{ color: '#999' }}>暂无内容</div>
+                            }
                           </article>
                           <div className="news-paper-footer"><span>{countVisibleChars(activeContent.markdownText)} 字</span>
                             {activeChannelKey === 'wechat_article' ? <Button size="small" theme="borderless" icon={<IconDownload />} onClick={handleDownloadWechatImages}>图片包</Button> : null}
                             <Button size="small" theme="borderless" icon={<IconDownload />} onClick={generatePreviewImage}
-                              loading={isGeneratingPreviewImage} disabled={!finalPreviewHtml}>导出长图</Button>
+                            loading={isGeneratingPreviewImage} disabled={!finalPreviewHtml}>导出长图</Button>
                           </div>
                         </div>}
                       </>
-                  </>
-                ) : (
-                  <div className="news-paper-stage"><div className="news-empty-manuscript">
+                  </> :
+
+                    <div className="news-paper-stage"><div className="news-empty-manuscript">
                     <IconSparkleAI /><span>{isGenerating ? '正在整理材料并撰写初稿' : '等待你的第一份初稿'}</span>
                   </div></div>
-                )}
+                    }
                 </div>
                 {hasManuscript ? <NewsInsights notes={reviewNotes} references={Array.isArray(activeContent.references) ? activeContent.references : null}
                   supplementLabel={preferredChannelKey === 'wechat_article' ? '补充详细信息' : '补充现场情况'}
@@ -2036,7 +2036,7 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
                     setSourceOpen(true);
                     requestAnimationFrame(() => {
                       const input = document.getElementById('news-source-material');
-                      input?.scrollIntoView({ block: 'center', behavior: 'smooth' }); input?.focus({ preventScroll: true });
+                      input?.scrollIntoView({ block: 'center', behavior: 'smooth' });input?.focus({ preventScroll: true });
                     });
                   }} /> : null}
                 {hasManuscript && selectedReference ? <NewsReferencePanel reference={selectedReference} workspaceId={workspaceId}
@@ -2049,8 +2049,8 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
           </div>
         </div>
       </Content>
-    </Layout>
-  );
+    </Layout>);
+
 };
 
 export default AiNewsWriter;

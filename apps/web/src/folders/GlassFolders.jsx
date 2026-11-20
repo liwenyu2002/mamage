@@ -1,6 +1,6 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { IconSearch, IconPlus, IconChevronLeft, IconChevronRight, IconGridView, IconListView, IconClose, IconStar, IconSparkleAI, IconSimilarStack, IconTimelineFlow, IconSliders, IconMoreStroked, IconGroupRescue, IconShare } from '../ui/icons';
+import { IconPlus, IconChevronRight, IconGridView, IconListView, IconStar, IconSimilarStack, IconTimelineFlow, IconSliders, IconMoreStroked, IconGroupRescue, IconShare } from '../ui/icons';
 import { folderPath, groupAlbums, folderPreviewItems, ROOT_DROP_ID } from './folderTree';
 import CardSharingStatus from '../CardSharingStatus';
 import { sharingStatusText } from '../utils/sharingStatus';
@@ -34,10 +34,10 @@ export function CollectionCard({ group, groups = [], albums, onSelect, onOpen, p
   getAlbumDragProps, getFolderDragProps, dropProps, sortDragProps, dropActive = false, isAlbumDragging = false, dropMessage,
   selecting = false, selected = false, onToggle, moveLabel = '移动文件夹', summary }) {
   const items = React.useMemo(() => groupAlbums(group, albums, groups), [group, albums, groups]);
-  const childCount = groups.filter(item => item.parentId === group.id).length;
-  const previewItems = React.useMemo(() => summary
-    ? summary.covers.map((image, id) => ({ kind: 'cover', item: { id, image } }))
-    : folderPreviewItems(group, albums, groups), [group, albums, groups, summary]);
+  const childCount = groups.filter((item) => item.parentId === group.id).length;
+  const previewItems = React.useMemo(() => summary ?
+  summary.covers.map((image, id) => ({ kind: 'cover', item: { id, image } })) :
+  folderPreviewItems(group, albums, groups), [group, albums, groups, summary]);
   const covers = React.useMemo(() => previewItems.slice(0, 9), [previewItems]);
   const directAlbumCount = previewItems.length - childCount;
   const photoCount = React.useMemo(() => summary?.photoCount ?? items.reduce((sum, album) => sum + album.count, 0), [items, summary?.photoCount]);
@@ -46,14 +46,14 @@ export function CollectionCard({ group, groups = [], albums, onSelect, onOpen, p
   const [folderTarget, setFolderTarget] = React.useState(false);
   const [activeIndex, setActiveIndex] = React.useState(0);
   const [menuOpen, setMenuOpen] = React.useState(false);
-  React.useEffect(() => { if (selecting) { setMenuOpen(false); setExpanded(false); } }, [selecting]);
+  React.useEffect(() => {if (selecting) {setMenuOpen(false);setExpanded(false);}}, [selecting]);
   const [menuPosition, setMenuPosition] = React.useState({});
   const cardRef = React.useRef(null);
   React.useLayoutEffect(() => {
     if (SUPPORTS_CONTAINER_UNITS) return undefined;
     const card = cardRef.current;
     // Older embedded WebViews need the same container size in pixels, including after resize.
-    const updateWidth = width => card.style.setProperty('--acp-card-inline-size', `${width}px`);
+    const updateWidth = (width) => card.style.setProperty('--acp-card-inline-size', `${width}px`);
     updateWidth(card.clientWidth);
     const observer = new ResizeObserver(([entry]) => updateWidth(entry.contentRect.width));
     observer.observe(card);
@@ -72,8 +72,8 @@ export function CollectionCard({ group, groups = [], albums, onSelect, onOpen, p
   const pendingRef = React.useRef(0);
   const frameRef = React.useRef(null);
   const active = covers[Math.min(activeIndex, covers.length - 1)];
-  const selectIndex = (index) => { if (index !== activeRef.current) { activeRef.current = index; setActiveIndex(index); } };
-  const cancelScrub = () => { if (frameRef.current !== null) cancelAnimationFrame(frameRef.current); frameRef.current = null; };
+  const selectIndex = (index) => {if (index !== activeRef.current) {activeRef.current = index;setActiveIndex(index);}};
+  const cancelScrub = () => {if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);frameRef.current = null;};
   const openMenu = () => {
     const bounds = menuTriggerRef.current.getBoundingClientRect();
     const offsets = new Map();
@@ -85,10 +85,10 @@ export function CollectionCard({ group, groups = [], albums, onSelect, onOpen, p
     const top = below >= height * zoom ? bounds.bottom + 6 : Math.max(8, bounds.top - height * zoom - 6);
     setMenuPosition({ left: Math.max(8, Math.min(bounds.right - 180 * zoom, window.innerWidth - 188 * zoom)) / zoom,
       top: top / zoom, maxHeight: (window.innerHeight - top - 8) / zoom });
-    cancelScrub(); setFolderTarget(expanded || folderTarget); setExpanded(false); setMenuOpen(true);
+    cancelScrub();setFolderTarget(expanded || folderTarget);setExpanded(false);setMenuOpen(true);
   };
-  const closeMenu = () => { setMenuOpen(false); menuTriggerRef.current?.focus({ preventScroll: true }); };
-  const runAction = (action) => { closeMenu(); action(); };
+  const closeMenu = () => {setMenuOpen(false);menuTriggerRef.current?.focus({ preventScroll: true });};
+  const runAction = (action) => {closeMenu();action();};
   const fitFanToViewport = () => {
     const card = cardRef.current;
     if (!card) return;
@@ -111,16 +111,16 @@ export function CollectionCard({ group, groups = [], albums, onSelect, onOpen, p
   }, [covers.length]);
   React.useEffect(() => () => cancelScrub(), []);
   React.useEffect(() => {
-    if (isAlbumDragging) { cancelScrub(); setExpanded(false); setMenuOpen(false); }
+    if (isAlbumDragging) {cancelScrub();setExpanded(false);setMenuOpen(false);}
   }, [isAlbumDragging]);
   React.useEffect(() => {
     if (!menuOpen) return undefined;
     menuRef.current?.querySelector('[role^="menuitem"]')?.focus({ preventScroll: true });
     const outside = (event) => {
       if (toolsRef.current?.contains(event.target) || menuRef.current?.contains(event.target)) return;
-      cancelScrub(); setMenuOpen(false); setExpanded(false);
+      cancelScrub();setMenuOpen(false);setExpanded(false);
     };
-    const dismiss = event => {
+    const dismiss = (event) => {
       if (menuRef.current?.contains(event.target)) return;
       if (event.type === 'scroll') {
         const initial = menuScrollRef.current;
@@ -142,10 +142,10 @@ export function CollectionCard({ group, groups = [], albums, onSelect, onOpen, p
   }, [menuOpen]);
   React.useEffect(() => {
     if (!expanded) return undefined;
-    const closeOutside = (event) => { if (!cardRef.current?.contains(event.target)) { cancelScrub(); setExpanded(false); } };
+    const closeOutside = (event) => {if (!cardRef.current?.contains(event.target)) {cancelScrub();setExpanded(false);}};
     document.addEventListener('pointerdown', closeOutside);
     window.addEventListener('resize', fitFanToViewport);
-    return () => { document.removeEventListener('pointerdown', closeOutside); window.removeEventListener('resize', fitFanToViewport); };
+    return () => {document.removeEventListener('pointerdown', closeOutside);window.removeEventListener('resize', fitFanToViewport);};
   }, [expanded]);
   const scrub = (event, immediate = false) => {
     if (event.pointerType !== 'mouse' || !covers.length || menuOpen || isAlbumDragging) return;
@@ -154,61 +154,61 @@ export function CollectionCard({ group, groups = [], albums, onSelect, onOpen, p
     const fraction = Math.max(0, Math.min(.999, (event.clientX - bounds.left) / bounds.width));
     const next = Math.floor(fraction * covers.length);
     pendingRef.current = next;
-    if (immediate) { cancelScrub(); selectIndex(next); return; }
+    if (immediate) {cancelScrub();selectIndex(next);return;}
     if (frameRef.current !== null || next === activeRef.current) return;
     frameRef.current = requestAnimationFrame(() => {
       frameRef.current = null;
       if (pendingRef.current !== activeRef.current) selectIndex(pendingRef.current);
     });
   };
-  const openEntry = entry => {
-    if (entry.kind === 'folder') onSelect(entry.item.id);
-    else onOpen(entry.item);
+  const openEntry = (entry) => {
+    if (entry.kind === 'folder') onSelect(entry.item.id);else
+    onOpen(entry.item);
   };
   const openCover = (event, index) => {
     if (preview) return;
-    if (summary) { onSelect(group.id); return; }
+    if (summary) {onSelect(group.id);return;}
     if (pointerType.current === 'touch' && event.detail !== 0 && (!expanded || activeIndex !== index)) {
       if (!expanded) fitFanToViewport();
-      selectIndex(index); setExpanded(true); return;
+      selectIndex(index);setExpanded(true);return;
     }
     openEntry(covers[event.detail === 0 || pointerType.current !== 'mouse' || !expanded ? index : activeRef.current]);
   };
   return <article {...dropProps} ref={cardRef} className={`acp-collection${selecting ? ' is-selecting' : ''}${selected ? ' is-selected' : ''}${childCount ? ' acp-collection-folder' : ''}${expanded && active ? ' is-expanded' : ''}${folderTarget ? ' is-folder-target' : ''}${menuOpen ? ' is-menu-open' : ''}${dropActive ? ' is-drop-target' : ''}`} aria-label={group.name}
-    onClickCapture={event => {
-      if (!selecting || event.target.closest('.collection-album-check')) return;
-      event.preventDefault(); event.stopPropagation(); onToggle?.(group.id);
-    }}
-    style={{ '--acp-accent': group.color, '--acp-tint': group.tint, '--acp-surface': surfaceColor }}
-    onPointerDown={(event) => { pointerType.current = event.pointerType; }}
-    onPointerLeave={(event) => { if (event.pointerType === 'mouse') { cancelScrub(); setExpanded(false); setFolderTarget(false); } }}
-    onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget) && !menuRef.current?.contains(event.relatedTarget)) { cancelScrub(); setExpanded(false); setMenuOpen(false); } }}
-    onKeyDown={(event) => {
-      if (event.key === 'Escape') { cancelScrub(); setExpanded(false); footerRef.current?.focus(); }
-      if (!event.target.closest('.acp-fan-cover') || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-      event.preventDefault();
-      const next = event.key === 'Home' ? 0 : event.key === 'End' ? covers.length - 1
-        : (activeIndex + (event.key === 'ArrowRight' ? 1 : -1) + covers.length) % covers.length;
-      coverRefs.current[next]?.focus();
-    }}>
+  onClickCapture={(event) => {
+    if (!selecting || event.target.closest('.collection-album-check')) return;
+    event.preventDefault();event.stopPropagation();onToggle?.(group.id);
+  }}
+  style={{ '--acp-accent': group.color, '--acp-tint': group.tint, '--acp-surface': surfaceColor }}
+  onPointerDown={(event) => {pointerType.current = event.pointerType;}}
+  onPointerLeave={(event) => {if (event.pointerType === 'mouse') {cancelScrub();setExpanded(false);setFolderTarget(false);}}}
+  onBlur={(event) => {if (!event.currentTarget.contains(event.relatedTarget) && !menuRef.current?.contains(event.relatedTarget)) {cancelScrub();setExpanded(false);setMenuOpen(false);}}}
+  onKeyDown={(event) => {
+    if (event.key === 'Escape') {cancelScrub();setExpanded(false);footerRef.current?.focus();}
+    if (!event.target.closest('.acp-fan-cover') || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? covers.length - 1 :
+    (activeIndex + (event.key === 'ArrowRight' ? 1 : -1) + covers.length) % covers.length;
+    coverRefs.current[next]?.focus();
+  }}>
     {childCount > 0 && <button className="acp-folder-tab" aria-label={`进入子目录 ${group.name}`} title={`进入 ${group.name}`} disabled={preview} tabIndex={selecting ? -1 : undefined} onClick={() => onSelect(group.id)}><GroupSymbol group={group} /><span>{childCount}</span></button>}
     <div className="acp-fan-viewport"><div className="acp-fan-stage" onPointerEnter={(event) => {
-      if (event.pointerType !== 'mouse' || menuOpen || isAlbumDragging) return;
-      fitFanToViewport();
-      setFolderTarget(false); setExpanded(true); scrub(event, true);
-    }} onPointerMove={scrub}>
+        if (event.pointerType !== 'mouse' || menuOpen || isAlbumDragging) return;
+        fitFanToViewport();
+        setFolderTarget(false);setExpanded(true);scrub(event, true);
+      }} onPointerMove={scrub}>
       {covers.map((entry, index) => {
-        const { item, kind } = entry;
-        const folder = kind === 'folder';
-        const position = covers.length === 1 ? 0 : (index / (covers.length - 1)) * 2 - 1;
-        return <button {...(!preview && !summary && (folder ? getFolderDragProps?.(item) : getAlbumDragProps?.(item)))} key={`${kind}:${item.id}`} ref={(element) => { coverRefs.current[index] = element; }}
+          const { item, kind } = entry;
+          const folder = kind === 'folder';
+          const position = covers.length === 1 ? 0 : index / (covers.length - 1) * 2 - 1;
+          return <button {...!preview && !summary && (folder ? getFolderDragProps?.(item) : getAlbumDragProps?.(item))} key={`${kind}:${item.id}`} ref={(element) => {coverRefs.current[index] = element;}}
           className={`acp-fan-cover${folder ? ' acp-fan-folder' : ''}${expanded && index === activeIndex ? ' is-active' : ''}`} disabled={preview} tabIndex={selecting || summary ? -1 : undefined}
           aria-label={summary ? `打开共享文件夹 ${group.name}` : `${folder ? '进入子文件夹' : '预览相册'} ${item.name}`} aria-pressed={summary ? undefined : expanded && index === activeIndex}
           style={{ '--fan-position': position, '--fan-arc': Math.abs(position), '--fan-depth': 10 + covers.length - index,
             '--child-folder-surface': folder ? folderColors[item.id] || DEFAULT_COLLECTION_COLOR : undefined,
             '--child-folder-accent': folder ? item.color : undefined,
             zIndex: SUPPORTS_FAN_DEPTH ? undefined : expanded && index === activeIndex ? 30 : 10 + covers.length - index }}
-          onFocus={(event) => { if (event.currentTarget.matches(':focus-visible')) { if (!expanded) fitFanToViewport(); cancelScrub(); selectIndex(index); setExpanded(true); } }}
+          onFocus={(event) => {if (event.currentTarget.matches(':focus-visible')) {if (!expanded) fitFanToViewport();cancelScrub();selectIndex(index);setExpanded(true);}}}
           onClick={(event) => openCover(event, index)}>{folder ? <>
             <span className="acp-fan-folder-shell" aria-hidden="true"><span className="acp-fan-folder-sheets" /><span className="acp-fan-folder-pocket" /></span>
             <span className="acp-fan-folder-copy"><span className="acp-fan-folder-topline"><GroupSymbol group={item} /><small>{entry.childCount + entry.albumCount} 项</small></span>
@@ -216,49 +216,49 @@ export function CollectionCard({ group, groups = [], albums, onSelect, onOpen, p
           </> : <>
             <img src={item.image} alt="" loading="lazy" draggable={false} />
             {!summary && <span className="acp-fan-album-stamp" aria-hidden="true"><IconSimilarStack /><span>{item.count}</span></span>}</>}</button>;
-      })}
+        })}
       {!covers.length && <span className="acp-fan-empty"><GroupSymbol group={group} /></span>}
     </div></div>
     {dropActive && <span className="acp-collection-drop-label" role="status"><GroupSymbol group={group} />{dropMessage}</span>}
     {previewItems.length > 9 && <span className="acp-fan-overflow">+{previewItems.length - 9}</span>}
-    <div className="acp-collection-glass" onPointerEnter={event => {
-      if (event.pointerType === 'mouse') { cancelScrub(); setFolderTarget(expanded || folderTarget); setExpanded(false); }
+    <div className="acp-collection-glass" onPointerEnter={(event) => {
+      if (event.pointerType === 'mouse') {cancelScrub();setFolderTarget(expanded || folderTarget);setExpanded(false);}
     }}>
-      <div className="acp-collection-frost" aria-hidden="true">{covers.slice(0, 3).map(({ kind, item }) => kind === 'folder'
-        ? <span key={`folder:${item.id}`} style={{ background: folderColors[item.id] || DEFAULT_COLLECTION_COLOR }} /> : <img src={item.image} alt="" key={`album:${item.id}`} loading="lazy" draggable={false} />)}</div>
+      <div className="acp-collection-frost" aria-hidden="true">{covers.slice(0, 3).map(({ kind, item }) => kind === 'folder' ?
+        <span key={`folder:${item.id}`} style={{ background: folderColors[item.id] || DEFAULT_COLLECTION_COLOR }} /> : <img src={item.image} alt="" key={`album:${item.id}`} loading="lazy" draggable={false} />)}</div>
       <button {...sortDragProps} ref={footerRef} className="acp-collection-label" disabled={preview}
-        aria-label={`打开文件夹 ${group.name}`} aria-description={shareDescription || undefined} title={shareDescription || undefined}
-        onPointerEnter={event => { if (event.pointerType === 'mouse') { cancelScrub(); setExpanded(false); } }}
-        onFocus={() => { cancelScrub(); setExpanded(false); }}
-        onClick={() => { cancelScrub(); setExpanded(false); onSelect(group.id); }}>
+      aria-label={`打开文件夹 ${group.name}`} aria-description={shareDescription || undefined} title={shareDescription || undefined}
+      onPointerEnter={(event) => {if (event.pointerType === 'mouse') {cancelScrub();setExpanded(false);}}}
+      onFocus={() => {cancelScrub();setExpanded(false);}}
+      onClick={() => {cancelScrub();setExpanded(false);onSelect(group.id);}}>
         <CollectionCaption group={group} albumCount={summary?.albumCount ?? items.length} photoCount={photoCount} childCount={childCount} directAlbumCount={directAlbumCount} visible={Boolean(summary) || !expanded || !active} />
         {!summary && covers.map((entry, index) => <CollectionCaption key={`${entry.kind}:${entry.item.id}`} group={group} entry={entry} index={index}
-          coverCount={covers.length} visible={expanded && index === activeIndex} />)}
+        coverCount={covers.length} visible={expanded && index === activeIndex} />)}
       </button>
     </div>
     {selecting && <label className="collection-album-check"><input type="checkbox" aria-label={`选择文件夹 ${group.name}`} checked={selected} onChange={() => onToggle?.(group.id)} /><span aria-hidden="true" /></label>}
     <div ref={toolsRef} className="acp-collection-tools" hidden={selecting}>
       <button ref={menuTriggerRef} className="acp-collection-more" disabled={preview} title="更多操作"
-        aria-label={`更多操作 ${group.name}`} aria-haspopup="menu" aria-expanded={menuOpen} aria-controls={menuOpen ? menuId : undefined}
-        onClick={() => menuOpen ? closeMenu() : openMenu()} onKeyDown={(event) => {
-          if (['ArrowDown', 'ArrowUp'].includes(event.key)) { event.preventDefault(); openMenu(); }
-        }}><IconMoreStroked /></button>
+      aria-label={`更多操作 ${group.name}`} aria-haspopup="menu" aria-expanded={menuOpen} aria-controls={menuOpen ? menuId : undefined}
+      onClick={() => menuOpen ? closeMenu() : openMenu()} onKeyDown={(event) => {
+        if (['ArrowDown', 'ArrowUp'].includes(event.key)) {event.preventDefault();openMenu();}
+      }}><IconMoreStroked /></button>
       {menuOpen && createPortal(<div ref={menuRef} id={menuId} className="acp-collection-actions acp-collection-popup" style={menuPosition} role="menu" aria-label={`文件夹操作 ${group.name}`}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeMenu(); return; }
-          if (event.key === 'Tab') { setMenuOpen(false); return; }
-          if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
-          event.preventDefault(); event.stopPropagation();
-          const buttons = [...menuRef.current.querySelectorAll('[role^="menuitem"]')];
-          const index = buttons.indexOf(document.activeElement);
-          const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1
-            : (index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
-          buttons[next]?.focus({ preventScroll: true });
-        }}>
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') {event.preventDefault();event.stopPropagation();closeMenu();return;}
+        if (event.key === 'Tab') {setMenuOpen(false);return;}
+        if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+        event.preventDefault();event.stopPropagation();
+        const buttons = [...menuRef.current.querySelectorAll('[role^="menuitem"]')];
+        const index = buttons.indexOf(document.activeElement);
+        const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 :
+        (index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
+        buttons[next]?.focus({ preventScroll: true });
+      }}>
         <button role="menuitem" aria-label={`进入文件夹 ${group.name}`} onClick={() => runAction(() => onSelect(group.id))}><IconGridView /><span>打开文件夹</span></button>
         {onShare && <button role="menuitem" onClick={() => runAction(() => onShare(group))}><IconShare /><span>共享文件夹</span></button>}
         {onPin && <button role="menuitemcheckbox" aria-checked={pinned} className={pinned ? 'is-pinned' : ''} aria-label={`${pinned ? '取消置顶' : '置顶'} ${group.name}`}
-          onClick={() => runAction(() => onPin(`group:${group.id}`))}><IconStar /><span>{pinned ? '取消置顶' : '置顶文件夹'}</span></button>}
+        onClick={() => runAction(() => onPin(`group:${group.id}`))}><IconStar /><span>{pinned ? '取消置顶' : '置顶文件夹'}</span></button>}
         {onAppearance && <button role="menuitem" aria-label={`调整外观 ${group.name}`} onClick={() => runAction(() => onAppearance(group))}><IconSliders /><span>我的外观</span></button>}
         {onMove && <button role="menuitem" aria-label={`${moveLabel} ${group.name}`} onClick={() => runAction(() => onMove(group))}><IconListView /><span>{moveLabel}</span></button>}
         {onManage && <button role="menuitem" onClick={() => runAction(() => onManage(group))}><IconSliders /><span>编辑文件夹</span></button>}
@@ -268,13 +268,13 @@ export function CollectionCard({ group, groups = [], albums, onSelect, onOpen, p
 }
 
 export function AlbumShortcut({ album, group, groups, albums, onOpen, onSelect, sortDragProps, sortDropProps, dropTargetId, description, selecting = false, selected = false, onToggle }) {
-  const items = group ? albums.filter(item => item.groups.includes(group.id)) : [];
-  const childCount = group ? groups.filter(item => item.parentId === group.id).length : 0;
+  const items = group ? albums.filter((item) => item.groups.includes(group.id)) : [];
+  const childCount = group ? groups.filter((item) => item.parentId === group.id).length : 0;
   const name = group?.name || album.name;
   return <article {...sortDropProps} className={`acp-shortcut acp-shortcut-${group?.layout || 'album'}${group && dropTargetId === group.id ? ' is-drop-target' : ''}`} style={{ '--acp-accent': group?.color || '#515c67', '--acp-tint': group?.tint || '#e6e9ec' }}>
     <button {...sortDragProps} data-collection-id={group?.id} title={selecting ? name : `${name}${description ? `\n${description}` : ''}\n拖拽调整顺序`}
-      aria-pressed={selecting ? selected : undefined} aria-label={selecting ? `选择置顶 ${name}` : group ? `打开文件夹 ${name}` : `打开 ${name}`}
-      onClick={() => selecting ? onToggle?.() : group ? onSelect(group.id) : onOpen(album)}>
+    aria-pressed={selecting ? selected : undefined} aria-label={selecting ? `选择置顶 ${name}` : group ? `打开文件夹 ${name}` : `打开 ${name}`}
+    onClick={() => selecting ? onToggle?.() : group ? onSelect(group.id) : onOpen(album)}>
       <span className="acp-shortcut-media">{childCount ? <GroupSymbol group={group} /> : <span className="acp-shortcut-thumbs">{(group ? items.slice(0, group.layout === 'panorama' ? 1 : 2) : [album]).map((item) => <img src={item.image} alt="" key={item.id} draggable={false} />)}</span>}
         {group && <span className="acp-shortcut-symbol"><GroupSymbol group={group} /></span>}</span>
       <span className="acp-shortcut-copy"><strong>{name}</strong><span className="acp-shortcut-meta"><small>{description ?? (group ? childCount ? `${childCount} 个子文件夹 · ${items.length} 册` : `文件夹 · ${items.length} 册` : `相册 · ${album.count} 张`)}</small>
@@ -286,22 +286,22 @@ export function AlbumShortcut({ album, group, groups, albums, onOpen, onSelect, 
 
 export function AlbumDirectory({ groups, albums, sections, selected, view, isDesktop, activeSection, onView, onJump, onSelect, onCreate, getGroupDropProps, getFolderDragProps, dropTargetId, expandedFolders, onToggleFolder, desktopExpanded, onToggleDesktop, workspaceName, organizationName, canOrganize, onOpenShares, sharesCount }) {
   const treeId = React.useId();
-  const selectedPath = folderPath(groups.find(group => group.id === selected), groups);
+  const selectedPath = folderPath(groups.find((group) => group.id === selected), groups);
   const renderFolder = (group, level = 0) => {
-    const children = groups.filter(item => item.parentId === group.id);
+    const children = groups.filter((item) => item.parentId === group.id);
     const expanded = expandedFolders.includes(group.id);
     const active = selected === group.id;
-    const ancestor = !active && selectedPath.some(item => item.id === group.id);
+    const ancestor = !active && selectedPath.some((item) => item.id === group.id);
     return <li key={group.id} className="acp-folder-node">
       <div {...getGroupDropProps(group)} className={`acp-folder-row${active ? ' is-selected' : ''}${ancestor ? ' is-ancestor' : ''}${dropTargetId === group.id ? ' is-drop-target' : ''}`}
-        style={{ '--folder-level': level, '--acp-accent': group.color, '--acp-tint': group.tint }}>
+      style={{ '--folder-level': level, '--acp-accent': group.color, '--acp-tint': group.tint }}>
         {children.length > 0 ? <button type="button" className="acp-folder-toggle" aria-label={`${expanded ? '收起' : '展开'} ${group.name}`} aria-expanded={expanded}
-          aria-controls={`${treeId}-${group.id}`} onClick={() => onToggleFolder(group.id)}><IconChevronRight /></button> : <span className="acp-folder-toggle-space" />}
-        <button {...getFolderDragProps(group)} type="button" className="acp-folder-link" aria-current={active ? 'page' : undefined} title={folderPath(group, groups).map(item => item.name).join(' / ')} onClick={() => onSelect(group.id)}>
+        aria-controls={`${treeId}-${group.id}`} onClick={() => onToggleFolder(group.id)}><IconChevronRight /></button> : <span className="acp-folder-toggle-space" />}
+        <button {...getFolderDragProps(group)} type="button" className="acp-folder-link" aria-current={active ? 'page' : undefined} title={folderPath(group, groups).map((item) => item.name).join(' / ')} onClick={() => onSelect(group.id)}>
           <span className="acp-directory-symbol is-collection"><GroupSymbol group={group} /></span><span>{group.name}</span><small>{groupAlbums(group, albums, groups).length}</small>
         </button>
       </div>
-      {children.length > 0 && <ul id={`${treeId}-${group.id}`} className="acp-folder-children" hidden={!expanded}>{children.map(child => renderFolder(child, level + 1))}</ul>}
+      {children.length > 0 && <ul id={`${treeId}-${group.id}`} className="acp-folder-children" hidden={!expanded}>{children.map((child) => renderFolder(child, level + 1))}</ul>}
     </li>;
   };
   return <nav className="acp-directory" aria-label="相册目录">
@@ -312,18 +312,18 @@ export function AlbumDirectory({ groups, albums, sections, selected, view, isDes
         <span className="acp-directory-symbol"><IconGroupRescue /></span><span>小组空间</span></button>
         {canOrganize && <button type="button" className="acp-directory-create" title="新建文件夹" aria-label="新建目录文件夹" onClick={onCreate}><IconPlus /></button>}
         <button type="button" className="acp-directory-desktop-toggle" aria-label={`${desktopExpanded ? '收起' : '展开'}小组空间`} title={`${desktopExpanded ? '收起' : '展开'}小组空间`}
-          aria-expanded={desktopExpanded} aria-controls={`${treeId}-desktop-sections`} onClick={onToggleDesktop}><IconChevronRight /></button>
+        aria-expanded={desktopExpanded} aria-controls={`${treeId}-desktop-sections`} onClick={onToggleDesktop}><IconChevronRight /></button>
       </div>
     </div>
     <div id={`${treeId}-desktop-sections`} className="acp-directory-links acp-directory-sections" aria-label="小组空间板块" hidden={!desktopExpanded}>
       {sections.filter(({ id }) => id !== 'collections').map(({ id, name, Icon }) => <button key={id} className={isDesktop && activeSection === id ? 'is-selected' : ''}
-        aria-current={isDesktop && activeSection === id ? 'location' : undefined} aria-controls={id === 'collections' ? id : `desktop-${id}`} onClick={() => onJump(id)}>
+      aria-current={isDesktop && activeSection === id ? 'location' : undefined} aria-controls={id === 'collections' ? id : `desktop-${id}`} onClick={() => onJump(id)}>
         <span className="acp-directory-symbol"><Icon /></span><span>{name}</span></button>)}
-      <ul className="acp-folder-tree" aria-label="多级文件夹">{groups.filter(group => !group.parentId).map(group => renderFolder(group))}</ul>
+      <ul className="acp-folder-tree" aria-label="多级文件夹">{groups.filter((group) => !group.parentId).map((group) => renderFolder(group))}</ul>
     </div>
     <div className="acp-directory-links acp-directory-utility">
       {onOpenShares ? <button type="button" className={view === 'shared' ? 'is-selected' : ''}
-        aria-current={view === 'shared' ? 'page' : undefined} onClick={onOpenShares}>
+      aria-current={view === 'shared' ? 'page' : undefined} onClick={onOpenShares}>
         <span className="acp-directory-symbol"><IconShare /></span><span>共享</span>{sharesCount ? <small>{sharesCount}</small> : null}</button> : null}
       <button className={selected === 'all' && view === 'unfiled' ? 'is-selected' : ''}
       aria-current={selected === 'all' && view === 'unfiled' ? 'page' : undefined} onClick={() => onView('unfiled')}>
@@ -331,5 +331,3 @@ export function AlbumDirectory({ groups, albums, sections, selected, view, isDes
     <div className="acp-directory-foot"><span />当前小组织空间</div>
   </nav>;
 }
-
-

@@ -9,12 +9,12 @@ import { applyBlock, BUILTIN_BLOCKS_BY_ID, WECHAT_THEMES } from './themes.js';
 import {
   makeUid, sanitizeParaHtml, sanitizeRawHtml,
   splitRawHtml, applyRawImgStyle, isRawPhotoEl, listRawPhotos, splitPastedToParagraphs,
-  spacingToStyleObject, setElBoxStyle, readElBoxFromEl, applyElBoxToEl,
-} from './docModel.js';
+  spacingToStyleObject, setElBoxStyle, readElBoxFromEl, applyElBoxToEl } from
+'./docModel.js';
 import NumInput from './NumInput.jsx';
 import { beginDrag, registerDropZone } from './pointerDrag.js';
 import { applyThemeMasksToEl, derivePalette } from './themeColor.js';
-import { imageRuns, imageRunForUid, setImageRunColumns, splitGallery, mergeGallery } from './imageGroups';
+import { imageRuns, setImageRunColumns, splitGallery, mergeGallery } from './imageGroups';
 import { GALLERY_STYLES_BY_ID, galleryLayoutTree, galleryNodeStyle } from './galleryStyles';
 import { observedGalleryHtml } from './observedGallery';
 import { replacementError, styleDropBlock } from './styleReplacement';
@@ -26,14 +26,14 @@ import './canvas.css';
 function purifyBlockHtml(html) {
   return DOMPurify.sanitize(String(html || ''), {
     FORBID_TAGS: ['script', 'style', 'iframe', 'object', 'embed', 'form', 'input'],
-    ADD_ATTR: ['style', 'referrerpolicy'],
+    ADD_ATTR: ['style', 'referrerpolicy']
   });
 }
 
 function GallerySlots({ node, weight, children }) {
-  return <section style={galleryNodeStyle(node, weight)}>{node.children
-    ? node.children.map((child, i) => <GallerySlots key={i} node={child} weight={node.direction === 'row' && !node.css?.justifyContent ? node.weights?.[i] || 1 : null}>{children}</GallerySlots>)
-    : node.text != null ? node.text : children[node.index]}</section>;
+  return <section style={galleryNodeStyle(node, weight)}>{node.children ?
+    node.children.map((child, i) => <GallerySlots key={i} node={child} weight={node.direction === 'row' && !node.css?.justifyContent ? node.weights?.[i] || 1 : null}>{children}</GallerySlots>) :
+    node.text != null ? node.text : children[node.index]}</section>;
 }
 
 // 占位 token 用于"先占位渲染整块模板，再把 content/caption 槽位换成可编辑 span"的两段式渲染——
@@ -45,8 +45,8 @@ const SLOT_TOKEN = '\u0000CVE_SLOT\u0000';
 // 否则继续比较下一块；全部块都在鼠标上方（含空画布）则插入末尾/顶部。
 // top 是指示线相对画布外边框（getBoundingClientRect().top）的像素偏移，供指示线定位用。
 function computeDropTarget(clientY, blockEls, canvasTop, clientX) {
-  const startIndex = element => Number(element.dataset.cveDropStart);
-  const endIndex = element => Number(element.dataset.cveDropEnd);
+  const startIndex = (element) => Number(element.dataset.cveDropStart);
+  const endIndex = (element) => Number(element.dataset.cveDropEnd);
   if (blockEls.length === 0) {
     return { index: 0, top: 16 };
   }
@@ -54,11 +54,11 @@ function computeDropTarget(clientY, blockEls, canvasTop, clientX) {
     const rect = blockEls[i].getBoundingClientRect();
     if (blockEls[i].classList.contains('cve-block') && blockEls[i].parentElement.classList.contains('cve-image-group')) {
       let end = i + 1;
-      while (end < blockEls.length && blockEls[end].parentElement === blockEls[i].parentElement
-        && Math.abs(blockEls[end].getBoundingClientRect().top - rect.top) < 2) end++;
-      const row = blockEls.slice(i, end).map(el => el.getBoundingClientRect());
-      if (clientY >= rect.top && clientY <= Math.max(...row.map(cell => cell.bottom))) {
-        const before = row.findIndex(cell => clientX < cell.left + cell.width / 2);
+      while (end < blockEls.length && blockEls[end].parentElement === blockEls[i].parentElement &&
+      Math.abs(blockEls[end].getBoundingClientRect().top - rect.top) < 2) end++;
+      const row = blockEls.slice(i, end).map((el) => el.getBoundingClientRect());
+      if (clientY >= rect.top && clientY <= Math.max(...row.map((cell) => cell.bottom))) {
+        const before = row.findIndex((cell) => clientX < cell.left + cell.width / 2);
         return { index: before < 0 ? endIndex(blockEls[end - 1]) : startIndex(blockEls[i + before]), top: rect.top - canvasTop - 6 };
       }
     }
@@ -72,7 +72,7 @@ function computeDropTarget(clientY, blockEls, canvasTop, clientX) {
 }
 
 function visibleDropElements(canvas) {
-  return [...canvas.querySelectorAll('[data-cve-drop-start]')].filter(element => {
+  return [...canvas.querySelectorAll('[data-cve-drop-start]')].filter((element) => {
     const bounds = element.getBoundingClientRect();
     return bounds.width > 0 && bounds.height > 0;
   });
@@ -86,7 +86,7 @@ const FALLBACK_BLOCK_ID_BY_TYPE = {
   quote: 'builtin-quote-minimal',
   divider: 'builtin-divider-double-line',
   imageCard: 'builtin-imageCard-minimal-underline',
-  signoff: 'builtin-signoff-end-badge',
+  signoff: 'builtin-signoff-end-badge'
 };
 
 // 换色面板固定 8 色：5 个内置主题色（保持与 WECHAT_THEMES 同源，主题色改了这里自动跟着变）+
@@ -99,25 +99,25 @@ const SLOT_PLACEHOLDER_BY_TYPE = {
   h3: '点击输入标题',
   body: '点击输入正文',
   quote: '点击输入引用文字',
-  signoff: '点击输入落款文字',
+  signoff: '点击输入落款文字'
 };
 const CAPTION_PLACEHOLDER = '点击添加图注（可选）';
 const PARA_PLACEHOLDER = '点击输入正文…';
 
 // 空图片卡兜底占位图：内联 SVG，避免 <img src=""> 在部分浏览器下触发对当前页面地址的多余请求
 const EMPTY_IMAGE_PLACEHOLDER = 'data:image/svg+xml;utf8,' + encodeURIComponent(
-  '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360"><rect width="640" height="360" fill="#f2f2f2"/><text x="320" y="188" font-size="20" fill="#999" text-anchor="middle">点击选择图片</text></svg>',
+  '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360"><rect width="640" height="360" fill="#f2f2f2"/><text x="320" y="188" font-size="20" fill="#999" text-anchor="middle">点击选择图片</text></svg>'
 );
 
 // title/caption/content 在拼进 innerHTML 前必须转义——themes.js 的 escapeHtml 未导出，
 // 规则须与其保持一致（& < > " '），因此在此按同一转义表复制一份，不做其它变体。
 function escapeHtml(str) {
-  return String(str == null ? '' : str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+  return String(str == null ? '' : str).
+  replace(/&/g, '&amp;').
+  replace(/</g, '&lt;').
+  replace(/>/g, '&gt;').
+  replace(/"/g, '&quot;').
+  replace(/'/g, '&#39;');
 }
 
 // 复制块=深拷贝换新 uid：JSON 往返而非浅 spread，防止将来 DocBlock 出现嵌套字段时被两个块共享引用。
@@ -204,7 +204,7 @@ function computeParaStyle(bodyConfig, accent) {
     marginRight: 0,
     marginBottom: `${paraSpacing}px`,
     marginLeft: 0,
-    '--cve-accent': accent || '#1a1a1a',
+    '--cve-accent': accent || '#1a1a1a'
   };
 }
 
@@ -234,7 +234,7 @@ function computeLiveElPath(host, target) {
     path.unshift(idx);
     node = parent;
   }
-  return (node === host && path.length) ? path : null;
+  return node === host && path.length ? path : null;
 }
 function resolveLiveElPath(host, path) {
   let node = host;
@@ -257,9 +257,9 @@ function withElementAlignmentMode(el, patch) {
   const rect = el.getBoundingClientRect();
   const parentRect = parent.getBoundingClientRect();
   const parentStyle = window.getComputedStyle ? window.getComputedStyle(parent) : null;
-  const padX = parentStyle
-    ? (parseFloat(parentStyle.paddingLeft) || 0) + (parseFloat(parentStyle.paddingRight) || 0)
-    : 0;
+  const padX = parentStyle ?
+  (parseFloat(parentStyle.paddingLeft) || 0) + (parseFloat(parentStyle.paddingRight) || 0) :
+  0;
   const innerWidth = Math.max(0, parentRect.width - padX);
   const fillsParent = innerWidth > 0 && rect.width >= innerWidth * 0.92;
   const isContainer = !isReplacedElement && (el.children.length > 0 || fillsParent);
@@ -292,7 +292,7 @@ function StyledSlotView({ block, styleBlock, accent, onCommitContent, bodyStyle 
   // 二者分离是为了避免"打字过程中因为 doc.content 变化触发整段 innerHTML 重写、导致光标跳动"。
   const templateHtml = React.useMemo(
     () => applyBlock(styleBlock, { content: SLOT_TOKEN, accent }),
-    [styleBlock, accent],
+    [styleBlock, accent]
   );
 
   React.useLayoutEffect(() => {
@@ -301,11 +301,11 @@ function StyledSlotView({ block, styleBlock, accent, onCommitContent, bodyStyle 
     const active = document.activeElement;
     // 正在编辑该槽位时跳过重绘：doc.content 只会在失焦提交后才变化，那时槽位已不在编辑态，重绘无损。
     if (
-      active
-      && host.contains(active)
-      && active.getAttribute
-      && active.getAttribute('data-cve-slot') === 'content'
-    ) {
+    active &&
+    host.contains(active) &&
+    active.getAttribute &&
+    active.getAttribute('data-cve-slot') === 'content')
+    {
       return;
     }
     const placeholder = escapeHtml(SLOT_PLACEHOLDER_BY_TYPE[block.type] || '点击输入文字');
@@ -318,7 +318,7 @@ function StyledSlotView({ block, styleBlock, accent, onCommitContent, bodyStyle 
       slot.contentEditable = 'true';
       if (block.kind === 'para') {
         slot.style.display = 'block';
-        ['fontSize', 'lineHeight', 'color', 'letterSpacing', 'textAlign', 'textIndent'].forEach(key => { slot.style[key] = bodyStyle?.[key] || ''; });
+        ['fontSize', 'lineHeight', 'color', 'letterSpacing', 'textAlign', 'textIndent'].forEach((key) => {slot.style[key] = bodyStyle?.[key] || '';});
       }
     }
   }, [templateHtml, block.content, block.html, block.kind, block.type, bodyStyle]);
@@ -330,7 +330,7 @@ function StyledSlotView({ block, styleBlock, accent, onCommitContent, bodyStyle 
     }
   };
 
-  // eslint-disable-next-line react/no-danger -- innerHTML 由上面的 effect 手工管理，此处不设置初始子节点
+   
   return <div ref={hostRef} className="cve-styled-host" onBlur={handleBlur} />;
 }
 
@@ -343,7 +343,7 @@ function ImageCardView({ block, styleBlock, accent, onImageClick, onCommitCaptio
 
   const templateHtml = React.useMemo(
     () => applyBlock(styleBlock, { src: escapeHtml(src), caption: SLOT_TOKEN, accent }),
-    [styleBlock, accent, src],
+    [styleBlock, accent, src]
   );
 
   React.useLayoutEffect(() => {
@@ -351,11 +351,11 @@ function ImageCardView({ block, styleBlock, accent, onImageClick, onCommitCaptio
     if (!host) return;
     const active = document.activeElement;
     if (
-      active
-      && host.contains(active)
-      && active.getAttribute
-      && active.getAttribute('data-cve-slot') === 'caption'
-    ) {
+    active &&
+    host.contains(active) &&
+    active.getAttribute &&
+    active.getAttribute('data-cve-slot') === 'caption')
+    {
       return;
     }
     const placeholder = escapeHtml(CAPTION_PLACEHOLDER);
@@ -439,9 +439,9 @@ function ParaView({ block, bodyStyle, onTransient, onCommit, onPasteParagraphs }
       style={bodyStyle}
       onInput={handleInput}
       onBlur={handleBlur}
-      onPaste={handlePaste}
-    />
-  );
+      onPaste={handlePaste} />);
+
+
 }
 
 // ---------------------------------------------------------------------------
@@ -469,8 +469,8 @@ function RawView({ block, activeImgIndex, themePalette, hostStyle, editable = tr
     if (!el) return;
     const photos = Array.from(el.querySelectorAll('*')).filter(isRawPhotoEl);
     photos.forEach((p, i) => {
-      if (i === activeImgIndex) p.setAttribute('data-cve-img-active', '1');
-      else p.removeAttribute('data-cve-img-active');
+      if (i === activeImgIndex) p.setAttribute('data-cve-img-active', '1');else
+      p.removeAttribute('data-cve-img-active');
     });
   }, [activeImgIndex, block.html]);
 
@@ -482,11 +482,11 @@ function RawView({ block, activeImgIndex, themePalette, hostStyle, editable = tr
     const t = e.target;
     if (!t || !t.tagName) return;
     const tag = (t.tagName.baseVal || t.tagName || '').toLowerCase();
-    const textEl = tag === 'tspan' || tag === 'text' ? t : (t.closest && t.closest('text'));
+    const textEl = tag === 'tspan' || tag === 'text' ? t : t.closest && t.closest('text');
     if (!textEl) return;
     e.preventDefault();
     const cur = textEl.textContent || '';
-    // eslint-disable-next-line no-alert
+     
     const next = window.prompt('修改文字', cur);
     if (next != null && next !== cur) {
       textEl.textContent = next;
@@ -503,11 +503,11 @@ function RawView({ block, activeImgIndex, themePalette, hostStyle, editable = tr
     // 1) 直接命中：从点击目标向上找最近的照片元素
     let node = e.target;
     while (node && node !== ref.current && !isRawPhotoEl(node)) node = node.parentElement;
-    if (node && node !== ref.current && isRawPhotoEl(node)) { selectPhoto(node); return; }
+    if (node && node !== ref.current && isRawPhotoEl(node)) {selectPhoto(node);return;}
     // 2) 几何兜底：轮播/彩色层等图层是 pointer-events:none，点击会穿透、接不到照片元素。
     //    改在点击坐标上人工命中测试——取 rect 包含该点的照片里「可见 + 文档序最靠后(绘制最上层)」的那张。
     const photos = Array.from(ref.current.querySelectorAll('*')).filter(isRawPhotoEl);
-    const x = e.clientX, y = e.clientY;
+    const x = e.clientX,y = e.clientY;
     const hits = photos.filter((p) => {
       const r = p.getBoundingClientRect();
       return r.width >= 1 && r.height >= 1 && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
@@ -517,7 +517,7 @@ function RawView({ block, activeImgIndex, themePalette, hostStyle, editable = tr
       return parseFloat(s.opacity) > 0.01 && s.visibility !== 'hidden' && s.display !== 'none';
     });
     const pool = visible.length ? visible : hits;
-    if (pool.length) { selectPhoto(pool[pool.length - 1]); return; }
+    if (pool.length) {selectPhoto(pool[pool.length - 1]);return;}
     onSelectImg(null);
   };
 
@@ -531,9 +531,9 @@ function RawView({ block, activeImgIndex, themePalette, hostStyle, editable = tr
       onInput={handleInput}
       onBlur={handleBlur}
       onClick={handleClick}
-      onDoubleClick={handleDoubleClick}
-    />
-  );
+      onDoubleClick={handleDoubleClick} />);
+
+
 }
 
 // ---------------------------------------------------------------------------
@@ -560,12 +560,12 @@ function BlockToolbar({
   block, index, total, styleBlock, flip, anchorTop, getHostEl, activeRawImgIndex, activeRawImgKind,
   onMoveUp, onMoveDown, onDuplicate, onDelete, onChangeStyle, onChangeAccent, onInsertParaAfter,
   onSplitRaw, onImgStyle, onRawImgStyle, onImgReplace, onImgEdit, onManageImages, onSpacing, onImageColumns,
-  onSplitGallery,
+  onSplitGallery
 }) {
   const [swatchOpen, setSwatchOpen] = React.useState(false);
   const [textSwatchOpen, setTextSwatchOpen] = React.useState(false);
   const [hlSwatchOpen, setHlSwatchOpen] = React.useState(false); // 文字底色面板
-  const [sizeMenuOpen, setSizeMenuOpen] = React.useState(false);  // 字号选择面板
+  const [sizeMenuOpen, setSizeMenuOpen] = React.useState(false); // 字号选择面板
   const [spacingMenuOpen, setSpacingMenuOpen] = React.useState(false); // 行距/边距面板
   const canChangeStyle = block.kind === 'styled' || block.kind === 'para';
   const canChangeAccent = block.kind === 'styled' && styleBlock && styleBlock.accentEditable === true;
@@ -573,7 +573,7 @@ function BlockToolbar({
   const isImageCard = block.kind === 'styled' && block.type === 'imageCard';
   const showRawImg = block.kind === 'raw' && activeRawImgIndex != null;
   const imgStyle = block.imgStyle || {};
-  const rawPhotoCount = React.useMemo(() => (block.kind === 'raw' ? listRawPhotos(block.html || '').length : 0), [block.kind, block.html]);
+  const rawPhotoCount = React.useMemo(() => block.kind === 'raw' ? listRawPhotos(block.html || '').length : 0, [block.kind, block.html]);
   // anchorTop 非 null=跟随光标/选区/图片的浮动模式（top 由内联样式给,transform 决定锚点上/下方）；
   // null=默认钉块顶
   const anchored = anchorTop != null;
@@ -582,9 +582,9 @@ function BlockToolbar({
   React.useLayoutEffect(() => {
     const toolbar = toolbarRef.current;
     const group = toolbar?.closest('.cve-image-group');
-    if (!group) { setGroupAnchor(null); return undefined; }
+    if (!group) {setGroupAnchor(null);return undefined;}
     const update = () => {
-      const bounds = group.getBoundingClientRect(), cell = toolbar.parentElement.getBoundingClientRect();
+      const bounds = group.getBoundingClientRect(),cell = toolbar.parentElement.getBoundingClientRect();
       setGroupAnchor({ left: bounds.left + bounds.width / 2 - cell.left, maxWidth: bounds.width });
     };
     update();
@@ -601,73 +601,73 @@ function BlockToolbar({
   const spacing = block.spacing || {};
   const resetSpacing = () => onSpacing(null);
   const MARGIN_FIELDS = [
-    ['marginTop', '上边距'], ['marginBottom', '下边距'],
-    ['marginLeft', '左边距'], ['marginRight', '右边距'],
-  ];
+  ['marginTop', '上边距'], ['marginBottom', '下边距'],
+  ['marginLeft', '左边距'], ['marginRight', '右边距']];
+
 
   return (
     <div
       className={`cve-toolbar${anchored ? ' cve-toolbar--anchored' : ''} ${flip ? 'cve-toolbar--below' : 'cve-toolbar--above'}`}
       ref={toolbarRef}
       style={{ ...(anchored ? { top: `${anchorTop}px` } : {}), ...groupAnchor }}
-      onClick={(e) => e.stopPropagation()}
-    >
+      onClick={(e) => e.stopPropagation()}>
+      
       <div className="cve-toolbar-row">
         <button type="button" className="cve-toolbar-btn" disabled={index === 0} onClick={onMoveUp} title="上移" aria-label="上移">↑</button>
         <button type="button" className="cve-toolbar-btn" disabled={index === total - 1} onClick={onMoveDown} title="下移" aria-label="下移">↓</button>
         <button type="button" className="cve-toolbar-btn" onClick={onDuplicate} title="复制" aria-label="复制">复制</button>
         <button type="button" className="cve-toolbar-btn" onClick={onDelete} title="删除" aria-label="删除">删除</button>
-        {canChangeStyle && (
-          <button type="button" className="cve-toolbar-btn" onClick={onChangeStyle} title="替换样式" aria-label="替换样式">替换样式</button>
-        )}
-        {block.kind === 'raw' && (
-          <button type="button" className="cve-toolbar-btn" onClick={onSplitRaw} title="把容器拆成独立元素" aria-label="拆分容器">拆分</button>
-        )}
-        {block.kind === 'raw' && rawPhotoCount > 0 && (
-          <button type="button" className="cve-toolbar-btn" onClick={onManageImages} title="按 SVG 列出块内所有图，逐张替换/编辑（叠层图点不准时用）" aria-label="图片列表">🖼 图片{rawPhotoCount}</button>
-        )}
-        {canChangeAccent && (
-          <div className="cve-toolbar-swatch-wrap">
+        {canChangeStyle &&
+        <button type="button" className="cve-toolbar-btn" onClick={onChangeStyle} title="替换样式" aria-label="替换样式">替换样式</button>
+        }
+        {block.kind === 'raw' &&
+        <button type="button" className="cve-toolbar-btn" onClick={onSplitRaw} title="把容器拆成独立元素" aria-label="拆分容器">拆分</button>
+        }
+        {block.kind === 'raw' && rawPhotoCount > 0 &&
+        <button type="button" className="cve-toolbar-btn" onClick={onManageImages} title="按 SVG 列出块内所有图，逐张替换/编辑（叠层图点不准时用）" aria-label="图片列表">🖼 图片{rawPhotoCount}</button>
+        }
+        {canChangeAccent &&
+        <div className="cve-toolbar-swatch-wrap">
             <button
-              type="button"
-              className="cve-toolbar-btn cve-toolbar-dot-btn"
-              onClick={() => setSwatchOpen((v) => !v)}
-              title="换色"
-              aria-label="换色"
-            >
+            type="button"
+            className="cve-toolbar-btn cve-toolbar-dot-btn"
+            onClick={() => setSwatchOpen((v) => !v)}
+            title="换色"
+            aria-label="换色">
+            
               <span className="cve-dot-preview" style={{ backgroundColor: block.accent || '#1a1a1a' }} />
             </button>
-            {swatchOpen && (
-              <div className="cve-swatch-panel">
-                {ACCENT_SWATCHES.map((hex) => (
-                  <button
-                    key={hex}
-                    type="button"
-                    className="cve-swatch"
-                    style={{ backgroundColor: hex }}
-                    aria-label={hex}
-                    onClick={() => { onChangeAccent(hex); setSwatchOpen(false); }}
-                  />
-                ))}
-              </div>
+            {swatchOpen &&
+          <div className="cve-swatch-panel">
+                {ACCENT_SWATCHES.map((hex) =>
+            <button
+              key={hex}
+              type="button"
+              className="cve-swatch"
+              style={{ backgroundColor: hex }}
+              aria-label={hex}
+              onClick={() => {onChangeAccent(hex);setSwatchOpen(false);}} />
+
             )}
+              </div>
+          }
           </div>
-        )}
+        }
         <button type="button" className="cve-toolbar-btn" onClick={onInsertParaAfter} title="后插段落" aria-label="后插段落">+段</button>
       </div>
 
-      {isTextBlock && !showRawImg && (
-        <div className="cve-toolbar-row cve-toolbar-row--ctx" onPointerDown={toolbarRowGuard}>
+      {isTextBlock && !showRawImg &&
+      <div className="cve-toolbar-row cve-toolbar-row--ctx" onPointerDown={toolbarRowGuard}>
           {/* 字号：量化选择具体 px（参考秀米字号栏） */}
           <div className="cve-toolbar-menu-wrap">
-            <button type="button" className={`cve-toolbar-btn cve-toolbar-btn--menu${sizeMenuOpen ? ' is-on' : ''}`} onClick={() => { setSizeMenuOpen((v) => !v); setTextSwatchOpen(false); setHlSwatchOpen(false); }} title="字号">字号 ⌄</button>
-            {sizeMenuOpen && (
-              <div className="cve-size-menu">
-                {TEXT_FONT_SIZES.map((px) => (
-                  <button key={px} type="button" className="cve-size-item" onPointerDown={toolbarRowGuard} onClick={() => { runText('fontSize', px); setSizeMenuOpen(false); }}>{px}</button>
-                ))}
-              </div>
+            <button type="button" className={`cve-toolbar-btn cve-toolbar-btn--menu${sizeMenuOpen ? ' is-on' : ''}`} onClick={() => {setSizeMenuOpen((v) => !v);setTextSwatchOpen(false);setHlSwatchOpen(false);}} title="字号">字号 ⌄</button>
+            {sizeMenuOpen &&
+          <div className="cve-size-menu">
+                {TEXT_FONT_SIZES.map((px) =>
+            <button key={px} type="button" className="cve-size-item" onPointerDown={toolbarRowGuard} onClick={() => {runText('fontSize', px);setSizeMenuOpen(false);}}>{px}</button>
             )}
+              </div>
+          }
           </div>
           <span className="cve-toolbar-sep" />
           <button type="button" className="cve-toolbar-btn" onClick={() => runText('bold')} title="加粗"><b>B</b></button>
@@ -677,29 +677,29 @@ function BlockToolbar({
           <span className="cve-toolbar-sep" />
           {/* 文字颜色 */}
           <div className="cve-toolbar-swatch-wrap">
-            <button type="button" className="cve-toolbar-btn cve-toolbar-dot-btn" onClick={() => { setTextSwatchOpen((v) => !v); setHlSwatchOpen(false); setSizeMenuOpen(false); }} title="文字颜色" aria-label="文字颜色">
+            <button type="button" className="cve-toolbar-btn cve-toolbar-dot-btn" onClick={() => {setTextSwatchOpen((v) => !v);setHlSwatchOpen(false);setSizeMenuOpen(false);}} title="文字颜色" aria-label="文字颜色">
               <span className="cve-dot-preview cve-dot-preview--text">A</span>
             </button>
-            {textSwatchOpen && (
-              <div className="cve-swatch-panel">
-                {TEXT_COLOR_CHOICES.map((hex) => (
-                  <button key={hex} type="button" className="cve-swatch" style={{ backgroundColor: hex }} aria-label={hex} onPointerDown={toolbarRowGuard} onClick={() => { runText('foreColor', hex); setTextSwatchOpen(false); }} />
-                ))}
-              </div>
+            {textSwatchOpen &&
+          <div className="cve-swatch-panel">
+                {TEXT_COLOR_CHOICES.map((hex) =>
+            <button key={hex} type="button" className="cve-swatch" style={{ backgroundColor: hex }} aria-label={hex} onPointerDown={toolbarRowGuard} onClick={() => {runText('foreColor', hex);setTextSwatchOpen(false);}} />
             )}
+              </div>
+          }
           </div>
           {/* 文字底色/高亮 */}
           <div className="cve-toolbar-swatch-wrap">
-            <button type="button" className="cve-toolbar-btn cve-toolbar-dot-btn" onClick={() => { setHlSwatchOpen((v) => !v); setTextSwatchOpen(false); setSizeMenuOpen(false); }} title="文字底色" aria-label="文字底色">
+            <button type="button" className="cve-toolbar-btn cve-toolbar-dot-btn" onClick={() => {setHlSwatchOpen((v) => !v);setTextSwatchOpen(false);setSizeMenuOpen(false);}} title="文字底色" aria-label="文字底色">
               <span className="cve-dot-preview cve-dot-preview--hl">▨</span>
             </button>
-            {hlSwatchOpen && (
-              <div className="cve-swatch-panel">
-                {TEXT_HL_CHOICES.map((hex) => (
-                  <button key={hex} type="button" className={`cve-swatch${hex === 'transparent' ? ' cve-swatch--none' : ''}`} style={hex === 'transparent' ? undefined : { backgroundColor: hex }} aria-label={hex === 'transparent' ? '清除底色' : hex} title={hex === 'transparent' ? '清除底色' : hex} onPointerDown={toolbarRowGuard} onClick={() => { runText('hiliteColor', hex); setHlSwatchOpen(false); }} />
-                ))}
-              </div>
+            {hlSwatchOpen &&
+          <div className="cve-swatch-panel">
+                {TEXT_HL_CHOICES.map((hex) =>
+            <button key={hex} type="button" className={`cve-swatch${hex === 'transparent' ? ' cve-swatch--none' : ''}`} style={hex === 'transparent' ? undefined : { backgroundColor: hex }} aria-label={hex === 'transparent' ? '清除底色' : hex} title={hex === 'transparent' ? '清除底色' : hex} onPointerDown={toolbarRowGuard} onClick={() => {runText('hiliteColor', hex);setHlSwatchOpen(false);}} />
             )}
+              </div>
+          }
           </div>
           <span className="cve-toolbar-sep" />
           <button type="button" className="cve-toolbar-btn" onClick={() => runText('superscript')} title="上标">x²</button>
@@ -712,77 +712,77 @@ function BlockToolbar({
           <span className="cve-toolbar-sep" />
           {/* 行距 / 四向边距微调（边距支持负值，用于收紧块间距/贴合叠放） */}
           <div className="cve-toolbar-menu-wrap">
-            <button type="button" className={`cve-toolbar-btn cve-toolbar-btn--menu${spacingMenuOpen ? ' is-on' : ''}`} onClick={() => { setSpacingMenuOpen((v) => !v); setSizeMenuOpen(false); setTextSwatchOpen(false); setHlSwatchOpen(false); }} title="行距 / 边距（支持负值）">间距 ⌄</button>
-            {spacingMenuOpen && (
-              <div className="cve-spacing-menu" onPointerDown={toolbarRowGuard}>
+            <button type="button" className={`cve-toolbar-btn cve-toolbar-btn--menu${spacingMenuOpen ? ' is-on' : ''}`} onClick={() => {setSpacingMenuOpen((v) => !v);setSizeMenuOpen(false);setTextSwatchOpen(false);setHlSwatchOpen(false);}} title="行距 / 边距（支持负值）">间距 ⌄</button>
+            {spacingMenuOpen &&
+          <div className="cve-spacing-menu" onPointerDown={toolbarRowGuard}>
                 <div className="cve-spacing-row">
                   <span className="cve-spacing-label">行距</span>
                   <NumInput value={spacing.lineHeight != null ? Number(spacing.lineHeight) : null} onChange={(v) => onSpacing({ ...spacing, lineHeight: v })} min={1} max={3} step={0.1} placeholder="默认" guard={toolbarRowGuard} />
                 </div>
-                {MARGIN_FIELDS.map(([key, label]) => (
-                  <div className="cve-spacing-row" key={key}>
+                {MARGIN_FIELDS.map(([key, label]) =>
+            <div className="cve-spacing-row" key={key}>
                     <span className="cve-spacing-label">{label}</span>
                     <NumInput value={spacing[key] != null ? Number(spacing[key]) : null} onChange={(v) => onSpacing({ ...spacing, [key]: v })} min={-200} max={400} step={2} suffix="px" placeholder="0" guard={toolbarRowGuard} />
                   </div>
-                ))}
+            )}
                 <button type="button" className="cve-spacing-reset" onPointerDown={toolbarRowGuard} onClick={resetSpacing}>清除间距</button>
               </div>
-            )}
+          }
           </div>
           <span className="cve-toolbar-sep" />
           <button type="button" className="cve-toolbar-btn" onClick={() => runText('removeFormat')} title="清除格式">清除</button>
         </div>
-      )}
+      }
 
-      {isImageCard && (
-        <div className="cve-toolbar-row cve-toolbar-row--ctx" onPointerDown={toolbarRowGuard}>
+      {isImageCard &&
+      <div className="cve-toolbar-row cve-toolbar-row--ctx" onPointerDown={toolbarRowGuard}>
           <span className="cve-toolbar-label">组图</span>
           <div role="group" aria-label="组图列数">
-            {[1, 2, 3].map(columns => <button key={columns} type="button" className={`cve-toolbar-btn${(block.galleryColumns || 1) === columns ? ' is-on' : ''}`}
-              aria-pressed={(block.galleryColumns || 1) === columns} onClick={() => onImageColumns(columns)}>{columns === 1 ? '单列' : columns === 2 ? '双列' : '三列'}</button>)}
+            {[1, 2, 3].map((columns) => <button key={columns} type="button" className={`cve-toolbar-btn${(block.galleryColumns || 1) === columns ? ' is-on' : ''}`}
+          aria-pressed={(block.galleryColumns || 1) === columns} onClick={() => onImageColumns(columns)}>{columns === 1 ? '单列' : columns === 2 ? '双列' : '三列'}</button>)}
           </div>
           {block.galleryId ? <button type="button" className="cve-toolbar-btn" onClick={onSplitGallery}
-            title="把这一组拆成相互独立的单图">拆分组图</button> : null}
+        title="把这一组拆成相互独立的单图">拆分组图</button> : null}
         </div>
-      )}
-      {isImageCard && (
-        <div className="cve-toolbar-row cve-toolbar-row--ctx" onPointerDown={toolbarRowGuard}>
+      }
+      {isImageCard &&
+      <div className="cve-toolbar-row cve-toolbar-row--ctx" onPointerDown={toolbarRowGuard}>
           <span className="cve-toolbar-label">宽</span>
-          {IMG_WIDTH_CHOICES.map((w) => (
-            <button key={w} type="button" className={`cve-toolbar-btn${(imgStyle.widthPct || 100) === w ? ' is-on' : ''}`} onClick={() => onImgStyle({ ...imgStyle, widthPct: w })}>{w}%</button>
-          ))}
+          {IMG_WIDTH_CHOICES.map((w) =>
+        <button key={w} type="button" className={`cve-toolbar-btn${(imgStyle.widthPct || 100) === w ? ' is-on' : ''}`} onClick={() => onImgStyle({ ...imgStyle, widthPct: w })}>{w}%</button>
+        )}
           <span className="cve-toolbar-sep" />
-          {IMG_RADIUS_CHOICES.map((r) => (
-            <button key={r.v} type="button" className={`cve-toolbar-btn${(imgStyle.radius || 0) === r.v ? ' is-on' : ''}`} onClick={() => onImgStyle({ ...imgStyle, radius: r.v })}>{r.label}</button>
-          ))}
+          {IMG_RADIUS_CHOICES.map((r) =>
+        <button key={r.v} type="button" className={`cve-toolbar-btn${(imgStyle.radius || 0) === r.v ? ' is-on' : ''}`} onClick={() => onImgStyle({ ...imgStyle, radius: r.v })}>{r.label}</button>
+        )}
           <span className="cve-toolbar-sep" />
-          {IMG_ASPECT_CHOICES.map((a) => (
-            <button key={String(a.v)} type="button" className={`cve-toolbar-btn${(imgStyle.aspect || null) === a.v ? ' is-on' : ''}`} onClick={() => onImgStyle({ ...imgStyle, aspect: a.v })}>{a.label}</button>
-          ))}
+          {IMG_ASPECT_CHOICES.map((a) =>
+        <button key={String(a.v)} type="button" className={`cve-toolbar-btn${(imgStyle.aspect || null) === a.v ? ' is-on' : ''}`} onClick={() => onImgStyle({ ...imgStyle, aspect: a.v })}>{a.label}</button>
+        )}
           <span className="cve-toolbar-sep" />
           <button type="button" className="cve-toolbar-btn" onClick={() => onImgEdit(null)} title="裁切/旋转/滤镜">编辑</button>
           <button type="button" className="cve-toolbar-btn" onClick={() => onImgReplace(null)} title="从中转站/相册换图">换图</button>
         </div>
-      )}
+      }
 
-      {showRawImg && (
-        <div className="cve-toolbar-row cve-toolbar-row--ctx" onPointerDown={toolbarRowGuard}>
-          <span className="cve-toolbar-label">{activeRawImgKind === 'bg' ? '背景图' : (activeRawImgKind === 'image' ? '矢量图' : '图片')}</span>
+      {showRawImg &&
+      <div className="cve-toolbar-row cve-toolbar-row--ctx" onPointerDown={toolbarRowGuard}>
+          <span className="cve-toolbar-label">{activeRawImgKind === 'bg' ? '背景图' : activeRawImgKind === 'image' ? '矢量图' : '图片'}</span>
           {/* 宽度/圆角只对 <img> 生效（改标签内联 style）；svg <image>/背景图只给换图+编辑 */}
-          {activeRawImgKind === 'img' && IMG_WIDTH_CHOICES.map((w) => (
-            <button key={w} type="button" className="cve-toolbar-btn" onClick={() => onRawImgStyle({ widthPct: w })}>{w}%</button>
-          ))}
+          {activeRawImgKind === 'img' && IMG_WIDTH_CHOICES.map((w) =>
+        <button key={w} type="button" className="cve-toolbar-btn" onClick={() => onRawImgStyle({ widthPct: w })}>{w}%</button>
+        )}
           {activeRawImgKind === 'img' && <span className="cve-toolbar-sep" />}
-          {activeRawImgKind === 'img' && IMG_RADIUS_CHOICES.map((r) => (
-            <button key={r.v} type="button" className="cve-toolbar-btn" onClick={() => onRawImgStyle({ radius: r.v })}>{r.label}</button>
-          ))}
+          {activeRawImgKind === 'img' && IMG_RADIUS_CHOICES.map((r) =>
+        <button key={r.v} type="button" className="cve-toolbar-btn" onClick={() => onRawImgStyle({ radius: r.v })}>{r.label}</button>
+        )}
           {activeRawImgKind === 'img' && <span className="cve-toolbar-sep" />}
           <button type="button" className="cve-toolbar-btn" onClick={() => onImgEdit(activeRawImgIndex)} title="裁切/旋转/滤镜">编辑</button>
           <button type="button" className="cve-toolbar-btn" onClick={() => onImgReplace(activeRawImgIndex)} title="替换这张图（从中转站/相册）">换图</button>
         </div>
-      )}
-    </div>
-  );
+      }
+    </div>);
+
 }
 
 // ---------------------------------------------------------------------------
@@ -795,7 +795,7 @@ function BlockWrapper({
   onCommitContent, onCommitCaption, onParaTransient, onParaCommit, onPasteParagraphs,
   onRawTransient, onRawCommit, onSelectRawImg,
   onSplitRaw, onImgStyle, onRawImgStyle, onImgReplace, onImgEdit, onManageImages, onSpacing, toolbarAnchor, onImageColumns,
-  onSplitGallery,
+  onSplitGallery
 }) {
   // 浮动锚点存在时垂直跟随光标（flip 由锚点视口位置定）；否则回退默认：首块钉块下方防裁,其余块上方
   const anchored = toolbarAnchor != null;
@@ -825,9 +825,9 @@ function BlockWrapper({
           editable={!layoutMode}
           onTransient={onRawTransient}
           onCommit={onRawCommit}
-          onSelectImg={onSelectRawImg}
-        />
-      );
+          onSelectImg={onSelectRawImg} />);
+
+
     }
     if (!styleBlock) {
       return <div className="cve-block-error">样式块缺失（id：{block.blockId || '未设置'}）</div>;
@@ -842,9 +842,9 @@ function BlockWrapper({
           styleBlock={styleBlock}
           accent={accent}
           onImageClick={onImageClick}
-          onCommitCaption={onCommitCaption}
-        />
-      );
+          onCommitCaption={onCommitCaption} />);
+
+
     }
     return <StyledSlotView block={block} styleBlock={styleBlock} accent={accent} onCommitContent={onCommitContent} />;
   }
@@ -855,52 +855,52 @@ function BlockWrapper({
       data-cve-uid={block.uid}
       data-cve-drop-start={index}
       data-cve-drop-end={index + 1}
-      onClick={(e) => { e.stopPropagation(); onSelect(); }}
-    >
+      onClick={(e) => {e.stopPropagation();onSelect();}}>
+      
       <div
         className="cve-drag-handle"
         onPointerDown={handleHandlePointerDown}
         title="拖拽排序"
-        aria-label="拖拽排序"
-      >
+        aria-label="拖拽排序">
+        
         ⠿
       </div>
-      {showBadge && (
-        <span className="cve-block-badge" aria-hidden="true">{index + 1} · {blockTypeLabel(block)}</span>
-      )}
-      {selected && (
-        <BlockToolbar
-          key={block.uid}
-          block={block}
-          index={index}
-          total={total}
-          styleBlock={styleBlock}
-          flip={flip}
-          anchorTop={anchored ? toolbarAnchor.top : null}
-          getHostEl={() => bodyRef.current}
-          activeRawImgIndex={activeRawImgIndex}
-          activeRawImgKind={activeRawImgKind}
-          onMoveUp={onMoveUp}
-          onMoveDown={onMoveDown}
-          onDuplicate={onDuplicate}
-          onDelete={onDelete}
-          onChangeStyle={onChangeStyle}
-          onChangeAccent={onChangeAccent}
-          onInsertParaAfter={onInsertParaAfter}
-          onSplitRaw={onSplitRaw}
-          onImgStyle={onImgStyle}
-          onImageColumns={onImageColumns}
-          onSplitGallery={onSplitGallery}
-          onRawImgStyle={onRawImgStyle}
-          onImgReplace={onImgReplace}
-          onImgEdit={onImgEdit}
-          onManageImages={onManageImages}
-          onSpacing={onSpacing}
-        />
-      )}
+      {showBadge &&
+      <span className="cve-block-badge" aria-hidden="true">{index + 1} · {blockTypeLabel(block)}</span>
+      }
+      {selected &&
+      <BlockToolbar
+        key={block.uid}
+        block={block}
+        index={index}
+        total={total}
+        styleBlock={styleBlock}
+        flip={flip}
+        anchorTop={anchored ? toolbarAnchor.top : null}
+        getHostEl={() => bodyRef.current}
+        activeRawImgIndex={activeRawImgIndex}
+        activeRawImgKind={activeRawImgKind}
+        onMoveUp={onMoveUp}
+        onMoveDown={onMoveDown}
+        onDuplicate={onDuplicate}
+        onDelete={onDelete}
+        onChangeStyle={onChangeStyle}
+        onChangeAccent={onChangeAccent}
+        onInsertParaAfter={onInsertParaAfter}
+        onSplitRaw={onSplitRaw}
+        onImgStyle={onImgStyle}
+        onImageColumns={onImageColumns}
+        onSplitGallery={onSplitGallery}
+        onRawImgStyle={onRawImgStyle}
+        onImgReplace={onImgReplace}
+        onImgEdit={onImgEdit}
+        onManageImages={onManageImages}
+        onSpacing={onSpacing} />
+
+      }
       <div className="cve-block-body" ref={bodyRef}>{renderBody()}</div>
-    </div>
-  );
+    </div>);
+
 }
 
 // ---------------------------------------------------------------------------
@@ -916,23 +916,23 @@ function ElementInspector({ rect, box, onApply, onClose }) {
     left: Math.max(4, Math.min(Math.round(rect.left), maxLeft)),
     top: flipBelow ? Math.round(rect.top + rect.height + 8) : Math.round(rect.top - 8),
     width: panelWidth,
-    transform: flipBelow ? 'none' : 'translateY(-100%)',
+    transform: flipBelow ? 'none' : 'translateY(-100%)'
   };
-  const seg = (dim, val, label) => (
-    <button
-      type="button"
-      className={`cve-elx-seg${b[dim] === val ? ' is-on' : ''}`}
-      onPointerDown={(e) => e.stopPropagation()}
-      onClick={() => onApply({ [dim]: b[dim] === val ? null : val })}
-      aria-pressed={b[dim] === val}
-    >{label}</button>
-  );
-  const mField = (key, label) => (
-    <div className="cve-elx-mrow">
+  const seg = (dim, val, label) =>
+  <button
+    type="button"
+    className={`cve-elx-seg${b[dim] === val ? ' is-on' : ''}`}
+    onPointerDown={(e) => e.stopPropagation()}
+    onClick={() => onApply({ [dim]: b[dim] === val ? null : val })}
+    aria-pressed={b[dim] === val}>
+    {label}</button>;
+
+  const mField = (key, label) =>
+  <div className="cve-elx-mrow">
       <span>{label}</span>
       <NumInput value={b[key] != null ? b[key] : null} onChange={(v) => onApply({ [key]: v })} min={-400} max={400} step={2} suffix="px" placeholder="0" />
-    </div>
-  );
+    </div>;
+
   return (
     <div className="cve-elx" style={style} onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
       <div className="cve-elx-head">
@@ -954,8 +954,8 @@ function ElementInspector({ rect, box, onApply, onClose }) {
         {mField('marginRight', '右')}
       </div>
       <p className="cve-elx-hint">宽容器对齐内部内容，窄元素相对父容器移动。</p>
-    </div>
-  );
+    </div>);
+
 }
 
 // ---------------------------------------------------------------------------
@@ -978,7 +978,7 @@ function CanvasEditor({
   onFavoriteSelection = () => {}, // (blocks)：框选后"收藏选中"，父组件存为 snippet 收藏
   layoutMode = false, // 布局模式：块加边框 + 类型角标，看清结构
   editAids = null, // 编辑辅助开关 { outline, index, zebra }
-  pageStyle = null, // 页面级样式（背景/左右留白）内联对象
+  pageStyle = null // 页面级样式（背景/左右留白）内联对象
 }, ref) {
   const canvasRef = React.useRef(null);
   const list = Array.isArray(doc) ? doc : [];
@@ -1002,16 +1002,16 @@ function CanvasEditor({
   const [elSelRect, setElSelRect] = React.useState(null); // 相对画布的矩形（检查器定位）
   const [elBox, setElBox] = React.useState(null); // 从 live 元素读到的盒样式（检查器回显；live 为准，反映所见）
   const elSelHostRef = React.useRef(null); // 缓存 live raw-host，apply 时直接改它里的元素
-  React.useEffect(() => { if (!layoutMode) { setElSel(null); setElSelRect(null); setElBox(null); } }, [layoutMode]);
+  React.useEffect(() => {if (!layoutMode) {setElSel(null);setElSelRect(null);setElBox(null);}}, [layoutMode]);
   // 高亮选中元素 + 定位矩形 + 从 live 元素读盒样式（doc/elSel 变化后重算，因 raw 重绘会换 DOM 节点）
   React.useLayoutEffect(() => {
     const canvas = canvasRef.current;
     if (canvas) canvas.querySelectorAll('[data-cve-elsel]').forEach((n) => n.removeAttribute('data-cve-elsel'));
-    if (!elSel || !canvas) { elSelHostRef.current = null; return; }
+    if (!elSel || !canvas) {elSelHostRef.current = null;return;}
     const host = canvas.querySelector(`.cve-block[data-cve-uid="${elSel.uid}"] .cve-raw-host`);
     elSelHostRef.current = host || null;
     const el = host ? resolveLiveElPath(host, elSel.path) : null;
-    if (!el) { setElSelRect(null); setElBox(null); return; }
+    if (!el) {setElSelRect(null);setElBox(null);return;}
     el.setAttribute('data-cve-elsel', '1');
     setElBox(readElBoxFromEl(el));
     const cr = canvas.getBoundingClientRect();
@@ -1027,9 +1027,9 @@ function CanvasEditor({
 
   const recomputeToolbarAnchor = React.useCallback(() => {
     const canvas = canvasRef.current;
-    if (!selectedUid || !canvas) { setToolbarAnchor(null); return; }
+    if (!selectedUid || !canvas) {setToolbarAnchor(null);return;}
     const blockEl = canvas.querySelector(`[data-cve-uid="${selectedUid}"]`);
-    if (!blockEl) { setToolbarAnchor(null); return; }
+    if (!blockEl) {setToolbarAnchor(null);return;}
     const blockRect = blockEl.getBoundingClientRect();
 
     let anchorViewTop = null;
@@ -1047,7 +1047,7 @@ function CanvasEditor({
         const range = sel.getRangeAt(0);
         if (blockEl.contains(range.commonAncestorContainer)) {
           let rect = range.getBoundingClientRect();
-          if (!rect || (!rect.top && !rect.height)) {
+          if (!rect || !rect.top && !rect.height) {
             // 折叠光标在部分浏览器 rect 全 0，退回起点元素的 rect
             const node = range.startContainer;
             const el = node && (node.nodeType === 1 ? node : node.parentElement);
@@ -1057,7 +1057,7 @@ function CanvasEditor({
         }
       }
     }
-    if (anchorViewTop == null) { setToolbarAnchor(null); return; }
+    if (anchorViewTop == null) {setToolbarAnchor(null);return;}
     // Keep the block toolbar inside the canvas, clear of the document's undo controls.
     const toolbarHeight = blockEl.querySelector('.cve-toolbar')?.getBoundingClientRect().height || 100;
     const flip = anchorViewTop - toolbarHeight - 8 < Math.max(80, canvas.getBoundingClientRect().top + 8);
@@ -1092,7 +1092,7 @@ function CanvasEditor({
     document.addEventListener('selectionchange', schedule);
     return () => {
       document.removeEventListener('selectionchange', schedule);
-      if (toolbarRafRef.current != null) { cancelAnimationFrame(toolbarRafRef.current); toolbarRafRef.current = null; }
+      if (toolbarRafRef.current != null) {cancelAnimationFrame(toolbarRafRef.current);toolbarRafRef.current = null;}
     };
   }, [recomputeToolbarAnchor, captureRawCaret]);
 
@@ -1107,7 +1107,7 @@ function CanvasEditor({
   const latestRef = React.useRef(null);
 
   const updateBlock = React.useCallback((uid, patch, opts) => {
-    const next = list.map((b) => (b.uid === uid ? { ...b, ...patch } : b));
+    const next = list.map((b) => b.uid === uid ? { ...b, ...patch } : b);
     onChange(next, opts);
   }, [list, onChange]);
 
@@ -1121,7 +1121,7 @@ function CanvasEditor({
     const host = elSelHostRef.current;
     const liveEl = host ? resolveLiveElPath(host, elSel.path) : null;
     const effectivePatch = withElementAlignmentMode(liveEl, patch);
-    if (liveEl) { applyElBoxToEl(liveEl, effectivePatch); setElBox(readElBoxFromEl(liveEl)); } // 即时可见 + 回显立即更新
+    if (liveEl) {applyElBoxToEl(liveEl, effectivePatch);setElBox(readElBoxFromEl(liveEl));} // 即时可见 + 回显立即更新
     const nextHtml = setElBoxStyle(block.html || '', elSel.path, effectivePatch);
     updateBlock(elSel.uid, { html: sanitizeRawHtml(nextHtml) });
   }, [elSel, list, updateBlock]);
@@ -1193,8 +1193,8 @@ function CanvasEditor({
     const newBlocks = paragraphs.map((html) => ({ uid: makeUid(), kind: 'para', html }));
     const curEmpty = !String(list[idx].html || '').replace(/<[^>]+>/g, '').trim();
     const next = list.slice();
-    if (curEmpty) next.splice(idx, 1, ...newBlocks);
-    else next.splice(idx + 1, 0, ...newBlocks);
+    if (curEmpty) next.splice(idx, 1, ...newBlocks);else
+    next.splice(idx + 1, 0, ...newBlocks);
     onChange(next);
     onSelect(newBlocks[newBlocks.length - 1].uid);
     onNotify('success', `已按段落拆成 ${newBlocks.length} 段`);
@@ -1240,7 +1240,7 @@ function CanvasEditor({
 
 
   const handleCanvasClick = (e) => {
-    if (e.target === canvasRef.current) { onSelect(null); clearMultiSel(); setElSel(null); }
+    if (e.target === canvasRef.current) {onSelect(null);clearMultiSel();setElSel(null);}
   };
 
   // 布局模式：捕获阶段拦截点击 → 选中被点的"单一元素"（仅 raw 块内），改由元素检查器编辑其相对定位/边距。
@@ -1254,7 +1254,7 @@ function CanvasEditor({
     e.preventDefault();
     e.stopPropagation();
     const path = computeLiveElPath(host, e.target);
-    if (!uid || !path) { setElSel(null); return; }
+    if (!uid || !path) {setElSel(null);return;}
     setElSel({ uid, path });
   };
 
@@ -1281,10 +1281,10 @@ function CanvasEditor({
       range.deleteContents();
       range.insertNode(frag);
       // 直接改了 rawHost 的 DOM，读回 innerHTML 走 sanitizeRawHtml 提交（与 RawView 失焦提交同源）
-      const next = latest.list.map((b) => (b.uid === cap.uid ? { ...b, html: sanitizeRawHtml(rawHost.innerHTML) } : b));
+      const next = latest.list.map((b) => b.uid === cap.uid ? { ...b, html: sanitizeRawHtml(rawHost.innerHTML) } : b);
       latest.onChange(next);
       return true;
-    },
+    }
   }), []);
 
   // 把画布注册为指针拖拽引擎的 drop zone：onMove 算指示线（rAF 节流），onDrop 按松手坐标重算
@@ -1314,9 +1314,9 @@ function CanvasEditor({
           const hit = point.payload?.kind === 'style-block' ? styleDropBlock(point, blockEls) : null;
           if (hit) {
             const latest = latestRef.current;
-            const error = replacementError(latest.list.find(block => block.uid === hit.uid), latest.blocksById[point.payload.data.blockId]);
-            const group = latest.blocksById[point.payload.data.blockId]?.type === 'imageGroup'
-              ? blockEls.find(el => (el.dataset.cveUid || el.dataset.cveGalleryUid) === hit.uid)?.closest('.cve-image-group') : null;
+            const error = replacementError(latest.list.find((block) => block.uid === hit.uid), latest.blocksById[point.payload.data.blockId]);
+            const group = latest.blocksById[point.payload.data.blockId]?.type === 'imageGroup' ?
+            blockEls.find((el) => (el.dataset.cveUid || el.dataset.cveGalleryUid) === hit.uid)?.closest('.cve-image-group') : null;
             const rect = group?.getBoundingClientRect() || hit.rect;
             setDropIndicator({ replace: true, error, top: rect.top - canvasRect.top,
               left: rect.left - canvasRect.left, width: rect.width, height: rect.height });
@@ -1361,25 +1361,25 @@ function CanvasEditor({
         next.splice(toIdx, 0, moved);
         latest.onChange(next);
         latest.onSelect(payload.data.uid); // 拖拽重排后保持该块选中
-      },
+      }
     });
     return unregister;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, []);
 
   // ── 框选多选：在画布背景（空白/内边距）按住拖动框住若干块，选中后可批量收藏/删除 ──
   const [multiSel, setMultiSel] = React.useState(() => new Set()); // 多选块 uid 集合
-  const [boxRect, setBoxRect] = React.useState(null);              // rubber-band 矩形（画布相对坐标）
+  const [boxRect, setBoxRect] = React.useState(null); // rubber-band 矩形（画布相对坐标）
   const boxStateRef = React.useRef(null);
   const boxCleanupRef = React.useRef(null); // 当前框选会话的清理函数（供卸载/中断兜底）
 
-  const clearMultiSel = React.useCallback(() => setMultiSel((s) => (s.size ? new Set() : s)), []);
+  const clearMultiSel = React.useCallback(() => setMultiSel((s) => s.size ? new Set() : s), []);
 
   // 选中块变化时清多选（单选与多选互斥，避免两套高亮并存）
-  React.useEffect(() => { if (selectedUid) clearMultiSel(); }, [selectedUid, clearMultiSel]);
+  React.useEffect(() => {if (selectedUid) clearMultiSel();}, [selectedUid, clearMultiSel]);
 
   // 卸载兜底：框选进行中组件被卸载时，移除挂在 document 上的监听器，防泄漏
-  React.useEffect(() => () => { if (boxCleanupRef.current) boxCleanupRef.current(); }, []);
+  React.useEffect(() => () => {if (boxCleanupRef.current) boxCleanupRef.current();}, []);
 
   const startBoxSelect = React.useCallback((e) => {
     if (boxCleanupRef.current) boxCleanupRef.current(); // 起手前先清掉上一会话残留（防叠加两组监听器）
@@ -1392,8 +1392,8 @@ function CanvasEditor({
       const canvas = canvasRef.current;
       if (!canvas) return { rect: null, hits: new Set() };
       const cr = canvas.getBoundingClientRect();
-      const x1 = Math.min(start.x, cx); const y1 = Math.min(start.y, cy);
-      const x2 = Math.max(start.x, cx); const y2 = Math.max(start.y, cy);
+      const x1 = Math.min(start.x, cx);const y1 = Math.min(start.y, cy);
+      const x2 = Math.max(start.x, cx);const y2 = Math.max(start.y, cy);
       const hits = new Set();
       canvas.querySelectorAll('[data-cve-uid]').forEach((el) => {
         const r = el.getBoundingClientRect();
@@ -1427,7 +1427,7 @@ function CanvasEditor({
       if (moved) onSelect(null); // 进入多选,清单选
     };
     // 系统手势/切应用/拖出窗口松手：只会派发 pointercancel,丢弃本次框选、清监听器,不残留橡皮筋
-    const onCancel = () => { cleanup(); };
+    const onCancel = () => {cleanup();};
 
     boxCleanupRef.current = cleanup;
     document.addEventListener('pointermove', onMove);
@@ -1445,12 +1445,12 @@ function CanvasEditor({
   // 画布自身由上面的 React onPointerDown 处理（此处显式跳过防双开）。
   React.useEffect(() => {
     const BG_SELECTOR = [
-      '.wxc-workspace', '.wxc-workarea', '.wxc-canvas-region',
-      '.wxc-canvas-toolbar', '.wxc-canvas-toolbar-left', '.wxc-canvas-toolbar-right',
-      '.wxc-export-row', '.wxc-page-header', '.wxc-meta-row',
-      '.semi-layout', '.semi-layout-content',
-      '.cve-empty-hint',
-    ].join(', ');
+    '.wxc-workspace', '.wxc-workarea', '.wxc-canvas-region',
+    '.wxc-canvas-toolbar', '.wxc-canvas-toolbar-left', '.wxc-canvas-toolbar-right',
+    '.wxc-export-row', '.wxc-page-header', '.wxc-meta-row',
+    '.semi-layout', '.semi-layout-content',
+    '.cve-empty-hint'].
+    join(', ');
     const onDocPointerDown = (e) => {
       if (e.button !== 0) return;
       const t = e.target;
@@ -1506,145 +1506,145 @@ function CanvasEditor({
 
   const aids = editAids || {};
   const canvasClass = [
-    'cve-canvas',
-    layoutMode ? 'cve-canvas--layout' : '',
-    aids.outline ? 'cve-aid-outline' : '',
-    aids.index ? 'cve-aid-index' : '',
-    aids.zebra ? 'cve-aid-zebra' : '',
-  ].filter(Boolean).join(' ');
+  'cve-canvas',
+  layoutMode ? 'cve-canvas--layout' : '',
+  aids.outline ? 'cve-aid-outline' : '',
+  aids.index ? 'cve-aid-index' : '',
+  aids.zebra ? 'cve-aid-zebra' : ''].
+  filter(Boolean).join(' ');
   const showBadge = layoutMode || aids.index;
 
   return (
     <>
     <div
-      className={canvasClass}
-      ref={canvasRef}
-      style={pageStyle || undefined}
-      onClickCapture={handleLayoutClickCapture}
-      onClick={handleCanvasClick}
-      onPointerDown={handleCanvasPointerDown}
-      onDragStart={(e) => e.preventDefault()}
-    >
-      {layoutMode && elSel && elSelRect && (
+        className={canvasClass}
+        ref={canvasRef}
+        style={pageStyle || undefined}
+        onClickCapture={handleLayoutClickCapture}
+        onClick={handleCanvasClick}
+        onPointerDown={handleCanvasPointerDown}
+        onDragStart={(e) => e.preventDefault()}>
+        
+      {layoutMode && elSel && elSelRect &&
         <ElementInspector rect={elSelRect} box={elBox} onApply={applyElBox} onClose={() => setElSel(null)} />
-      )}
-      {boxRect && (
+        }
+      {boxRect &&
         <div
           className="cve-rubber"
-          style={{ left: boxRect.left, top: boxRect.top, width: boxRect.width, height: boxRect.height }}
-        />
-      )}
+          style={{ left: boxRect.left, top: boxRect.top, width: boxRect.width, height: boxRect.height }} />
+
+        }
       {list.length === 0 && <div className="cve-empty-hint">从左侧样式库点击插入第一个块</div>}
-      {dropIndicator?.replace ? (
+      {dropIndicator?.replace ?
         <div className={`cve-style-drop-target${dropIndicator.error ? ' is-incompatible' : ''}`} style={{ top: dropIndicator.top,
           left: dropIndicator.left, width: dropIndicator.width, height: dropIndicator.height }}>
           <span>{dropIndicator.error ? '样式不适用' : '替换此块样式'}</span>
-        </div>
-      ) : dropIndicator && (
+        </div> :
+        dropIndicator &&
         <div className="cve-drop-indicator" style={{ top: dropIndicator.top }} />
-      )}
-      {imageRuns(list).map(run => {
-        const content = run.items.map(({ block, index: idx }) => {
-        const styleBlock = block.kind === 'styled' || (block.kind === 'para' && block.blockId) ? resolveStyleBlock(blocksById, { ...block, type: block.type || 'body' }) : null;
-        const accent = block.accent || globalAccent || '#1a1a1a';
-        return (
-          <BlockWrapper
-            key={block.uid}
-            block={block}
-            index={idx}
-            total={list.length}
-            showBadge={showBadge}
-            layoutMode={layoutMode}
-            selected={block.uid === selectedUid}
-            multi={multiSel.has(block.uid)}
-            styleBlock={styleBlock}
-            accent={accent}
-            bodyStyle={computeParaStyle(bodyConfig, globalAccent)}
-            activeRawImgIndex={activeRawImg && activeRawImg.uid === block.uid ? activeRawImg.imgIndex : null}
-            activeRawImgKind={activeRawImg && activeRawImg.uid === block.uid ? activeRawImg.kind : null}
-            themePalette={themePalette}
-            toolbarAnchor={block.uid === selectedUid ? toolbarAnchor : null}
-            onSelect={() => onSelect(block.uid)}
-            onMoveUp={() => moveBlock(block.uid, -1)}
-            onMoveDown={() => moveBlock(block.uid, 1)}
-            onDuplicate={() => duplicateBlock(block.uid)}
-            onDelete={() => deleteBlock(block.uid)}
-            onChangeStyle={() => onRequestStylePicker(block.type, block.uid)}
-            onChangeAccent={(hex) => changeAccent(block.uid, hex)}
-            onInsertParaAfter={() => insertParaAfter(block.uid)}
-            onImageClick={() => onRequestImagePick(block.uid)}
-            onCommitContent={(text) => updateBlock(block.uid, { content: text })}
-            onCommitCaption={(text) => updateBlock(block.uid, { caption: text })}
-            onParaTransient={(html) => updateBlock(block.uid, { html }, { transient: true })}
-            onParaCommit={(html) => updateBlock(block.uid, { html: sanitizeParaHtml(html) })}
-            onPasteParagraphs={pasteAsParagraphs}
-            onRawTransient={(html) => updateBlock(block.uid, { html }, { transient: true })}
-            onRawCommit={(html) => updateBlock(block.uid, { html: sanitizeRawHtml(html) })}
-            onSelectRawImg={(imgIndex, kind) => setActiveRawImg(imgIndex == null ? null : { uid: block.uid, imgIndex, kind: kind === 'img' ? 'img' : (kind === 'image' ? 'image' : 'bg') })}
-            onSplitRaw={() => splitRaw(block.uid)}
-            onImgStyle={(imgStyle) => setImgStyle(block.uid, imgStyle)}
-            onImageColumns={columns => {
-              if (block.galleryStyle && block.galleryTemplate && (block.galleryColumns || 1) !== columns) {
-                onNotify?.('info', '已切换为普通组图列数，原版组图样式已移除；可用撤销恢复');
-              }
-              onChange(setImageRunColumns(list, block.uid, columns));
-            }}
-            onSplitGallery={() => {
-              const next = splitGallery(list, block.uid);
-              if (next !== list) { onChange(next); onNotify?.('success', '已拆分为独立图片'); }
-            }}
-            onRawImgStyle={(styleObj) => setRawImgStyle(block.uid, activeRawImg ? activeRawImg.imgIndex : 0, styleObj)}
-            onImgReplace={(imgIndex) => onRequestImagePick(block.uid, imgIndex == null ? undefined : imgIndex)}
-            onImgEdit={(imgIndex) => onRequestImageEdit(block.uid, imgIndex == null ? undefined : imgIndex)}
-            onManageImages={() => onManageImages(block.uid)}
-            onSpacing={(spacing) => setSpacing(block.uid, spacing)}
-          />
-        );
-        });
-        if (run.template) return <div key={run.items[0].block.uid} className="cve-image-group cve-image-group--observed" data-gallery-style={run.styleId}>
+        }
+      {imageRuns(list).map((run) => {
+          const content = run.items.map(({ block, index: idx }) => {
+            const styleBlock = block.kind === 'styled' || block.kind === 'para' && block.blockId ? resolveStyleBlock(blocksById, { ...block, type: block.type || 'body' }) : null;
+            const accent = block.accent || globalAccent || '#1a1a1a';
+            return (
+              <BlockWrapper
+                key={block.uid}
+                block={block}
+                index={idx}
+                total={list.length}
+                showBadge={showBadge}
+                layoutMode={layoutMode}
+                selected={block.uid === selectedUid}
+                multi={multiSel.has(block.uid)}
+                styleBlock={styleBlock}
+                accent={accent}
+                bodyStyle={computeParaStyle(bodyConfig, globalAccent)}
+                activeRawImgIndex={activeRawImg && activeRawImg.uid === block.uid ? activeRawImg.imgIndex : null}
+                activeRawImgKind={activeRawImg && activeRawImg.uid === block.uid ? activeRawImg.kind : null}
+                themePalette={themePalette}
+                toolbarAnchor={block.uid === selectedUid ? toolbarAnchor : null}
+                onSelect={() => onSelect(block.uid)}
+                onMoveUp={() => moveBlock(block.uid, -1)}
+                onMoveDown={() => moveBlock(block.uid, 1)}
+                onDuplicate={() => duplicateBlock(block.uid)}
+                onDelete={() => deleteBlock(block.uid)}
+                onChangeStyle={() => onRequestStylePicker(block.type, block.uid)}
+                onChangeAccent={(hex) => changeAccent(block.uid, hex)}
+                onInsertParaAfter={() => insertParaAfter(block.uid)}
+                onImageClick={() => onRequestImagePick(block.uid)}
+                onCommitContent={(text) => updateBlock(block.uid, { content: text })}
+                onCommitCaption={(text) => updateBlock(block.uid, { caption: text })}
+                onParaTransient={(html) => updateBlock(block.uid, { html }, { transient: true })}
+                onParaCommit={(html) => updateBlock(block.uid, { html: sanitizeParaHtml(html) })}
+                onPasteParagraphs={pasteAsParagraphs}
+                onRawTransient={(html) => updateBlock(block.uid, { html }, { transient: true })}
+                onRawCommit={(html) => updateBlock(block.uid, { html: sanitizeRawHtml(html) })}
+                onSelectRawImg={(imgIndex, kind) => setActiveRawImg(imgIndex == null ? null : { uid: block.uid, imgIndex, kind: kind === 'img' ? 'img' : kind === 'image' ? 'image' : 'bg' })}
+                onSplitRaw={() => splitRaw(block.uid)}
+                onImgStyle={(imgStyle) => setImgStyle(block.uid, imgStyle)}
+                onImageColumns={(columns) => {
+                  if (block.galleryStyle && block.galleryTemplate && (block.galleryColumns || 1) !== columns) {
+                    onNotify?.('info', '已切换为普通组图列数，原版组图样式已移除；可用撤销恢复');
+                  }
+                  onChange(setImageRunColumns(list, block.uid, columns));
+                }}
+                onSplitGallery={() => {
+                  const next = splitGallery(list, block.uid);
+                  if (next !== list) {onChange(next);onNotify?.('success', '已拆分为独立图片');}
+                }}
+                onRawImgStyle={(styleObj) => setRawImgStyle(block.uid, activeRawImg ? activeRawImg.imgIndex : 0, styleObj)}
+                onImgReplace={(imgIndex) => onRequestImagePick(block.uid, imgIndex == null ? undefined : imgIndex)}
+                onImgEdit={(imgIndex) => onRequestImageEdit(block.uid, imgIndex == null ? undefined : imgIndex)}
+                onManageImages={() => onManageImages(block.uid)}
+                onSpacing={(spacing) => setSpacing(block.uid, spacing)} />);
+
+
+          });
+          if (run.template) return <div key={run.items[0].block.uid} className="cve-image-group cve-image-group--observed" data-gallery-style={run.styleId}>
           <div className="cve-gallery-tools"><span>{run.template.name} · {content.length} 张</span>
             <button type="button" onClick={() => onRequestStylePicker('imageGroup', run.items[0].block.uid)}>组图样式</button></div>
           <div className="cve-observed-original" data-cve-gallery-uid={run.items[0].block.uid}
             data-cve-drop-start={run.items[0].index} data-cve-drop-end={run.items[run.items.length - 1].index + 1}
-            onClick={event => {
+            onClick={(event) => {
               const candidates = [...event.currentTarget.querySelectorAll('[data-gallery-slot]')];
-              const photo = event.target.closest('[data-gallery-slot]') || candidates.find(element => {
+              const photo = event.target.closest('[data-gallery-slot]') || candidates.find((element) => {
                 const rect = element.getBoundingClientRect();
                 return rect.width > 0 && rect.height > 0 && event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom;
               });
-              if (photo) { const item = run.items[Number(photo.getAttribute('data-gallery-slot'))]; if (item) onRequestImagePick(item.block.uid); }
+              if (photo) {const item = run.items[Number(photo.getAttribute('data-gallery-slot'))];if (item) onRequestImagePick(item.block.uid);}
             }}
-            dangerouslySetInnerHTML={{ __html: sanitizeRawHtml(observedGalleryHtml(run.items.map(item => item.block), run.template)) }} />
+            dangerouslySetInnerHTML={{ __html: sanitizeRawHtml(observedGalleryHtml(run.items.map((item) => item.block), run.template)) }} />
           <details className="cve-observed-images"><summary>配图与图题 · {content.length}</summary><div>{content}</div></details>
         </div>;
-        const tree = run.styleId ? galleryLayoutTree(run.styleId, content.length) : null;
-        return run.items[0].block.type === 'imageCard' && (run.items.length > 1 || run.styleId) ? <div key={run.items[0].block.uid}
+          const tree = run.styleId ? galleryLayoutTree(run.styleId, content.length) : null;
+          return run.items[0].block.type === 'imageCard' && (run.items.length > 1 || run.styleId) ? <div key={run.items[0].block.uid}
           className={`cve-image-group${tree ? ' cve-image-group--styled' : ''}`} data-gallery-style={run.styleId || 'placeholder'}
           style={tree ? undefined : { gridTemplateColumns: `repeat(${run.columns}, minmax(0, 1fr))`,
-          ...(run.insetPercent != null ? { gap: '8px 0', '--gallery-cell-inset': `${run.insetPercent}%` } : {}) }}>
+            ...(run.insetPercent != null ? { gap: '8px 0', '--gallery-cell-inset': `${run.insetPercent}%` } : {}) }}>
           <div className="cve-gallery-tools"><span>{GALLERY_STYLES_BY_ID[run.styleId]?.name || '组图'} · {content.length} 张</span>
             <button type="button" onClick={() => onRequestStylePicker('imageGroup', run.items[0].block.uid)}>组图样式</button></div>
-          {tree ? <GallerySlots node={tree}>{content}</GallerySlots> : content}</div>
-          : <React.Fragment key={run.items[0].block.uid}>{content}</React.Fragment>;
-      })}
+          {tree ? <GallerySlots node={tree}>{content}</GallerySlots> : content}</div> :
+          <React.Fragment key={run.items[0].block.uid}>{content}</React.Fragment>;
+        })}
     </div>
-    {multiSel.size > 0 && (
+    {multiSel.size > 0 &&
       <div className="cve-multibar" onPointerDown={(e) => e.stopPropagation()}>
         <span className="cve-multibar-count">已选 {multiSel.size} 个元素</span>
         <button type="button" className="cve-multibar-btn" onClick={favoriteSelection}>★ 收藏</button>
-        {list.filter(block => multiSel.has(block.uid)).length >= 2
-          && list.filter(block => multiSel.has(block.uid)).every(block => block.kind === 'styled' && block.type === 'imageCard')
-          ? <button type="button" className="cve-multibar-btn" onClick={() => {
-            const next = mergeGallery(list, [...multiSel]);
-            if (next === list) { onNotify?.('info', '只能合并相邻的图片'); return; }
-            onChange(next); clearMultiSel(); onNotify?.('success', '已合并为一组组图');
-          }}>合并为组图</button> : null}
+        {list.filter((block) => multiSel.has(block.uid)).length >= 2 &&
+        list.filter((block) => multiSel.has(block.uid)).every((block) => block.kind === 'styled' && block.type === 'imageCard') ?
+        <button type="button" className="cve-multibar-btn" onClick={() => {
+          const next = mergeGallery(list, [...multiSel]);
+          if (next === list) {onNotify?.('info', '只能合并相邻的图片');return;}
+          onChange(next);clearMultiSel();onNotify?.('success', '已合并为一组组图');
+        }}>合并为组图</button> : null}
         <button type="button" className="cve-multibar-btn" onClick={deleteSelection}>删除</button>
         <button type="button" className="cve-multibar-btn cve-multibar-btn--ghost" onClick={clearMultiSel}>取消</button>
       </div>
-    )}
-    </>
-  );
+      }
+    </>);
+
 }
 
 // forwardRef：父组件通过 ref.current.insertIntoRawCaret(html) 实现"容器内点击插入样式元素"

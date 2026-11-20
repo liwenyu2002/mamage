@@ -23,24 +23,6 @@ const ATTR_WHITELIST = new Set(['style', 'src', 'href', 'alt', 'title', 'width',
 // 属性时默认 300×150，viewbox 一旦被剥离，1px 分隔线会撑成 150px 高，flex 标题行整个散架
 // （"✦快车道✦大字底纹"式表头就是这样被洗坏的）。其余是内联矢量装饰的常见绘图属性，
 // 全部为纯呈现属性，无脚本/外联能力；只在 svg 子树内生效，不放宽 HTML 元素。
-const SVG_ATTR_WHITELIST = new Set([
-  'viewbox', 'preserveaspectratio', 'xmlns', 'xmlns:xlink', 'd', 'fill', 'stroke',
-  'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'stroke-dasharray', 'points',
-  'x', 'y', 'x1', 'y1', 'x2', 'y2', 'cx', 'cy', 'r', 'rx', 'ry', 'transform',
-  'opacity', 'fill-rule', 'clip-rule', 'fill-opacity', 'stroke-opacity',
-  'width', 'height', 'pointer-events',
-  // SMIL 声明式动画（<animate>/<set>/<animateTransform>）——135「多区域点击显示图片」等
-  // 交互插件靠 begin="click" 触发，纯 CSS/SVG 无脚本即可在浏览器/微信里点击互动。缺了这些
-  // 时序属性，动画元素虽在但没触发器，交互全失效（图能显示但点不动）。均为声明式呈现属性，无脚本能力。
-  'begin', 'end', 'dur', 'min', 'max', 'restart', 'repeatcount', 'repeatdur',
-  'values', 'keytimes', 'keysplines', 'calcmode', 'attributename', 'attributetype',
-  'to', 'from', 'by', 'additive', 'accumulate', 'href', 'xlink:href',
-  // <animateTransform type="translate|scale|rotate|…"> 的 type：区分变换种类，缺了整段轮播/位移动画失效
-  // （3t9ztRj… 那篇横滑轮播就是靠 animateTransform type=translate 平移一条 8 屏胶片）。仅 svg 子树生效。
-  'type',
-  // <animateMotion> 路径运动（另一种轮播/位移做法）的声明式属性，无脚本能力
-  'path', 'keypoints', 'rotate', 'origin',
-]);
 
 function isInSvgSubtree(node) {
   let cur = node;

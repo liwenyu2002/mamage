@@ -36,7 +36,7 @@ const skipLocalFileCheck = (() => {
 
 // ========= 1) 照片列表接口：支持 projectId + random =========
 // 如果挂在 /api/photos 下：GET /api/photos?projectId=1&limit=4&random=1&type=normal(可选)
-const { requirePermission, requireAdmin, hasPermissionForUserId } = require('../lib/permissions');
+const { requirePermission, hasPermissionForUserId } = require('../lib/permissions');
 const { searchPhotos: runPhotoSearch } = require('../lib/photo_search');
 const { recordSearchTelemetry } = require('../lib/search_telemetry');
 const { createPhotoSearchStream } = require('../lib/photo_search_stream');
@@ -469,16 +469,6 @@ function getScopedOrgIdFromReq(req) {
   return demoOrgId;
 }
 
-function parsePhotoTags(rawTags) {
-  if (!rawTags) return null;
-  if (Array.isArray(rawTags)) return rawTags;
-  try {
-    const parsed = typeof rawTags === 'string' ? JSON.parse(rawTags) : rawTags;
-    return Array.isArray(parsed) ? parsed : null;
-  } catch (e) {
-    return null;
-  }
-}
 
 function clampNumber(value, min, max, fallback = 0) {
   const n = Number(value);

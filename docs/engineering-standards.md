@@ -28,10 +28,13 @@
 
 | 项 | 数值 | 命令 |
 |---|---|---|
-| web lint error | 0（warning 907） | `cd apps/web && node_modules/.bin/eslint src` |
-| server lint error | 0（warning 251） | `cd apps/server && node_modules/.bin/eslint .` |
+| web lint error | 0（warning 96） | `cd apps/web && node_modules/.bin/eslint src` |
+| server lint error | 0（warning 23） | `cd apps/server && node_modules/.bin/eslint .` |
+| `no-unused-vars` | web 785 → **0**，server 228 → **0** | 同上 |
 | react-hooks 违规 | 103 → **0** | 同上 |
-| 接口总数 / 无显式守卫数 | 212 / 见矩阵统计 | `node scripts/gen-auth-matrix.mjs` |
+| 导航回归 | 19 / 19 | `cd apps/web && node scripts/test-navigation-browser.cjs` |
+| 调色/编辑单测 | 34 项通过 | `cd apps/server && npm run test:photo-tone` |
+| 接口总数 | 212 条（见矩阵） | `node scripts/gen-auth-matrix.mjs` |
 
 ## 四、本轮顺手修掉的真问题
 
@@ -40,7 +43,7 @@
 
 ## 五、还没做（按优先级）
 
-1. `no-unused-vars` 785 条 → 分模块清理，先清 `services/` 与 `utils/`
+1. ~~`no-unused-vars` 清理~~ ✅ 已完成（web 死代码 20 处、未使用导入 464 个说明符；server 7 处）
 2. `react-hooks/exhaustive-deps` 69 条 → 逐条确认是真缺依赖还是故意
 3. 组件内裸 `fetch` 收敛到 `services/`
 4. 服务端 route 内联 SQL 抽到 `lib/`（对齐 dao 层）

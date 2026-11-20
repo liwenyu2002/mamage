@@ -5,6 +5,7 @@ import react from 'eslint-plugin-react';
 // 规则原则：先"看得见"，再"卡得住"。
 // error 只留会直接导致线上事故的项；历史债用 warn，逐步清零。
 export default [
+  { linterOptions: { reportUnusedDisableDirectives: 'warn' } },
   { ignores: ['dist/**', 'node_modules/**', 'public/**', 'scripts/**', 'src/wechat/vendor/**'] },
   {
     files: ['src/**/*.{js,jsx}'],
@@ -33,9 +34,11 @@ export default [
       },
     },
     plugins: { 'react-hooks': reactHooks, react },
+    settings: { react: { version: 'detect' } },
     rules: {
       ...js.configs.recommended.rules,
-      'no-unused-vars': ['warn', { args: 'none', ignoreRestSiblings: true, varsIgnorePattern: '^_' }],
+      'no-unused-vars': ['warn', { args: 'none', caughtErrors: 'none', ignoreRestSiblings: true,
+        varsIgnorePattern: '^_', destructuredArrayIgnorePattern: '^_' }],
       'no-undef': 'error',
       'no-empty': ['warn', { allowEmptyCatch: true }],
       // 纯风格类：先降级为提示，避免淹没真正的问题
@@ -44,6 +47,10 @@ export default [
       'no-misleading-character-class': 'warn',
       'no-irregular-whitespace': 'warn',
       'react/no-danger': 'warn',
+      // JSX 里用到的标识符算"已使用"，否则会把组件当死变量删掉（踩过）
+      'react/jsx-uses-vars': 'error',
+      'react/jsx-uses-react': 'error',
+      'react/react-in-jsx-scope': 'off',
       'no-cond-assign': 'error',
       'no-dupe-keys': 'error',
       'no-fallthrough': 'error',

@@ -4,7 +4,6 @@
 //   node scripts/migrate_strip_upload_baseurl.js --apply
 
 try { require('dotenv').config(); } catch (e) { }
-const path = require('path');
 const { pool } = require('../db');
 const keys = require('../config/keys');
 

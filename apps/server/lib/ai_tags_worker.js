@@ -416,6 +416,7 @@ coordinator.register('photo-description', 'vision', async item => {
 });
 
 // 确保用于记录 AI 错误的表存在（若不存在则创建）
+// eslint-disable-next-line no-unused-vars -- 预留：AI 失败表初始化，供迁移脚本复用
 async function ensureAiErrorTable() {
   // 表结构：id, photo_id, error_message, error_code, request_id, raw_response, created_at
   const createSql = `

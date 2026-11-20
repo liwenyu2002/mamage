@@ -8,13 +8,13 @@ import { MAX_VIDEO_UPLOAD_BYTES, MAX_VIDEO_UPLOAD_TEXT, MAX_VIDEO_API_FALLBACK_B
 // 100s×0.37MB/s≈37MB，覆盖几乎所有原图，从而在【完全不压缩、不掉画质】的前提下稳过超时。
 // 代价是多张照片依次上传较慢，但可靠且原图无损；需要更快可用 window.__MAMAGE_UPLOAD_CONCURRENCY__ 调高。
 const DEFAULT_UPLOAD_CONCURRENCY = Math.max(1, Number(
-  (typeof window !== 'undefined' && window.__MAMAGE_UPLOAD_CONCURRENCY__) || 1
+  typeof window !== 'undefined' && window.__MAMAGE_UPLOAD_CONCURRENCY__ || 1
 ));
 const FRONTEND_MAX_VIDEO_UPLOAD_BYTES = MAX_VIDEO_UPLOAD_BYTES;
 const FRONTEND_MAX_VIDEO_UPLOAD_TEXT = MAX_VIDEO_UPLOAD_TEXT;
 const DEFAULT_LAN_UPLOAD_API_BASES = [];
 const UPLOAD_PROBE_TIMEOUT_MS = Math.max(250, Number(
-  (typeof window !== 'undefined' && window.__MAMAGE_UPLOAD_PROBE_TIMEOUT_MS__) || 800
+  typeof window !== 'undefined' && window.__MAMAGE_UPLOAD_PROBE_TIMEOUT_MS__ || 800
 ));
 let uploadApiBasePromise = null;
 
@@ -24,12 +24,12 @@ function setUploadProbeDebugState(base, source, extra = {}) {
     window.__MAMAGE_UPLOAD_SELECTED_BASE__ = base || '';
     window.__MAMAGE_UPLOAD_SELECTED_BASE_SOURCE__ = source || '';
     if (extra.candidates) window.__MAMAGE_UPLOAD_CANDIDATE_BASES__ = extra.candidates;
-    if (extra.error) window.__MAMAGE_UPLOAD_PROBE_ERROR__ = extra.error;
-    else delete window.__MAMAGE_UPLOAD_PROBE_ERROR__;
+    if (extra.error) window.__MAMAGE_UPLOAD_PROBE_ERROR__ = extra.error;else
+    delete window.__MAMAGE_UPLOAD_PROBE_ERROR__;
   } catch (e) {
+
     // ignore debug-state failures
-  }
-}
+  }}
 
 function isVideoFile(file) {
   const mime = String(file && file.type || '').toLowerCase();
@@ -52,7 +52,7 @@ function getUploadFileLimitError(file) {
 }
 
 function getAuthHeaders(extra = {}) {
-  const token = (typeof window !== 'undefined') ? (localStorage.getItem('mamage_jwt_token') || '') : '';
+  const token = typeof window !== 'undefined' ? localStorage.getItem('mamage_jwt_token') || '' : '';
   return Object.assign({}, extra, token ? { Authorization: `Bearer ${token}` } : {});
 }
 
@@ -64,10 +64,10 @@ function normalizeApiBase(base) {
 
 function parseUploadLanBases(value) {
   if (Array.isArray(value)) return value;
-  return String(value || '')
-    .split(',')
-    .map((item) => item.trim())
-    .filter(Boolean);
+  return String(value || '').
+  split(',').
+  map((item) => item.trim()).
+  filter(Boolean);
 }
 
 function isSameOriginBase(base) {
@@ -97,16 +97,16 @@ function getUploadCandidateBases() {
   const explicitBase = normalizeApiBase(window.__MAMAGE_UPLOAD_API_BASE__);
   const lanBases = parseUploadLanBases(window.__MAMAGE_UPLOAD_LAN_BASES__);
   const seen = new Set();
-  const candidates = [explicitBase, ...lanBases, ...DEFAULT_LAN_UPLOAD_API_BASES]
-    .map(normalizeApiBase)
-    .filter(Boolean)
-    .filter((base) => {
-      if (seen.has(base)) return false;
-      seen.add(base);
-      return canUseUploadBaseInBrowser(base);
-    })
-    .map((base) => (isSameOriginBase(base) ? '' : base))
-    .filter((base) => base !== '');
+  const candidates = [explicitBase, ...lanBases, ...DEFAULT_LAN_UPLOAD_API_BASES].
+  map(normalizeApiBase).
+  filter(Boolean).
+  filter((base) => {
+    if (seen.has(base)) return false;
+    seen.add(base);
+    return canUseUploadBaseInBrowser(base);
+  }).
+  map((base) => isSameOriginBase(base) ? '' : base).
+  filter((base) => base !== '');
   return candidates;
 }
 
@@ -126,7 +126,7 @@ async function probeUploadApiBase(base) {
       mode: 'cors',
       credentials: 'include',
       cache: 'no-store',
-      signal: controller ? controller.signal : undefined,
+      signal: controller ? controller.signal : undefined
     });
     return !!(resp && resp.ok);
   } catch (e) {
@@ -163,7 +163,7 @@ async function getUploadApiBase() {
       }) : '';
       if (detectedBase) {
         setUploadProbeDebugState(detectedBase, 'lan-probe', { candidates });
-        // eslint-disable-next-line no-console
+
         console.info('[photoService] upload API using LAN endpoint:', detectedBase);
         return detectedBase;
       }
@@ -178,7 +178,7 @@ function warmUploadApiProbe() {
   return getUploadApiBase().catch((err) => {
     setUploadProbeDebugState(normalizeApiBase(BASE_URL), 'probe-error', {
       candidates: getUploadCandidateBases(),
-      error: err && err.message ? err.message : String(err || 'unknown'),
+      error: err && err.message ? err.message : String(err || 'unknown')
     });
     return normalizeApiBase(BASE_URL);
   });
@@ -200,7 +200,7 @@ async function requestUploadJson(path, options = {}, uploadApiBase = '') {
   const fetchOpts = {
     method,
     headers,
-    credentials: options.credentials || 'include',
+    credentials: options.credentials || 'include'
   };
   if (method === 'GET' && options.data && Object.keys(options.data).length) {
     const qs = new URLSearchParams(options.data).toString();
@@ -226,9 +226,9 @@ function emitUploadProgress(onProgress, event) {
   try {
     onProgress(event);
   } catch (e) {
+
     // Progress callbacks must not break uploads.
-  }
-}
+  }}
 
 function readHeader(headersText, name) {
   const target = String(name || '').toLowerCase();
@@ -247,7 +247,7 @@ async function requestWithUploadProgress({ url, method = 'POST', headers = {}, b
       method,
       headers,
       body,
-      credentials: withCredentials ? 'include' : 'same-origin',
+      credentials: withCredentials ? 'include' : 'same-origin'
     });
     const responseText = await resp.text();
     emitUploadProgress(onProgress, { loaded: 1, total: 1 });
@@ -255,7 +255,7 @@ async function requestWithUploadProgress({ url, method = 'POST', headers = {}, b
       status: resp.status,
       statusText: resp.statusText,
       responseText,
-      headers: '',
+      headers: ''
     };
   }
 
@@ -269,7 +269,7 @@ async function requestWithUploadProgress({ url, method = 'POST', headers = {}, b
     xhr.upload.onprogress = (event) => {
       emitUploadProgress(onProgress, {
         loaded: event.loaded,
-        total: event.lengthComputable ? event.total : 0,
+        total: event.lengthComputable ? event.total : 0
       });
     };
     xhr.upload.onload = () => {
@@ -280,7 +280,7 @@ async function requestWithUploadProgress({ url, method = 'POST', headers = {}, b
         status: xhr.status,
         statusText: xhr.statusText,
         responseText: xhr.responseText,
-        headers: xhr.getAllResponseHeaders ? xhr.getAllResponseHeaders() : '',
+        headers: xhr.getAllResponseHeaders ? xhr.getAllResponseHeaders() : ''
       });
     };
     xhr.onerror = () => {
@@ -304,7 +304,7 @@ async function getPhotoById(photoId, options = {}) {
     throw new Error('getPhotoById: photoId is required');
   }
   return request(`/api/photos/${encodeURIComponent(String(photoId).trim())}`, {
-    method: 'GET', signal: options.signal,
+    method: 'GET', signal: options.signal
   });
 }
 
@@ -319,19 +319,19 @@ async function updatePhoto(photoId, data = {}) {
   }
   return request(`/api/photos/${encodeURIComponent(String(photoId).trim())}`, {
     method: 'PATCH',
-    data,
+    data
   });
 }
 
 // 批量把照片移入/移出时间线环节；sectionId 为 null 表示移出（回落"未归类"）
 async function assignPhotosTimelineSection(photoIds, sectionId) {
-  const ids = (Array.isArray(photoIds) ? photoIds : [photoIds])
-    .map((v) => Number(v))
-    .filter((n) => Number.isFinite(n) && n > 0);
+  const ids = (Array.isArray(photoIds) ? photoIds : [photoIds]).
+  map((v) => Number(v)).
+  filter((n) => Number.isFinite(n) && n > 0);
   if (!ids.length) throw new Error('assignPhotosTimelineSection: photoIds is required');
   return request('/api/photos/assign-section', {
     method: 'POST',
-    data: { photoIds: ids, timelineSectionId: sectionId === null || sectionId === undefined ? null : Number(sectionId) },
+    data: { photoIds: ids, timelineSectionId: sectionId === null || sectionId === undefined ? null : Number(sectionId) }
   });
 }
 
@@ -347,12 +347,12 @@ async function detectPhotoFaces(photoId, { force = false, projectId } = {}) {
     baseData.projectId = String(projectId).trim();
   }
   const candidates = [
-    { url: `/api/photos/${encodedId}/faces/detect`, method: 'POST', data: { ...baseData } },
-    { url: `/api/photos/${encodedId}/faces`, method: 'POST', data: { detect: 1, ...baseData } },
-    { url: `/api/photos/${encodedId}/faces`, method: 'GET', data: { detect: 1, ...baseData } },
-    { url: '/api/faces/detect', method: 'POST', data: { photoId: sid, ...baseData } },
-    { url: '/api/faces', method: 'GET', data: { photoId: sid, ...baseData } },
-  ];
+  { url: `/api/photos/${encodedId}/faces/detect`, method: 'POST', data: { ...baseData } },
+  { url: `/api/photos/${encodedId}/faces`, method: 'POST', data: { detect: 1, ...baseData } },
+  { url: `/api/photos/${encodedId}/faces`, method: 'GET', data: { detect: 1, ...baseData } },
+  { url: '/api/faces/detect', method: 'POST', data: { photoId: sid, ...baseData } },
+  { url: '/api/faces', method: 'GET', data: { photoId: sid, ...baseData } }];
+
 
   let lastErr = null;
   for (const c of candidates) {
@@ -377,9 +377,9 @@ async function getPhotoFaces(photoId, { projectId, signal } = {}) {
   }
 
   const candidates = [
-    { url: `/api/photos/${encodedId}/faces`, method: 'GET', data: { ...baseData } },
-    { url: '/api/faces', method: 'GET', data: { photoId: sid, ...baseData } },
-  ];
+  { url: `/api/photos/${encodedId}/faces`, method: 'GET', data: { ...baseData } },
+  { url: '/api/faces', method: 'GET', data: { photoId: sid, ...baseData } }];
+
 
   let lastErr = null;
   for (const c of candidates) {
@@ -401,7 +401,7 @@ async function getFacePersonInfo({ faceId, personId, projectId, compact = true, 
   }
 
   const q = {};
-  if (compact) { q.compact = '1'; q.pageSize = pageSize; q.includeAvatar = '0'; }
+  if (compact) {q.compact = '1';q.pageSize = pageSize;q.includeAvatar = '0';}
   if (sid) q.faceId = sid;
   if (pid) q.personId = pid;
   if (projectId !== undefined && projectId !== null && String(projectId).trim() !== '') {
@@ -453,8 +453,8 @@ async function labelFacePerson({ faceId, personId, personName } = {}) {
     data: {
       faceId: sid,
       personId: pid || undefined,
-      personName: pname || undefined,
-    },
+      personName: pname || undefined
+    }
   });
 }
 
@@ -465,7 +465,7 @@ async function renameFacePerson({ personId, personName } = {}) {
   if (!pname) throw new Error('renameFacePerson: personName is required');
   return request(`/api/persons/${encodeURIComponent(pid)}`, {
     method: 'PATCH',
-    data: { personName: pname },
+    data: { personName: pname }
   });
 }
 
@@ -475,8 +475,8 @@ async function listFacePersons({ q = '', page = 1, pageSize = 20 } = {}) {
     data: {
       q: String(q || '').trim(),
       page,
-      pageSize,
-    },
+      pageSize
+    }
   });
 }
 
@@ -489,9 +489,9 @@ async function updateFacePerson({ personId, ...fields } = {}) {
 
 async function mergeFacePersons({ targetPersonId, sourcePersonIds, referenceFaceIds } = {}) {
   const target = Number(targetPersonId);
-  const sources = Array.isArray(sourcePersonIds)
-    ? sourcePersonIds.map((x) => Number(x)).filter((x) => Number.isFinite(x) && x > 0)
-    : [];
+  const sources = Array.isArray(sourcePersonIds) ?
+  sourcePersonIds.map((x) => Number(x)).filter((x) => Number.isFinite(x) && x > 0) :
+  [];
   if (!Number.isFinite(target) || target <= 0) {
     throw new Error('mergeFacePersons: targetPersonId is required');
   }
@@ -503,8 +503,8 @@ async function mergeFacePersons({ targetPersonId, sourcePersonIds, referenceFace
     data: {
       targetPersonId: target,
       sourcePersonIds: sources,
-      referenceFaceIds: referenceFaceIds || [],
-    },
+      referenceFaceIds: referenceFaceIds || []
+    }
   });
 }
 
@@ -514,43 +514,43 @@ async function getPersonFaces({ personId, page = 1, pageSize = 48 } = {}) {
   if (!pid) throw new Error('getPersonFaces: personId is required');
   return request(`/api/persons/${encodeURIComponent(pid)}/faces`, {
     method: 'GET',
-    data: { page, pageSize },
+    data: { page, pageSize }
   });
 }
 
 async function previewPersonSplit({ personId, seedFaceIds } = {}) {
   const pid = personId !== undefined && personId !== null ? String(personId).trim() : '';
   if (!pid) throw new Error('previewPersonSplit: personId is required');
-  const seeds = Array.isArray(seedFaceIds)
-    ? seedFaceIds.map((x) => Number(x)).filter((x) => Number.isFinite(x) && x > 0)
-    : [];
+  const seeds = Array.isArray(seedFaceIds) ?
+  seedFaceIds.map((x) => Number(x)).filter((x) => Number.isFinite(x) && x > 0) :
+  [];
   if (!seeds.length) throw new Error('previewPersonSplit: seedFaceIds is required');
   return request(`/api/persons/${encodeURIComponent(pid)}/split-preview`, {
     method: 'POST',
-    data: { seedFaceIds: seeds },
+    data: { seedFaceIds: seeds }
   });
 }
 
 async function splitPerson({ personId, moveFaceIds, seedFaceIds, newPersonName } = {}) {
   const pid = personId !== undefined && personId !== null ? String(personId).trim() : '';
   if (!pid) throw new Error('splitPerson: personId is required');
-  const moves = Array.isArray(moveFaceIds)
-    ? moveFaceIds.map((x) => Number(x)).filter((x) => Number.isFinite(x) && x > 0)
-    : [];
+  const moves = Array.isArray(moveFaceIds) ?
+  moveFaceIds.map((x) => Number(x)).filter((x) => Number.isFinite(x) && x > 0) :
+  [];
   if (!moves.length) throw new Error('splitPerson: moveFaceIds is required');
   return request(`/api/persons/${encodeURIComponent(pid)}/split`, {
     method: 'POST',
     data: {
       moveFaceIds: moves,
       seedFaceIds: seedFaceIds || [],
-      newPersonName: newPersonName || undefined,
-    },
+      newPersonName: newPersonName || undefined
+    }
   });
 }
 
 async function getFaceClusterConfig() {
   return request('/api/faces/cluster/config', {
-    method: 'GET',
+    method: 'GET'
   });
 }
 
@@ -561,7 +561,7 @@ async function updateFaceClusterConfig(matchThreshold) {
   }
   return request('/api/faces/cluster/config', {
     method: 'POST',
-    data: { matchThreshold: threshold },
+    data: { matchThreshold: threshold }
   });
 }
 
@@ -590,7 +590,7 @@ function normalizeUploadPayload(formDataOrObj) {
     return {
       file,
       fields: { projectId, timelineSectionId, title, description, type, tags },
-      formData: fd,
+      formData: fd
     };
   }
   throw new Error('uploadPhotos: expected FormData or { file, projectId, timelineSectionId, title, type, tags }');
@@ -618,7 +618,7 @@ function getFileExt(name) {
 // 前端支持的格式（与后端 ALLOWED_IMAGE_MIMES / ALLOWED_VIDEO_MIMES 对齐）。HEIC 由后端转码为 JPEG。
 // 各厂 RAW：浏览器全显示不了，后端抽内嵌 JPEG 预览转码（与 heic 一路）
 const RAW_EXTS_LIST = ['.dng', '.cr2', '.cr3', '.crw', '.nef', '.nrw', '.arw', '.sr2', '.srf', '.raf',
-  '.orf', '.rw2', '.raw', '.pef', '.srw', '.x3f', '.rwl', '.3fr', '.fff', '.iiq', '.mrw', '.dcr', '.kdc', '.mos', '.erf'];
+'.orf', '.rw2', '.raw', '.pef', '.srw', '.x3f', '.rwl', '.3fr', '.fff', '.iiq', '.mrw', '.dcr', '.kdc', '.mos', '.erf'];
 // avif 浏览器可显示、sharp 可处理，纯增；heic/heif/tiff/RAW 浏览器 <img> 显示不了（由后端转 JPEG）。
 const SUPPORTED_IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.avif', '.heic', '.heif', '.tif', '.tiff', ...RAW_EXTS_LIST]);
 const SUPPORTED_VIDEO_EXTS = new Set(['.mp4', '.m4v', '.mov', '.webm', '.ogg', '.ogv']);
@@ -632,9 +632,9 @@ export function isBrowserUndisplayableImage(file) {
   if (!file) return false;
   const ext = getFileExt(file.name);
   const mime = String(file.type || '').toLowerCase();
-  return BROWSER_UNDISPLAYABLE_EXTS.has(ext)
-    || /image\/(heic|heif|tiff|heic-sequence|heif-sequence)/.test(mime)
-    || /image\/x-(adobe-dng|canon|nikon|sony|fuji|olympus|panasonic|pentax|samsung|sigma|leica|hasselblad|phaseone|minolta|kodak|leaf|epson)/i.test(mime);
+  return BROWSER_UNDISPLAYABLE_EXTS.has(ext) ||
+  /image\/(heic|heif|tiff|heic-sequence|heif-sequence)/.test(mime) ||
+  /image\/x-(adobe-dng|canon|nikon|sony|fuji|olympus|panasonic|pentax|samsung|sigma|leica|hasselblad|phaseone|minolta|kodak|leaf|epson)/i.test(mime);
 }
 // 「任何浏览器都显示不了」的图片：tiff + 各厂 RAW（传感器数据）。heic/heif 不算——Safari/苹果系能原生显示，
 // 所以 heic 应当先试真预览、失败再退占位（见上传预览组件的 onError 兜底）。
@@ -643,9 +643,9 @@ export function isNeverBrowserPreviewable(file) {
   if (!file) return false;
   const ext = getFileExt(file.name);
   const mime = String(file.type || '').toLowerCase();
-  return NEVER_PREVIEWABLE_EXTS.has(ext)
-    || /image\/tiff/.test(mime)
-    || /image\/x-(adobe-dng|canon|nikon|sony|fuji|olympus|panasonic|pentax|samsung|sigma|leica|hasselblad|phaseone|minolta|kodak|leaf|epson)/i.test(mime);
+  return NEVER_PREVIEWABLE_EXTS.has(ext) ||
+  /image\/tiff/.test(mime) ||
+  /image\/x-(adobe-dng|canon|nikon|sony|fuji|olympus|panasonic|pentax|samsung|sigma|leica|hasselblad|phaseone|minolta|kodak|leaf|epson)/i.test(mime);
 }
 // 预览角标文案：HEIC / TIFF …（拿不到就用「原图」）
 export function undisplayableFormatLabel(file) {
@@ -659,18 +659,18 @@ function getUnsupportedReason(file) {
   if (!file) return '空文件';
   const ext = getFileExt(file.name);
   const mime = String(file.type || '').toLowerCase().split(';')[0].trim();
-  const ok = SUPPORTED_IMAGE_EXTS.has(ext) || SUPPORTED_VIDEO_EXTS.has(ext)
-    || SUPPORTED_IMAGE_MIMES.has(mime) || SUPPORTED_VIDEO_MIMES.has(mime);
+  const ok = SUPPORTED_IMAGE_EXTS.has(ext) || SUPPORTED_VIDEO_EXTS.has(ext) ||
+  SUPPORTED_IMAGE_MIMES.has(mime) || SUPPORTED_VIDEO_MIMES.has(mime);
   if (ok) return null;
-  const label = ext ? ext.slice(1).toUpperCase() : (mime || '未知类型');
+  const label = ext ? ext.slice(1).toUpperCase() : mime || '未知类型';
   return `暂不支持「${label}」格式，请用 JPG / PNG / HEIC / GIF / WebP 图片或 MP4 / MOV 视频`;
 }
 
-function isHeicFile(file) {
-  const ext = getFileExt(file && file.name);
-  const mime = String(file && file.type || '').toLowerCase();
-  return ext === '.heic' || ext === '.heif' || /image\/heic|image\/heif/.test(mime);
-}
+
+
+
+
+
 
 function canTryDirectUpload(file) {
   if (!file || typeof File === 'undefined' || !(file instanceof File)) return false;
@@ -704,7 +704,7 @@ async function createThumbnailBlob(file, maxDimension = 800, quality = 0.8) {
   if (typeof createImageBitmap === 'function') {
     try {
       image = await createImageBitmap(file, { imageOrientation: 'from-image' });
-      cleanup = () => { try { image.close(); } catch (e) {} };
+      cleanup = () => {try {image.close();} catch (e) {}};
     } catch (e) {
       const fallback = await imageToElement(file);
       image = fallback.image;
@@ -729,8 +729,8 @@ async function createThumbnailBlob(file, maxDimension = 800, quality = 0.8) {
     ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
     return await new Promise((resolve, reject) => {
       canvas.toBlob((blob) => {
-        if (!blob) reject(new Error('thumbnail encode failed'));
-        else resolve(blob);
+        if (!blob) reject(new Error('thumbnail encode failed'));else
+        resolve(blob);
       }, 'image/jpeg', quality);
     });
   } finally {
@@ -742,13 +742,13 @@ async function putSignedObject(uploadTarget, body, onProgress) {
   if (uploadTarget && uploadTarget.formFields) {
     const form = new FormData();
     Object.entries(uploadTarget.formFields).forEach(([key, value]) => form.append(key, String(value)));
-    form.append('file', body, (body && body.name) || 'upload.bin');
+    form.append('file', body, body && body.name || 'upload.bin');
     const postResp = await requestWithUploadProgress({
       url: uploadTarget.uploadUrl,
       method: 'POST',
       body: form,
       withCredentials: false,
-      onProgress,
+      onProgress
     });
     if (postResp.status < 200 || postResp.status >= 300) {
       const err = new Error(`direct upload POST failed ${postResp.status}`);
@@ -764,7 +764,7 @@ async function putSignedObject(uploadTarget, body, onProgress) {
     headers: uploadTarget.headers || {},
     body,
     withCredentials: false,
-    onProgress,
+    onProgress
   });
   if (resp.status < 200 || resp.status >= 300) {
     const err = new Error(`direct upload PUT failed ${resp.status}`);
@@ -775,20 +775,20 @@ async function putSignedObject(uploadTarget, body, onProgress) {
 }
 
 async function abortDirectUpload(initData, uploadApiBase = '') {
-  if (!initData || (!initData.original && !initData.thumb)) return;
+  if (!initData || !initData.original && !initData.thumb) return;
   try {
     await requestUploadJson('/api/upload/photo/direct/abort', {
       method: 'POST',
       data: {
         sessionToken: initData.sessionToken,
         originalKey: initData.original && initData.original.key,
-        thumbKey: initData.thumb && initData.thumb.key,
-      },
+        thumbKey: initData.thumb && initData.thumb.key
+      }
     }, uploadApiBase);
   } catch (e) {
+
     // cleanup is best-effort
-  }
-}
+  }}
 
 async function uploadViaDirectCos(file, fields, { onProgress, uploadApiBase = '' } = {}) {
   const initPayload = {
@@ -800,17 +800,17 @@ async function uploadViaDirectCos(file, fields, { onProgress, uploadApiBase = ''
     tags: parseMaybeJsonTags(fields.tags),
     fileName: file.name || 'photo.jpg',
     fileSize: file.size,
-    mimeType: file.type || '',
+    mimeType: file.type || ''
   };
   emitUploadProgress(onProgress, {
     file,
     phase: 'preparing',
     loaded: 0,
-    total: file.size || 0,
+    total: file.size || 0
   });
   const initData = await requestUploadJson('/api/upload/photo/direct/init', {
     method: 'POST',
-    data: initPayload,
+    data: initPayload
   }, uploadApiBase);
 
   let completionStarted = false;
@@ -819,13 +819,13 @@ async function uploadViaDirectCos(file, fields, { onProgress, uploadApiBase = ''
       file,
       phase: 'thumbnail',
       loaded: 0,
-      total: file.size || 0,
+      total: file.size || 0
     });
     const thumbBlob = await createThumbnailBlob(file);
     const loadedByPart = { original: 0, thumb: 0 };
     const totalByPart = {
       original: file.size || 0,
-      thumb: thumbBlob.size || 0,
+      thumb: thumbBlob.size || 0
     };
     const reportCombined = () => {
       const loaded = (loadedByPart.original || 0) + (loadedByPart.thumb || 0);
@@ -834,22 +834,22 @@ async function uploadViaDirectCos(file, fields, { onProgress, uploadApiBase = ''
         file,
         phase: 'uploading',
         loaded,
-        total,
+        total
       });
     };
     const uploads = await Promise.allSettled([
-      putSignedObject(initData.original, file, (event) => {
-        if (event.total) totalByPart.original = event.total;
-        loadedByPart.original = event.loaded || 0;
-        reportCombined();
-      }),
-      putSignedObject(initData.thumb, thumbBlob, (event) => {
-        if (event.total) totalByPart.thumb = event.total;
-        loadedByPart.thumb = event.loaded || 0;
-        reportCombined();
-      }),
-    ]);
-    const failedUpload = uploads.find(result => result.status === 'rejected');
+    putSignedObject(initData.original, file, (event) => {
+      if (event.total) totalByPart.original = event.total;
+      loadedByPart.original = event.loaded || 0;
+      reportCombined();
+    }),
+    putSignedObject(initData.thumb, thumbBlob, (event) => {
+      if (event.total) totalByPart.thumb = event.total;
+      loadedByPart.thumb = event.loaded || 0;
+      reportCombined();
+    })]
+    );
+    const failedUpload = uploads.find((result) => result.status === 'rejected');
     if (failedUpload) throw failedUpload.reason;
 
     const total = (totalByPart.original || 0) + (totalByPart.thumb || 0);
@@ -857,15 +857,15 @@ async function uploadViaDirectCos(file, fields, { onProgress, uploadApiBase = ''
       file,
       phase: 'completing',
       loaded: total,
-      total,
+      total
     });
     const completionOptions = {
       method: 'POST',
       data: Object.assign({}, initPayload, {
         sessionToken: initData.sessionToken,
         originalKey: initData.original && initData.original.key,
-        thumbKey: initData.thumb && initData.thumb.key,
-      }),
+        thumbKey: initData.thumb && initData.thumb.key
+      })
     };
     completionStarted = true;
     let response;
@@ -873,7 +873,7 @@ async function uploadViaDirectCos(file, fields, { onProgress, uploadApiBase = ''
       response = await requestUploadJson('/api/upload/photo/direct/complete', completionOptions, uploadApiBase);
     } catch (error) {
       if (error.status && error.status !== 409 && error.status < 500) throw error;
-      await new Promise(resolve => setTimeout(resolve, 300));
+      await new Promise((resolve) => setTimeout(resolve, 300));
       response = await requestUploadJson('/api/upload/photo/direct/complete', completionOptions, uploadApiBase);
     }
     emitUploadProgress(onProgress, {
@@ -881,12 +881,12 @@ async function uploadViaDirectCos(file, fields, { onProgress, uploadApiBase = ''
       phase: 'done',
       status: 'fulfilled',
       loaded: total,
-      total,
+      total
     });
     return response;
   } catch (err) {
-    if (!completionStarted) await abortDirectUpload(initData, uploadApiBase);
-    else err.directUploadCompletionUnknown = true;
+    if (!completionStarted) await abortDirectUpload(initData, uploadApiBase);else
+    err.directUploadCompletionUnknown = true;
     err.directUploadFailed = true;
     throw err;
   }
@@ -894,14 +894,14 @@ async function uploadViaDirectCos(file, fields, { onProgress, uploadApiBase = ''
 
 async function uploadViaApi(formData, { onProgress, file, uploadApiBase = '' } = {}) {
   const uploadUrl = resolveUploadApiUrl('/api/upload/photo', uploadApiBase);
-  let apiUploadTotal = (file && file.size) || 0;
-  // eslint-disable-next-line no-console
+  let apiUploadTotal = file && file.size || 0;
+
   console.debug('[photoService] uploading to', uploadUrl);
   emitUploadProgress(onProgress, {
     file: file || formData.get('file'),
     phase: 'uploading',
     loaded: 0,
-    total: (file && file.size) || 0,
+    total: file && file.size || 0
   });
   const resp = await requestWithUploadProgress({
     url: uploadUrl,
@@ -915,15 +915,15 @@ async function uploadViaApi(formData, { onProgress, file, uploadApiBase = '' } =
         file: file || formData.get('file'),
         phase: 'uploading',
         loaded: event.loaded,
-        total: event.total || apiUploadTotal,
+        total: event.total || apiUploadTotal
       });
-    },
+    }
   });
   if (resp.status < 200 || resp.status >= 300) {
     const err = new Error(`upload failed ${resp.status} for ${uploadUrl}`);
     err.status = resp.status;
     err.body = resp.responseText || '';
-    // eslint-disable-next-line no-console
+
     console.warn('[photoService] upload endpoint returned', resp.status, 'for', uploadUrl, 'response:', resp.responseText || '');
     throw err;
   }
@@ -935,7 +935,7 @@ async function uploadViaApi(formData, { onProgress, file, uploadApiBase = '' } =
     phase: 'done',
     status: 'fulfilled',
     loaded: total,
-    total,
+    total
   });
   if (ct.includes('application/json')) return text ? JSON.parse(text) : {};
   return { data: text };
@@ -943,7 +943,7 @@ async function uploadViaApi(formData, { onProgress, file, uploadApiBase = '' } =
 
 async function uploadViaVideoApi(formData, { onProgress, file, uploadApiBase = '' } = {}) {
   const uploadUrl = resolveUploadApiUrl('/api/upload/video', uploadApiBase);
-  let uploadTotal = (file && file.size) || 0;
+  let uploadTotal = file && file.size || 0;
   let uploadTransferred = false;
   const targetFile = file || formData.get('file');
   const markServerProcessing = () => {
@@ -952,15 +952,15 @@ async function uploadViaVideoApi(formData, { onProgress, file, uploadApiBase = '
     emitUploadProgress(onProgress, {
       file: targetFile,
       phase: 'completing',
-      loaded: uploadTotal || (targetFile && targetFile.size) || 0,
-      total: uploadTotal || (targetFile && targetFile.size) || 0,
+      loaded: uploadTotal || targetFile && targetFile.size || 0,
+      total: uploadTotal || targetFile && targetFile.size || 0
     });
   };
   emitUploadProgress(onProgress, {
     file: targetFile,
     phase: 'uploading',
     loaded: 0,
-    total: uploadTotal,
+    total: uploadTotal
   });
   const resp = await requestWithUploadProgress({
     url: uploadUrl,
@@ -979,10 +979,10 @@ async function uploadViaVideoApi(formData, { onProgress, file, uploadApiBase = '
         file: targetFile,
         phase: 'uploading',
         loaded: event.loaded,
-        total,
+        total
       });
     },
-    onUploadComplete: markServerProcessing,
+    onUploadComplete: markServerProcessing
   });
   if (resp.status < 200 || resp.status >= 300) {
     const err = new Error(`video upload failed ${resp.status} for ${uploadUrl}`);
@@ -998,7 +998,7 @@ async function uploadViaVideoApi(formData, { onProgress, file, uploadApiBase = '
     phase: 'done',
     status: 'fulfilled',
     loaded: total,
-    total,
+    total
   });
   if (ct.includes('application/json')) return text ? JSON.parse(text) : {};
   return { data: text };
@@ -1014,17 +1014,17 @@ async function abortDirectVideoUpload(sessionId, uploadApiBase = '') {
   try {
     await requestUploadJson('/api/upload/video/direct/abort', { method: 'POST', data: { sessionId } }, uploadApiBase);
   } catch (e) {
+
     // 服务端会按 TTL 回收未完成的 multipart；这里不把清理失败覆盖上传原错误。
-  }
-}
+  }}
 
 // 仅网络级失败（XHR 无法连接，status 为 0/undefined）值得换通道重试；
 // 协议约定类错误重试也是同样结果，直接抛出。
 const NON_RETRYABLE_DIRECT_VIDEO_ERRORS = new Set([
-  'DIRECT_VIDEO_INIT_INVALID',
-  'DIRECT_VIDEO_PART_URL_MISSING',
-  'DIRECT_VIDEO_PART_ETAG_MISSING',
-]);
+'DIRECT_VIDEO_INIT_INVALID',
+'DIRECT_VIDEO_PART_URL_MISSING',
+'DIRECT_VIDEO_PART_ETAG_MISSING']
+);
 function isNetworkLevelError(err) {
   if (!err || NON_RETRYABLE_DIRECT_VIDEO_ERRORS.has(err.message)) return false;
   const status = Number(err.status);
@@ -1045,7 +1045,7 @@ async function uploadViaDirectVideoPartProxy(init, file, { onProgress, uploadApi
   let nextPartNumber = 1;
   const report = () => {
     let loaded = 0;
-    loadedByPart.forEach((bytes) => { loaded += Number(bytes) || 0; });
+    loadedByPart.forEach((bytes) => {loaded += Number(bytes) || 0;});
     emitUploadProgress(onProgress, { file, phase: 'uploading', loaded: Math.min(file.size || loaded, loaded), total: file.size || 0 });
   };
 
@@ -1062,7 +1062,7 @@ async function uploadViaDirectVideoPartProxy(init, file, { onProgress, uploadApi
       onProgress: (event) => {
         loadedByPart.set(partNumber, Number(event && event.loaded) || 0);
         report();
-      },
+      }
     });
     if (response.status < 200 || response.status >= 300) {
       // 429（并发上限）/5xx（存储抖动）值得退避后重试同一分片，其他错误直接抛。
@@ -1079,7 +1079,7 @@ async function uploadViaDirectVideoPartProxy(init, file, { onProgress, uploadApi
     try {
       const parsed = JSON.parse(response.responseText || '');
       etag = parsed && parsed.etag;
-    } catch (e) { /* body 解析失败再看头 */ }
+    } catch (e) {/* body 解析失败再看头 */}
     if (!etag) etag = readHeader(response.headers, 'etag');
     if (!etag) throw new Error('DIRECT_VIDEO_PART_ETAG_MISSING');
     loadedByPart.set(partNumber, body.size);
@@ -1098,7 +1098,7 @@ async function uploadViaDirectVideoPartProxy(init, file, { onProgress, uploadApi
     await Promise.all(workers);
     emitUploadProgress(onProgress, { file, phase: 'completing', loaded: file.size || 0, total: file.size || 0 });
     const response = await requestUploadJson('/api/upload/video/direct/complete', {
-      method: 'POST', data: { sessionId, parts: etags },
+      method: 'POST', data: { sessionId, parts: etags }
     }, uploadApiBase);
     emitUploadProgress(onProgress, { file, phase: 'done', status: 'fulfilled', loaded: file.size || 0, total: file.size || 0 });
     return response;
@@ -1121,7 +1121,7 @@ async function uploadViaDirectVideo(file, fields, { onProgress, uploadApiBase = 
     fileSize: file.size,
     mimeType: file.type || '',
     // 服务端据此判断：HTTPS 页面 + HTTP 存储端点必须走代理通道（混合内容拦截）。
-    clientProtocol: (typeof window !== 'undefined' && window.location && window.location.protocol) || '',
+    clientProtocol: typeof window !== 'undefined' && window.location && window.location.protocol || ''
   };
   emitUploadProgress(onProgress, { file, phase: 'preparing', loaded: 0, total: file.size || 0 });
   let init = await requestUploadJson('/api/upload/video/direct/init', { method: 'POST', data: initPayload }, uploadApiBase);
@@ -1134,7 +1134,7 @@ async function uploadViaDirectVideo(file, fields, { onProgress, uploadApiBase = 
     try {
       await putSignedObject(init.upload, file, (event) => {
         emitUploadProgress(onProgress, {
-          file, phase: 'uploading', loaded: Number(event && event.loaded) || 0, total: Number(event && event.total) || file.size || 0,
+          file, phase: 'uploading', loaded: Number(event && event.loaded) || 0, total: Number(event && event.total) || file.size || 0
         });
       });
       emitUploadProgress(onProgress, { file, phase: 'completing', loaded: file.size || 0, total: file.size || 0 });
@@ -1156,7 +1156,7 @@ async function uploadViaDirectVideo(file, fields, { onProgress, uploadApiBase = 
   let nextPartNumber = 1;
   const report = () => {
     let loaded = 0;
-    loadedByPart.forEach((bytes) => { loaded += Number(bytes) || 0; });
+    loadedByPart.forEach((bytes) => {loaded += Number(bytes) || 0;});
     emitUploadProgress(onProgress, { file, phase: 'uploading', loaded: Math.min(file.size || loaded, loaded), total: file.size || 0 });
   };
 
@@ -1169,7 +1169,7 @@ async function uploadViaDirectVideo(file, fields, { onProgress, uploadApiBase = 
       onProgress: (event) => {
         loadedByPart.set(partNumber, Number(event && event.loaded) || 0);
         report();
-      },
+      }
     });
     if (response.status < 200 || response.status >= 300) {
       const err = new Error(`direct video part upload failed ${response.status}`);
@@ -1193,11 +1193,11 @@ async function uploadViaDirectVideo(file, fields, { onProgress, uploadApiBase = 
           nextPartNumber += 1;
         }
         const urlData = await requestUploadJson('/api/upload/video/direct/parts', {
-          method: 'POST', data: { sessionId, partNumbers: batch },
+          method: 'POST', data: { sessionId, partNumbers: batch }
         }, uploadApiBase);
         const targets = new Map(
-          (urlData && Array.isArray(urlData.parts) ? urlData.parts : [])
-            .map((target) => [Number(target && target.partNumber), target])
+          (urlData && Array.isArray(urlData.parts) ? urlData.parts : []).
+          map((target) => [Number(target && target.partNumber), target])
         );
         if (batch.some((partNumber) => !targets.has(partNumber))) {
           throw new Error('DIRECT_VIDEO_PART_URL_MISSING');
@@ -1210,7 +1210,7 @@ async function uploadViaDirectVideo(file, fields, { onProgress, uploadApiBase = 
     await Promise.all(workers);
     emitUploadProgress(onProgress, { file, phase: 'completing', loaded: file.size || 0, total: file.size || 0 });
     const response = await requestUploadJson('/api/upload/video/direct/complete', {
-      method: 'POST', data: { sessionId, parts: etags },
+      method: 'POST', data: { sessionId, parts: etags }
     }, uploadApiBase);
     emitUploadProgress(onProgress, { file, phase: 'done', status: 'fulfilled', loaded: file.size || 0, total: file.size || 0 });
     return response;
@@ -1221,7 +1221,7 @@ async function uploadViaDirectVideo(file, fields, { onProgress, uploadApiBase = 
       await abortDirectVideoUpload(sessionId, uploadApiBase);
       try {
         const retryInit = await requestUploadJson('/api/upload/video/direct/init', {
-          method: 'POST', data: { ...initPayload, transport: 'proxy' },
+          method: 'POST', data: { ...initPayload, transport: 'proxy' }
         }, uploadApiBase);
         if (retryInit && retryInit.transport === 'proxy') {
           return uploadViaDirectVideoPartProxy(retryInit, file, { onProgress, uploadApiBase });
@@ -1297,7 +1297,7 @@ async function uploadPhotos(formDataOrObj, { onProgress } = {}) {
         if (isDirectUploadUnavailable(directErr)) {
           if (typeof window !== 'undefined') window.__MAMAGE_DISABLE_DIRECT_UPLOAD__ = true;
         } else {
-          // eslint-disable-next-line no-console
+
           console.warn('[photoService] direct upload failed, fallback to API upload:', directErr);
         }
         if (!shouldFallbackToApi(directErr)) throw directErr;
@@ -1305,13 +1305,13 @@ async function uploadPhotos(formDataOrObj, { onProgress } = {}) {
           file,
           phase: 'fallback',
           loaded: 0,
-          total: file && file.size ? file.size : 0,
+          total: file && file.size ? file.size : 0
         });
       }
     }
     return await uploadViaApi(formData, { onProgress, file, uploadApiBase });
   } catch (e) {
-    // eslint-disable-next-line no-console
+
     console.error('[photoService] upload attempt failed', e);
     throw e;
   }
@@ -1350,7 +1350,7 @@ async function uploadPhotoFiles(files, { projectId, timelineSectionId, title, ty
       ...(event || {}),
       file,
       fileName: file && file.name,
-      index,
+      index
     });
     // 上传前格式校验：不支持的直接判失败，不上传、不跑进度条（避免"跑满再失败"）
     const unsupportedReason = getUnsupportedReason(file);
@@ -1363,13 +1363,13 @@ async function uploadPhotoFiles(files, { projectId, timelineSectionId, title, ty
     report({
       phase: 'queued',
       loaded: 0,
-      total: file && file.size ? file.size : 0,
+      total: file && file.size ? file.size : 0
     });
     try {
       const response = await uploadPhotos({ file, projectId, timelineSectionId, title, type, tags }, { onProgress: report });
       report({
         phase: 'done',
-        status: 'fulfilled',
+        status: 'fulfilled'
       });
       return {
         status: 'fulfilled',
@@ -1385,7 +1385,7 @@ async function uploadPhotoFiles(files, { projectId, timelineSectionId, title, ty
       report({
         phase: 'failed',
         status: 'rejected',
-        error: err && (err.message || String(err)),
+        error: err && (err.message || String(err))
       });
       throw err;
     }
@@ -1403,9 +1403,9 @@ async function deletePhotos(photoIds) {
 async function startGroupRescue({ basePhotoId, referencePhotoIds } = {}) {
   const base = Number(basePhotoId);
   if (!Number.isFinite(base) || base <= 0) throw new Error('startGroupRescue: basePhotoId is required');
-  const refs = (Array.isArray(referencePhotoIds) ? referencePhotoIds : [])
-    .map((v) => Number(v))
-    .filter((n) => Number.isFinite(n) && n > 0 && n !== base);
+  const refs = (Array.isArray(referencePhotoIds) ? referencePhotoIds : []).
+  map((v) => Number(v)).
+  filter((n) => Number.isFinite(n) && n > 0 && n !== base);
   return request('/api/photos/group-rescue', { method: 'POST', data: { basePhotoId: base, referencePhotoIds: refs } });
 }
 
@@ -1460,5 +1460,4 @@ export {
   deletePhotos,
   startGroupRescue,
   getGroupRescueJob,
-  runGroupRescueJob,
-};
+  runGroupRescueJob };

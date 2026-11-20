@@ -116,7 +116,7 @@ async function request(path, options = {}) {
       // don't await push to avoid blocking
       pushRequestLog(entry);
       // also print a compact debug line
-      // eslint-disable-next-line no-console
+       
       console.debug('[request] OUT', method, url, bodyPreview);
     } catch (e) {
       // ignore logging errors

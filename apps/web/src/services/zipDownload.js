@@ -153,11 +153,11 @@ export async function fetchZipToTarget({ photoIds, shareCode, zipName, fileHandl
   };
   try {
     for (;;) {
-      // eslint-disable-next-line no-await-in-loop
+       
       const { done, value } = await reader.read();
       if (done) break;
       loaded += value.byteLength;
-      // eslint-disable-next-line no-await-in-loop
+       
       if (writable) await writable.write(value); else chunks.push(value);
       if (onProgress) onProgress(loaded, total, stats());
     }

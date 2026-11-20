@@ -34,7 +34,8 @@ export default [
     },
     rules: {
       ...js.configs.recommended.rules,
-      'no-unused-vars': ['warn', { args: 'none', ignoreRestSiblings: true, varsIgnorePattern: '^_' }],
+      'no-unused-vars': ['warn', { args: 'none', caughtErrors: 'none', ignoreRestSiblings: true,
+        varsIgnorePattern: '^_', destructuredArrayIgnorePattern: '^_' }],
       'no-undef': 'error',
       'no-redeclare': 'error',
       'no-unreachable': 'warn',

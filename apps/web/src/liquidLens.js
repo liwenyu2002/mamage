@@ -14,25 +14,25 @@ const LENS_AMPLITUDE_RATIO = 0.4; // 振幅 = band * ratio
 
 // 需要透镜化的玻璃控件层（与 liquidGlass.css @supports 富模糊列表保持一致）
 const LENS_SELECTORS = [
-  '.mamage-header',
-  '.mamage-mobile-nav-panel',
-  '.mamage-modal-content',
-  '.mamage-popover-content',
-  '.mamage-sidesheet-content',
-  '.mamage-button-primary:not(.mamage-button-neu)',
-  '.detail-bottom-nav',
-  '.detail-bottom-upload',
-  '.detail-actions-sheet',
-  '.detail-selection-inline',
-  '.viewer-tone-panel',
-  '.detail-select-fab',
-  '.detail-actions-fab',
-];
+'.mamage-header',
+'.mamage-mobile-nav-panel',
+'.mamage-modal-content',
+'.mamage-popover-content',
+'.mamage-sidesheet-content',
+'.mamage-button-primary:not(.mamage-button-neu)',
+'.detail-bottom-nav',
+'.detail-bottom-upload',
+'.detail-actions-sheet',
+'.detail-selection-inline',
+'.viewer-tone-panel',
+'.detail-select-fab',
+'.detail-actions-fab'];
 
-function smoothStep(a, b, t) {
-  const x = Math.max(0, Math.min(1, (t - a) / (b - a)));
-  return x * x * (3 - 2 * x);
-}
+
+
+
+
+
 
 function roundedRectSDF(x, y, hw, hh, r) {
   const qx = Math.abs(x) - hw + r;
@@ -156,7 +156,7 @@ function lensFilterId(w, h, r) {
 function parseRadius(el, w, h) {
   const raw = getComputedStyle(el).borderTopLeftRadius || '0';
   let r = parseFloat(raw) || 0;
-  if (raw.includes('%')) r = (r / 100) * Math.min(w, h);
+  if (raw.includes('%')) r = r / 100 * Math.min(w, h);
   return Math.min(r, Math.min(w, h) / 2);
 }
 

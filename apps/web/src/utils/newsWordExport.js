@@ -294,7 +294,7 @@ async function exportNewsDocx({ title, subtitle, markdown, photosMap = {}, capti
     if (block.type === 'heading') {
       children.push(headingParagraph(block));
     } else if (block.type === 'image') {
-      // eslint-disable-next-line no-await-in-loop -- 图片需按 markdown 出现顺序依次嵌入，无法并行
+       
       children.push(...(await buildImageParagraphs(block, photosMap, captions)));
     } else if (block.type === 'listItem') {
       children.push(listItemParagraph(block.text));
