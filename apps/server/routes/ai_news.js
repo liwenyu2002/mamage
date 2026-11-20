@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const aiNewsDao = require('../lib/queries/ai_news');
 const { pool } = require('../db');
 const { enqueueJob, runJobNow, getOrgIdForUser } = require('../lib/ai_job_worker');
 const { requirePermission } = require('../lib/permissions');
@@ -326,11 +327,9 @@ router.post('/generate', requirePermission('ai.generate'), async (req, res) => {
     prompt += photoContextPrompt(photoContext);
     if (prompt.length > MAX_FULLPROMPT_CHARS) return res.status(413).json({ code: 4135, message: '素材总量过长，请精简后提交' });
     options.selectedPhotos = selectedPhotos.map(photo => ({ id: photo.id, photographerId: photo.photographerId || null }));
-    const [insertResult] = await pool.query(
-      'INSERT INTO ai_jobs (user_id, project_id, unit_id, status, model, prompt_text, options, client_request_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())',
-      [req.user && req.user.id ? req.user.id : null, projectId, workspace.enabled ? workspace.unitId : null,
-        'pending', options.model || 'default', prompt, JSON.stringify(options || {}), clientRequestId || null]
-    );
+    const insertResult = await aiNewsDao.insertJob(pool, {
+      userId: req.user && req.user.id ? req.user.id : null, projectId,
+      unitId: workspace.enabled ? workspace.unitId : null, model: options.model, prompt, options, clientRequestId });
 
     const jobId = insertResult.insertId;
 
@@ -365,17 +364,15 @@ router.get('/jobs/:jobId', requirePermission('ai.generate'), async (req, res) =>
   try {
     const id = parseInt(req.params.jobId, 10);
     if (!id) return res.status(400).json({ code: 4001, message: 'invalid job id' });
-    const [rows] = await pool.query('SELECT * FROM ai_jobs WHERE id = ?', [id]);
-    if (!rows || rows.length === 0) return res.status(404).json({ code: 4041, message: 'job not found' });
-    const job = rows[0];
+    const job = await aiNewsDao.findJob(pool, id);
+    if (!job) return res.status(404).json({ code: 4041, message: 'job not found' });
 
     // 归属校验：job 只能被创建者本人（或超管）读取；对外统一 404 不暴露存在性
     const requesterId = req.user && req.user.id ? Number(req.user.id) : null;
     const isOwner = requesterId !== null && job.user_id !== null && Number(job.user_id) === requesterId;
     if (!isOwner) return res.status(404).json({ code: 4041, message: 'job not found' });
 
-    const [resRows] = await pool.query('SELECT * FROM ai_results WHERE job_id = ? ORDER BY id DESC LIMIT 1', [id]);
-    const result = resRows && resRows[0] ? resRows[0] : null;
+    const result = await aiNewsDao.findLatestResult(pool, id);
 
     let photos = [];
     if (result && result.placeholders) {
@@ -407,10 +404,7 @@ router.get('/jobs/:jobId/references', requirePermission('ai.generate'), async (r
     const id = positiveId(req.params.jobId);
     if (!id) return res.status(400).json({ message: '任务编号无效' });
     const workspace = await resolveWorkspace(req);
-    const [rows] = await pool.query(`SELECT j.unit_id,j.prompt_text,b.form_snapshot FROM ai_jobs j
-      JOIN ai_job_batches b ON b.id=j.batch_id AND b.user_id=j.user_id WHERE j.id=? AND j.user_id=? LIMIT 1`,
-    [id, req.user.id]);
-    const row = rows[0];
+    const row = await aiNewsDao.findJobForReferences(pool, { jobId: id, userId: req.user.id });
     if (!row || String(row.unit_id ?? '') !== String(workspace.enabled ? (workspace.unitId ?? '') : '')) {
       return res.status(404).json({ message: '任务不存在' });
     }
@@ -481,10 +475,7 @@ router.post('/generate/batch', requirePermission('ai.generate'), async (req, res
     let orgPreset = null;
     const orgId = req.user && req.user.organization_id;
     if (orgId !== null && orgId !== undefined) {
-      const [presetRows] = await pool.query(
-        'SELECT * FROM org_presets WHERE org_id = ? AND is_default = 1 LIMIT 1', [orgId]
-      );
-      orgPreset = presetRows && presetRows[0] ? presetRows[0] : null;
+      orgPreset = await aiNewsDao.findDefaultPreset(pool, orgId);
     }
     const selectedReferences = await selectReferences(pool, workspace, form, referenceArticle, interviewText, MAX_REFERENCE_CHARS);
     // Validate complete prompts before reserving quota or creating any jobs.
@@ -581,7 +572,7 @@ router.get('/batches/:batchId', requirePermission('ai.generate'), async (req, re
     const id = parseInt(req.params.batchId, 10);
     if (!id) return res.status(400).json({ code: 4001, message: 'invalid batch id' });
 
-    const [batchRows] = await pool.query('SELECT * FROM ai_job_batches WHERE id = ?', [id]);
+    const batchRows = await aiNewsDao.findBatch(pool, id);
     if (!batchRows || batchRows.length === 0) return res.status(404).json({ code: 4041, message: 'batch not found' });
     const batch = batchRows[0];
 
@@ -590,7 +581,7 @@ router.get('/batches/:batchId', requirePermission('ai.generate'), async (req, re
     const isOwner = requesterId !== null && batch.user_id !== null && Number(batch.user_id) === requesterId;
     if (!isOwner) return res.status(404).json({ code: 4041, message: 'batch not found' });
 
-    const [jobRows] = await pool.query('SELECT * FROM ai_jobs WHERE batch_id = ? ORDER BY id ASC', [id]);
+    const jobRows = await aiNewsDao.listBatchJobs(pool, id);
 
     // 事实校验素材：表单快照（含创建 batch 时内嵌的 selectedPhotos.faceNames）—— 一次性解析，所有 job 共用
     let formSnapshot = {};
@@ -606,11 +597,7 @@ router.get('/batches/:batchId', requirePermission('ai.generate'), async (req, re
     let forbiddenWords = [];
     const batchOrgId = await getOrgIdForUser(batch.user_id);
     if (batchOrgId !== null) {
-      const [presetRows] = await pool.query(
-        'SELECT forbidden_words FROM org_presets WHERE org_id = ? AND is_default = 1 LIMIT 1',
-        [batchOrgId]
-      );
-      const preset = presetRows && presetRows[0] ? presetRows[0] : null;
+      const preset = await aiNewsDao.findDefaultPresetForbiddenWords(pool, batchOrgId);
       if (preset && preset.forbidden_words) {
         try {
           forbiddenWords = typeof preset.forbidden_words === 'string' ? JSON.parse(preset.forbidden_words) : preset.forbidden_words;
@@ -622,8 +609,7 @@ router.get('/batches/:batchId', requirePermission('ai.generate'), async (req, re
 
     const jobs = [];
     for (const job of jobRows) {
-      const [resRows] = await pool.query('SELECT * FROM ai_results WHERE job_id = ? ORDER BY id DESC LIMIT 1', [job.id]);
-      const result = resRows && resRows[0] ? resRows[0] : null;
+      const result = await aiNewsDao.findLatestResult(pool, job.id);
 
       let photos = [];
       if (result && result.placeholders) {
@@ -690,9 +676,9 @@ router.get('/batches/:batchId', requirePermission('ai.generate'), async (req, re
       const isTerminal = aggregated === 'succeeded' || aggregated === 'failed' || aggregated === 'partial';
       if (isTerminal) {
         // COALESCE(finished_at, NOW())：终态只在第一次到达时打时间戳，重复轮询不覆盖
-        await pool.query('UPDATE ai_job_batches SET status = ?, finished_at = COALESCE(finished_at, NOW()) WHERE id = ?', [aggregated, id]);
+        await aiNewsDao.finishBatch(pool, { batchId: id, status: aggregated, finished: true });
       } else {
-        await pool.query('UPDATE ai_job_batches SET status = ? WHERE id = ?', [aggregated, id]);
+        await aiNewsDao.finishBatch(pool, { batchId: id, status: aggregated, finished: false });
       }
     }
 
@@ -709,9 +695,8 @@ router.post('/jobs/:jobId/retry', requirePermission('ai.generate'), async (req, 
     const id = parseInt(req.params.jobId, 10);
     if (!id) return res.status(400).json({ code: 4001, message: 'invalid job id' });
 
-    const [rows] = await pool.query('SELECT * FROM ai_jobs WHERE id = ?', [id]);
-    if (!rows || rows.length === 0) return res.status(404).json({ code: 4041, message: 'job not found' });
-    const job = rows[0];
+    const job = await aiNewsDao.findJob(pool, id);
+    if (!job) return res.status(404).json({ code: 4041, message: 'job not found' });
 
     const requesterId = req.user && req.user.id ? Number(req.user.id) : null;
     const isOwner = requesterId !== null && job.user_id !== null && Number(job.user_id) === requesterId;
@@ -721,7 +706,7 @@ router.post('/jobs/:jobId/retry', requirePermission('ai.generate'), async (req, 
       return res.status(409).json({ code: 4091, message: `job status is ${job.status}, only failed jobs can be retried` });
     }
 
-    await pool.query('UPDATE ai_jobs SET status = ?, error = NULL, started_at = NULL, finished_at = NULL WHERE id = ?', ['pending', id]);
+    await aiNewsDao.requeueJob(pool, id);
     await enqueueJob(id);
 
     res.json({ jobId: id, status: 'pending' });
@@ -759,8 +744,8 @@ router.post('/check', requirePermission('ai.generate'), async (req, res) => {
     }
     let forbiddenWords = [];
     if (req.user?.organization_id) {
-      const [rows] = await pool.query('SELECT forbidden_words FROM org_presets WHERE org_id = ? AND is_default = 1 LIMIT 1', [req.user.organization_id]);
-      const raw = rows[0]?.forbidden_words;
+      const preset = await aiNewsDao.findDefaultPresetForbiddenWords(pool, req.user.organization_id);
+      const raw = preset?.forbidden_words;
       if (raw) forbiddenWords = typeof raw === 'string' ? JSON.parse(raw) : raw;
     }
     return res.json(buildFactCheck({ markdown, formSnapshot: form,
