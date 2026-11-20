@@ -252,3 +252,65 @@ async function findScopedProjectId(db, { projectId, orgId }) {
 module.exports.listProjectPhotosForCoverScoped = listProjectPhotosForCoverScoped;
 module.exports.clearOrphanSectionAssignments = clearOrphanSectionAssignments;
 module.exports.findScopedProjectId = findScopedProjectId;
+
+/** 通用执行：动态 SQL 由路由拼接，dao 只负责执行 */
+async function queryRows(db, { sql, params }) {
+  const [rows] = await db.query(sql, params);
+  return rows || [];
+}
+
+async function lockRows(conn, { sql, params }) {
+  const [rows] = await conn.query(`${sql} FOR UPDATE`, params);
+  return rows || [];
+}
+
+async function executeDynamic(conn, { sql, params }) {
+  const [result] = await conn.query(sql, params);
+  return result;
+}
+
+module.exports.queryRows = queryRows;
+module.exports.lockRows = lockRows;
+module.exports.executeDynamic = executeDynamic;
+
+async function findAuthUser(db, userId) {
+  const [rows] = await db.query('SELECT id, organization_id, role FROM users WHERE id = ? LIMIT 1', [userId]);
+  return rows && rows.length ? rows[0] : null;
+}
+
+async function findProjectUnitId(db, projectId) {
+  const [rows] = await db.query('SELECT unit_id FROM projects WHERE id = ? LIMIT 1', [projectId]);
+  return rows && rows.length ? rows[0].unit_id : null;
+}
+
+module.exports.findAuthUser = findAuthUser;
+module.exports.findProjectUnitId = findProjectUnitId;
+
+/** 新建相册（含无 organization_id 列的老 schema 降级） */
+async function insertProjectFull(conn, row) {
+  const [result] = await conn.query(
+    `INSERT INTO projects (uuid, name, description, event_date, meta, tags, admin_id, organization_id, unit_id, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+    [row.uuid, row.name, row.description, row.eventDate, row.metaJson, row.tagsJson, row.adminId, row.orgId, row.unitId]);
+  return result;
+}
+
+async function insertProjectLegacy(conn, row) {
+  const [result] = await conn.query(
+    `INSERT INTO projects (uuid, name, description, event_date, meta, tags, admin_id, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+    [row.uuid, row.name, row.description, row.eventDate, row.metaJson, row.tagsJson, row.adminId]);
+  return result;
+}
+
+module.exports.insertProjectFull = insertProjectFull;
+module.exports.insertProjectLegacy = insertProjectLegacy;
+
+async function updateProjectMeta(conn, { id, name, description, eventDate, metaJson, tagsJson }) {
+  await conn.query(
+    `UPDATE projects SET name = ?, description = ?, event_date = ?, meta = ?, tags = ?, updated_at = NOW()
+      WHERE id = ?`,
+    [name, description, eventDate, metaJson, tagsJson, id]);
+}
+
+module.exports.updateProjectMeta = updateProjectMeta;

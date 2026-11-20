@@ -30,9 +30,8 @@ async function populateReqUserFromAuthIfPresent(req) {
     try { payload = jwt.verify(token, JWT_SECRET); } catch (e) { return; }
     if (!payload || !payload.id) return;
     try {
-      const [rows] = await pool.query('SELECT id, organization_id, role FROM users WHERE id = ? LIMIT 1', [payload.id]);
-      if (!rows || rows.length === 0) return;
-      const u = rows[0];
+      const u = await projectsDao.findAuthUser(pool, payload.id);
+      if (!u) return;
       const org = (u.organization_id !== undefined && u.organization_id !== null) ? Number(u.organization_id) : null;
       req.user = { id: u.id, role: u.role || null, organization_id: org };
     } catch (e) {
@@ -102,8 +101,8 @@ router.param('id', async (req, res, next, value) => {
         : req.method === 'DELETE' ? 'manage' : 'edit';
       await requireProjectAccess(req, Number(value), action);
     } else if (!req.user) {
-      const [rows] = await pool.query('SELECT unit_id FROM projects WHERE id = ? LIMIT 1', [Number(value)]);
-      if (rows.length && rows[0].unit_id) return res.status(404).json({ error: 'PROJECT_NOT_FOUND' });
+      const unitId = await projectsDao.findProjectUnitId(pool, Number(value));
+      if (unitId) return res.status(404).json({ error: 'PROJECT_NOT_FOUND' });
     }
     next();
   } catch (err) {
@@ -247,7 +246,7 @@ async function fetchProjectPreviewPhotos(projectIds, orgId, workspace, latestLim
   params.push(safeLatestLimit);
 
   try {
-    const [rows] = await pool.query(sql, params);
+    const rows = await projectsDao.queryRows(pool, { sql, params });
     return rows || [];
   } catch (err) {
     // Older MySQL variants may not support window functions. Keep a safe fallback
@@ -264,7 +263,7 @@ async function fetchProjectPreviewPhotos(projectIds, orgId, workspace, latestLim
     const fallbackOwner = photoOwnerFilter(workspace);
     fallbackSql += fallbackOwner.sql + ' ORDER BY created_at DESC, id DESC';
     fallbackParams.push(...fallbackOwner.params);
-    const [rows] = await pool.query(fallbackSql, fallbackParams);
+    const rows = await projectsDao.queryRows(pool, { sql: fallbackSql, params: fallbackParams });
     return rows || [];
   }
 }
@@ -517,7 +516,7 @@ router.get('/scenery', async (req, res) => {
 
     let projRows;
     try {
-      const [rows] = await pool.query(projSql, projParams);
+      const rows = await projectsDao.queryRows(pool, { sql: projSql, params: projParams });
       projRows = rows || [];
     } catch (e) {
       // fallback: maybe projects.type column doesn't exist — search by name or tags
@@ -541,11 +540,11 @@ router.get('/scenery', async (req, res) => {
       const like = '%scenery%';
       const fbParams = [like, like];
       if (orgId === null) {
-        projRows = (await pool.query(fallbackSql + ' AND p.organization_id IS NULL'
-          + (unitScope.sql ? ` AND ${unitScope.sql}` : ''), fbParams.concat(unitScope.params)))[0] || [];
+        projRows = await projectsDao.queryRows(pool, { sql: fallbackSql + ' AND p.organization_id IS NULL'
+          + (unitScope.sql ? ` AND ${unitScope.sql}` : ''), params: fbParams.concat(unitScope.params) });
       } else {
-        projRows = (await pool.query(fallbackSql + ' AND p.organization_id = ?'
-          + (unitScope.sql ? ` AND ${unitScope.sql}` : ''), fbParams.concat([orgId], unitScope.params)))[0] || [];
+        projRows = await projectsDao.queryRows(pool, { sql: fallbackSql + ' AND p.organization_id = ?'
+          + (unitScope.sql ? ` AND ${unitScope.sql}` : ''), params: fbParams.concat([orgId], unitScope.params) });
       }
     }
 
@@ -564,7 +563,7 @@ router.get('/scenery', async (req, res) => {
       const owner = photoOwnerFilter(workspace);
       photoSql += owner.sql + ' ORDER BY created_at DESC, id DESC';
       photoParams.push(...owner.params);
-      const [rows] = await pool.query(photoSql, photoParams);
+      const rows = await projectsDao.queryRows(pool, { sql: photoSql, params: photoParams });
       photos = rows || [];
     }
 
@@ -742,7 +741,7 @@ router.get('/import-status', async (req, res) => {
     const orgId = getScopedOrgIdFromReq(req);
     const workspace = await resolveWorkspace(req);
     const unitScope = projectListScope(workspace);
-    const [rows] = await pool.query(
+    const rows = await projectsDao.queryRows(pool, { sql:
       `SELECT p.id AS projectId, j.status, j.scan_status AS scanStatus,
               j.discovered_count AS discoveredCount, j.reported_total AS reportedTotal,
               j.selected_count AS selectedCount,
@@ -756,8 +755,7 @@ router.get('/import-status', async (req, res) => {
          AND ${orgId === null ? 'p.organization_id IS NULL' : 'p.organization_id = ?'}
          ${unitScope.sql ? `AND ${unitScope.sql}` : ''}
          AND j.status <> 'completed'`,
-      [...(workspace.ownPhotosOnly ? [workspace.userId] : []), ids, ...(orgId === null ? [] : [orgId]), ...unitScope.params]
-    );
+      params: [...(workspace.ownPhotosOnly ? [workspace.userId] : []), ids, ...(orgId === null ? [] : [orgId]), ...unitScope.params] });
     return res.json({ statuses: Object.fromEntries(rows.map((row) => [row.projectId, {
       status: row.status,
       scanStatus: row.scanStatus,
@@ -845,7 +843,7 @@ router.get('/:id', async (req, res) => {
       projSql += ' AND p.organization_id = ?';
       projParams.push(orgId);
     }
-    const [projRows] = await pool.query(projSql, projParams);
+    const projRows = await projectsDao.queryRows(pool, { sql: projSql, params: projParams });
 
     if (!projRows.length) {
       return res.status(404).json({ error: 'Project not found' });
@@ -905,14 +903,14 @@ router.get('/:id', async (req, res) => {
     photoParams.push(...owner.params);
     let photoRows;
     try {
-      [photoRows] = await pool.query(photoSql, photoParams);
+      photoRows = await projectsDao.queryRows(pool, { sql: photoSql, params: photoParams });
     } catch (colErr) {
       // 缺列降级（迁移 20260711_001 尚未执行时）：去掉 ai_score/ai_quality 重查，别把详情页打成 500
       if (colErr && (colErr.code === 'ER_BAD_FIELD_ERROR' || String(colErr.message || '').includes('Unknown column'))) {
         const degraded = photoSql
           .replace('ph.ai_score AS aiScore,', '')
           .replace('ph.ai_quality AS aiQuality,', '');
-        [photoRows] = await pool.query(degraded, photoParams);
+        photoRows = await projectsDao.queryRows(pool, { sql: degraded, params: photoParams });
       } else {
         throw colErr;
       }
@@ -963,7 +961,7 @@ router.get('/:id', async (req, res) => {
         }
         faceSql += ' ORDER BY pf.photo_id ASC, pf.id ASC';
 
-        const [faceRows] = await pool.query(faceSql, faceParams);
+        const faceRows = await projectsDao.queryRows(pool, { sql: faceSql, params: faceParams });
         const namesByPhotoId = {};
 
         (faceRows || []).forEach((row) => {
@@ -1069,17 +1067,15 @@ router.post('/', requirePermission('projects.create'), (req, res, next) => {
     try {
       await conn.beginTransaction();
       try {
-        [result] = await conn.query(
-          `INSERT INTO projects (uuid, name, description, event_date, meta, tags, admin_id, organization_id, unit_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
-          [uuid, finalName, finalDesc, rawEventDate, JSON.stringify(metaObj), tagsArr ? JSON.stringify(tagsArr) : null, adminId, orgId, unitId]
-        );
+        result = await projectsDao.insertProjectFull(conn, { uuid, name: finalName, description: finalDesc,
+          eventDate: rawEventDate, metaJson: JSON.stringify(metaObj),
+          tagsJson: tagsArr ? JSON.stringify(tagsArr) : null, adminId, orgId, unitId });
       } catch (e) {
         if (e && (e.code === 'ER_BAD_FIELD_ERROR' || (e.message && e.message.indexOf('Unknown column') !== -1))) {
           // projects.organization_id column doesn't exist; retry without it for compatibility with older DB schemas
-          [result] = await conn.query(
-            `INSERT INTO projects (uuid, name, description, event_date, meta, tags, admin_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
-            [uuid, finalName, finalDesc, rawEventDate, JSON.stringify(metaObj), tagsArr ? JSON.stringify(tagsArr) : null, adminId]
-          );
+          result = await projectsDao.insertProjectLegacy(conn, { uuid, name: finalName, description: finalDesc,
+            eventDate: rawEventDate, metaJson: JSON.stringify(metaObj),
+            tagsJson: tagsArr ? JSON.stringify(tagsArr) : null, adminId });
         } else {
           throw e;
         }
@@ -1171,7 +1167,7 @@ router.post('/:id/update', requirePermission('projects.update'), async (req, res
     const conn = await pool.getConnection();
     try {
       await conn.beginTransaction();
-      const [ownRows] = await conn.query(ownershipSql + ' FOR UPDATE', ownershipParams);
+      const ownRows = await projectsDao.lockRows(conn, { sql: ownershipSql, params: ownershipParams });
       if (!ownRows || ownRows.length === 0) {
         await conn.rollback();
         return res.status(404).json({ error: 'Project not found' });
@@ -1181,20 +1177,9 @@ router.post('/:id/update', requirePermission('projects.update'), async (req, res
       if (rawEventDate) metaObj.eventDate = rawEventDate;
       else delete metaObj.eventDate;
       if (timelineConfig) metaObj.timelineEnabled = Boolean(timelineConfig.enabled);
-      await conn.query(
-        `
-        UPDATE projects
-        SET
-          name = ?,
-          description = ?,
-          event_date = ?,
-          meta = ?,
-          tags = ?,
-          updated_at = NOW()
-        WHERE id = ?
-        `,
-        [finalName, finalDesc, rawEventDate, JSON.stringify(metaObj), tagsArr ? JSON.stringify(tagsArr) : null, id]
-      );
+      await projectsDao.updateProjectMeta(conn, { id, name: finalName, description: finalDesc,
+        eventDate: rawEventDate, metaJson: JSON.stringify(metaObj),
+        tagsJson: tagsArr ? JSON.stringify(tagsArr) : null });
       if (timelineConfig) {
         await replaceTimelineSections(conn, id, timelineConfig.enabled ? timelineConfig.sections : []);
         await projectsDao.clearOrphanSectionAssignments(conn, id);
