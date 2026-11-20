@@ -57,26 +57,19 @@ router.post('/', requirePermission('photos.view'), async (req, res) => {
 
     await conn.beginTransaction();
     let snapshot = null;
+    let photos = [];
     let photoSnapshots = new Map();
     if (mode === 'copy') {
       if (shareType === 'album') {
-        const [projects] = await conn.query(
-          'SELECT name, description, event_date, meta, tags, type FROM projects WHERE id = ? AND organization_id = ? AND unit_id = ? LIMIT 1',
-          [projectId, workspace.orgId, workspace.unitId]
-        );
-        if (!projects.length) throw new WorkspaceAccessError('SOURCE_ALBUM_NOT_FOUND', 404);
-        const [sections] = await conn.query(
-          'SELECT id, name, section_time, sort_order FROM project_timeline_sections WHERE project_id = ? ORDER BY sort_order, id',
-          [projectId]
-        );
-        snapshot = { project: projects[0], sections };
+        const loaded = await sharesDao.loadCopySnapshot(conn, { shareType, projectId, photoIds,
+          orgId: workspace.orgId, unitId: workspace.unitId });
+        if (!loaded) throw new WorkspaceAccessError('SOURCE_ALBUM_NOT_FOUND', 404);
+        snapshot = { project: loaded.project, sections: loaded.sections };
+        photos = loaded.photos;
+      } else {
+        photos = (await sharesDao.loadCopySnapshot(conn, { shareType, projectId, photoIds,
+          orgId: workspace.orgId, unitId: workspace.unitId })).photos;
       }
-      const [photos] = await conn.query(
-        shareType === 'album'
-          ? 'SELECT ph.*, p.name AS source_album_name FROM photos ph JOIN projects p ON p.id = ph.project_id WHERE ph.project_id = ? AND ph.organization_id = ? AND ph.unit_id = ? ORDER BY ph.id FOR SHARE'
-          : 'SELECT ph.*, p.name AS source_album_name FROM photos ph LEFT JOIN projects p ON p.id = ph.project_id WHERE ph.id IN (?) AND ph.organization_id = ? AND ph.unit_id = ? ORDER BY ph.id FOR SHARE',
-        [shareType === 'album' ? projectId : photoIds, workspace.orgId, workspace.unitId]
-      );
       if (shareType === 'collection' && photos.length !== photoIds.length) {
         throw new WorkspaceAccessError('PHOTO_NOT_FOUND', 404);
       }

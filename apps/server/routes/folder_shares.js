@@ -127,7 +127,7 @@ router.get('/:id', async (req, res) => {
     conn = await pool.getConnection();
     const workspace = await resolveWorkspace(req, conn), id = positiveId(req.params.id);
     if (!id) throw new WorkspaceAccessError('INVALID_SHARE', 400);
-    await conn.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+    await folderSharesDao.setRepeatableRead(conn);
     await conn.beginTransaction();
     const share = (await listFolderShares(workspace, conn)).find(row => row.id === id);
     if (!share) throw new WorkspaceAccessError('SHARE_NOT_FOUND', 404);
@@ -139,7 +139,7 @@ router.get('/:id', async (req, res) => {
     if (!branch.length) throw new WorkspaceAccessError('SHARE_NOT_FOUND', 404);
     const countOwner = photoOwnerFilter(workspace, 'c');
     const coverOwner = photoOwnerFilter(workspace, 'i');
-    const [rows] = await conn.query(
+    const rows = await folderSharesDao.listShareAlbums(conn, { sql:
       `SELECT DISTINCT p.id, p.name, p.description, p.unit_id AS unitId,
               p.created_at AS createdAt, p.updated_at AS updatedAt,
               (SELECT COUNT(*) FROM photos c WHERE c.project_id = p.id AND c.organization_id = p.organization_id${countOwner.sql}) AS count,
@@ -151,8 +151,8 @@ router.get('/:id', async (req, res) => {
          AND s.target_unit_id = ? AND (s.target_user_id IS NULL OR s.target_user_id = ?)
          AND s.revoked_at IS NULL AND (s.expires_at IS NULL OR s.expires_at > NOW())
          AND p.organization_id = ? AND p.unit_id = ? AND p.restricted_to_user_id IS NULL`,
-      [...countOwner.params, ...coverOwner.params, id, workspace.orgId, share.sourceUnitId, workspace.unitId, workspace.userId, workspace.orgId, share.sourceUnitId]
-    );
+      params: [...countOwner.params, ...coverOwner.params, id, workspace.orgId, share.sourceUnitId, workspace.unitId,
+        workspace.userId, workspace.orgId, share.sourceUnitId] });
     const ids = new Set(rows.map(row => Number(row.id)));
     const groups = branch.map(group => ({ id: group.id, name: group.name, parentId: group.id === share.folderId ? null : group.parentId,
       kind: 'manual', color: group.color, tint: group.tint, symbol: group.symbol, layout: group.layout,

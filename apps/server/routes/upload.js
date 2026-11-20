@@ -841,25 +841,13 @@ async function ensureProjectInScope(db, projectId, orgId, req = null) {
     sql += ' AND organization_id = ?';
     params.push(orgId);
   }
-  try {
-    const [rows] = await db.query(sql, params);
-    if (!rows || rows.length === 0) {
-      const err = new Error('PROJECT_NOT_FOUND');
-      err.status = 404;
-      throw err;
-    }
-  } catch (err) {
-    if (err && (err.code === 'ER_BAD_FIELD_ERROR' || String(err.message || '').includes('Unknown column'))) {
-      const [rows] = await db.query('SELECT id FROM projects WHERE id = ?', [projectId]);
-      if (!rows || rows.length === 0) {
-        const notFound = new Error('PROJECT_NOT_FOUND');
-        notFound.status = 404;
-        throw notFound;
-      }
-      return rows[0];
-    }
+  const { rows, degraded } = await uploadDao.findProjectInScope(db, { sql, params, projectId });
+  if (!rows.length) {
+    const err = new Error('PROJECT_NOT_FOUND');
+    err.status = 404;
     throw err;
   }
+  if (degraded) return rows[0];
 }
 
 async function ensureTimelineSectionInProject(db, projectId, orgId, timelineSectionId) {
@@ -882,8 +870,8 @@ async function ensureTimelineSectionInProject(db, projectId, orgId, timelineSect
     sql += ' AND p.organization_id = ?';
     params.push(orgId);
   }
-  const [rows] = await db.query(sql, params);
-  if (!rows || rows.length === 0) {
+  const rows = await uploadDao.findSectionInProject(db, { sql, params });
+  if (!rows.length) {
     const err = new Error('INVALID_TIMELINE_SECTION');
     err.status = 400;
     throw err;
@@ -1950,9 +1938,9 @@ async function completeDirectVideo(req, res, connection) {
     session = await getDirectVideoSession(req, req.body && req.body.sessionId);
     if (session) await ensureProjectInScope(pool, session.metadata.projectId, session.orgId, req);
     if (!session || !['uploading', 'done'].includes(session.status)) return res.status(404).json({ error: 'DIRECT_VIDEO_SESSION_NOT_FOUND' });
-    const [committed] = await (connection || pool).query('SELECT id, thumb_url, playback_url, ai_status FROM photos WHERE url = ? AND organization_id <=> ? LIMIT 1', [session.relPath, session.orgId]);
-    if (committed.length) {
-      const row = committed[0];
+    const row0 = await uploadDao.findCommittedVideoByUrl(connection || pool, { url: session.relPath, orgId: session.orgId });
+    if (row0) {
+      const row = row0;
       session.status = 'done';
       session.response = makeResponsePayload({ insertedId: row.id, projectId: session.metadata.projectId,
         timelineSectionId: session.metadata.timelineSectionId, relPath: session.relPath, thumbRel: row.thumb_url,
@@ -1996,8 +1984,8 @@ async function completeDirectVideo(req, res, connection) {
     const photographerId = req.user && req.user.id ? req.user.id : null;
     let insertedId;
     try {
-      const [existing] = await (connection || pool).query('SELECT id FROM photos WHERE url = ? AND organization_id <=> ? LIMIT 1', [session.relPath, session.orgId]);
-      insertedId = existing[0]?.id || await createPhotoRecordWithRetry({
+      const existing = await uploadDao.findCommittedPhotoScoped(connection || pool, { url: session.relPath, orgId: session.orgId });
+      insertedId = existing?.id || await createPhotoRecordWithRetry({
         // The source is already in object storage. Keep the semantic state visible
         // while the low-priority post-process waits for its playback slot.
         ...session.metadata, originalFilename: session.metadata.originalFilename === undefined ? session.fileName : session.metadata.originalFilename, relPath: session.relPath, thumbRel: null, playbackRel: null, aiStatus: 'pending', photographerId, orgId: session.orgId, req, connection,

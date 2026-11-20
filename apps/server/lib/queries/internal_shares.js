@@ -225,3 +225,28 @@ async function listSharePhotos(db, { source, order, params, limit, offset }) {
 module.exports.insertCopyJob = insertCopyJob;
 module.exports.countPhotosInSource = countPhotosInSource;
 module.exports.listSharePhotos = listSharePhotos;
+
+/** 复制模式：源相册快照（项目 + 环节 + 照片行） */
+async function loadCopySnapshot(conn, { shareType, projectId, photoIds, orgId, unitId }) {
+  let project = null;
+  let sections = [];
+  if (shareType === 'album') {
+    const [projects] = await conn.query(
+      'SELECT name, description, event_date, meta, tags, type FROM projects WHERE id = ? AND organization_id = ? AND unit_id = ? LIMIT 1',
+      [projectId, orgId, unitId]);
+    if (!projects.length) return null;
+    project = projects[0];
+    const [sectionRows] = await conn.query(
+      'SELECT id, name, section_time, sort_order FROM project_timeline_sections WHERE project_id = ? ORDER BY sort_order, id',
+      [projectId]);
+    sections = sectionRows;
+  }
+  const [photos] = await conn.query(
+    shareType === 'album'
+      ? 'SELECT ph.*, p.name AS source_album_name FROM photos ph JOIN projects p ON p.id = ph.project_id WHERE ph.project_id = ? AND ph.organization_id = ? AND ph.unit_id = ? ORDER BY ph.id FOR SHARE'
+      : 'SELECT ph.*, p.name AS source_album_name FROM photos ph LEFT JOIN projects p ON p.id = ph.project_id WHERE ph.id IN (?) AND ph.organization_id = ? AND ph.unit_id = ? ORDER BY ph.id FOR SHARE',
+    [shareType === 'album' ? projectId : photoIds, orgId, unitId]);
+  return { project, sections, photos };
+}
+
+module.exports.loadCopySnapshot = loadCopySnapshot;

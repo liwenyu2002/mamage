@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const simDao = require('../lib/queries/similarity_groups');
 const { pool } = require('../db');
 const jwt = require('jsonwebtoken');
 const keys = require('../config/keys');
@@ -58,9 +59,8 @@ async function populateReqUserFromAuthIfPresent(req) {
         let payload;
         try { payload = jwt.verify(token, JWT_SECRET); } catch (e) { return; }
         if (!payload || !payload.id) return;
-        const [rows] = await pool.query('SELECT id, organization_id, role FROM users WHERE id = ? LIMIT 1', [payload.id]);
-        if (!rows || rows.length === 0) return;
-        const u = rows[0];
+        const u = await simDao.findAuthUser(pool, payload.id);
+        if (!u) return;
         const org = (u.organization_id !== undefined && u.organization_id !== null) ? Number(u.organization_id) : null;
         req.user = { id: u.id, role: u.role || null, organization_id: org };
     } catch (e) {
@@ -111,10 +111,10 @@ router.get('/groups', requirePermission('photos.view'), async (req, res) => {
               ${workspace.enabled ? (unitId ? 'AND p.unit_id = ?' : 'AND p.unit_id IS NULL') : ''}
               ${owner.sql}
         `;
-        const [rows] = await pool.query(sql, [projectId, modelName, workspace.orgId,
-            ...(unitId ? [unitId] : []), ...owner.params]);
+        const rows = await simDao.queryEmbeddings(pool, { sql, params: [projectId, modelName, workspace.orgId,
+            ...(unitId ? [unitId] : []), ...owner.params] });
 
-        if (!rows || rows.length === 0) return res.json({ groups: [] });
+        if (!rows.length) return res.json({ groups: [] });
 
         const ids = [];
         const vecs = [];
@@ -250,9 +250,9 @@ router.get('/pairs', requirePermission('photos.view'), async (req, res) => {
               ${workspace.enabled ? (unitId ? 'AND p.unit_id = ?' : 'AND p.unit_id IS NULL') : ''}
               ${owner.sql}
         `;
-        const [rows] = await pool.query(sql, [projectId, modelName, workspace.orgId,
-            ...(unitId ? [unitId] : []), ...owner.params]);
-        if (!rows || rows.length === 0) return res.json({ pairs: [] });
+        const rows = await simDao.queryEmbeddings(pool, { sql, params: [projectId, modelName, workspace.orgId,
+            ...(unitId ? [unitId] : []), ...owner.params] });
+        if (!rows.length) return res.json({ pairs: [] });
 
         const ids = [];
         const vecs = [];
@@ -302,10 +302,7 @@ router.get('/groups/simple', async (req, res) => {
         const project = workspace.enabled ? await requireProjectAccess(req, projectId, 'read') : null;
         const orgId = getScopedOrgIdFromReq(req);
         if (!isAuthed && process.env.ORGANIZATION_UNITS_ACTIVE === '1') {
-          const [projects] = await pool.query(
-            'SELECT unit_id FROM projects WHERE id = ? AND organization_id = ? LIMIT 1',
-            [projectId, orgId]
-          );
+          const projects = await simDao.findProjectUnit(pool, { projectId, orgId });
           if (!projects.length || projects[0].unit_id) return res.status(404).json({ error: 'Project not found' });
         }
 

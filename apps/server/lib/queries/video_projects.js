@@ -214,3 +214,18 @@ async function findAssetsByIdsScoped(db, { userId, ids, scope }) {
 module.exports.findProductionVideoSources = findProductionVideoSources;
 module.exports.findAssetsByIdsScoped = findAssetsByIdsScoped;
 module.exports.findRenderUser = findRenderUser;
+
+/** 素材落库（直传完成）并回读 */
+async function insertAssetAndRead(db, { userId, orgId, unitId, metadata, key }) {
+  const [result] = await db.query(
+    `INSERT INTO video_editor_assets
+       (user_id, org_id, unit_id, name, storage_path, public_url, mime_type, file_size, duration_seconds, width, height, has_audio)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [userId, orgId || null, unitId, metadata.name, key, null, metadata.mimeType, metadata.size,
+      metadata.duration, metadata.width, metadata.height, metadata.hasAudio ? 1 : 0]);
+  const [rows] = await db.query('SELECT * FROM video_editor_assets WHERE id = ? AND user_id = ? LIMIT 1',
+    [result.insertId, userId]);
+  return rows && rows.length ? rows[0] : null;
+}
+
+module.exports.insertAssetAndRead = insertAssetAndRead;

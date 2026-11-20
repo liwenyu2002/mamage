@@ -79,3 +79,86 @@ async function findDefaultPresetForbiddenWords(db, orgId) {
 
 module.exports.findDefaultPreset = findDefaultPreset;
 module.exports.findDefaultPresetForbiddenWords = findDefaultPresetForbiddenWords;
+
+// ---- 通用 AI 任务查询（排版/段落改写等任务共用）----
+async function findJobByClientRequestId(db, { userId, clientRequestId }) {
+  const [rows] = await db.query(
+    'SELECT id,options,unit_id FROM ai_jobs WHERE user_id=? AND client_request_id=? LIMIT 1',
+    [userId, clientRequestId]);
+  return rows && rows.length ? rows[0] : null;
+}
+
+async function insertAiJob(db, { userId, projectId, unitId, prompt, options, clientRequestId }) {
+  const [result] = await db.query(
+    `INSERT INTO ai_jobs (user_id,project_id,unit_id,status,model,prompt_text,options,client_request_id,created_at)
+     VALUES (?,?,?,'pending','default',?,?,?,NOW())`,
+    [userId, projectId || null, unitId || null, prompt, JSON.stringify(options), clientRequestId]);
+  return result;
+}
+
+/** 排版任务回查（带 unit 与 options 过滤） */
+async function findLayoutJob(db, { userId, clientRequestId, unitId, purpose, orgScope }) {
+  const [rows] = await db.query(
+    `SELECT j.id,j.status,j.error,r.extra FROM ai_jobs j LEFT JOIN ai_results r ON r.job_id=j.id
+      WHERE j.user_id=? AND j.client_request_id=? AND j.unit_id <=> ?
+        AND JSON_UNQUOTE(JSON_EXTRACT(j.options,'$.purpose'))=?
+        AND JSON_UNQUOTE(JSON_EXTRACT(j.options,'$.organizationScope'))=? ORDER BY r.id DESC LIMIT 1`,
+    [userId, clientRequestId, unitId, purpose, orgScope]);
+  return rows && rows.length ? rows[0] : null;
+}
+
+async function listStyleBlocksForLayout(db, { orgId, unitScopeSql, params }) {
+  const [rows] = await db.query(
+    `SELECT id,type,name FROM wechat_style_blocks WHERE org_id <=> ? ${unitScopeSql} ORDER BY id LIMIT 500`,
+    [orgId, ...params]);
+  return rows || [];
+}
+
+/** 段落改写回查（只取 markdown） */
+async function findParagraphRewriteJob(db, { userId, clientRequestId }) {
+  const [rows] = await db.query(
+    `SELECT j.id,j.status,j.error,r.markdown FROM ai_jobs j
+       LEFT JOIN ai_results r ON r.job_id=j.id
+      WHERE j.user_id=? AND j.client_request_id=?
+        AND JSON_UNQUOTE(JSON_EXTRACT(j.options,'$.purpose'))='paragraph-rewrite'
+      ORDER BY r.id DESC LIMIT 1`, [userId, clientRequestId]);
+  return rows && rows.length ? rows[0] : null;
+}
+
+module.exports.findJobByClientRequestId = findJobByClientRequestId;
+module.exports.insertAiJob = insertAiJob;
+module.exports.findLayoutJob = findLayoutJob;
+module.exports.listStyleBlocksForLayout = listStyleBlocksForLayout;
+module.exports.findParagraphRewriteJob = findParagraphRewriteJob;
+
+/** 排版类任务落库（无 project_id） */
+async function insertLayoutJob(db, { userId, unitId, prompt, options, clientRequestId }) {
+  const [result] = await db.query(
+    `INSERT INTO ai_jobs
+       (user_id,unit_id,status,model,prompt_text,options,client_request_id,created_at)
+     VALUES (?,?,'pending','default',?,?,?,NOW())`,
+    [userId, unitId, prompt, JSON.stringify(options), clientRequestId]);
+  return result;
+}
+
+module.exports.insertLayoutJob = insertLayoutJob;
+
+/** 批量任务：建批次与逐渠道任务 */
+async function insertJobBatch(conn, row) {
+  const [result] = await conn.query(
+    'INSERT INTO ai_job_batches (user_id, project_id, unit_id, form_snapshot, selected_photo_ids, status, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW())',
+    [row.userId || null, row.projectId, row.unitId || null, JSON.stringify(row.formSnapshot),
+      JSON.stringify(row.selectedPhotoIds), row.status]);
+  return result;
+}
+
+async function insertBatchJob(conn, row) {
+  const [result] = await conn.query(
+    'INSERT INTO ai_jobs (user_id, project_id, unit_id, status, model, prompt_text, options, client_request_id, batch_id, channel_key, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())',
+    [row.userId || null, row.projectId, row.unitId || null, 'pending', 'default', row.prompt,
+      JSON.stringify(row.options), null, row.batchId, row.channelKey]);
+  return result;
+}
+
+module.exports.insertJobBatch = insertJobBatch;
+module.exports.insertBatchJob = insertBatchJob;

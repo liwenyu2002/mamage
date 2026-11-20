@@ -508,17 +508,9 @@ router.post('/generate/batch', requirePermission('ai.generate'), async (req, res
     let batchId;
     try {
       await connection.beginTransaction();
-      const [batchInsert] = await connection.query(
-        'INSERT INTO ai_job_batches (user_id, project_id, unit_id, form_snapshot, selected_photo_ids, status, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW())',
-        [
-          req.user && req.user.id ? req.user.id : null,
-          projectId,
-          workspace.enabled ? workspace.unitId : null,
-          JSON.stringify(formSnapshotToStore),
-          JSON.stringify(selectedPhotos.map((p) => p.id)),
-          'pending',
-        ]
-      );
+      const batchInsert = await aiNewsDao.insertJobBatch(connection, { userId: req.user && req.user.id,
+        projectId, unitId: workspace.enabled ? workspace.unitId : null, formSnapshot: formSnapshotToStore,
+        selectedPhotoIds: selectedPhotos.map((p) => p.id), status: 'pending' });
       batchId = batchInsert.insertId;
 
       for (const channelKey of channels) {
@@ -530,21 +522,9 @@ router.post('/generate/batch', requirePermission('ai.generate'), async (req, res
           newsPlainTextEmoji: sourceEmoji([{ ...form, monitorReferences: undefined }, interviewText, selectedPhotos]) };
         if (channelKey === 'wechat_article' && contentTemplate) jobOptions.contentTemplate = contentTemplate;
 
-        const [jobInsert] = await connection.query(
-          'INSERT INTO ai_jobs (user_id, project_id, unit_id, status, model, prompt_text, options, client_request_id, batch_id, channel_key, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())',
-          [
-            req.user && req.user.id ? req.user.id : null,
-            projectId,
-            workspace.enabled ? workspace.unitId : null,
-            'pending',
-            'default',
-            prompt,
-            JSON.stringify(jobOptions),
-            null,
-            batchId,
-            channelKey,
-          ]
-        );
+        const jobInsert = await aiNewsDao.insertBatchJob(connection, { userId: req.user && req.user.id,
+          projectId, unitId: workspace.enabled ? workspace.unitId : null, prompt, options: jobOptions,
+          batchId, channelKey });
         const jobId = jobInsert.insertId;
         jobs.push({ jobId, channelKey });
       }

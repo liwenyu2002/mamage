@@ -157,3 +157,31 @@ async function insertRegisteredUser(db, { cols, placeholders, params }) {
 }
 
 module.exports.insertRegisteredUser = insertRegisteredUser;
+
+// ---- 钉钉登录 ----
+async function findByEmailRole(db, email) {
+  const [rows] = await db.query('SELECT id, role FROM users WHERE email = ? LIMIT 1', [email]);
+  return rows && rows.length ? rows[0] : null;
+}
+
+async function findByDingtalkUnionId(db, unionId) {
+  const [rows] = await db.query('SELECT id, role FROM users WHERE dingtalk_union_id = ? LIMIT 1', [unionId]);
+  return rows && rows.length ? rows[0] : null;
+}
+
+async function bindDingtalkUnionId(db, { unionId, userId }) {
+  await db.query('UPDATE users SET dingtalk_union_id = ? WHERE id = ?', [unionId, userId]);
+}
+
+async function insertDingtalkUser(db, row) {
+  const [result] = await db.query(
+    `INSERT INTO users (student_no, name, email, dingtalk_union_id, role, organization_id)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [row.studentNo, row.name, row.email || null, row.unionId, row.role, row.orgId]);
+  return result;
+}
+
+module.exports.findByEmailRole = findByEmailRole;
+module.exports.findByDingtalkUnionId = findByDingtalkUnionId;
+module.exports.bindDingtalkUnionId = bindDingtalkUnionId;
+module.exports.insertDingtalkUser = insertDingtalkUser;

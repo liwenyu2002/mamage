@@ -72,7 +72,7 @@
   避免调用方解构口径不一。
 - 规则：**新的查询写进 `lib/queries/<域>.js`**，routes 只做编排与错误码；SQL 不再散落在路由里。
 - 棘轮：`scripts/audit-inline-sql.mjs` 统计 `routes/` 内联 SQL 调用点，当前 **70**，
-  `ci.sh` 用 `--fail-over 31` 卡住"只降不升"，每迁一个文件把阈值下调（374 → … → 278 → 269 → 261）。
+  `ci.sh` 用 `--fail-over 0` 卡住"只降不升"，每迁一个文件把阈值下调（374 → … → 278 → 269 → 261）。
 - TypeScript：`tsconfig.json` + `@babel/preset-typescript` 已接入 webpack（`.ts/.tsx` 与 JS 同管线），
   `npm run typecheck` 进 CI；首个 TS 模块 `services/shareService.ts`。
 

@@ -81,3 +81,15 @@ module.exports = {
   fillShareLinkItemsFromFolder, insertAudit, lockFolderShare, revokeFolderShare,
   lockCopyFolderShare, requeueFailedCopyJobs,
 };
+
+async function setRepeatableRead(conn) {
+  await conn.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+}
+
+async function listShareAlbums(conn, { sql, params }) {
+  const [rows] = await conn.query(sql, params);
+  return rows || [];
+}
+
+module.exports.setRepeatableRead = setRepeatableRead;
+module.exports.listShareAlbums = listShareAlbums;

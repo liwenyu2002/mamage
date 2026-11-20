@@ -38,6 +38,8 @@ async function albumSnapshot(ownPhotosOnly = false) {
     requireProjectAccess: async () => ({ id: 9, organization_id: 2, unit_id: 1 }),
     canAccessProject: async () => true, metadataEditScope: () => 'organization', hasInternalShare: async () => false,
     chooseCoverFromPhotos: () => ({}),
+    uploadDao: require('../lib/queries/upload'), photosDao: require('../lib/queries/photos'),
+    projectsDao: require('../lib/queries/projects'), facesDao: require('../lib/queries/faces'),
   };
   vm.runInNewContext(source.slice(source.indexOf("router.get('/:id', async"), source.indexOf('// 4. 创建项目')), globals);
   await handler({ params: { id: '9' }, query: { includeFaces: '0' }, user: { id: 7, organization_id: 2 } }, {

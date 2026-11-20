@@ -17,6 +17,7 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const fetch = require('node-fetch');
+const usersDao = require('../lib/queries/users');
 const { pool } = require('../db');
 const keys = require('../config/keys');
 const crypto = require('node:crypto');
@@ -105,17 +106,15 @@ async function fetchDingTalkProfile(cfg, authCode) {
 async function resolveLocalUser(cfg, profile) {
   const unionId = String(profile.unionId);
 
-  const [byUnion] = await pool.query(
-    'SELECT id, role FROM users WHERE dingtalk_union_id = ? LIMIT 1', [unionId]
-  );
-  if (byUnion && byUnion.length) return byUnion[0];
+  const byUnion = await usersDao.findByDingtalkUnionId(pool, unionId);
+  if (byUnion) return byUnion;
 
   const email = String(profile.email || '').trim().toLowerCase();
   if (email) {
-    const [byEmail] = await pool.query('SELECT id, role FROM users WHERE email = ? LIMIT 1', [email]);
-    if (byEmail && byEmail.length) {
-      await pool.query('UPDATE users SET dingtalk_union_id = ? WHERE id = ?', [unionId, byEmail[0].id]);
-      return byEmail[0];
+    const byEmail = await usersDao.findByEmailRole(pool, email);
+    if (byEmail) {
+      await usersDao.bindDingtalkUnionId(pool, { unionId, userId: byEmail.id });
+      return byEmail;
     }
   }
 
@@ -125,11 +124,8 @@ async function resolveLocalUser(cfg, profile) {
 
   const name = String(profile.nick || '钉钉用户').slice(0, 100);
   const studentNo = `dtk_${unionId.slice(0, 24)}`;
-  const [result] = await pool.query(
-    `INSERT INTO users (student_no, name, email, dingtalk_union_id, role, organization_id)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [studentNo, name, email || null, unionId, cfg.defaultRole, cfg.defaultOrgId]
-  );
+  const result = await usersDao.insertDingtalkUser(pool, { studentNo, name, email, unionId,
+    role: cfg.defaultRole, orgId: cfg.defaultOrgId });
   return { id: result.insertId, role: cfg.defaultRole };
 }
 

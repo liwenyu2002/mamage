@@ -45,3 +45,17 @@ async function setRepeatableRead(conn) {
 }
 
 module.exports = { readOnlySnapshot, ensureRows, lockSnapshot, writeWorkspaceState, writeUserState, setRepeatableRead };
+
+/** 桌面目录：简化版（仅 id）与完整版（含封面/计数） */
+async function listCatalogIds(db, { where, params }) {
+  const [rows] = await db.query(`SELECT p.id FROM projects p WHERE ${where}`, params);
+  return rows || [];
+}
+
+async function queryCatalogRows(db, { sql, params }) {
+  const [rows] = await db.query(sql, params);
+  return rows || [];
+}
+
+module.exports.listCatalogIds = listCatalogIds;
+module.exports.queryCatalogRows = queryCatalogRows;

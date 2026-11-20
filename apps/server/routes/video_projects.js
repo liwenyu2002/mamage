@@ -162,15 +162,7 @@ async function getDirectAssetSession(req, sessionId) {
 }
 
 async function createAssetRecord({ user, unitId, metadata, key, db = pool }) {
-  const [result] = await db.query(
-    `INSERT INTO video_editor_assets
-     (user_id, org_id, unit_id, name, storage_path, public_url, mime_type, file_size, duration_seconds, width, height, has_audio)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [user.id, user.organization_id || null, unitId, metadata.name, key, null, metadata.mimeType, metadata.size,
-      metadata.duration, metadata.width, metadata.height, metadata.hasAudio ? 1 : 0]
-  );
-  const [rows] = await db.query('SELECT * FROM video_editor_assets WHERE id = ? AND user_id = ? LIMIT 1', [result.insertId, user.id]);
-  return rows[0];
+  return videoDao.insertAssetAndRead(db, { userId: user.id, orgId: user.organization_id, unitId, metadata, key });
 }
 const assetDto = (row) => ({
   id: String(row.id), assetId: String(row.id), name: row.name, url: videoStorage.mediaProxyUrl(row.storage_path) || row.public_url,

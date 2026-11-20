@@ -1,4 +1,5 @@
 const express = require('express');
+const opsDao = require('../lib/queries/operations');
 const { pool } = require('../db');
 const { requirePermission } = require('../lib/permissions');
 const { createOperationsStatus } = require('../lib/operations_status');
@@ -27,8 +28,7 @@ router.post('/evaluations', requirePermission('users.view_all'), async (req, res
     const saved = { source: 'imported-judgments', createdAt: new Date().toISOString(),
       queryCount: dataset.queries.length, corpusSize: dataset.corpusPhotoIds.length, summary: report.summary,
       expiresAt: Date.now() + 366 * 86400000 };
-    await pool.query(`INSERT INTO runtime_state (namespace,state_key,payload,expires_at) VALUES ('operations','evaluation:latest',?,?)
-      ON DUPLICATE KEY UPDATE payload=VALUES(payload),expires_at=VALUES(expires_at)`, [JSON.stringify(saved), saved.expiresAt]);
+    await opsDao.saveLatestEvaluation(pool, saved);
     res.json(saved);
   } catch (error) {
     if (error.code) {

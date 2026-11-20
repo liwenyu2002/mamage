@@ -159,3 +159,48 @@ module.exports.insertPhotoFull = insertPhotoFull;
 module.exports.insertPhotoWithoutPlayback = insertPhotoWithoutPlayback;
 module.exports.insertPhotoLegacy = insertPhotoLegacy;
 module.exports.findCommittedPhotoScoped = findCommittedPhotoScoped;
+
+/** 项目归属校验（缺列时降级为仅 id 校验） */
+async function findProjectInScope(db, { sql, params, projectId }) {
+  try {
+    const [rows] = await db.query(sql, params);
+    return { rows: rows || [], degraded: false };
+  } catch (err) {
+    if (err && (err.code === 'ER_BAD_FIELD_ERROR' || String(err.message || '').includes('Unknown column'))) {
+      const [rows] = await db.query('SELECT id FROM projects WHERE id = ?', [projectId]);
+      return { rows: rows || [], degraded: true };
+    }
+    throw err;
+  }
+}
+
+async function findSectionInProject(db, { sql, params }) {
+  const [rows] = await db.query(sql, params);
+  return rows || [];
+}
+
+/** 直传完成时的照片读取（含缩略图/播放地址） */
+async function findPhotoUrlsByUrl(db, url) {
+  const [rows] = await db.query('SELECT id, thumb_url, playback_url, url FROM photos WHERE url = ? LIMIT 1', [url]);
+  return rows && rows.length ? rows[0] : null;
+}
+
+async function findPhotoIdByUrl(db, url) {
+  const [rows] = await db.query('SELECT id FROM photos WHERE url = ? LIMIT 1', [url]);
+  return rows && rows.length ? rows[0] : null;
+}
+
+module.exports.findProjectInScope = findProjectInScope;
+module.exports.findSectionInProject = findSectionInProject;
+module.exports.findPhotoUrlsByUrl = findPhotoUrlsByUrl;
+module.exports.findPhotoIdByUrl = findPhotoIdByUrl;
+
+/** 直传视频完成时按 url+org 取已落库行（含缩略图/播放/状态） */
+async function findCommittedVideoByUrl(db, { url, orgId }) {
+  const [rows] = await db.query(
+    'SELECT id, thumb_url, playback_url, ai_status FROM photos WHERE url = ? AND organization_id <=> ? LIMIT 1',
+    [url, orgId]);
+  return rows && rows.length ? rows[0] : null;
+}
+
+module.exports.findCommittedVideoByUrl = findCommittedVideoByUrl;

@@ -1,3 +1,4 @@
+const aiJobsDao = require('../lib/queries/ai_news');
 const { createSharedStore } = require('../lib/shared_runtime_state');
 const { availableStyles, buildLayoutRequest } = require('../lib/wechat_layout');
 const { buildRevisionRequest } = require('../lib/news_revision');
@@ -16,13 +17,11 @@ function registerWechatLayoutRoutes(router, { pool, requirePermission, resolveWo
       if (!/^[A-Za-z0-9_-]{16,64}$/.test(id)) return res.status(400).json({ error: 'INVALID_REQUEST_ID' });
       try {
         const workspace = await resolveWorkspace(req);
-        const [rows] = await pool.query(`SELECT j.id,j.status,j.error,r.extra FROM ai_jobs j LEFT JOIN ai_results r ON r.job_id=j.id
-          WHERE j.user_id=? AND j.client_request_id=? AND j.unit_id <=> ?
-          AND JSON_UNQUOTE(JSON_EXTRACT(j.options,'$.purpose'))=?
-          AND JSON_UNQUOTE(JSON_EXTRACT(j.options,'$.organizationScope'))=? ORDER BY r.id DESC LIMIT 1`,
-        [req.user.id, id, workspace.enabled ? workspace.unitId : null, purpose, String(req.user.organization_id ?? 'none')]);
-        if (!rows.length) return res.status(404).json({ error: 'JOB_NOT_FOUND' });
-        const row = rows[0], extra = typeof row.extra === 'string' ? JSON.parse(row.extra) : row.extra;
+        const row = await aiJobsDao.findLayoutJob(pool, { userId: req.user.id, clientRequestId: id,
+          unitId: workspace.enabled ? workspace.unitId : null, purpose,
+          orgScope: String(req.user.organization_id ?? 'none') });
+        if (!row) return res.status(404).json({ error: 'JOB_NOT_FOUND' });
+        const extra = typeof row.extra === 'string' ? JSON.parse(row.extra) : row.extra;
         res.set('Cache-Control', 'private, no-store').json({ jobId: row.id, status: row.status, result: row.status === 'succeeded' ? extra : null,
           error: row.status === 'failed' ? `AI ${taskName}未完成，原稿已保留，请重试` : null });
       } catch (error) {
@@ -38,9 +37,9 @@ function registerWechatLayoutRoutes(router, { pool, requirePermission, resolveWo
         const workspace = await resolveWorkspace(req), org = req.user.organization_id ?? null;
         let input;
         if (task === 'layout') {
-          const [rows] = await pool.query(`SELECT id,type,name FROM wechat_style_blocks WHERE org_id <=> ?
-            ${workspace.enabled ? (workspace.unitId ? 'AND unit_id = ?' : 'AND unit_id IS NULL') : ''} ORDER BY id LIMIT 500`,
-          workspace.enabled && workspace.unitId ? [org, workspace.unitId] : [org]);
+          const rows = await aiJobsDao.listStyleBlocksForLayout(pool, { orgId: org,
+            unitScopeSql: workspace.enabled ? (workspace.unitId ? 'AND unit_id = ?' : 'AND unit_id IS NULL') : '',
+            params: workspace.enabled && workspace.unitId ? [workspace.unitId] : [] });
           let observed = [];
           try { observed = (await loadObservedStyleLibrary(pool, workspace)).blocks; }
           catch (error) { console.warn('[wechat.layout.observed]', error.code || 'OBSERVED_STYLES_UNAVAILABLE'); }
@@ -52,18 +51,17 @@ function registerWechatLayoutRoutes(router, { pool, requirePermission, resolveWo
         else input = buildTemplateRequest(body);
         const unitId = workspace.enabled ? workspace.unitId : null;
         const result = await lock.withLock(`${req.user.id}:${id}`, async () => {
-          const [previous] = await pool.query('SELECT id,options,unit_id FROM ai_jobs WHERE user_id=? AND client_request_id=? LIMIT 1', [req.user.id, id]);
-          if (previous.length) {
-            const options = typeof previous[0].options === 'string' ? JSON.parse(previous[0].options) : previous[0].options;
-            if (options?.purpose !== purpose || options.inputFingerprint !== input.fingerprint || String(previous[0].unit_id ?? '') !== String(unitId ?? '')
+          const previous = await aiJobsDao.findJobByClientRequestId(pool, { userId: req.user.id, clientRequestId: id });
+          if (previous) {
+            const options = typeof previous.options === 'string' ? JSON.parse(previous.options) : previous.options;
+            if (options?.purpose !== purpose || options.inputFingerprint !== input.fingerprint || String(previous.unit_id ?? '') !== String(unitId ?? '')
               || options.organizationScope !== String(org ?? 'none')) return null;
-            return { jobId: previous[0].id, status: 'pending' };
+            return { jobId: previous.id, status: 'pending' };
           }
           await checkAndReserveQuota(org, 1);
           const options = { purpose, inputFingerprint: input.fingerprint, organizationScope: String(org ?? 'none'), [task]: input };
-          const [inserted] = await pool.query(`INSERT INTO ai_jobs
-            (user_id,unit_id,status,model,prompt_text,options,client_request_id,created_at) VALUES (?,?,'pending','default',?,?,?,NOW())`,
-          [req.user.id, unitId, input.prompt, JSON.stringify(options), id]);
+          const inserted = await aiJobsDao.insertLayoutJob(pool, { userId: req.user.id, unitId,
+            prompt: input.prompt, options, clientRequestId: id });
           await enqueueJob(inserted.insertId);
           return { jobId: inserted.insertId, status: 'pending' };
         });

@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const orgDao = require('../lib/queries/organizations');
 const { pool } = require('../db');
 
 // GET /api/organizations
@@ -11,17 +12,14 @@ router.get('/', async (req, res) => {
     if (!Number.isFinite(limit) || limit <= 0 || limit > 200) limit = 50;
 
     // check if organizations table exists to avoid crash on older DB
-    const [tbl] = await pool.query("SELECT COUNT(*) AS cnt FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'organizations'");
-    if (!tbl || tbl.length === 0 || tbl[0].cnt === 0) {
+    if (!await orgDao.hasOrganizationsTable(pool)) {
       // table not present, return empty list
       return res.json([]);
     }
 
     // Detect which columns exist and build a safe SELECT accordingly
-    const [colRows] = await pool.query(
-      "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'organizations'"
-    );
-    const cols = new Set((colRows || []).map(r => String(r.COLUMN_NAME).toLowerCase()));
+    const colRows = await orgDao.listOrganizationColumns(pool);
+    const cols = new Set(colRows.map(r => String(r.COLUMN_NAME).toLowerCase()));
 
     const selectParts = ['id', 'name'];
     if (cols.has('slug')) selectParts.push('slug');
@@ -42,8 +40,8 @@ router.get('/', async (req, res) => {
     sql += ' ORDER BY name ASC LIMIT ?';
     params.push(limit);
 
-    const [rows] = await pool.query(sql, params);
-    const out = (rows || []).map(r => ({
+    const rows = await orgDao.queryOrganizations(pool, { sql, params });
+    const out = rows.map(r => ({
       id: r.id,
       name: r.name,
       slug: ('slug' in r) ? (r.slug || null) : null,

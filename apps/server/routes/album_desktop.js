@@ -29,12 +29,12 @@ async function catalog(workspace, db = pool, full = true) {
   const params = [workspace.orgId, ...scope.params];
   const where = `p.organization_id = ?${scope.sql ? ` AND ${scope.sql}` : ''}`;
   if (!full) {
-    const [rows] = await db.query(`SELECT p.id FROM projects p WHERE ${where}`, params);
-    return rows;
+    return desktopDao.listCatalogIds(db, { where, params });
   }
   // 每本相册的封面/张数用一次聚合 + 窗口函数算出，避免逐行相关子查询（45 本相册时从 ~600ms 降到 ~2ms）。
   const owner = photoOwnerFilter(workspace);
-  const [rows] = await db.query(`SELECT p.id, p.name, p.description, p.meta, p.admin_id AS adminId,
+  const rows = await desktopDao.queryCatalogRows(db, { sql:
+    `SELECT p.id, p.name, p.description, p.meta, p.admin_id AS adminId,
     p.created_at AS createdAt, p.updated_at AS updatedAt, p.event_date AS eventDate,
     COALESCE(cn.count, 0) AS count,
     ph.id AS photoId, ph.thumb_url AS coverThumb, ph.url AS coverUrl
@@ -49,7 +49,7 @@ async function catalog(workspace, db = pool, full = true) {
       ) ranked WHERE rn = 1
     ) ph ON ph.project_id = p.id
     WHERE ${where} ORDER BY COALESCE(p.updated_at, p.created_at) DESC, p.id DESC`,
-    [workspace.orgId, ...owner.params, workspace.orgId, ...owner.params, ...params]);
+    params: [workspace.orgId, ...owner.params, workspace.orgId, ...owner.params, ...params] });
   const editScope = metadataEditScope(workspace);
   return rows.map(row => ({ id: Number(row.id), name: row.name, title: row.name, adminId: row.adminId || null,
     canEdit: ['unit', 'organization'].includes(editScope) || (editScope === 'own' && Number(row.adminId) === workspace.userId),
