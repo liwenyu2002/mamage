@@ -711,4 +711,24 @@ router.get('/duplicates', authMiddleware, async (req, res) => {
   }
 });
 
+// 只读取公开资料：用于摄影师署名回填，限定同组织，避免跨组织枚举
+router.get('/:id', authMiddleware, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isSafeInteger(id) || id <= 0) return res.status(400).json({ error: 'INVALID_USER' });
+    const orgId = req.user && req.user.organization_id !== undefined && req.user.organization_id !== null
+      ? Number(req.user.organization_id) : null;
+    const row = await usersDao.findPublicUserInOrg(pool, { id, orgId });
+    if (!row) return res.status(404).json({ error: 'USER_NOT_FOUND' });
+    return res.json({
+      id: row.id, name: row.name || null, username: row.nickname || null,
+      department: row.department || null, role: row.role || null,
+      avatarUrl: buildAvatarUrl(row.avatar_url, row.id),
+    });
+  } catch (err) {
+    console.error('[users.get]', err && err.stack ? err.stack : err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 module.exports = router;

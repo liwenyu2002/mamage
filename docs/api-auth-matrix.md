@@ -3,7 +3,7 @@
 > 由 `node scripts/gen-auth-matrix.mjs` 扫描 `apps/server/routes` 生成，请勿手改。
 > 规则：凡是标「（路由内自行鉴权）」的接口，必须在实现里显式调用 requireProjectAccess / requirePermission 等，否则视为缺口。
 
-共 224 条路由。
+共 225 条路由。
 
 | 方法 | 路径 | 鉴权 | 源文件 |
 | --- | --- | --- | --- |
@@ -146,6 +146,7 @@
 | POST | `/api/upload/video/direct/init` | （路由内自行鉴权） | `apps/server/routes/upload.js` |
 | PUT | `/api/upload/video/direct/part-proxy/:sessionId/:partNumber` | （路由内自行鉴权） | `apps/server/routes/upload.js` |
 | POST | `/api/upload/video/direct/parts` | （路由内自行鉴权） | `apps/server/routes/upload.js` |
+| GET | `/api/users/:id` | 登录 | `apps/server/routes/users.js` |
 | PUT | `/api/users/:id/access` | （路由内自行鉴权） | `apps/server/lib/user_access_admin.js` |
 | GET | `/api/users/:id/idp-profiles` | 登录 | `apps/server/routes/users.js` |
 | PATCH | `/api/users/:id/role` | 登录 | `apps/server/routes/users.js` |

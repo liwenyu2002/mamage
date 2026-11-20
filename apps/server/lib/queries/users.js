@@ -185,3 +185,13 @@ module.exports.findByEmailRole = findByEmailRole;
 module.exports.findByDingtalkUnionId = findByDingtalkUnionId;
 module.exports.bindDingtalkUnionId = bindDingtalkUnionId;
 module.exports.insertDingtalkUser = insertDingtalkUser;
+
+/** 同组织内按 id 取公开资料（摄影师署名等只读场景） */
+async function findPublicUserInOrg(db, { id, orgId }) {
+  const [rows] = await db.query(
+    `SELECT id, student_no, name, department, role, email, avatar_url, nickname, organization_id
+       FROM users WHERE id = ? AND (? IS NULL OR organization_id = ?) LIMIT 1`, [id, orgId, orgId]);
+  return rows && rows.length ? rows[0] : null;
+}
+
+module.exports.findPublicUserInOrg = findPublicUserInOrg;
