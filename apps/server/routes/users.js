@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const usersDao = require('../lib/queries/users');
 const { pool } = require('../db');
 const { validAvatar, buildAvatarUrl } = require('../lib/user_avatar');
 const bcrypt = require('bcryptjs');
@@ -241,7 +242,7 @@ router.post('/email-code', async (req, res) => {
     if (!email) return res.status(400).json({ error: 'MISSING_EMAIL', message: '请填写邮箱' });
     if (!emailRegex.test(email)) return res.status(400).json({ error: 'INVALID_EMAIL', message: '邮箱格式不正确' });
 
-    const [existing] = await pool.query('SELECT id FROM users WHERE email = ? LIMIT 1', [email]);
+    const existing = await usersDao.findByEmail(pool, email);
     if (existing.length) return res.status(409).json({ error: 'EMAIL_EXISTS', message: '该邮箱已注册，请直接登录' });
 
     const result = await sendVerificationCode({
@@ -294,10 +295,10 @@ router.post('/register', async (req, res) => {
 
     // uniqueness checks
     if (student_no) {
-      const [existing] = await pool.query('SELECT id FROM users WHERE student_no = ?', [student_no]);
+      const existing = await usersDao.findByStudentNo(pool, student_no);
       if (existing.length) return res.status(409).json({ error: 'student_no already exists' });
     }
-    const [existingEmailRows] = await pool.query('SELECT id FROM users WHERE email = ?', [email]);
+    const existingEmailRows = await usersDao.findByEmail(pool, email);
     if (existingEmailRows.length) return res.status(409).json({ error: 'EMAIL_EXISTS', message: '该邮箱已注册，请直接登录' });
 
     const orgResolution = await resolveRegistrationOrganization(pool, req.body || {});
@@ -557,8 +558,7 @@ router.put('/me/password', authMiddleware, async (req, res) => {
     if (!pwdRegex.test(newPassword)) return res.status(400).json({ error: 'INVALID_PASSWORD', message: '密码须为8-16位，且为字母和数字的组合' });
 
     // read existing hash
-    const [rows] = await pool.query('SELECT password_hash FROM users WHERE id = ? LIMIT 1', [req.user.id]);
-    const storedHash = rows && rows[0] ? rows[0].password_hash : null;
+    const storedHash = await usersDao.findPasswordHash(pool, req.user.id);
 
     if (storedHash) {
       // require currentPassword to verify
@@ -568,7 +568,7 @@ router.put('/me/password', authMiddleware, async (req, res) => {
     }
 
     const newHash = await bcrypt.hash(newPassword, 10);
-    await pool.query('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?', [newHash, new Date(), req.user.id]);
+    await usersDao.updatePassword(pool, { userId: req.user.id, hash: newHash });
     res.json({ success: true });
   } catch (err) {
     console.error('[users.changePassword]', err && err.stack ? err.stack : err);
@@ -586,7 +586,8 @@ router.post('/invitations', authMiddleware, requirePermission('users.invitations
     const allowed = new Set(['visitor', 'photographer', 'admin']);
     if (!allowed.has(role)) return res.status(400).json({ error: 'INVALID_ROLE' });
     const code = crypto.randomBytes(20).toString('hex');
-    const [result] = await pool.query('INSERT INTO invitations (code, role, created_by, expires_at, max_uses, note) VALUES (?, ?, ?, ?, ?, ?)', [code, role, req.user.id, expires_at || null, max_uses || 1, note || null]);
+    const result = await usersDao.insertInvitation(pool, { code, role, createdBy: req.user.id,
+      expiresAt: expires_at, maxUses: max_uses, note });
     res.json({ id: result.insertId, code, role, max_uses });
   } catch (err) {
     console.error('[invitations.create]', err && err.stack ? err.stack : err);
@@ -602,9 +603,8 @@ router.post('/me/invite', authMiddleware, async (req, res) => {
   try {
     conn = await pool.getConnection();
     await conn.beginTransaction();
-    const [rows] = await conn.query('SELECT * FROM invitations WHERE code = ? FOR UPDATE', [invite_code]);
-    if (!rows || rows.length === 0) { await conn.rollback(); conn.release(); return res.status(400).json({ error: 'INVALID_INVITE' }); }
-    const inv = rows[0];
+    const inv = await usersDao.lockInvitationByCode(conn, invite_code);
+    if (!inv) { await conn.rollback(); conn.release(); return res.status(400).json({ error: 'INVALID_INVITE' }); }
     if (!await inviteBelongsToOrganization(conn, inv.created_by, req.user.organization_id)) {
       await conn.rollback(); conn.release();
       return res.status(400).json({ error: 'INVALID_INVITE', message: '邀请码不属于当前组织' });
@@ -613,8 +613,8 @@ router.post('/me/invite', authMiddleware, async (req, res) => {
     if (inv.expires_at && new Date(inv.expires_at) <= new Date()) { await conn.rollback(); conn.release(); return res.status(400).json({ error: 'INVALID_INVITE' }); }
     if (inv.max_uses !== null && inv.uses >= inv.max_uses) { await conn.rollback(); conn.release(); return res.status(400).json({ error: 'INVALID_INVITE' }); }
     // apply role
-    await conn.query('UPDATE users SET role = ?, updated_at = ? WHERE id = ?', [inv.role, new Date(), req.user.id]);
-    await conn.query('UPDATE invitations SET uses = uses + 1 WHERE id = ?', [inv.id]);
+    await usersDao.updateRole(conn, { userId: req.user.id, role: inv.role });
+    await usersDao.incrementInvitationUses(conn, inv.id);
     await conn.commit();
     conn.release();
     const [rows2] = await pool.query('SELECT id, student_no, name, department, role, email, avatar_url, nickname, organization_id FROM users WHERE id = ?', [req.user.id]);
