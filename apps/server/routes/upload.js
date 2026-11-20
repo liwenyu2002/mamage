@@ -1,5 +1,6 @@
 // routes/upload.js
 const express = require('express');
+const uploadDao = require('../lib/queries/upload');
 const { normalizeOriginalFilename } = require('../lib/original_filename');
 const router = express.Router();
 const fs = require('fs');
@@ -905,11 +906,11 @@ async function ensureTimelineSectionInProject(db, projectId, orgId, timelineSect
 
 async function appendPhotoIdToProject(conn, projectId, insertedId) {
   if (!projectId || !insertedId) return;
-  const [projRows] = await conn.query('SELECT photo_ids FROM projects WHERE id = ? FOR UPDATE', [projectId]);
-  if (!projRows || projRows.length === 0) return;
-  const arr = parseProjectPhotoIds(projRows[0].photo_ids);
+  const projRow = await uploadDao.findProjectPhotoIdsForUpdate(conn, projectId);
+  if (!projRow) return;
+  const arr = parseProjectPhotoIds(projRow.photo_ids);
   if (!arr.includes(insertedId)) arr.push(insertedId);
-  await conn.query('UPDATE projects SET photo_ids = ? WHERE id = ?', [arr.length ? JSON.stringify(arr) : null, projectId]);
+  await uploadDao.writeProjectPhotoIds(conn, projectId, arr);
 }
 
 async function createPhotoRecord(payload) {
@@ -918,10 +919,7 @@ async function createPhotoRecord(payload) {
     await conn.beginTransaction();
     await ensureProjectInScope(conn, payload.projectId, payload.orgId, payload.req);
     await ensureTimelineSectionInProject(conn, payload.projectId, payload.orgId, payload.timelineSectionId);
-    const [ownerRows] = payload.projectId
-      ? await conn.query('SELECT unit_id FROM projects WHERE id = ? LIMIT 1', [payload.projectId])
-      : [[]];
-    const unitId = ownerRows[0]?.unit_id || null;
+    const unitId = payload.projectId ? (await uploadDao.findProjectUnitId(conn, payload.projectId)) || null : null;
 
     let result;
     try {
@@ -1102,8 +1100,7 @@ function nowMs() {
 async function getPhotographerName(photographerId) {
   if (!photographerId) return null;
   try {
-    const [rows] = await pool.query('SELECT name FROM users WHERE id = ? LIMIT 1', [photographerId]);
-    return rows && rows[0] ? rows[0].name || null : null;
+    return await uploadDao.findPhotographerName(pool, photographerId);
   } catch (err) {
     console.warn('[upload] fetch photographer name failed:', err && err.message ? err.message : err);
     return null;
@@ -1314,19 +1311,13 @@ async function enableVideoSemanticAnalysis({ insertedId }) {
   if (!insertedId) return false;
   try {
     if (distributed()) {
-      const [photos] = await pool.query('SELECT ai_status FROM photos WHERE id = ? AND type = \'video\'', [insertedId]);
-      if (!photos.length) return false;
-      if (photos[0].ai_status === 'done') return true;
-      const [tasks] = await pool.query("SELECT status FROM runtime_tasks WHERE kind = 'semantic' AND dedupe_key = ?", [String(insertedId)]);
-      if (tasks.length) return ['queued', 'running'].includes(tasks[0].status);
+      const photoRow = await uploadDao.findVideoAiStatus(pool, insertedId);
+      if (!photoRow) return false;
+      if (photoRow.ai_status === 'done') return true;
+      const task = await uploadDao.findSemanticTaskStatus(pool, insertedId);
+      if (task) return ['queued', 'running'].includes(task.status);
     }
-    const [result] = await pool.query(
-      `UPDATE photos
-       SET ai_status = 'pending', ai_error = NULL, ai_started_at = NULL, ai_finished_at = NULL
-       WHERE id = ? AND type = 'video'`,
-      [insertedId]
-    );
-    if (!result || !result.affectedRows) return false;
+    if (!await uploadDao.markVideoSemanticPending(pool, insertedId)) return false;
     return enqueueVideoSemanticAnalysis({ insertedId });
   } catch (err) {
     console.error('[upload.video] enable semantic analysis failed:', insertedId, err && err.message ? err.message : err);

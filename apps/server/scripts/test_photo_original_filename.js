@@ -29,7 +29,8 @@ test('the actual upload record transaction persists the original name separately
       throw Error('Unexpected query');
     } };
   const context = { normalizeOriginalFilename, ensureProjectInScope: async () => {}, ensureTimelineSectionInProject: async () => {},
-    distributed: () => false, buildMediaUrl: value => value, JSON };
+    distributed: () => false, buildMediaUrl: value => value, JSON,
+    uploadDao: require('../lib/queries/upload') };
   vm.createContext(context);
   vm.runInContext(source.slice(source.indexOf('async function createPhotoRecord(payload)'), source.indexOf('async function persistPhotoTasks(')), context);
   assert.equal(await context.createPhotoRecord({ connection, projectId: 9, orgId: 2, type: 'video',
