@@ -34,6 +34,7 @@
 | `react-hooks/exhaustive-deps` | web 69 → **0**（补依赖 12 处、ref 稳定 9 处、刻意豁免 21 处并写明原因） | 同上 |
 | react-hooks 违规 | 103 → **0** | 同上 |
 | 导航回归 | 17 / 19（`publicAlbum` / `publicFolder` 为既有失败，已用 worktree 在 716bbd25 复现同样两项） | `cd apps/web && node scripts/test-navigation-browser.cjs` |
+| 全量 server 测试 | 129 通过 / 15 环境门控（`bash scripts/test-all.sh`） |
 | 调色/编辑单测 | 34 项通过 | `cd apps/server && npm run test:photo-tone` |
 | 接口总数 | 212 条（见矩阵） | `node scripts/gen-auth-matrix.mjs` |
 

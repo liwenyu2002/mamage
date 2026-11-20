@@ -54,7 +54,8 @@ function fixture({role='editor',collegeAdmin=false,shared=false,readShare=false,
   const globals={router,pool,...access,requirePermission:permissions.requirePermission,populateReqUserFromAuthIfPresent:async()=>{},console,
     normalizePhotoAdjustments:value=>value,parsePhotoAdjustments:value=>value,buildMediaUrl:value=>value,
     editRevision:()=>null, getScopedPhotoSourceRow:async(_req,id)=>state.photos.find(photo=>photo.id===id),
-    cosStorage:{}, preparePhotoEdit:async({adjustments})=>({saved:adjustments,assertCurrent(){},async committed(){},async discard(){}})};
+    cosStorage:{}, preparePhotoEdit:async({adjustments})=>({saved:adjustments,assertCurrent(){},async committed(){},async discard(){}}),
+    photosDao:require('../lib/queries/photos'), projectsDao:require('../lib/queries/projects')};
   vm.runInNewContext(source.slice(source.indexOf("router.param('id'"),source.indexOf('const AI_SEARCH_RATE_WINDOW_MS')),globals);
   vm.runInNewContext(source.slice(source.indexOf("router.patch('/:id'"),source.indexOf('module.exports = router;')),globals);app.use('/photos',router);
   vm.runInNewContext(source.slice(source.indexOf("router.post('/assign-section'"),source.indexOf('// POST /api/photos/group-rescue')),globals);

@@ -58,7 +58,8 @@ function fixture({ role = 'editor', collegeAdmin = false, authenticated = true, 
     resolveWorkspace: access.resolveWorkspace, requireProjectAccess: access.requireProjectAccess,
     sendWorkspaceError: access.sendWorkspaceError, populateReqUserFromAuthIfPresent: async () => {},
     assertNoActiveCopySource: async () => {}, skipLocalFileCheck: true,
-    cosStorage: { async deleteObjectsForPhotoRows() { state.storageCalls++; return {}; } }, console };
+    cosStorage: { async deleteObjectsForPhotoRows() { state.storageCalls++; return {}; } }, console,
+    photosDao: require('../lib/queries/photos'), projectsDao: require('../lib/queries/projects') };
   vm.runInNewContext(source.slice(source.indexOf("router.param('id'"), source.indexOf('// 小工具：安全解析 meta JSON')), globals);
   vm.runInNewContext(source.slice(source.indexOf("router.delete('/:id',"), source.indexOf('module.exports = router;')), globals);
   app.use('/api/projects', router);

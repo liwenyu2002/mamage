@@ -656,7 +656,7 @@ function enqueueDirectVideoPostProcess({ sourceKey, mimeType, thumbKey, thumbRel
           cacheControl: UPLOAD_CACHE_CONTROL,
         });
         const live = await uploadDao.findLivePhoto(pool, { photoId: insertedId, url: `/${sourceKey}` });
-        if (!live.length) {
+        if (!live) {
           await cosStorage.deleteObjects([sourceKey]);
           return;
         }

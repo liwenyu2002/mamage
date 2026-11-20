@@ -60,6 +60,7 @@ async function testDeletedVideoCleanup() {
     enableVideoSemanticAnalysis: async () => { throw new Error('deleted video must not be analyzed'); },
     unlinkFileQuiet: file => removedTemps.push(file),
     pool: { query: async () => [[]] },
+    uploadDao: require('../lib/queries/upload'),
     cosStorage: {
       headObject: async () => ({ ContentLength: 10 }), getObject: async () => ({ Body: {} }),
       uploadFile: async key => { objects.add(key); },
