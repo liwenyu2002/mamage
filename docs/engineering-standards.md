@@ -62,7 +62,7 @@
   `routes/faces.js` 42 → 32。约定：dao 返回 `affectedRows` 数字而非原始元组，避免调用方解构口径不一。
 - 规则：**新的查询写进 `lib/queries/<域>.js`**，routes 只做编排与错误码；SQL 不再散落在路由里。
 - 棘轮：`scripts/audit-inline-sql.mjs` 统计 `routes/` 内联 SQL 调用点，当前 **374**，
-  `ci.sh` 用 `--fail-over 294` 卡住"只降不升"，每迁一个文件把阈值下调（374 → 361 → 351 → 338 → 329 → 321 → 315 → 294）。
+  `ci.sh` 用 `--fail-over 285` 卡住"只降不升"，每迁一个文件把阈值下调（374 → 361 → 351 → 338 → 329 → 321 → 315 → ��。
 - TypeScript：`tsconfig.json` + `@babel/preset-typescript` 已接入 webpack（`.ts/.tsx` 与 JS 同管线），
   `npm run typecheck` 进 CI；首个 TS 模块 `services/shareService.ts`。
 

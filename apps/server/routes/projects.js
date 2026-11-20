@@ -1436,17 +1436,14 @@ router.delete('/:id/timeline-sections/:sectionId', requirePermission('projects.u
     const conn = await pool.getConnection();
     try {
       await conn.beginTransaction();
-      const [result] = await conn.query('DELETE FROM project_timeline_sections WHERE id = ? AND project_id = ?', [sectionId, projectId]);
-      if (!result.affectedRows) {
+      const removed = await projectsDao.deleteTimelineSection(conn, { sectionId, projectId });
+      if (!removed) {
         await conn.rollback();
         return res.status(404).json({ error: 'Section not found' });
       }
-      const [fallback] = await conn.query(
-        'UPDATE photos SET timeline_section_id = NULL WHERE project_id = ? AND timeline_section_id = ?',
-        [projectId, sectionId]
-      );
+      const unassigned = await projectsDao.unassignPhotosFromSection(conn, { projectId, sectionId });
       await conn.commit();
-      return res.json({ ok: true, unassignedPhotos: fallback.affectedRows || 0 });
+      return res.json({ ok: true, unassignedPhotos: unassigned });
     } catch (err) {
       try { await conn.rollback(); } catch (e) { }
       throw err;
@@ -1473,14 +1470,14 @@ router.post('/:id/timeline-sections/reorder', requirePermission('projects.update
     if (!ids.length || ids.length > 50) return res.status(400).json({ error: 'INVALID_SECTION_IDS' });
     if (new Set(ids).size !== ids.length) return res.status(400).json({ error: 'DUPLICATE_SECTION_IDS' });
 
-    const [rows] = await pool.query('SELECT id FROM project_timeline_sections WHERE project_id = ? AND id IN (?)', [projectId, ids]);
-    if (!rows || rows.length !== ids.length) return res.status(400).json({ error: 'SECTION_NOT_IN_PROJECT' });
+    const rows = await projectsDao.listSectionIdsInProject(pool, { projectId, ids });
+    if (rows.length !== ids.length) return res.status(400).json({ error: 'SECTION_NOT_IN_PROJECT' });
 
     const conn = await pool.getConnection();
     try {
       await conn.beginTransaction();
       for (let i = 0; i < ids.length; i += 1) {
-        await conn.query('UPDATE project_timeline_sections SET sort_order = ?, updated_at = NOW() WHERE id = ? AND project_id = ?', [i, ids[i], projectId]);
+        await projectsDao.writeSectionSortOrder(conn, { projectId, sectionId: ids[i], sortOrder: i });
       }
       await conn.commit();
     } catch (err) {
@@ -1515,16 +1512,8 @@ router.delete('/:id', requirePermission('projects.delete'), async (req, res) => 
       await conn.beginTransaction();
 
       let ownSql = 'SELECT id FROM projects WHERE id = ?';
-      const ownParams = [id];
-      if (orgId === null) {
-        ownSql += ' AND organization_id IS NULL';
-      } else {
-        ownSql += ' AND organization_id = ?';
-        ownParams.push(orgId);
-      }
-      ownSql += ' FOR UPDATE';
-      const [ownRows] = await conn.query(ownSql, ownParams);
-      if (!ownRows || ownRows.length === 0) {
+      const ownRows = await projectsDao.lockProjectsForDelete(conn, { id, orgId });
+      if (!ownRows.length) {
         await conn.rollback();
         return res.status(404).json({ error: 'project not found' });
       }
@@ -1532,26 +1521,18 @@ router.delete('/:id', requirePermission('projects.delete'), async (req, res) => 
       await requireProjectAccess(req, id, 'manage', conn);
       const workspace = await resolveWorkspace(req, conn);
       if (workspace.ownPhotosOnly) {
-        const [otherPhotos] = await conn.query('SELECT id FROM photos WHERE project_id = ? AND NOT (photographer_id <=> ?) LIMIT 1 FOR UPDATE', [id, workspace.userId]);
+        const otherPhotos = await projectsDao.findForeignPhotosInProject(conn, { projectId: id, userId: workspace.userId });
         if (otherPhotos.length) throw new WorkspaceAccessError('ORGANIZATION_PHOTO_ACCESS_REQUIRED');
       }
 
-      const [photoRows] = await conn.query(
-        `SELECT id, url, thumb_url AS thumbUrl, public_download_url AS publicDownloadUrl, playback_url AS playbackUrl, adjustments
-         FROM photos
-         WHERE project_id = ? FOR UPDATE`,
-        [id]
-      );
-      photos = photoRows || [];
+      photos = await projectsDao.lockProjectPhotos(conn, id);
 
       await assertNoActiveCopySource(conn, photos.map((photo) => photo.id));
 
-      if (photos.length > 0) {
-        await conn.query('DELETE FROM photos WHERE project_id = ?', [id]);
-      }
+      if (photos.length > 0) await projectsDao.deletePhotosInProject(conn, id);
 
-      const [result] = await conn.query('DELETE FROM projects WHERE id = ?', [id]);
-      if (result.affectedRows === 0) {
+      const removedProject = await projectsDao.deleteProjectRow(conn, id);
+      if (!removedProject) {
         await conn.rollback();
         return res.status(404).json({ error: 'project not found' });
       }

@@ -98,3 +98,68 @@ module.exports = {
   updateTimelineSectionFields,
   findTimelineSectionRow,
 };
+
+// ---- 时间线环节：删除 / 重排 / 归属查询 ----
+async function deleteTimelineSection(conn, { sectionId, projectId }) {
+  const [result] = await conn.query('DELETE FROM project_timeline_sections WHERE id = ? AND project_id = ?', [sectionId, projectId]);
+  return Number(result && result.affectedRows) || 0;
+}
+
+async function unassignPhotosFromSection(conn, { projectId, sectionId }) {
+  const [result] = await conn.query(
+    'UPDATE photos SET timeline_section_id = NULL WHERE project_id = ? AND timeline_section_id = ?', [projectId, sectionId]);
+  return Number(result && result.affectedRows) || 0;
+}
+
+async function listSectionIdsInProject(db, { projectId, ids }) {
+  const [rows] = await db.query('SELECT id FROM project_timeline_sections WHERE project_id = ? AND id IN (?)', [projectId, ids]);
+  return rows || [];
+}
+
+async function writeSectionSortOrder(conn, { projectId, sectionId, sortOrder }) {
+  await conn.query('UPDATE project_timeline_sections SET sort_order = ?, updated_at = NOW() WHERE id = ? AND project_id = ?',
+    [sortOrder, sectionId, projectId]);
+}
+
+// ---- 相册删除 ----
+async function lockProjectsForDelete(conn, { id, orgId }) {
+  let sql = 'SELECT id FROM projects WHERE id = ?';
+  const params = [id];
+  if (orgId === null) sql += ' AND organization_id IS NULL';
+  else { sql += ' AND organization_id = ?'; params.push(orgId); }
+  sql += ' FOR UPDATE';
+  const [rows] = await conn.query(sql, params);
+  return rows || [];
+}
+
+async function findForeignPhotosInProject(conn, { projectId, userId }) {
+  const [rows] = await conn.query(
+    'SELECT id FROM photos WHERE project_id = ? AND NOT (photographer_id <=> ?) LIMIT 1 FOR UPDATE', [projectId, userId]);
+  return rows || [];
+}
+
+async function lockProjectPhotos(conn, projectId) {
+  const [rows] = await conn.query(
+    `SELECT id, url, thumb_url AS thumbUrl, public_download_url AS publicDownloadUrl, playback_url AS playbackUrl, adjustments
+       FROM photos WHERE project_id = ? FOR UPDATE`, [projectId]);
+  return rows || [];
+}
+
+async function deletePhotosInProject(conn, projectId) {
+  await conn.query('DELETE FROM photos WHERE project_id = ?', [projectId]);
+}
+
+async function deleteProjectRow(conn, projectId) {
+  const [result] = await conn.query('DELETE FROM projects WHERE id = ?', [projectId]);
+  return Number(result && result.affectedRows) || 0;
+}
+
+module.exports.deleteTimelineSection = deleteTimelineSection;
+module.exports.unassignPhotosFromSection = unassignPhotosFromSection;
+module.exports.listSectionIdsInProject = listSectionIdsInProject;
+module.exports.writeSectionSortOrder = writeSectionSortOrder;
+module.exports.lockProjectsForDelete = lockProjectsForDelete;
+module.exports.findForeignPhotosInProject = findForeignPhotosInProject;
+module.exports.lockProjectPhotos = lockProjectPhotos;
+module.exports.deletePhotosInProject = deletePhotosInProject;
+module.exports.deleteProjectRow = deleteProjectRow;
