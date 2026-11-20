@@ -41,9 +41,10 @@ export default function NewsBlockControls({ editorRef, revision, onAction, child
     const schedule = () => { cancelAnimationFrame(queued); queued = requestAnimationFrame(measure); };
     schedule();
     const observer = new ResizeObserver(schedule); observer.observe(frame.current);
-    frame.current.addEventListener('load', schedule, true);
+    const frameNode = frame.current;
+    frameNode?.addEventListener('load', schedule, true);
     window.addEventListener('resize', schedule);
-    return () => { cancelAnimationFrame(queued); observer.disconnect(); frame.current?.removeEventListener('load', schedule, true); window.removeEventListener('resize', schedule); };
+    return () => { cancelAnimationFrame(queued); observer.disconnect(); frameNode?.removeEventListener('load', schedule, true); window.removeEventListener('resize', schedule); };
   }, [measure]);
   React.useLayoutEffect(() => { measure(); }, [revision, measure]);
   React.useLayoutEffect(() => {

@@ -376,7 +376,7 @@ function App() {
         setLoading(false);
       }
     }
-  }, [isDemoPath, projectSort, projectDateFilter, currentUser?.id, currentUser?.needsAssignment]);
+  }, [isDemoPath, projectSort, projectDateFilter, currentUser]);
 
   const handleInitialUploadHandled = React.useCallback(() => {
     setAlbumUploadIntent(null);
@@ -614,7 +614,7 @@ function App() {
       }
     })();
     return () => {canceled = true;};
-  }, []);
+  }, [isSharePath]);
 
   const handleSearchSubmit = React.useCallback(() => {
     let trimmed = String(keyword || '').trim();
@@ -638,7 +638,7 @@ function App() {
 
 
       // ignore
-    }}, [keyword, searchSuggestion, currentProjectId, selectedNav, folderSearchScope, loadPhotoSearchResults, clearPhotoSearchState, loadProjects, isDemoPath]);
+    }}, [keyword, searchSuggestion, currentProjectId, selectedNav, folderSearchScope, isDemoPath]);
   const handlePhotoSearchLoadMore = React.useCallback(() => {
     if (photoSearchLoading || !photoSearchHasMore) return;
     loadPhotoSearchResults({ kw: keyword, page: photoSearchPage + 1, append: true, related: photoSearchMeta?.matchType === 'related' });

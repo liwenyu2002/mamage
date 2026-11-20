@@ -981,7 +981,7 @@ function CanvasEditor({
   pageStyle = null // 页面级样式（背景/左右留白）内联对象
 }, ref) {
   const canvasRef = React.useRef(null);
-  const list = Array.isArray(doc) ? doc : [];
+  const list = React.useMemo(() => (Array.isArray(doc) ? doc : []), [doc]);
   // 主题色调色板：以 globalAccent 为主色派生，刷到 raw 块内 data-mm-theme 标注元素（秀米式联动）
   const themePalette = React.useMemo(() => derivePalette(globalAccent || '#1a1a1a'), [globalAccent]);
 
@@ -1062,7 +1062,7 @@ function CanvasEditor({
     const toolbarHeight = blockEl.querySelector('.cve-toolbar')?.getBoundingClientRect().height || 100;
     const flip = anchorViewTop - toolbarHeight - 8 < Math.max(80, canvas.getBoundingClientRect().top + 8);
     setToolbarAnchor({ top: anchorViewTop - blockRect.top, flip });
-  }, [selectedUid, activeRawImg, doc]);
+  }, [selectedUid, activeRawImg]);
 
   // 选区落在某个 raw 块内时,缓存其 uid+Range（点样式库前的最后一次光标位置）
   const captureRawCaret = React.useCallback(() => {

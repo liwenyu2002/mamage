@@ -28,6 +28,7 @@ export default function PersonalRasterPreview({ item, pdf }) {
       finally { if (source) source.width = source.height = 0; if (!abort.signal.aborted) setBusy(false); }
     })();
     return () => abort.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
   return <><canvas ref={ref} className={`personal-original-image${pdf ? ' personal-pdf-page' : ''}`} aria-label={pdf ? 'PDF 页面预览' : item.name} hidden={busy || Boolean(error)} />
     {busy ? <span className="personal-canvas-progress" role="status">正在读取图片…</span> : error ? <p className="personal-error" role="alert">{error}</p> : null}</>;

@@ -62,6 +62,7 @@ export default function PersonalMarkup({ item, value, onChange, selectedId, onSe
       finally { if (source) source.width = source.height = 0; }
     })();
     return () => abort.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sourceKey]);
   React.useLayoutEffect(() => {
     const canvas = overlayRef.current;
@@ -83,6 +84,7 @@ export default function PersonalMarkup({ item, value, onChange, selectedId, onSe
       }
       context.restore();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, annotations, pending, selectedId, sourceKey]);
 
   const point = event => {

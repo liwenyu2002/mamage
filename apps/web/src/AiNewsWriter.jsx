@@ -50,6 +50,24 @@ const CHANNEL_USAGE = {
   weibo: '微博'
 };
 
+const INITIAL_FORM_VALUES = {
+    sourceMaterial: '',
+    writingMode: 'draft',
+    contentTemplate: 'auto',
+    contentOutline: '',
+    monitorReferences: [],
+    reviewCredits: true,
+    eventName: '',
+    eventDate: null,
+    location: '',
+    organizer: '',
+    participants: '',
+    highlights: '',
+    usage: '官网新闻',
+    tone: '正式',
+    targetWords: '500-800'
+  };
+
 function emptyChannelContent() {
   // factCheck 形状约定为 { issues: [{type,expect,found,snippet}], forbiddenHits: [{word,snippet}] }（后端未挂载前为 null）
   return { title: '', subtitle: '', markdownText: '', generatedHtml: '', extra: {}, photos: [], factCheck: null, references: null };
@@ -124,23 +142,6 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
   const DRAFT_STORAGE_KEY = newsDraftKey(currentUser?.id, workspaceId);
   const preferredChannelKey = CHANNELS.some((item) => item.key === initialChannelKey) ? initialChannelKey : null;
   const preferredChannel = CHANNELS.find((item) => item.key === preferredChannelKey) || null;
-  const INITIAL_FORM_VALUES = {
-    sourceMaterial: '',
-    writingMode: 'draft',
-    contentTemplate: 'auto',
-    contentOutline: '',
-    monitorReferences: [],
-    reviewCredits: true,
-    eventName: '',
-    eventDate: null,
-    location: '',
-    organizer: '',
-    participants: '',
-    highlights: '',
-    usage: '官网新闻',
-    tone: '正式',
-    targetWords: '500-800'
-  };
   const skipNextAutoSaveRef = React.useRef(false);
   const draftSnapshotRef = React.useRef(null);
   const storedDraftRef = React.useRef(null);
@@ -321,7 +322,7 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
     setInputError('');
     setSourceOpen(false);
     Toast.success('已清空本页缓存');
-  }, [DRAFT_STORAGE_KEY, INITIAL_FORM_VALUES, preferredChannelKey, isGenerating]);
+  }, [DRAFT_STORAGE_KEY, preferredChannelKey, isGenerating]);
 
   const removePhoto = React.useCallback((photoId) => {
     setSelectedPhotos((prev) => (prev || []).filter((p) => String(p.id) !== String(photoId)));
@@ -1478,8 +1479,7 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
     link.click();
   };
 
-  const finalPreviewHtml = React.useMemo(() => getFinalPreviewHtml(),
-  [activeContent.markdownText, activeContent.generatedHtml, selectedPhotos]);
+  const finalPreviewHtml = getFinalPreviewHtml();
   const reviewNotes = Array.isArray(activeContent.extra?.reviewNotes) ?
   activeContent.extra.reviewNotes.filter((note) => typeof note === 'string' && note.trim()) : [];
 

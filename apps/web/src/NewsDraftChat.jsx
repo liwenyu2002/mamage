@@ -51,6 +51,7 @@ export default function NewsDraftChat({ article, storageKey, disabled, onApply, 
       if (!pending) { setQuestion(''); setInstruction(''); setError(''); }
     }
     else if (!selection && openReason.current === 'selection') setOpen(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selection]);
   React.useLayoutEffect(() => {
     if (!open) return undefined;

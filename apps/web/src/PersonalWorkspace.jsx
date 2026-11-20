@@ -89,15 +89,20 @@ export default function PersonalWorkspace({ currentUser, membershipSummary, onEn
     const abort = new AbortController();
     getMyMembershipRequests(abort.signal).then(value => { if (!abort.signal.aborted && value.needsChoice && currentUser?.needsAssignment) setJoinOpen(true); }).catch(() => {});
     return () => abort.abort();
+    // 只在用户切换时检查一次入组状态；needsAssignment 变化不需要重放。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser?.id]);
   React.useEffect(() => {
     setAnalysis(null); setToneError(''); setToneBusy(Boolean(active)); setHistory({ past: [], future: [] });
     setToneMode('tone'); setAspect(undefined); setComparison('adjusted'); setHolding(false); gesture.current = null;
     setSelectedAnnotation(null);
+    // 换一张图（active.id 变化）才重置编辑态；active 对象本身每次渲染都可能更新。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active?.id]);
   React.useEffect(() => {
     if (tool !== 'edit') setHolding(false);
     if (tool === 'edit' && active) setToneBusy(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tool]);
   React.useEffect(() => {
     if (tool !== 'collage' || !items.length) return undefined;
@@ -185,7 +190,8 @@ export default function PersonalWorkspace({ currentUser, membershipSummary, onEn
       setResult(null); setError('');
     } catch (e) { setError(e.message); }
   };
-  const paintAnnotations = React.useCallback((canvas, options) => paintPersonalAnnotations(canvas, active?.annotations, options), [active?.id, active?.annotations]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- 只随图片切换重建；active 对象引用不稳定
+  const paintAnnotations = React.useCallback((canvas, options) => paintPersonalAnnotations(canvas, active?.annotations, options), [active?.id]);
   const download = async () => {
     if (!active || busy || (tool === 'collage' && (collageBusy || !collageSize))) return;
     const abort = new AbortController(); controller.current = abort;

@@ -1535,7 +1535,7 @@ function ProjectDetailInner({
     return () => {
       canceled = true;
     };
-  }, [projectId, initialProject, readOnly]);
+  }, [projectId, initialProject, readOnly, buildImagesAndMetas]);
 
   React.useEffect(() => {
     if (!projectId || !loading || images.length > 0) return undefined;
@@ -2236,11 +2236,8 @@ function ProjectDetailInner({
       setUploading(false);
     }
   }, [
-  stagingFiles,
-  stagingSectionIds,
   projectId,
   cancelUpload,
-  DISABLE_UPLOAD_FEATURE,
   prependUploadedPhotos,
   upsertVideoUploadPlaceholder,
   removeVideoUploadPlaceholder,
@@ -2248,8 +2245,7 @@ function ProjectDetailInner({
   readOnly,
   buildImagesAndMetas,
   uploadTimelineEnabled,
-  uploadTimelineSections,
-  hasUnassignedStagedFiles]
+  uploadTimelineSections]
   );
 
   const confirmUpload = React.useCallback(async () => {
@@ -2362,7 +2358,8 @@ function ProjectDetailInner({
     } finally {
       setEditSaving(false);
     }
-  }, [projectId, editTitle, editDescription, editEventDate, editTags, userPermissions, readOnly, canEditAlbumInfo]);
+  }, [projectId, editTitle, editDescription, editEventDate, editTags, readOnly, canEditAlbumInfo,
+    buildImagesAndMetas, canEditTags, canUpdateProject, onBack]);
 
   // ===== 时间线环节编辑 =====
   const refreshProjectDetail = React.useCallback(async () => {
@@ -2681,7 +2678,7 @@ function ProjectDetailInner({
       setSelectedMap(selected);setSelectedCount(Object.keys(selected).length);setAllSelected(false);
     }
     setActionSheetOpen(false);
-  }, [onlyOwnUploads, selectedMap, photoMetas, currentUser?.id]);
+  }, [onlyOwnUploads, selectedMap, photoMetas, currentUser?.id, setOnlyOwnUploads]);
 
   const toggleDeleteMode = React.useCallback(() => {
     const turningOff = !!deleteMode;
@@ -2834,7 +2831,7 @@ function ProjectDetailInner({
         }
       }
     });
-  }, [selectedMap, photoMetas, canDeleteItem, projectId, readOnly, DISABLE_DELETE_FEATURE]);
+  }, [selectedMap, photoMetas, canDeleteItem, projectId, readOnly, DISABLE_DELETE_FEATURE, buildImagesAndMetas]);
 
   // ========== Download helpers ==========
   const getSelectedIndexes = React.useCallback(() => Object.keys(selectedMap || {}).map((k) => Number(k)).sort((a, b) => a - b), [selectedMap]);
@@ -2955,7 +2952,6 @@ function ProjectDetailInner({
   fetchDownloadPixelSource,
   fetchRenderedPhotoBlob,
   getDownloadAdjustmentForMeta,
-  getDirectMediaUrl,
   images,
   inferDownloadExt,
   triggerBlobDownload]
@@ -3273,7 +3269,8 @@ function ProjectDetailInner({
     photoFocusControllerRef.current = { cleanup: focusPhotoCard(galleryRef.current, focusPhotoId, finish, setHighlightedPhotoId) };
     return undefined;
   }, [focusPhotoId, loading, error, project, projectId, viewerVisible, initialOpenPhotoId, mediaFilter, onlyOwnUploads,
-  searchKeywordTrimmed, mediaFilteredIndexes, visiblePhotoCount, galleryPrepared, photoMetas]);
+  searchKeywordTrimmed, mediaFilteredIndexes, visiblePhotoCount, galleryPrepared, photoMetas,
+  setGalleryRenderLimit, setMediaFilter, setOnlyOwnUploads]);
   const useTimelineGallery = Boolean(uploadTimelineEnabled && uploadTimelineSections.length && !searchKeywordTrimmed);
   const timelineGalleryGroups = React.useMemo(() => {
     if (!useTimelineGallery) return [];
@@ -3382,7 +3379,7 @@ function ProjectDetailInner({
       mediaFilteredIndexes.length,
       Math.max(GALLERY_INITIAL_RENDER_LIMIT, prev + GALLERY_RENDER_BATCH_SIZE)
     ));
-  }, [mediaFilteredIndexes.length]);
+  }, [mediaFilteredIndexes.length, setGalleryRenderLimit]);
 
   const isGalleryPreparing = !loading && !error && visiblePhotoItems.length > 0 && !galleryPrepared;
 
@@ -4618,7 +4615,7 @@ function ProjectDetailInner({
     setViewerShowOriginal(false);
     setViewerVisible(true);
     setViewerSeq(null); // 普通打开走整册顺序；找我等场景在调用后另行设序列
-  }, [getViewerTargetSrc]);
+  }, [getViewerTargetSrc, getMetaPhotoId, photoMetas]);
 
   // 拍照找我：命中照片 → 打开查看器,且翻页限定在命中集合内(按相似度顺序)
   const [findMeOpen, setFindMeOpen] = React.useState(false);

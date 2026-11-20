@@ -432,6 +432,8 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
   React.useEffect(() => {
     onSearchScopeChange?.(currentGroup ? { folderId: currentGroup.id, name: currentGroup.name } : null);
     return () => onSearchScopeChange?.(null);
+    // 依赖收窄到 id/name：groups 数组重建不应导致搜索作用域反复重置
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentGroup?.id, currentGroup?.name, onSearchScopeChange]);
   const currentPath = folderPath(currentGroup, groups);
   const childGroups = sortFolders(groups.filter((group) => group.parentId === currentGroup?.id));
@@ -463,6 +465,8 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
   React.useEffect(() => {
     setSelectedAlbumIds((old) => old.filter((id) => visibleAlbumItems.some((album) => album.id === id)));
     setSelectedFolderIds((old) => old.filter((id) => visibleFolderItems.some((group) => group.id === id)));
+    // 用派生 key 作为依赖是刻意的：数组每次渲染都是新引用，直接依赖会无限重跑。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visibleAlbumKey, visibleFolderKey]);
   const manualCollection = currentGroup && currentGroup.kind !== 'smart';
   React.useEffect(() => {
@@ -922,9 +926,11 @@ function DesktopContent({ initial, userId, workspaceName, organizationName, onOp
     if (!mountedRef.current || submission !== searchSubmissionRef.current || locationRef.current !== location) return;
     setQuery(text.trim());setSearchRun((value) => value + 1);
   };
+  const searchRef = React.useRef(search);
+  searchRef.current = search;
   React.useEffect(() => {
-    if (searchRequest && searchRequest.folderId === selected) void search(searchRequest.q);
-  }, [searchRequest]);
+    if (searchRequest && searchRequest.folderId === selected) void searchRef.current(searchRequest.q);
+  }, [searchRequest, selected]);
   const beginCreation = (parentId = null, initialType = 'album') => {
     if (!canOrganize) return;
     const parent = groups.find((group) => group.id === parentId);

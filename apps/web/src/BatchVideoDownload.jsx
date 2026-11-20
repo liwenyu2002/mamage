@@ -18,6 +18,7 @@ export default function BatchVideoDownload() {
     const warn = event => { event.preventDefault(); event.returnValue = ''; };
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [job?.status, job?.mode]);
   if (!job) return null;
   const active = ['picking', 'preparing', 'running', 'cancelling'].includes(job.status);

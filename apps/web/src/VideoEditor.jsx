@@ -363,17 +363,17 @@ function VideoEditor() {
   }, [productionProjects, projectSearch]);
 
   React.useEffect(() => {
-    if (!renderJob || !['queued', 'running'].includes(renderJob.status)) return undefined;
+    if (!renderJobId || !['queued', 'running'].includes(renderJobStatus)) return undefined;
     const timer = setInterval(async () => {
       try {
-        const response = await getVideoRender(renderJob.id);
+        const response = await getVideoRender(renderJobId);
         setRenderJob(response.job);
         if (response.job.status === 'completed') Toast.success('视频导出完成');
         if (response.job.status === 'failed') Toast.error(response.job.error || '视频导出失败');
       } catch (_) { /* 下次轮询重试 */ }
     }, 1500);
     return () => clearInterval(timer);
-  }, [renderJob && renderJob.id, renderJob && renderJob.status]);
+  }, [renderJobId, renderJobStatus]);
 
   const snapshot = React.useCallback(() => ({ clips, audioClips, captions }), [clips, audioClips, captions]);
   const pushHistory = React.useCallback(() => {
@@ -425,53 +425,67 @@ function VideoEditor() {
     setPlayhead((value) => clamp(value, 0, duration || 0));
   }, [duration]);
 
+  // 派生稳定值：effect 内只读这些原始量，依赖数组里不再出现对象/复杂表达式
+  const activeClip = activeInfo?.clip || null;
+  const activeClipId = activeClip?.id ?? null;
+  const activeClipIn = activeClip?.inPoint ?? 0;
+  const activeClipOut = activeClip?.outPoint ?? 0;
+  const activeClipSpeed = activeClip?.speed || 1;
+  const activeClipVolume = activeClip?.volume === undefined ? 1 : activeClip.volume;
+  const activeStart = activeInfo?.start ?? 0;
+  const activeEnd = activeInfo?.end ?? 0;
+  const activeSourceUrl = activeSource?.url || '';
+  const activeBlank = activeClip ? isBlankClip(activeClip) : false;
+  const renderJobId = renderJob?.id ?? null;
+  const renderJobStatus = renderJob?.status ?? null;
+
   React.useEffect(() => {
-    if (!activeInfo || selectedClipId === activeInfo.clip.id) return;
-    setSelectedClipId(activeInfo.clip.id);
-  }, [activeInfo && activeInfo.clip.id, selectedClipId]);
+    if (!activeClipId || selectedClipId === activeClipId) return;
+    setSelectedClipId(activeClipId);
+  }, [activeClipId, selectedClipId]);
 
   React.useEffect(() => {
     const video = videoRef.current;
-    if (!video || !activeInfo || !activeSource || !activeSource.url) return;
-    const desired = activeInfo.clip.inPoint + ((playhead - activeInfo.start) * (activeInfo.clip.speed || 1));
-    video.playbackRate = activeInfo.clip.speed || 1;
-    video.volume = clamp(activeInfo.clip.volume === undefined ? 1 : activeInfo.clip.volume, 0, 1);
-    video.muted = Number(activeInfo.clip.volume) === 0;
+    if (!video || !activeClipId || !activeSourceUrl) return;
+    const desired = activeClipIn + ((playhead - activeStart) * activeClipSpeed);
+    video.playbackRate = activeClipSpeed;
+    video.volume = clamp(activeClipVolume, 0, 1);
+    video.muted = Number(activeClipVolume) === 0;
     if (Math.abs((video.currentTime || 0) - desired) > 0.25) {
-      try { video.currentTime = clamp(desired, activeInfo.clip.inPoint, activeInfo.clip.outPoint); } catch (e) { /* metadata not ready */ }
+      try { video.currentTime = clamp(desired, activeClipIn, activeClipOut); } catch (e) { /* metadata not ready */ }
     }
     if (isPlaying) video.play().catch(() => setIsPlaying(false));
     else video.pause();
-  }, [activeInfo && activeInfo.clip.id, activeInfo && activeInfo.clip.volume, activeSource && activeSource.url, isPlaying]);
+  }, [activeClipId, activeClipVolume, activeSourceUrl, isPlaying, activeClipIn, activeClipOut, activeClipSpeed, activeStart, playhead]);
 
   React.useEffect(() => {
     const video = videoRef.current;
-    if (!video || !activeInfo || !activeSource || !activeSource.url) return;
-    const desired = activeInfo.clip.inPoint + ((playhead - activeInfo.start) * (activeInfo.clip.speed || 1));
+    if (!video || !activeClipId || !activeSourceUrl) return;
+    const desired = activeClipIn + ((playhead - activeStart) * activeClipSpeed);
     if (Math.abs((video.currentTime || 0) - desired) <= 0.04) return;
-    try { video.currentTime = clamp(desired, activeInfo.clip.inPoint, activeInfo.clip.outPoint); } catch (_) { /* metadata not ready */ }
-  }, [playhead, activeInfo && activeInfo.clip.id, activeSource && activeSource.url]);
+    try { video.currentTime = clamp(desired, activeClipIn, activeClipOut); } catch (_) { /* metadata not ready */ }
+  }, [playhead, activeClipId, activeSourceUrl, activeClipIn, activeClipOut, activeClipSpeed, activeStart]);
 
   React.useEffect(() => {
-    if (!isPlaying || !activeInfo || !isBlankClip(activeInfo.clip)) return undefined;
+    if (!isPlaying || !activeClipId || !activeBlank) return undefined;
     let frame = null;
-    let cursor = clamp(playhead, activeInfo.start, activeInfo.end);
+    let cursor = clamp(playhead, activeStart, activeEnd);
     let previousTime = null;
     const tick = (now) => {
       if (previousTime === null) previousTime = now;
       const elapsed = Math.max(0, (now - previousTime) / 1000);
       previousTime = now;
-      cursor = Math.min(activeInfo.end, cursor + elapsed);
+      cursor = Math.min(activeEnd, cursor + elapsed);
       setPlayhead(cursor);
-      if (cursor >= activeInfo.end - 0.001) {
-        if (activeInfo.end >= duration - 0.001) setIsPlaying(false);
+      if (cursor >= activeEnd - 0.001) {
+        if (activeEnd >= duration - 0.001) setIsPlaying(false);
         return;
       }
       frame = window.requestAnimationFrame(tick);
     };
     frame = window.requestAnimationFrame(tick);
     return () => { if (frame !== null) window.cancelAnimationFrame(frame); };
-  }, [isPlaying, activeInfo && activeInfo.clip.id, activeInfo && activeInfo.end, duration]);
+  }, [isPlaying, activeClipId, activeBlank, activeEnd, activeStart, duration, playhead]);
 
   const handleVideoTimeUpdate = React.useCallback((event) => {
     if (!activeInfo) return;

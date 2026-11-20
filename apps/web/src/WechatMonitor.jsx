@@ -33,6 +33,7 @@ function ArticleDetail({ article, dimensions, onBack, onArticle }) {
   const source = React.useMemo(() => {
     const safe = sanitizeRawHtml((article.blocks || []).join(''));
     return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: data: ${location.origin}; style-src 'unsafe-inline'; base-uri ${location.origin}; form-action 'none'"><base href="${location.origin}/"><style>body{margin:16px auto;max-width:677px;overflow-wrap:anywhere;font:16px/1.8 sans-serif}img{max-width:100%;height:auto}</style></head><body>${safe}</body></html>`;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [article.id, article.revisionId]);
   return <div className="wxm-detail">
     <div className="wxm-detail-heading"><Button size="small" theme="borderless" icon={<IconChevronLeft />} onClick={onBack}>返回</Button>

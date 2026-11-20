@@ -156,6 +156,7 @@ export default function ViewerToneImage({
 
   React.useLayoutEffect(() => { if (interactive) paintComparison(); }, [interactive, comparison, cropMode, adjustmentKey, splitPosition, paintComparison, onPaintCanvas]);
 
+  const useSrcFallback = !photoId;
   React.useEffect(() => {
     if (!interactive || !src) return undefined;
     let disposed = false;
@@ -212,7 +213,9 @@ export default function ViewerToneImage({
       if (frameRef.current?.adjusted) frameRef.current.adjusted.width = frameRef.current.adjusted.height = 0;
       frameRef.current = null; worker?.terminate();
     };
-  }, [interactive, photoId, /* Editing source is original; display URL refreshes must not reload it. */ !photoId && src, paintComparison]);
+    // 编辑源始终是原图，src 刷新不应重载；用派生布尔量表达
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [interactive, photoId, useSrcFallback, paintComparison]);
 
   React.useEffect(() => { localRef.current?.(); }, [adjustmentKey, meteringKey]);
 

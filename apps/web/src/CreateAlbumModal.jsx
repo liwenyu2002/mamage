@@ -81,6 +81,7 @@ export default function CreateAlbumModal({ visible, onClose, onCreated, createPr
       setDraggingOverGroup(null);
     }, reducedMotion ? 0 : 220);
     return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
 
   React.useEffect(() => {

@@ -39,5 +39,6 @@ export function useNavigationScroll() {
     window.addEventListener('touchstart', stop, { passive: true });
     window.addEventListener('pointerdown', stop);
     return () => { stop(); clearTimeout(timer); window.removeEventListener('wheel', stop); window.removeEventListener('touchstart', stop); window.removeEventListener('pointerdown', stop); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在历史条目切换时恢复滚动
   }, [route.entry.key]);
 }

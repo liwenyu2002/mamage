@@ -373,6 +373,7 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
     } finally {
       setAiBusy(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aiBrief, appliedTemplateKey, docPlaceholderText, applyDocChange]);
 
 

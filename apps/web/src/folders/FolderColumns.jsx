@@ -55,7 +55,7 @@ export default function FolderColumns({ groups, albums, sharedAlbums = [], share
   const selectable = entry => (entry.kind === 'folder' ? selectableFolderIds : selectableAlbumIds).includes(entry.item.id);
   const checked = entry => (entry.kind === 'folder' ? selectedFolderIds : selectedAlbumIds).includes(entry.item.id);
   const toggle = entry => { if (selectable(entry)) (entry.kind === 'folder' ? onToggleFolder : onToggleAlbum)?.(entry.item.id); };
-  React.useEffect(() => { if (selecting) { setMenu(null); setAlbumChoice(null); } }, [selecting]);
+  React.useEffect(() => { if (selecting) { setMenu(null); setAlbumChoice(null); } }, [selecting, setAlbumChoice]);
   const choose = (entry, columnIndex) => {
     if (selecting) { toggle(entry); return; }
     if (entry.kind === 'folder') openFolder(entry.item.id);
@@ -117,6 +117,7 @@ export default function FolderColumns({ groups, albums, sharedAlbums = [], share
     if (railRef.current) observer.observe(railRef.current);
     align();
     return () => { cancelAnimationFrame(frame); observer.disconnect(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathKey, chosenAlbum?.id]);
 
   React.useEffect(() => {

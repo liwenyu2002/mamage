@@ -21,6 +21,7 @@ export default function PersonalFileThumbnail({ item }) {
       finally { if (canvas) canvas.width = canvas.height = 0; }
     })();
     return () => { abort.abort(); if (url) URL.revokeObjectURL(url); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, marked]);
   if (!marked) return <img src={item.url} alt={item.name} />;
   return thumbnail?.key === key ? <img src={thumbnail.url} alt={item.name} data-flattened="true" />

@@ -182,6 +182,8 @@ export default function NewsArticleEditor({ markdown, onChange, title, onChangeT
     document.addEventListener('selectionchange', onSelection);
     document.addEventListener('pointerup', finishPointer);
     return () => { clearTimeout(timer); document.removeEventListener('selectionchange', onSelection); document.removeEventListener('pointerup', finishPointer); view.current = null; editor.destroy(); };
+    // 初始化只跑一次；外部 markdown 变化由下一个 effect 同步进编辑器
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   React.useLayoutEffect(() => {
     if (markdown === emitted.current || !view.current) return;

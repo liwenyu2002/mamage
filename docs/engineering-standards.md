@@ -28,9 +28,10 @@
 
 | 项 | 数值 | 命令 |
 |---|---|---|
-| web lint error | 0（warning 96） | `cd apps/web && node_modules/.bin/eslint src` |
+| web lint error | 0（warning 27） | `cd apps/web && node_modules/.bin/eslint src` |
 | server lint error | 0（warning 23） | `cd apps/server && node_modules/.bin/eslint .` |
 | `no-unused-vars` | web 785 → **0**，server 228 → **0** | 同上 |
+| `react-hooks/exhaustive-deps` | web 69 → **0**（补依赖 12 处、ref 稳定 9 处、刻意豁免 21 处并写明原因） | 同上 |
 | react-hooks 违规 | 103 → **0** | 同上 |
 | 导航回归 | 19 / 19 | `cd apps/web && node scripts/test-navigation-browser.cjs` |
 | 调色/编辑单测 | 34 项通过 | `cd apps/server && npm run test:photo-tone` |

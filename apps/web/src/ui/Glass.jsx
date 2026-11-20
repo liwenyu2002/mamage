@@ -12,7 +12,10 @@ export function GlassReveal({ open, children, className = '' }) {
 export function GlassAccountMenu({ label, triggerContent, compactContent, open: controlledOpen, onOpenChange, children }) {
   const [localOpen, setLocalOpen] = React.useState(false);
   const open = controlledOpen ?? localOpen;
-  const setOpen = value => { const next = typeof value === 'function' ? value(open) : value; setLocalOpen(next); onOpenChange?.(next); };
+  const setOpen = React.useCallback(value => {
+    const next = typeof value === 'function' ? value(open) : value;
+    setLocalOpen(next); onOpenChange?.(next);
+  }, [open, onOpenChange]);
   const compact = compactContent != null;
   React.useEffect(() => setLocalOpen(false), [compact]);
   const [headHeight, setHeadHeight] = React.useState(46);
@@ -38,7 +41,7 @@ export function GlassAccountMenu({ label, triggerContent, compactContent, open: 
     document.addEventListener('pointerdown', outside);
     document.addEventListener('keydown', escape, true);
     return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape, true); };
-  }, [open]);
+  }, [open, setOpen]);
   const panel = <div className="glass-unfold-body" id={id} aria-hidden={!open} inert={!open ? '' : undefined}>
     <div><div className="mamage-user-menu-panel" data-glass={compact ? 'readable' : undefined} onClick={event => {
       if (event.target.closest('button')) setOpen(false);
@@ -80,7 +83,10 @@ export function ViewerDisplaySettings({ appearance, onChange, darkLabel = '深�
   const [localOpen, setLocalOpen] = React.useState(false);
   React.useEffect(() => setLocalOpen(false), [compact]);
   const open = controlledOpen ?? localOpen;
-  const setOpen = value => { const next = typeof value === 'function' ? value(open) : value; setLocalOpen(next); onOpenChange?.(next); };
+  const setOpen = React.useCallback(value => {
+    const next = typeof value === 'function' ? value(open) : value;
+    setLocalOpen(next); onOpenChange?.(next);
+  }, [open, onOpenChange]);
   const root = React.useRef(null);
   const trigger = React.useRef(null);
   const id = React.useId();
@@ -95,7 +101,7 @@ export function ViewerDisplaySettings({ appearance, onChange, darkLabel = '深�
     document.addEventListener('pointerdown', outside);
     document.addEventListener('keydown', escape, true);
     return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape, true); };
-  }, [open]);
+  }, [open, setOpen]);
   const button = <button type="button" ref={trigger} className="glass-settings-trigger" data-glass={compact ? 'clear' : undefined}
     aria-label="显示设置" title="显示设置" aria-expanded={open} aria-controls={id} onClick={() => setOpen(value => !value)}><IconSliders /></button>;
   return <div className={`glass-settings-slot${open ? ' is-open' : ''}${compact ? ' is-compact' : ''}`} ref={root}>

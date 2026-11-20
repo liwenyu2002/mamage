@@ -118,7 +118,7 @@ export default function WorkspacePanel({ visible, onClose, workspaceInfo, initia
     setReceived(Array.isArray(inbox) ? inbox : []);
     setSent(Array.isArray(outbox) ? outbox : []);
     setPublicShares(Array.isArray(publicLinks) ? publicLinks : []);
-  }, [albumShareProjectId, folderShareFolderId, itemShare]);
+  }, [folderShareFolderId, itemShare]);
 
   React.useEffect(() => {
     if (!visible || !activeUnitId) return undefined;
