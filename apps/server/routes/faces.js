@@ -52,12 +52,8 @@ router.use((req, res, next) => {
       const { workspace } = await requireFaceAccess(req, mutates ? 'manage' : 'search');
       const photoId = Number(req.params?.photoId || req.query?.photoId || req.body?.photoId);
       if (Number.isSafeInteger(photoId) && photoId > 0) await requirePhotoAccess(req, photoId, req.method === 'GET' ? 'read' : 'edit');
-      await pool.query(
-        `INSERT INTO organization_access_audit
-           (organization_id, unit_id, user_id, action, resource_type, resource_id)
-         VALUES (?, ?, ?, 'face.search', 'photo', ?)`,
-        [workspace.orgId, workspace.unitId, workspace.userId, Number.isSafeInteger(photoId) ? photoId : null]
-      );
+      await facesDao.insertAccessAudit(pool, { orgId: workspace.orgId, unitId: workspace.unitId,
+        userId: workspace.userId, photoId });
       next();
     } catch (err) {
       if (!sendWorkspaceError(res, err)) next(err);
@@ -1403,10 +1399,7 @@ router.post('/persons/:personId/split', requirePermission('faces.merge'), async 
       const person = await getPersonRow(conn, personId, orgId, true);
       if (!person) throw Object.assign(new Error('person not found'), { status: 404 });
 
-      const [rows] = await conn.query(
-        `SELECT * FROM photo_faces WHERE person_id = ? AND organization_id = ? AND ${usableFaceSql()} FOR UPDATE`,
-        [personId, orgId]
-      );
+      const rows = await facesDao.lockUsableFacesOfPerson(conn, personId, orgId);
       const ownedIds = new Set((rows || []).map((r) => Number(r.id)));
       const foreign = moveFaceIds.filter((id) => !ownedIds.has(id));
       if (foreign.length) {
@@ -1416,20 +1409,13 @@ router.post('/persons/:personId/split', requirePermission('faces.merge'), async 
         throw Object.assign(new Error('至少保留一张脸给原人物；如果想整体改名请用重命名'), { status: 400 });
       }
 
-      const [seqRows] = await conn.query(
-        'SELECT COALESCE(MAX(person_no), 0) AS maxNo FROM face_persons WHERE organization_id = ? FOR UPDATE',
-        [orgId]
-      );
-      const nextNo = ((seqRows && seqRows[0] && Number(seqRows[0].maxNo)) || 0) + 1;
-
-      const [ins] = await conn.query(
-        'INSERT INTO face_persons (organization_id, person_no, name, note, created_by) VALUES (?, ?, ?, ?, ?)',
-        [orgId, nextNo, newPersonName || null, `split from #${personId}`, req.user && req.user.id ? Number(req.user.id) : null]
-      );
+      const nextNo = await facesDao.nextPersonNo(conn, orgId);
+      const ins = await facesDao.insertFacePerson(conn, { orgId, personNo: nextNo, name: newPersonName,
+        note: `split from #${personId}`, createdBy: req.user && req.user.id ? Number(req.user.id) : null });
       newPersonId = ins.insertId;
 
       // 逐脸合并 extra（记录拆分来源，方便审计/回滚定位）
-      const [moveRows] = await conn.query('SELECT id, extra FROM photo_faces WHERE id IN (?)', [moveFaceIds]);
+      const moveRows = await facesDao.listFaceExtras(conn, moveFaceIds);
       const movedIdSet = new Set(moveFaceIds);
       for (const mr of (moveRows || [])) {
         if (!movedIdSet.has(Number(mr.id))) continue;
@@ -1440,11 +1426,8 @@ router.post('/persons/:personId/split', requirePermission('faces.merge'), async 
           splitToPersonId: newPersonId,
           splitAt: new Date().toISOString(),
         });
-        const upd = await conn.query(
-          `UPDATE photo_faces SET person_id = ?, status = 'confirmed', extra = ? WHERE id = ? AND person_id = ? AND organization_id = ? AND ${usableFaceSql()}`,
-          [newPersonId, mergedExtra, mr.id, personId, orgId]
-        );
-        movedFaces += upd && upd[0] && Number(upd[0].affectedRows) ? Number(upd[0].affectedRows) : 0;
+        movedFaces += await facesDao.reassignFace(conn, { faceId: mr.id, fromPersonId: personId,
+          toPersonId: newPersonId, orgId, extra: mergedExtra });
       }
       const seedSet = new Set(seedFaceIds);
       const feedbackEventId = await recordIdentityFeedback(conn, { orgId, userId: req.user.id, action: 'split',
@@ -1456,24 +1439,13 @@ router.post('/persons/:personId/split', requirePermission('faces.merge'), async 
       await recordSeparation(conn, orgId, personId, newPersonId, feedbackEventId);
 
       // 封面：新人物取搬走组里检测分最高的一张；原人物封面若被搬走则用剩余最好的一张补上
-      const [newCoverRows] = await conn.query(
-        `SELECT id FROM photo_faces WHERE person_id = ? AND organization_id = ? AND ${usableFaceSql()} ORDER BY detection_score DESC, id ASC LIMIT 1`,
-        [newPersonId, orgId]
-      );
-      if (newCoverRows && newCoverRows.length) {
-        await conn.query('UPDATE face_persons SET cover_face_id = ? WHERE id = ?', [newCoverRows[0].id, newPersonId]);
-      }
+      const newCoverId = await facesDao.pickBestFaceId(conn, newPersonId, orgId);
+      if (newCoverId) await facesDao.setPersonCover(conn, newPersonId, newCoverId);
 
       const oldCoverId = person.cover_face_id ? Number(person.cover_face_id) : null;
       if (oldCoverId && movedIdSet.has(oldCoverId)) {
-        const [oldCoverRows] = await conn.query(
-          `SELECT id FROM photo_faces WHERE person_id = ? AND organization_id = ? AND ${usableFaceSql()} ORDER BY detection_score DESC, id ASC LIMIT 1`,
-          [personId, orgId]
-        );
-        await conn.query(
-          'UPDATE face_persons SET cover_face_id = ? WHERE id = ?',
-          [oldCoverRows && oldCoverRows.length ? oldCoverRows[0].id : null, personId]
-        );
+        const replacementId = await facesDao.pickBestFaceId(conn, personId, orgId);
+        await facesDao.setPersonCover(conn, personId, replacementId);
       }
 
       await conn.commit();
@@ -1858,4 +1830,5 @@ router.post('/faces/find-me/share', (req, res) => {
   });
 });
 
-module.exports = router;
+module.exports = router;const facesDao = require('../lib/queries/faces');
+
