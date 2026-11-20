@@ -12,6 +12,7 @@ const projectsDao = require('../lib/queries/projects');
 const shareDao = require('../lib/queries/share_links');
 const videoDao = require('../lib/queries/video_projects');
 const folderSharesDao = require('../lib/queries/folder_shares');
+const photosDao = require('../lib/queries/photos');
 
 function fakeDb(handler) {
   const calls = [];
@@ -95,4 +96,79 @@ test('folder_shares.revokeFolderShare 同时撤销内部分享与公开链接', 
     assert.equal(placeholders(call.sql), call.params.length);
     assert.deepEqual(call.params, [31]);
   }
+});
+
+// ---- 第二批：列表/分页/降级路径 ----
+
+const wechatMonitorDao = require('../lib/queries/wechat_monitor');
+const aiNewsDao = require('../lib/queries/ai_news');
+const workspacesDao = require('../lib/queries/workspaces');
+const albumDesktopDao = require('../lib/queries/album_desktop');
+const externalImportsDao = require('../lib/queries/external_imports');
+
+test('projects.listProjectsPage 把分页参数追加在业务参数之后', async () => {
+  const { calls, db } = fakeDb(() => [[{ id: 1 }], null]);
+  await projectsDao.listProjectsPage(db, { whereSql: 'WHERE p.organization_id = ?', params: [2], orderBySql: 'p.id DESC', pageSize: 24, offset: 48 });
+  const [{ sql, params }] = calls;
+  assert.equal(placeholders(sql), params.length);
+  assert.deepEqual(params, [2, 24, 48], '业务参数 → pageSize → offset');
+  assert.match(sql, /ORDER BY p\.id DESC/);
+});
+
+test('photos.queryWithDegradedFallback 命中缺列错误时改用降级 SQL', async () => {
+  const { calls, db } = fakeDb((sql) => {
+    if (sql.includes('ai_score')) throw Object.assign(new Error("Unknown column 'ai_score'"), { code: 'ER_BAD_FIELD_ERROR' });
+    return [[{ id: 1 }], null];
+  });
+  const rows = await photosDao.queryWithDegradedFallback(db, {
+    sql: 'SELECT p.ai_score FROM photos p', degradedSql: 'SELECT p.id FROM photos p', params: [],
+  });
+  assert.deepEqual(rows, [{ id: 1 }]);
+  assert.equal(calls.length, 2, '主查询失败后必须重试降级 SQL');
+});
+
+test('photos.queryWithDegradedFallback 对非缺列错误继续抛出', async () => {
+  const { db } = fakeDb(() => { throw Object.assign(new Error('boom'), { code: 'ER_LOCK_DEADLOCK' }); });
+  await assert.rejects(() => photosDao.queryWithDegradedFallback(db, { sql: 'SELECT 1', degradedSql: 'SELECT 2', params: [] }), /boom/);
+});
+
+test('wechat_monitor.listArticles 把协议版本放在参数最前、offset 最后', async () => {
+  const { calls, db } = fakeDb(() => [[], null]);
+  await wechatMonitorDao.listArticles(db, { clauses: ['a.scope_key=?'], params: ['scope-1'], protocolVersion: 3, offset: 30 });
+  const [{ sql, params }] = calls;
+  assert.equal(placeholders(sql), params.length);
+  assert.deepEqual(params, [3, 'scope-1', 30]);
+});
+
+test('ai_news.requeueJob 只重置失败任务的状态字段', async () => {
+  const { calls, db } = fakeDb();
+  await aiNewsDao.requeueJob(db, 42);
+  const [{ sql, params }] = calls;
+  assert.match(sql, /started_at = NULL/);
+  assert.deepEqual(params, ['pending', 42]);
+});
+
+test('workspaces.listUnitMembers 不把管理员标记塞进 SQL 参数', async () => {
+  const { calls, db } = fakeDb(() => [[{ id: 7, role: 'manager' }], null]);
+  await workspacesDao.listUnitMembers(db, { unitId: 1, orgId: 2 });
+  const [{ sql, params }] = calls;
+  assert.equal(placeholders(sql), params.length);
+  assert.deepEqual(params, [1, 2]);
+});
+
+test('album_desktop.lockSnapshot 两条查询都带 FOR UPDATE', async () => {
+  const { calls, conn } = fakeDb(() => [[], null]);
+  await albumDesktopDao.lockSnapshot(conn, { orgId: 2, unitKey: 1, userId: 7 });
+  assert.equal(calls.length, 2);
+  for (const call of calls) assert.match(call.sql, /FOR UPDATE/);
+});
+
+test('external_imports.listAttributedSources 保留 owner 过滤片段', async () => {
+  const { calls, db } = fakeDb(() => [[], null]);
+  await externalImportsDao.listAttributedSources(db, {
+    projectId: 9, ownerSql: ' AND j.requested_by = ?', args: [9, 7],
+  });
+  const [{ sql, params }] = calls;
+  assert.match(sql, /j\.requested_by = \?/, '受限用户只能看到自己的转存来源');
+  assert.equal(placeholders(sql), params.length);
 });
