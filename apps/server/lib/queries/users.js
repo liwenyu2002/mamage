@@ -118,3 +118,42 @@ module.exports.lockProfile = lockProfile;
 module.exports.emailTakenByOther = emailTakenByOther;
 module.exports.updateProfileFields = updateProfileFields;
 module.exports.findPasswordHashWithRole = findPasswordHashWithRole;
+
+async function findOrganizationByCode(db, code) {
+  const [rows] = await db.query('SELECT id, name FROM organizations WHERE UPPER(code) = ? LIMIT 1', [code]);
+  return rows || [];
+}
+
+async function findOrganizationById(db, id) {
+  const [rows] = await db.query('SELECT id, name FROM organizations WHERE id = ? LIMIT 1', [id]);
+  return rows && rows.length ? rows[0] : null;
+}
+
+async function lockInvitation(conn, code) {
+  const [rows] = await conn.query('SELECT * FROM invitations WHERE code = ? FOR UPDATE', [code]);
+  return rows && rows.length ? rows[0] : null;
+}
+
+async function listAllUsersWithOrg(db) {
+  const [rows] = await db.query(
+    `SELECT u.id, u.name, u.email, u.student_no, u.role, u.department,
+            u.organization_id AS organizationId, o.name AS organizationName,
+            u.created_at AS createdAt
+       FROM users u
+       LEFT JOIN organizations o ON o.id = u.organization_id
+      ORDER BY u.id ASC`);
+  return rows || [];
+}
+
+module.exports.findOrganizationByCode = findOrganizationByCode;
+module.exports.findOrganizationById = findOrganizationById;
+module.exports.lockInvitation = lockInvitation;
+module.exports.listAllUsersWithOrg = listAllUsersWithOrg;
+
+/** 注册时插入用户（列名由调用方按可选字段拼装） */
+async function insertRegisteredUser(db, { cols, placeholders, params }) {
+  const [result] = await db.query(`INSERT INTO users (${cols.join(',')}) VALUES (${placeholders.join(',')})`, params);
+  return result;
+}
+
+module.exports.insertRegisteredUser = insertRegisteredUser;

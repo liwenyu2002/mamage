@@ -97,7 +97,7 @@ function legacyRoleApp(f) {
   const router = express.Router(), app = express();
   const source = fs.readFileSync(require.resolve('../routes/users'), 'utf8');
   vm.runInNewContext(source.slice(source.indexOf("router.get('/all',"), source.indexOf('const accountMerge =')), {
-    router, pool: f.db, console: { error() {} },
+    router, pool: f.db, console: { error() {} }, usersDao: require('../lib/queries/users'),
     require: name => { assert.equal(name, '../lib/user_access_admin'); return require(name); },
     authMiddleware: (req, _res, next) => { req.user = { id: Number(req.get('x-test-user')), role: 'superadmin' }; next(); },
     // Simulate a permission precheck that passed before a concurrent revocation.

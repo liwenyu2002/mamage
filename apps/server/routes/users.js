@@ -162,10 +162,7 @@ async function resolveRegistrationOrganization(db, body) {
   const organizationCode = normalizeOrganizationCode(rawCode);
   if (organizationCode) {
     try {
-      const [rows] = await db.query(
-        'SELECT id, name FROM organizations WHERE UPPER(code) = ? LIMIT 1',
-        [organizationCode]
-      );
+      const rows = await usersDao.findOrganizationByCode(db, organizationCode);
       if (!rows || rows.length === 0) {
         return {
           error: {
@@ -201,8 +198,9 @@ async function resolveRegistrationOrganization(db, body) {
         },
       };
     }
-    const [rows] = await db.query('SELECT id, name FROM organizations WHERE id = ? LIMIT 1', [legacyOrgId]);
-    if (!rows || rows.length === 0) {
+    const orgRow = await usersDao.findOrganizationById(db, legacyOrgId);
+    const rows = orgRow ? [orgRow] : [];
+    if (!rows.length) {
       return {
         error: {
           status: 400,
@@ -313,9 +311,8 @@ router.post('/register', async (req, res) => {
       if (invite_code) {
         conn = await pool.getConnection();
         await conn.beginTransaction();
-        const [rows] = await conn.query('SELECT * FROM invitations WHERE code = ? FOR UPDATE', [invite_code]);
-        if (!rows || rows.length === 0) { await conn.rollback(); conn.release(); return res.status(400).json({ error: 'INVALID_INVITE', message: '邀请码无效' }); }
-        const inv = rows[0];
+        const inv = await usersDao.lockInvitation(conn, invite_code);
+        if (!inv) { await conn.rollback(); conn.release(); return res.status(400).json({ error: 'INVALID_INVITE', message: '邀请码无效' }); }
         if (!await inviteBelongsToOrganization(conn, inv.created_by, organizationId)) {
           await conn.rollback(); conn.release();
           return res.status(400).json({ error: 'INVALID_INVITE', message: '邀请码不属于当前组织' });
@@ -343,10 +340,9 @@ router.post('/register', async (req, res) => {
           return res.status(codeError.status).json(codeError.body);
         }
 
-        const sql = `INSERT INTO users (${cols.join(',')}) VALUES (${placeholders.join(',')})`;
-        const [result] = await conn.query(sql, params);
+        const result = await usersDao.insertRegisteredUser(conn, { cols, placeholders, params });
         const userId = result.insertId;
-        await conn.query('UPDATE invitations SET uses = uses + 1 WHERE id = ?', [inv.id]);
+        await usersDao.incrementInvitationUses(conn, inv.id);
         await conn.commit(); conn.release();
         const token = await signToken({ id: userId, role });
         return res.json({ id: userId, token });
@@ -372,8 +368,7 @@ router.post('/register', async (req, res) => {
         const codeError = await consumeRegisterEmailCode(email, emailCode);
         if (codeError) return res.status(codeError.status).json(codeError.body);
 
-        const sql = `INSERT INTO users (${cols.join(', ')}) VALUES (${placeholders.join(', ')})`;
-        const [result] = await pool.query(sql, params);
+        const result = await usersDao.insertRegisteredUser(pool, { cols, placeholders, params });
         const userId = result.insertId;
         const token = await signToken({ id: userId, role });
         return res.json({ id: userId, token });
@@ -607,11 +602,9 @@ router.post('/me/invite', authMiddleware, async (req, res) => {
     await usersDao.incrementInvitationUses(conn, inv.id);
     await conn.commit();
     conn.release();
-    const [rows2] = await pool.query('SELECT id, student_no, name, department, role, email, avatar_url, nickname, organization_id FROM users WHERE id = ?', [req.user.id]);
-    if (rows2 && rows2[0]) {
-      rows2[0].avatar_url = buildAvatarUrl(rows2[0].avatar_url, rows2[0].id);
-    }
-    res.json(rows2[0]);
+    const updated = await usersDao.findForAuth(pool, req.user.id);
+    if (updated) updated.avatar_url = buildAvatarUrl(updated.avatar_url, updated.id);
+    res.json(updated);
   } catch (err) {
     if (conn) { try { await conn.rollback(); conn.release(); } catch (_) { } }
     console.error('[users.applyInvite]', err && err.stack ? err.stack : err);
@@ -629,15 +622,8 @@ router.get('/all', authMiddleware, requirePermission('users.view_all'), async (r
   try {
     const actor = await require('../lib/user_access_admin').accessAdministrator(pool, req.user.id);
     if (!actor.allowed) return res.status(403).json({ error: 'ACCESS_ADMIN_REQUIRED', message: '仅超级管理员可管理用户与权限' });
-    const [rows] = await pool.query(
-      `SELECT u.id, u.name, u.email, u.student_no, u.role, u.department,
-              u.organization_id AS organizationId, o.name AS organizationName,
-              u.created_at AS createdAt
-       FROM users u
-       LEFT JOIN organizations o ON o.id = u.organization_id
-       ORDER BY u.id ASC`
-    );
-    return res.json({ users: rows || [] });
+    const rows = await usersDao.listAllUsersWithOrg(pool);
+    return res.json({ users: rows });
   } catch (err) {
     console.error('[GET /api/users/all]', err && err.stack ? err.stack : err);
     return res.status(500).json({ error: 'Internal server error' });
