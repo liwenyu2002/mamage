@@ -5,6 +5,7 @@
 // 挂载于 app.js: app.use('/api/favorites', require('./routes/user_favorites'))
 const express = require('express');
 const router = express.Router();
+const favDao = require('../lib/queries/user_favorites');
 const { pool } = require('../db');
 const { requirePermission } = require('../lib/permissions');
 const { resolveWorkspace, sendWorkspaceError } = require('../lib/workspace_access');
@@ -90,8 +91,8 @@ router.get('/', requirePermission('ai.generate'), async (req, res) => {
     }
     sql += ' ORDER BY created_at DESC LIMIT 500';
 
-    const [rows] = await pool.query(sql, params);
-    res.json({ favorites: (rows || []).map(rowToFavorite) });
+    const rows = await favDao.listForUser(pool, { sql, params });
+    res.json({ favorites: rows.map(rowToFavorite) });
   } catch (e) {
     if (sendWorkspaceError(res, e)) return;
     console.error('GET /api/favorites error', e);
@@ -149,45 +150,32 @@ router.post('/', requirePermission('ai.generate'), async (req, res) => {
     const workspace = await resolveWorkspace(req);
     const scope = favoriteScope(workspace);
 
-    const [existingRows] = await pool.query(
-      `SELECT * FROM user_favorites WHERE user_id = ?${scope.sql} AND kind = ? AND ref_key = ? LIMIT 1`,
-      [userId, ...scope.params, kind, refKey]
-    );
-    if (existingRows && existingRows.length > 0) {
-      return res.status(200).json({ favorite: rowToFavorite(existingRows[0]) });
+    const existingRow = await favDao.findByRef(pool, { userId, scope, kind, refKey });
+    if (existingRow) {
+      return res.status(200).json({ favorite: rowToFavorite(existingRow) });
     }
 
-    const [[{ cnt }]] = await pool.query(
-      `SELECT COUNT(*) AS cnt FROM user_favorites WHERE user_id = ?${scope.sql} AND kind = ?`,
-      [userId, ...scope.params, kind]
-    );
+    const cnt = await favDao.countByKind(pool, { userId, scope, kind });
     if (cnt >= MAX_FAVORITES_PER_KIND) {
       return res.status(413).json({ code: 4134, message: `favorites of kind ${kind} exceed max ${MAX_FAVORITES_PER_KIND}` });
     }
 
     let insertId;
     try {
-      const [result] = await pool.query(
-        'INSERT INTO user_favorites (user_id, unit_id, kind, ref_key, payload, created_at) VALUES (?, ?, ?, ?, ?, NOW())',
-        [userId, workspace.enabled ? workspace.unitId : null, kind, refKey, payloadJson]
-      );
+      const result = await favDao.insertFavorite(pool, { userId, unitId: workspace.enabled ? workspace.unitId : null,
+        kind, refKey, payloadJson });
       insertId = result.insertId;
     } catch (e) {
       // 并发下两个请求都通过了上面的"不存在"检查，唯一键在 DB 层拦下重复写入，退化为幂等读取
       if (e && e.code === 'ER_DUP_ENTRY') {
-        const [dupRows] = await pool.query(
-          `SELECT * FROM user_favorites WHERE user_id = ?${scope.sql} AND kind = ? AND ref_key = ? LIMIT 1`,
-          [userId, ...scope.params, kind, refKey]
-        );
-        if (dupRows && dupRows.length > 0) {
-          return res.status(200).json({ favorite: rowToFavorite(dupRows[0]) });
-        }
+        const dupRow = await favDao.findByRef(pool, { userId, scope, kind, refKey });
+        if (dupRow) return res.status(200).json({ favorite: rowToFavorite(dupRow) });
       }
       throw e;
     }
 
-    const [savedRows] = await pool.query('SELECT * FROM user_favorites WHERE id = ? LIMIT 1', [insertId]);
-    res.status(201).json({ favorite: rowToFavorite(savedRows[0]) });
+    const saved = await favDao.findById(pool, insertId);
+    res.status(201).json({ favorite: rowToFavorite(saved) });
   } catch (e) {
     if (sendWorkspaceError(res, e)) return;
     console.error('POST /api/favorites error', e);
@@ -203,13 +191,10 @@ router.delete('/:id', requirePermission('ai.generate'), async (req, res) => {
 
     const userId = req.user.id;
     const scope = favoriteScope(await resolveWorkspace(req));
-    const [rows] = await pool.query(
-      `SELECT id FROM user_favorites WHERE id = ? AND user_id = ?${scope.sql} LIMIT 1`,
-      [id, userId, ...scope.params]
-    );
-    if (!rows || rows.length === 0) return res.status(404).json({ code: 4041, message: 'favorite not found' });
+    const owned = await favDao.findOwnedId(pool, { id, userId, scope });
+    if (!owned) return res.status(404).json({ code: 4041, message: 'favorite not found' });
 
-    await pool.query('DELETE FROM user_favorites WHERE id = ?', [id]);
+    await favDao.deleteFavorite(pool, id);
     res.json({ deleted: true, id });
   } catch (e) {
     if (sendWorkspaceError(res, e)) return;
