@@ -5,6 +5,7 @@ const { requireProjectAccess, resolveWorkspace, sendWorkspaceError } = require('
 const { buildMediaUrl } = require('../lib/media_access');
 const { photoOwnerFilter } = require('../lib/access_policy');
 const { createJob } = require('../lib/external_import_jobs');
+const importDao = require('../lib/queries/external_imports');
 const worker = require('../lib/external_import_worker');
 
 const router = express.Router();
@@ -60,14 +61,14 @@ function serializeJob(row, access) {
 }
 
 async function findJob(req, id) {
-  const [rows] = await pool.query('SELECT * FROM external_import_jobs WHERE id = ? LIMIT 1', [id]);
-  if (!rows.length) throw Object.assign(new Error('转存任务不存在'), { status: 404 });
-  const access = await permissions(req, rows[0].project_id);
-  if ((await resolveWorkspace(req)).ownPhotosOnly && Number(rows[0].requested_by) !== Number(req.user.id)) {
+  const job = await importDao.findJob(pool, id);
+  if (!job) throw Object.assign(new Error('转存任务不存在'), { status: 404 });
+  const access = await permissions(req, job.project_id);
+  if ((await resolveWorkspace(req)).ownPhotosOnly && Number(job.requested_by) !== Number(req.user.id)) {
     throw Object.assign(new Error('转存任务不存在'), { status: 404 });
   }
   access.userId = req.user.id;
-  return { job: rows[0], access };
+  return { job, access };
 }
 
 router.post('/jobs', requirePermission('upload.photo'), async (req, res) => {
@@ -89,17 +90,9 @@ router.get('/jobs', requirePermission('photos.view'), async (req, res) => {
     const workspace = await resolveWorkspace(req);
     const jobOwner = workspace.ownPhotosOnly ? ' AND requested_by = ?' : '';
     const args = [projectId, ...(workspace.ownPhotosOnly ? [workspace.userId] : [])];
-    const [rows] = await pool.query(
-      `SELECT * FROM external_import_jobs WHERE project_id = ?${jobOwner} ORDER BY id DESC LIMIT 8`, args
-    );
-    const [sourceRows] = await pool.query(
-      `SELECT MAX(j.id) AS id, j.source_url, MAX(j.source_title) AS source_title,
-              MIN(j.created_at) AS started_at, COUNT(DISTINCT i.photo_id) AS photo_count
-       FROM external_import_jobs j
-       LEFT JOIN external_import_items i ON i.job_id = j.id AND i.status = 'done'
-       WHERE j.project_id = ?${workspace.ownPhotosOnly ? ' AND j.requested_by = ?' : ''} AND j.attribution_visible = 1
-       GROUP BY j.source_url ORDER BY MAX(j.id) DESC LIMIT 30`, args
-    );
+    const rows = await importDao.listProjectJobs(pool, { projectId, ownerSql: jobOwner, args });
+    const sourceRows = await importDao.listAttributedSources(pool, {
+      projectId, ownerSql: workspace.ownPhotosOnly ? ' AND j.requested_by = ?' : '', args });
     const sources = sourceRows.map((row) => {
       let domain = '';
       try { domain = new URL(row.source_url).hostname; } catch (_) { /* old record */ }
@@ -118,18 +111,13 @@ router.get('/jobs/:id', requirePermission('photos.view'), async (req, res) => {
   if (!id) return res.status(400).json({ error: 'INVALID_JOB' });
   try {
     const { job, access } = await findJob(req, id);
-    const [counts] = await pool.query('SELECT status, COUNT(*) AS count FROM external_import_items WHERE job_id = ? GROUP BY status', [id]);
-    const [issues] = await pool.query(
-      `SELECT id, filename, status, error_code AS errorCode
-       FROM external_import_items WHERE job_id = ? AND (status = 'failed' OR (status = 'skipped' AND error_code IS NOT NULL)) ORDER BY id LIMIT 20`, [id]
-    );
-    const [active] = await pool.query(
-      "SELECT filename FROM external_import_items WHERE job_id = ? AND status = 'running' ORDER BY id LIMIT 1", [id]
-    );
+    const counts = await importDao.countItemsByStatus(pool, id);
+    const issues = await importDao.listIssues(pool, { jobId: id, limit: 20 });
+    const activeFileName = await importDao.findActiveItemName(pool, id);
     return res.json({
       ...serializeJob(job, access),
       counts: Object.fromEntries(counts.map((row) => [row.status, Number(row.count)])),
-      activeFileName: active[0]?.filename || null,
+      activeFileName,
       issues,
     });
   } catch (err) { return handleError(res, err); }
@@ -142,26 +130,14 @@ router.get('/jobs/:id/updates', requirePermission('photos.view'), async (req, re
   try {
     const { job } = await findJob(req, id);
     const owner = photoOwnerFilter(await resolveWorkspace(req), 'ph');
-    const [rows] = await pool.query(
-      `SELECT ph.id, ph.url, ph.thumb_url AS thumbUrl, ph.title, ph.description,
-              ph.tags, ph.ai_status AS aiStatus, ph.type, ph.photographer_id AS photographerId,
-              ph.timeline_section_id AS timelineSectionId, pts.name AS timelineSectionName,
-              ph.created_at AS createdAt
-       FROM external_import_items i
-       JOIN photos ph ON ph.id = i.photo_id AND ph.project_id = ?
-       LEFT JOIN project_timeline_sections pts ON pts.id = ph.timeline_section_id
-       WHERE i.job_id = ? AND i.status = 'done' AND i.photo_id > ?${owner.sql}
-       ORDER BY i.photo_id LIMIT 101`, [job.project_id, id, afterPhotoId, ...owner.params]
-    );
+    const rows = await importDao.listPhotosPage(pool, { projectId: job.project_id, jobId: id,
+      afterPhotoId, owner, limit: 101 });
     const page = rows.slice(0, 100).map((row) => ({
       ...row,
       url: buildMediaUrl(row.url, { userId: req.user.id, photoId: row.id }),
       thumbUrl: buildMediaUrl(row.thumbUrl, { userId: req.user.id, photoId: row.id }),
     }));
-    const [sections] = await pool.query(
-      `SELECT id, name, section_time AS sectionTime, sort_order AS sortOrder
-       FROM project_timeline_sections WHERE project_id = ? ORDER BY sort_order, id`, [job.project_id]
-    );
+    const sections = await importDao.listSections(pool, job.project_id);
     return res.json({ photos: page, hasMore: rows.length > 100, sections });
   } catch (err) { return handleError(res, err); }
 });
@@ -172,12 +148,7 @@ router.get('/jobs/:id/issues', requirePermission('photos.view'), async (req, res
   if (!id || !Number.isSafeInteger(afterItemId) || afterItemId < 0) return res.status(400).json({ error: 'INVALID_CURSOR' });
   try {
     await findJob(req, id);
-    const [rows] = await pool.query(
-      `SELECT id, filename, status, error_code AS errorCode
-       FROM external_import_items WHERE job_id = ? AND id > ?
-       AND (status = 'failed' OR (status = 'skipped' AND error_code IS NOT NULL))
-       ORDER BY id LIMIT 101`, [id, afterItemId]
-    );
+    const rows = await importDao.listIssuesPage(pool, { jobId: id, afterItemId, limit: 101 });
     return res.json({ issues: rows.slice(0, 100), hasMore: rows.length > 100 });
   } catch (err) { return handleError(res, err); }
 });
@@ -188,14 +159,9 @@ router.post('/jobs/:id/cancel', requirePermission('photos.view'), async (req, re
   try {
     const { job, access } = await findJob(req, id);
     if (!access.canAdmin && Number(job.requested_by) !== Number(req.user.id)) return res.status(403).json({ error: 'FORBIDDEN' });
-    const [result] = await pool.query(
-      `UPDATE external_import_jobs SET cancel_requested = 1,
-       finished_at = IF(status = 'paused', NOW(), finished_at),
-       status = IF(status = 'paused', 'cancelled', status)
-       WHERE id = ? AND status IN ('queued', 'running', 'paused')`, [id]
-    );
+    const cancelled = await importDao.requestCancel(pool, id);
     worker.wake();
-    return res.json({ ok: true, cancelRequested: Boolean(result.affectedRows) });
+    return res.json({ ok: true, cancelRequested: Boolean(cancelled) });
   } catch (err) { return handleError(res, err); }
 });
 
@@ -212,18 +178,11 @@ router.post('/jobs/:id/resume', requirePermission('photos.view'), async (req, re
     const conn = await pool.getConnection();
     try {
       await conn.beginTransaction();
-      await conn.query('SELECT id FROM projects WHERE id = ? FOR UPDATE', [job.project_id]);
-      const [others] = await conn.query(
-        "SELECT id FROM external_import_jobs WHERE project_id = ? AND id <> ? AND status IN ('queued', 'running', 'paused') LIMIT 1",
-        [job.project_id, id]
-      );
+      await importDao.lockProject(conn, job.project_id);
+      const others = await importDao.findConflictingJobs(conn, { projectId: job.project_id, jobId: id });
       if (others.length) throw Object.assign(new Error('当前相册已有其他转存任务'), { status: 409 });
-      await conn.query("UPDATE external_import_items SET status = 'pending', error_code = NULL, attempt_count = 0 WHERE job_id = ? AND status = 'failed'", [id]);
-      await conn.query(
-        `UPDATE external_import_jobs SET status = 'queued', cancel_requested = 0, retry_after = NULL,
-         scan_status = IF(scan_status = 'completed', 'completed', 'pending'), scan_error_code = NULL,
-         finished_at = NULL WHERE id = ?`, [id]
-      );
+      await importDao.resetFailedItems(conn, id);
+      await importDao.requeueJob(conn, id);
       await conn.commit();
     } catch (err) {
       await conn.rollback().catch(() => null);
@@ -240,10 +199,7 @@ router.post('/sources/:id/hide', requirePermission('projects.update'), async (re
   try {
     const { job } = await findJob(req, id);
     await requireProjectAccess(req, job.project_id, 'metadata');
-    await pool.query(
-      'UPDATE external_import_jobs SET attribution_visible = 0 WHERE project_id = ? AND source_url = ?',
-      [job.project_id, job.source_url]
-    );
+    await importDao.hideSource(pool, { projectId: job.project_id, sourceUrl: job.source_url });
     return res.json({ ok: true });
   } catch (err) { return handleError(res, err); }
 });

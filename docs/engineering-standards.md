@@ -54,6 +54,8 @@
   （`routes/workspaces.js` 22 → 7）。
 - `apps/server/lib/queries/upload.js`：相册 photo_ids 追加、摄影师名、视频语义分析开关 8 处
   （`routes/upload.js` 25 → **0**：含三档 schema 降级插入）。
+- `apps/server/lib/queries/external_imports.js`：转存任务列表/进度/分页/取消/重试/隐藏来源 15 处
+  （`routes/external_imports.js` 15 → **0**）。
 - `apps/server/lib/queries/folder_shares.js`：文件夹分享建/撤/复制重试 13 处（`routes/folder_shares.js` 15 → 2）。
 - `apps/server/lib/queries/share_links.js`：建链/撤销/可管理校验/待审照片/批准写条目 6 处
   （`routes/share.js` 16 → 10）。
@@ -63,8 +65,8 @@
   `routes/faces.js` 42 → 25（含人物合并的锁人/搬脸/改名/删人）。约定：dao 返回 `affectedRows` 数字而非原始元组，
   避免调用方解构口径不一。
 - 规则：**新的查询写进 `lib/queries/<域>.js`**，routes 只做编排与错误码；SQL 不再散落在路由里。
-- 棘轮：`scripts/audit-inline-sql.mjs` 统计 `routes/` 内联 SQL 调用点，当前 **193**，
-  `ci.sh` 用 `--fail-over 193` 卡住"只降不升"，每迁一个文件把阈值下调（374 → … → 278 → 269 → 261）。
+- 棘轮：`scripts/audit-inline-sql.mjs` 统计 `routes/` 内联 SQL 调用点，当前 **178**，
+  `ci.sh` 用 `--fail-over 178` 卡住"只降不升"，每迁一个文件把阈值下调（374 → … → 278 → 269 → 261）。
 - TypeScript：`tsconfig.json` + `@babel/preset-typescript` 已接入 webpack（`.ts/.tsx` 与 JS 同管线），
   `npm run typecheck` 进 CI；首个 TS 模块 `services/shareService.ts`。
 
