@@ -1,4 +1,5 @@
 const express = require('express');
+const monitorDao = require('../lib/queries/wechat_monitor');
 const { pool } = require('../db');
 const { requirePermission } = require('../lib/permissions');
 const { resolveWorkspace, sendWorkspaceError } = require('../lib/workspace_access');
@@ -31,7 +32,7 @@ function createRouter(dependencies = {}) {
     if (body.enabled !== undefined && typeof body.enabled !== 'boolean') throw invalid('INVALID_CONFIG', '启用状态无效');
     const interval = body.intervalSeconds ?? row.interval_seconds;
     if (!Number.isSafeInteger(interval) || interval < 1800 || interval > 86400) throw invalid('INVALID_INTERVAL', '检查间隔应在 30 分钟至 24 小时之间');
-    await db.query('UPDATE wechat_monitor_accounts SET enabled=?,interval_seconds=?,next_check_at=0 WHERE id=?', [body.enabled ?? Boolean(row.enabled), interval, row.id]);
+    await monitorDao.updateAccountConfig(db, { id: row.id, enabled: body.enabled ?? Boolean(row.enabled), intervalSeconds: interval });
     wake(); res.json({ updated: true });
   }));
   router.post('/accounts/:id/check', write, wrap(async (req, res) => {
@@ -42,15 +43,10 @@ function createRouter(dependencies = {}) {
   }));
   router.post('/accounts/:id/reclassify', write, wrap(async (req, res) => {
     const row = await store.account(req.monitorScope, id(req.params.id));
-    const [inserted] = await db.query(`INSERT IGNORE INTO wechat_monitor_jobs (scope_key,account_id,kind,dedupe_key,payload,next_run_at)
-      SELECT a.scope_key,a.account_id,'regroup',SHA2(CONCAT(a.account_id,':regroup:',a.current_analysis_id,':',?),256),
-        JSON_OBJECT('articleId',a.id),? FROM wechat_monitor_articles a
-      JOIN wechat_monitor_analyses n ON n.id=a.current_analysis_id AND n.revision_id=a.current_revision_id
-      WHERE a.scope_key=? AND a.account_id=? ORDER BY a.id`, [learning.SERIES_RULES_VERSION, Date.now(), req.monitorScope, row.id]);
-    const [[ready]] = await db.query(`SELECT COUNT(*) count FROM wechat_monitor_articles a
-      JOIN wechat_monitor_analyses n ON n.id=a.current_analysis_id AND n.revision_id=a.current_revision_id
-      WHERE a.scope_key=? AND a.account_id=?`, [req.monitorScope, row.id]);
-    wake(); res.status(202).json({ queued: inserted.affectedRows, duplicates: Math.max(0, Number(ready.count) - inserted.affectedRows),
+    const inserted = await monitorDao.enqueueRegroupJobs(db, { scopeKey: req.monitorScope, accountId: row.id,
+      rulesVersion: learning.SERIES_RULES_VERSION });
+    const ready = await monitorDao.countAnalyzedArticles(db, { scopeKey: req.monitorScope, accountId: row.id });
+    wake(); res.status(202).json({ queued: inserted.affectedRows, duplicates: Math.max(0, ready - inserted.affectedRows),
       rulesVersion: learning.SERIES_RULES_VERSION });
   }));
   router.post('/accounts/:id/import', write, wrap(async (req, res) => {
@@ -67,11 +63,8 @@ function createRouter(dependencies = {}) {
     if (req.query.accountId) { clauses.push('a.account_id=?'); params.push(id(req.query.accountId)); }
     if (req.query.scene) { if (!Object.hasOwn(SCENES, req.query.scene)) throw invalid('INVALID_SCENE', '场景无效'); clauses.push('n.scene=?'); params.push(req.query.scene); }
     if (req.query.q) { clauses.push('a.title LIKE ?'); params.push('%' + String(req.query.q).slice(0, 100).replace(/[\\%_]/g, '\\$&') + '%'); }
-    const [rows] = await db.query(`SELECT a.id,a.account_id,a.title,a.author,a.source_url,a.published_at,a.identity_status,a.current_revision_id,
-      n.revision_id AS analyzed_revision_id,n.scene,n.analysis,j.status AS analysis_job_status FROM wechat_monitor_articles a
-      LEFT JOIN wechat_monitor_analyses n ON n.id=a.current_analysis_id
-      LEFT JOIN wechat_monitor_jobs j ON j.scope_key=a.scope_key AND j.dedupe_key=SHA2(CONCAT(a.account_id,':analyze:',a.current_revision_id,':',?),256)
-      WHERE ${clauses.join(' AND ')} ORDER BY a.published_at DESC,a.id DESC LIMIT 31 OFFSET ?`, [PROTOCOL_VERSION, ...params, (Math.floor(page) - 1) * 30]);
+    const rows = await monitorDao.listArticles(db, { clauses, params, protocolVersion: PROTOCOL_VERSION,
+      offset: (Math.floor(page) - 1) * 30 });
     res.json({ items: rows.slice(0, 30).map(row => ({ id: Number(row.id), accountId: Number(row.account_id), title: row.title,
       author: row.author, sourceUrl: row.source_url, publishedAt: Number(row.published_at), scene: row.scene,
       summary: parsed(row.analysis)?.summary || '', analysisState: analysisStateFor(row, row.analysis_job_status), identityStatus: row.identity_status })), hasMore: rows.length > 30 });
@@ -83,10 +76,7 @@ function createRouter(dependencies = {}) {
   }));
   router.get('/articles/:id', wrap(async (req, res) => {
     const source = await store.article(req.monitorScope, id(req.params.id));
-    const [relations] = await db.query(`SELECT r.*,a.title AS low_title,b.title AS high_title FROM wechat_monitor_relations r
-      JOIN wechat_monitor_articles a ON a.id=r.article_low AND a.current_revision_id=r.revision_low
-      JOIN wechat_monitor_articles b ON b.id=r.article_high AND b.current_revision_id=r.revision_high
-      WHERE r.scope_key=? AND (r.article_low=? OR r.article_high=?)`, [req.monitorScope, source.id, source.id]);
+    const relations = await monitorDao.listArticleRelations(db, { scopeKey: req.monitorScope, articleId: source.id });
     res.json({ id: source.id, accountId: Number(source.account_id), title: source.title, author: source.author,
       publishedAt: Number(source.published_at), sourceUrl: source.source_url, identityStatus: source.identity_status,
       revisionId: source.revisionId, blocks: source.blocks, text: source.text, styleBlocks: source.styleBlocks,
@@ -97,18 +87,13 @@ function createRouter(dependencies = {}) {
         summary: row.summary, evidence: parsed(row.evidence) })) });
   }));
   router.get('/groups', wrap(async (req, res) => {
-    const [rows] = await db.query(`SELECT g.*,COUNT(DISTINCT r.content_hash) AS member_count,
-      COUNT(DISTINCT FLOOR((a.published_at+28800000)/86400000)) AS date_count FROM wechat_monitor_groups g
-      JOIN wechat_monitor_memberships m ON m.group_id=g.id
-      JOIN wechat_monitor_articles a ON a.id=m.article_id AND a.current_revision_id=m.revision_id
-      JOIN wechat_monitor_revisions r ON r.id=m.revision_id
-      WHERE g.scope_key=? GROUP BY g.id ORDER BY member_count DESC,g.id DESC LIMIT 200`, [req.monitorScope]);
+    const rows = await monitorDao.listGroups(db, req.monitorScope);
     res.json({ items: rows.map(row => ({ id: Number(row.id), kind: row.kind, name: row.name, count: Number(row.member_count),
       state: Number(row.member_count) < 2 || row.kind === 'series' && Number(row.date_count) < 2 ? 'candidate' : 'supported',
       summary: parsed(row.summary), accountId: row.account_id ? Number(row.account_id) : null })) });
   }));
   router.get('/groups/:id', wrap(async (req, res) => {
-    const [[group]] = await db.query('SELECT * FROM wechat_monitor_groups WHERE scope_key=? AND id=?', [req.monitorScope, id(req.params.id)]);
+    const group = await monitorDao.findGroup(db, { scopeKey: req.monitorScope, groupId: id(req.params.id) });
     if (!group) throw invalid('MONITOR_NOT_FOUND', '分类不存在', 404);
     const members = await store.groupMembers(req.monitorScope, group.id);
     const days = new Set(members.map(member => new Date(Number(member.published_at) + 8 * 3600000).toISOString().slice(0, 10)));
@@ -125,8 +110,7 @@ function createRouter(dependencies = {}) {
       where.push('j.status=?'); params.push(req.query.status);
     }
     if (req.query.before) { where.push('j.id<?'); params.push(id(req.query.before)); }
-    const [rows] = await db.query(`SELECT j.id,j.account_id,j.kind,j.status,j.attempts,j.next_run_at,j.error_code,j.error_message,j.result,j.created_at,j.payload
-      FROM wechat_monitor_jobs j WHERE ${where.join(' AND ')} ORDER BY j.id DESC LIMIT 51`, params);
+    const rows = await monitorDao.listJobs(db, { where, params });
     res.json({ items: rows.slice(0, 50).map(row => { let sourceOrigin = null;
       try { sourceOrigin = new URL(parsed(row.payload, {}).url).origin; } catch { /* Analysis jobs have no remote source. */ }
       return { id: Number(row.id), accountId: Number(row.account_id), kind: row.kind, status: row.status,
@@ -134,14 +118,11 @@ function createRouter(dependencies = {}) {
       sourceOrigin, result: parsed(row.result), createdAt: row.created_at }; }), hasMore: rows.length > 50 });
   }));
   router.get('/jobs/:id/events', wrap(async (req, res) => {
-    const [items] = await db.query(`SELECT e.attempt,e.status,e.error_code AS errorCode,e.error_message AS error,e.created_at AS createdAt
-      FROM wechat_monitor_job_events e JOIN wechat_monitor_jobs j ON j.id=e.job_id
-      WHERE j.scope_key=? AND j.id=? ORDER BY e.id DESC LIMIT 50`, [req.monitorScope, id(req.params.id)]);
+    const items = await monitorDao.listJobEvents(db, { scopeKey: req.monitorScope, jobId: id(req.params.id) });
     res.json({ items });
   }));
   router.post('/jobs/:id/retry', write, wrap(async (req, res) => {
-    const [updated] = await db.query(`UPDATE wechat_monitor_jobs SET status='pending',next_run_at=0,attempts=0 WHERE scope_key=? AND id=?
-      AND status IN ('failed','blocked')`, [req.monitorScope, id(req.params.id)]);
+    const updated = await monitorDao.retryJob(db, { scopeKey: req.monitorScope, jobId: id(req.params.id) });
     if (!updated.affectedRows) throw invalid('MONITOR_JOB_NOT_RETRYABLE', '任务不存在或仍在执行', 409);
     wake(); res.status(202).json({ queued: true });
   }));
