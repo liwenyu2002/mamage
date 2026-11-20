@@ -319,11 +319,10 @@ function profileReadOptions(req) {
 
 async function relatedPhotosPage(personId, orgId, userId, workspace, page, pageSize) {
   const scope = relatedPhotoScope(personId, orgId, workspace);
-  const [photos, [counts]] = await Promise.all([
+  const [photos, total] = await Promise.all([
     listRelatedPhotosByPersonId(personId, orgId, pageSize, userId, workspace, (page - 1) * pageSize),
-    pool.query(`SELECT COUNT(DISTINCT p.id) AS total ${scope.sql}`, scope.params),
+    facesDao.countRelatedPhotos(pool, scope),
   ]);
-  const total = Number(counts[0]?.total) || 0;
   return { photos, total, page, pageSize, hasMore: page * pageSize < total };
 }
 
@@ -426,15 +425,7 @@ async function upsertFacesForPhoto({ photoId, orgId, incomingFaces, force }) {
     try {
       await conn.beginTransaction();
 
-      let delSql = 'DELETE FROM photo_faces WHERE photo_id = ?';
-      const delParams = [photoId];
-      if (orgId === null) {
-        delSql += ' AND organization_id IS NULL';
-      } else {
-        delSql += ' AND organization_id = ?';
-        delParams.push(orgId);
-      }
-      await conn.query(delSql, delParams);
+      await facesDao.deleteFacesOfPhoto(conn, { photoId, orgId });
       if (await hasProtectedFaces(conn, photoId, orgId)) {
         throw Object.assign(new Error('已保留人工纠正的人脸，请刷新后重试'), { status: 409 });
       }
@@ -745,49 +736,30 @@ router.post('/faces/label', requirePermission('photos.view'), async (req, res) =
     try {
       await conn.beginTransaction();
 
-      const [lockedFaces] = await conn.query(
-        `SELECT * FROM photo_faces WHERE id = ? AND organization_id <=> ? AND ${usableFaceSql()} FOR UPDATE`, [faceId, orgId]
-      );
+      const lockedFaces = await facesDao.lockFaceById(conn, { faceId, orgId });
       if (!lockedFaces.length) throw new Error('face not found');
       let targetPersonId = null;
       if (personIdRaw !== undefined && personIdRaw !== null && String(personIdRaw).trim() !== '') {
         const pid = Number(personIdRaw);
         if (!Number.isFinite(pid) || pid <= 0) throw new Error('invalid personId');
 
-        const pParams = [pid];
-        let pSql = 'SELECT id FROM face_persons WHERE id = ?';
-        pSql = appendOrgScope(pSql, 'face_persons', orgId, pParams);
-        pSql += ' LIMIT 1';
-        const [pRows] = await conn.query(pSql, pParams);
-        if (!pRows || pRows.length === 0) throw new Error('person not found');
+        const personRow = await facesDao.findPersonIdForLabel(conn, { personId: pid, orgId, appendOrgScope });
+        if (!personRow) throw new Error('person not found');
         targetPersonId = pid;
       } else if (personName) {
-        const fParams = [personName];
-        let fSql = 'SELECT id FROM face_persons WHERE name = ?';
-        fSql = appendOrgScope(fSql, 'face_persons', orgId, fParams);
-        fSql += ` ORDER BY EXISTS (SELECT 1 FROM photo_faces named
-          WHERE named.person_id = face_persons.id AND ${usableFaceSql('named')}) DESC,
-          updated_at DESC, id DESC LIMIT 1`;
-        const [found] = await conn.query(fSql, fParams);
-
-        if (found && found.length) {
-          targetPersonId = Number(found[0].id);
+        const existingPersonId = await facesDao.findPersonIdByName(conn, { name: personName, orgId, appendOrgScope });
+        if (existingPersonId) {
+          targetPersonId = existingPersonId;
         } else {
-          const seqParams = [];
-          let seqSql = 'SELECT COALESCE(MAX(person_no), 0) AS maxNo FROM face_persons WHERE 1=1';
-          seqSql = appendOrgScope(seqSql, 'face_persons', orgId, seqParams);
-          const [seqRows] = await conn.query(seqSql, seqParams);
-          const nextNo = ((seqRows && seqRows[0] && Number(seqRows[0].maxNo)) || 0) + 1;
-
-          const [ins] = await conn.query(
-            'INSERT INTO face_persons (organization_id, person_no, name, created_by) VALUES (?, ?, ?, ?)',
-            [orgId, nextNo, personName, req.user && req.user.id ? Number(req.user.id) : null]
-          );
+          const nextNo = await facesDao.nextPersonNoScoped(conn, { orgId, appendOrgScope });
+          const ins = await facesDao.insertFacePersonSimple(conn, { orgId, personNo: nextNo, name: personName,
+            createdBy: req.user && req.user.id ? Number(req.user.id) : null });
           targetPersonId = ins.insertId;
         }
       }
 
-      await conn.query('UPDATE photo_faces SET person_id = ?, status = ? WHERE id = ?', [targetPersonId, targetPersonId ? 'confirmed' : 'detected', faceId]);
+      await facesDao.setFacePersonStatus(conn, { faceId, personId: targetPersonId,
+        status: targetPersonId ? 'confirmed' : 'detected' });
       await recordIdentityFeedback(conn, { orgId, userId: req.user.id, action: 'label',
         assignments: [{ face: lockedFaces[0], personId: targetPersonId, kind: 'explicit' }] });
       await conn.commit();

@@ -126,3 +126,72 @@ module.exports.lockFacesOfPersons = lockFacesOfPersons;
 module.exports.moveFacesToPerson = moveFacesToPerson;
 module.exports.updatePersonMeta = updatePersonMeta;
 module.exports.deletePersons = deletePersons;
+
+// ---- 单脸标注 / 检测落库 ----
+async function lockFaceById(conn, { faceId, orgId }) {
+  const [rows] = await conn.query(
+    `SELECT * FROM photo_faces WHERE id = ? AND organization_id <=> ? AND ${usableFaceSql()} FOR UPDATE`, [faceId, orgId]);
+  return rows || [];
+}
+
+async function findPersonIdForLabel(conn, { personId, orgId, appendOrgScope }) {
+  const params = [personId];
+  let sql = appendOrgScope('SELECT id FROM face_persons WHERE id = ?', 'face_persons', orgId, params);
+  sql += ' LIMIT 1';
+  const [rows] = await conn.query(sql, params);
+  return rows && rows.length ? rows[0] : null;
+}
+
+async function findPersonIdByName(conn, { name, orgId, appendOrgScope }) {
+  const params = [name];
+  let sql = appendOrgScope('SELECT id FROM face_persons WHERE name = ?', 'face_persons', orgId, params);
+  sql += ` ORDER BY EXISTS (SELECT 1 FROM photo_faces named
+    WHERE named.person_id = face_persons.id AND ${usableFaceSql('named')}) DESC,
+    updated_at DESC, id DESC LIMIT 1`;
+  const [rows] = await conn.query(sql, params);
+  return rows && rows.length ? Number(rows[0].id) : null;
+}
+
+async function nextPersonNoScoped(conn, { orgId, appendOrgScope }) {
+  const params = [];
+  const sql = appendOrgScope('SELECT COALESCE(MAX(person_no), 0) AS maxNo FROM face_persons WHERE 1=1', 'face_persons', orgId, params);
+  const [rows] = await conn.query(sql, params);
+  return ((rows && rows[0] && Number(rows[0].maxNo)) || 0) + 1;
+}
+
+async function insertFacePersonSimple(conn, { orgId, personNo, name, createdBy }) {
+  const [result] = await conn.query(
+    'INSERT INTO face_persons (organization_id, person_no, name, created_by) VALUES (?, ?, ?, ?)',
+    [orgId, personNo, name, createdBy ?? null]);
+  return result;
+}
+
+async function setFacePersonStatus(db, { faceId, personId, status }) {
+  await db.query('UPDATE photo_faces SET person_id = ?, status = ? WHERE id = ?',
+    [personId, status, faceId]);
+}
+
+/** 重检前清空某照片的旧检测结果（保留人工纠正的行由调用方校验） */
+async function deleteFacesOfPhoto(conn, { photoId, orgId }) {
+  let sql = 'DELETE FROM photo_faces WHERE photo_id = ?';
+  const params = [photoId];
+  if (orgId === null) sql += ' AND organization_id IS NULL';
+  else { sql += ' AND organization_id = ?'; params.push(orgId); }
+  await conn.query(sql, params);
+}
+
+module.exports.lockFaceById = lockFaceById;
+module.exports.findPersonIdForLabel = findPersonIdForLabel;
+module.exports.findPersonIdByName = findPersonIdByName;
+module.exports.nextPersonNoScoped = nextPersonNoScoped;
+module.exports.insertFacePersonSimple = insertFacePersonSimple;
+module.exports.setFacePersonStatus = setFacePersonStatus;
+module.exports.deleteFacesOfPhoto = deleteFacesOfPhoto;
+
+/** 人物关联照片总数（scope 由 routes 的关系范围片段提供） */
+async function countRelatedPhotos(db, scope) {
+  const [rows] = await db.query(`SELECT COUNT(DISTINCT p.id) AS total ${scope.sql}`, scope.params);
+  return Number(rows && rows[0] && rows[0].total) || 0;
+}
+
+module.exports.countRelatedPhotos = countRelatedPhotos;
