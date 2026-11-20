@@ -5,6 +5,7 @@
 // 挂载于 app.js: app.use('/api/wechat-compositions', require('./routes/wechat_compositions'))
 const express = require('express');
 const router = express.Router();
+const compDao = require('../lib/queries/wechat_compositions');
 const { pool } = require('../db');
 const { requirePermission } = require('../lib/permissions');
 const { resolveWorkspace, sendWorkspaceError } = require('../lib/workspace_access');
@@ -21,20 +22,14 @@ function scheduleRehost(id, userId) {
   if (!cosStorage.isConfigured()) return;
   setImmediate(async () => {
     try {
-      const [rows] = await pool.query(
-        'SELECT doc FROM wechat_compositions WHERE id = ? AND user_id = ? LIMIT 1',
-        [id, userId]
-      );
-      if (!rows || !rows.length) return;
-      const doc = parseMaybeJson(rows[0].doc, null);
+      const row = await compDao.findDoc(pool, { id, userId });
+      if (!row) return;
+      const doc = parseMaybeJson(row.doc, null);
       if (!Array.isArray(doc)) return;
       const { doc: newDoc, rehosted, total } = await rehostDocImages(doc, { logger: console });
       if (rehosted > 0) {
         // updated_at = updated_at 保持用户保存时间不被后台改写打扰
-        await pool.query(
-          'UPDATE wechat_compositions SET doc = ?, updated_at = updated_at WHERE id = ? AND user_id = ?',
-          [JSON.stringify(newDoc), id, userId]
-        );
+        await compDao.saveDoc(pool, { id, userId, docJson: JSON.stringify(newDoc) });
         console.log(`[wx_rehost] composition ${id}: rehosted ${rehosted}/${total} images`);
       }
     } catch (e) {
@@ -211,11 +206,7 @@ router.get('/', requirePermission('ai.generate'), async (req, res) => {
   try {
     const userId = req.user.id;
     const scope = compositionScope(await resolveWorkspace(req));
-    const [rows] = await pool.query(
-      `SELECT id, name, title, draft_kind, block_count, image_count, created_at, updated_at
-       FROM wechat_compositions WHERE user_id = ?${scope.sql} ORDER BY updated_at DESC`,
-      [userId, ...scope.params]
-    );
+    const rows = await compDao.listForUser(pool, { userId, scope });
     res.json({ items: (rows || []).map(rowToSummary) });
   } catch (e) {
     if (sendWorkspaceError(res, e)) return;
@@ -294,40 +285,17 @@ router.post('/', requirePermission('ai.generate'), async (req, res) => {
       ? Number(req.user.organization_id)
       : null;
 
-    const [[{ cnt }]] = await pool.query(
-      `SELECT COUNT(*) AS cnt FROM wechat_compositions WHERE user_id = ?${scope.sql}`,
-      [userId, ...scope.params]
-    );
+    const cnt = await compDao.countForUser(pool, { userId, scope });
     if (cnt >= MAX_ARCHIVES_PER_USER) {
       return res.status(409).json({ error: 'ARCHIVE_LIMIT', limit: MAX_ARCHIVES_PER_USER });
     }
 
-    const [result] = await pool.query(
-      `INSERT INTO wechat_compositions
-        (user_id, org_id, unit_id, name, title, digest, doc, block_config, theme_key, block_count, image_count, draft_kind, source_document, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
-      [
-        userId,
-        Number.isNaN(orgId) ? null : orgId,
-        workspace.enabled ? workspace.unitId : null,
-        name,
-        title || null,
-        digest || null,
-        docResult.docJson,
-        blockConfigResult.blockConfigJson,
-        themeKey || null,
-        docResult.blockCount,
-        docResult.imageCount,
-        draftKind,
-        sourceDocument,
-      ]
-    );
+    const result = await compDao.insertComposition(pool, {
+      userId, orgId: Number.isNaN(orgId) ? null : orgId, unitId: workspace.enabled ? workspace.unitId : null,
+      name, title, digest, docJson: docResult.docJson, blockConfigJson: blockConfigResult.blockConfigJson,
+      themeKey, blockCount: docResult.blockCount, imageCount: docResult.imageCount, draftKind, sourceDocument });
 
-    const [savedRows] = await pool.query(
-      'SELECT id, name, created_at, updated_at FROM wechat_compositions WHERE id = ? LIMIT 1',
-      [result.insertId]
-    );
-    const saved = savedRows[0];
+    const saved = await compDao.findSummary(pool, result.insertId);
     scheduleRehost(saved.id, userId); // 后台固化微信图片（对象存储未配置时 no-op）
     res.status(201).json({ id: saved.id, name: saved.name, createdAt: saved.created_at, updatedAt: saved.updated_at });
   } catch (e) {
@@ -346,13 +314,10 @@ router.get('/:id', requirePermission('ai.generate'), async (req, res) => {
 
     const userId = req.user.id;
     const scope = compositionScope(await resolveWorkspace(req));
-    const [rows] = await pool.query(
-      `SELECT * FROM wechat_compositions WHERE id = ? AND user_id = ?${scope.sql} LIMIT 1`,
-      [id, userId, ...scope.params]
-    );
-    if (!rows || rows.length === 0) return res.status(404).json({ error: 'NOT_FOUND' });
+    const row = await compDao.findDetailScoped(pool, { id, userId, scope });
+    if (!row) return res.status(404).json({ error: 'NOT_FOUND' });
 
-    res.json(rowToDetail(rows[0]));
+    res.json(rowToDetail(row));
   } catch (e) {
     if (sendWorkspaceError(res, e)) return;
     console.error('[GET /api/wechat-compositions/:id] error', e && e.stack ? e.stack : e);
@@ -368,21 +333,18 @@ router.put('/:id', requirePermission('ai.generate'), async (req, res) => {
 
     const userId = req.user.id;
     const scope = compositionScope(await resolveWorkspace(req));
-    const [existingRows] = await pool.query(
-      `SELECT id, draft_kind FROM wechat_compositions WHERE id = ? AND user_id = ?${scope.sql} LIMIT 1`,
-      [id, userId, ...scope.params]
-    );
-    if (!existingRows || existingRows.length === 0) return res.status(404).json({ error: 'NOT_FOUND' });
+    const existing = await compDao.findKindsScoped(pool, { id, userId, scope });
+    if (!existing) return res.status(404).json({ error: 'NOT_FOUND' });
 
     const body = req.body || {};
     const sets = [];
     const params = [];
-    if (body.draftKind !== undefined && body.draftKind !== (existingRows[0].draft_kind || 'layout')) {
+    if (body.draftKind !== undefined && body.draftKind !== (existing.draft_kind || 'layout')) {
       return res.status(400).json({ error: 'DRAFT_KIND_IMMUTABLE' });
     }
     if (body.sourceDocument !== undefined) {
       sets.push('source_document = ?');
-      params.push(serializeSourceDocument(body.sourceDocument, existingRows[0].draft_kind || 'layout'));
+      params.push(serializeSourceDocument(body.sourceDocument, existing.draft_kind || 'layout'));
     }
 
     if (body.name !== undefined) {
@@ -429,16 +391,9 @@ router.put('/:id', requirePermission('ai.generate'), async (req, res) => {
     sets.push('updated_at = NOW()');
     params.push(id, userId);
 
-    await pool.query(
-      `UPDATE wechat_compositions SET ${sets.join(', ')} WHERE id = ? AND user_id = ?`,
-      params
-    );
+    await compDao.updateFields(pool, { sets, params });
 
-    const [savedRows] = await pool.query(
-      'SELECT id, name, updated_at FROM wechat_compositions WHERE id = ? LIMIT 1',
-      [id]
-    );
-    const saved = savedRows[0];
+    const saved = await compDao.findSavedBrief(pool, id);
     if (body.doc !== undefined) scheduleRehost(id, userId); // doc 有更新才后台固化图片
     res.json({ id: saved.id, name: saved.name, updatedAt: saved.updated_at });
   } catch (e) {
@@ -457,13 +412,10 @@ router.delete('/:id', requirePermission('ai.generate'), async (req, res) => {
 
     const userId = req.user.id;
     const scope = compositionScope(await resolveWorkspace(req));
-    const [rows] = await pool.query(
-      `SELECT id FROM wechat_compositions WHERE id = ? AND user_id = ?${scope.sql} LIMIT 1`,
-      [id, userId, ...scope.params]
-    );
-    if (!rows || rows.length === 0) return res.status(404).json({ error: 'NOT_FOUND' });
+    const row = await compDao.findIdScoped(pool, { id, userId, scope });
+    if (!row) return res.status(404).json({ error: 'NOT_FOUND' });
 
-    await pool.query('DELETE FROM wechat_compositions WHERE id = ? AND user_id = ?', [id, userId]);
+    await compDao.deleteComposition(pool, { id, userId });
     res.json({ ok: true });
   } catch (e) {
     if (sendWorkspaceError(res, e)) return;
