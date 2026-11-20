@@ -202,7 +202,7 @@ async function cleanupDirectVideoUploads() {
       const current = await directVideoUploads.get(id);
       if (!current || current.expiresAt > now) return;
       // Completed sessions retain the response for idempotent retries, not cleanup rights.
-      const [committed] = await pool.query('SELECT id FROM photos WHERE url = ? LIMIT 1', [current.relPath]);
+      const committed = await uploadDao.findCommittedPhotoByUrl(pool, current.relPath);
       if (current.status !== 'done' && !committed.length) {
         if (current.storageUploadId) await cosStorage.abortMultipartUpload(current.originalKey, current.storageUploadId).catch(() => null);
         else await cosStorage.deleteObjects([current.originalKey]).catch(() => null);
@@ -531,14 +531,10 @@ function enqueuePublicDownloadDerivative({ insertedId, sourceKey, publicDownload
       });
       uploaded = true;
 
-      const [update] = await pool.query(
-        "UPDATE photos SET public_download_url = ? WHERE id = ? AND (public_download_url IS NULL OR public_download_url = '')",
-        [publicDownloadRel, insertedId]
-      );
-      if (!update || !update.affectedRows) {
-        const [rows] = await pool.query('SELECT public_download_url AS publicDownloadUrl FROM photos WHERE id = ? LIMIT 1', [insertedId]);
-        const current = rows && rows[0] ? rows[0].publicDownloadUrl : null;
-        if (current !== publicDownloadRel) await cosStorage.deleteObjects([publicDownloadKey]).catch(() => null);
+      const updated = await uploadDao.setPublicDownloadIfEmpty(pool, { photoId: insertedId, url: publicDownloadRel });
+      if (!updated) {
+        const currentUrl = await uploadDao.findPublicDownloadUrl(pool, insertedId);
+        if (currentUrl !== publicDownloadRel) await cosStorage.deleteObjects([publicDownloadKey]).catch(() => null);
         return;
       }
 
@@ -592,19 +588,16 @@ function enqueueVideoPlaybackTranscode({ sourceFilePath, cleanupPaths, playbackK
       });
       let updateResult;
       try {
-        [updateResult] = await pool.query(
-          'UPDATE photos SET playback_url = ? WHERE id = ? AND (playback_url IS NULL OR playback_url = \'\')',
-          [playbackRel, insertedId]
-        );
+        updateResult = await uploadDao.setPlaybackIfEmpty(pool, { photoId: insertedId, url: playbackRel });
       } catch (dbErr) {
         // 列不存在/DB 瞬时故障：回收刚上传的对象再抛出（key 确定性，之后 backfill 会重建）
-        const [rows] = await pool.query('SELECT playback_url FROM photos WHERE id = ?', [insertedId]);
-        if (rows[0]?.playback_url !== playbackRel) await cosStorage.deleteObjects([playbackKey]).catch(() => null);
+        const currentUrl = await uploadDao.findPlaybackUrl(pool, insertedId);
+        if (currentUrl !== playbackRel) await cosStorage.deleteObjects([playbackKey]).catch(() => null);
         throw dbErr;
       }
-      if (!updateResult || !updateResult.affectedRows) {
-        const [rows] = await pool.query('SELECT playback_url FROM photos WHERE id = ?', [insertedId]);
-        if (rows[0]?.playback_url !== playbackRel) await cosStorage.deleteObjects([playbackKey]).catch(() => null);
+      if (!updateResult) {
+        const currentUrl = await uploadDao.findPlaybackUrl(pool, insertedId);
+        if (currentUrl !== playbackRel) await cosStorage.deleteObjects([playbackKey]).catch(() => null);
         return;
       }
       console.log('[upload.video] playback ready', {
@@ -662,7 +655,7 @@ function enqueueDirectVideoPostProcess({ sourceKey, mimeType, thumbKey, thumbRel
           contentLength: preparedVideo.size,
           cacheControl: UPLOAD_CACHE_CONTROL,
         });
-        const [live] = await pool.query('SELECT id FROM photos WHERE id = ? AND url = ? LIMIT 1', [insertedId, `/${sourceKey}`]);
+        const live = await uploadDao.findLivePhoto(pool, { photoId: insertedId, url: `/${sourceKey}` });
         if (!live.length) {
           await cosStorage.deleteObjects([sourceKey]);
           return;
@@ -675,13 +668,10 @@ function enqueueDirectVideoPostProcess({ sourceKey, mimeType, thumbKey, thumbRel
           await cosStorage.uploadFile(thumbKey, posterImage.filePath, {
             contentType: 'image/jpeg', contentLength: posterImage.size, cacheControl: UPLOAD_CACHE_CONTROL,
           });
-          const [posterUpdate] = await pool.query(
-            'UPDATE photos SET thumb_url = ? WHERE id = ? AND (thumb_url IS NULL OR thumb_url = \'\')',
-            [thumbRel, insertedId]
-          );
-          if (!posterUpdate || !posterUpdate.affectedRows) {
-            const [rows] = await pool.query('SELECT thumb_url FROM photos WHERE id = ?', [insertedId]);
-            if (rows[0]?.thumb_url !== thumbRel) await cosStorage.deleteObjects([thumbKey]).catch(() => null);
+          const posterUpdate = await uploadDao.setThumbIfEmpty(pool, { photoId: insertedId, url: thumbRel });
+          if (!posterUpdate) {
+            const currentThumb = await uploadDao.findThumbUrl(pool, insertedId);
+            if (currentThumb !== thumbRel) await cosStorage.deleteObjects([thumbKey]).catch(() => null);
           }
         }
       }
@@ -692,13 +682,10 @@ function enqueueDirectVideoPostProcess({ sourceKey, mimeType, thumbKey, thumbRel
           await cosStorage.uploadFile(playbackKey, playbackVideo.filePath, {
             contentType: 'video/mp4', contentLength: playbackVideo.size, cacheControl: UPLOAD_CACHE_CONTROL,
           });
-          const [playbackUpdate] = await pool.query(
-            'UPDATE photos SET playback_url = ? WHERE id = ? AND (playback_url IS NULL OR playback_url = \'\')',
-            [playbackRel, insertedId]
-          );
-          if (!playbackUpdate || !playbackUpdate.affectedRows) {
-            const [rows] = await pool.query('SELECT playback_url FROM photos WHERE id = ?', [insertedId]);
-            if (rows[0]?.playback_url !== playbackRel) await cosStorage.deleteObjects([playbackKey]).catch(() => null);
+          const playbackUpdate = await uploadDao.setPlaybackIfEmpty(pool, { photoId: insertedId, url: playbackRel });
+          if (!playbackUpdate) {
+            const currentPlayback = await uploadDao.findPlaybackUrl(pool, insertedId);
+            if (currentPlayback !== playbackRel) await cosStorage.deleteObjects([playbackKey]).catch(() => null);
           }
         }
       }
@@ -923,68 +910,25 @@ async function createPhotoRecord(payload) {
 
     let result;
     try {
-      [result] = await conn.query(
-        `INSERT INTO photos
-          (uuid, project_id, timeline_section_id, url, thumb_url, playback_url, title, description, tags, ai_status, ai_error, type, photographer_id, organization_id, unit_id, original_filename)
-         VALUES (UUID(), ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)`,
-        [
-          payload.projectId || null,
-          payload.timelineSectionId || null,
-          payload.relPath,
-          payload.thumbRel,
-          payload.playbackRel || null,
-          payload.title,
-          payload.description,
-          payload.tags ? JSON.stringify(payload.tags) : null,
-          payload.aiStatus || 'pending',
-          payload.type,
-          payload.photographerId || null,
-          payload.orgId,
-          unitId,
-          normalizeOriginalFilename(payload.originalFilename),
-        ]
-      );
+      result = await uploadDao.insertPhotoFull(conn, { projectId: payload.projectId, timelineSectionId: payload.timelineSectionId,
+        relPath: payload.relPath, thumbRel: payload.thumbRel, playbackRel: payload.playbackRel, title: payload.title,
+        description: payload.description, tags: payload.tags, aiStatus: payload.aiStatus, type: payload.type,
+        photographerId: payload.photographerId, orgId: payload.orgId, unitId,
+        originalFilename: normalizeOriginalFilename(payload.originalFilename) });
     } catch (err) {
       if (err && (err.code === 'ER_BAD_FIELD_ERROR' || String(err.message || '').includes('Unknown column'))) {
         if (String(err.message || '').includes('original_filename')) throw err;
         if (String(err.message || '').includes('playback_url')) {
-          [result] = await conn.query(
-            `INSERT INTO photos
-              (uuid, project_id, timeline_section_id, url, thumb_url, title, description, tags, ai_status, ai_error, type, photographer_id, organization_id, unit_id, original_filename)
-             VALUES (UUID(), ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)`,
-            [
-              payload.projectId || null,
-              payload.timelineSectionId || null,
-              payload.relPath,
-              payload.thumbRel,
-              payload.title,
-              payload.description,
-              payload.tags ? JSON.stringify(payload.tags) : null,
-              payload.aiStatus || 'pending',
-              payload.type,
-              payload.photographerId || null,
-              payload.orgId,
-              unitId,
-              normalizeOriginalFilename(payload.originalFilename),
-            ]
-          );
+          result = await uploadDao.insertPhotoWithoutPlayback(conn, { projectId: payload.projectId,
+            timelineSectionId: payload.timelineSectionId, relPath: payload.relPath, thumbRel: payload.thumbRel,
+            title: payload.title, description: payload.description, tags: payload.tags, aiStatus: payload.aiStatus,
+            type: payload.type, photographerId: payload.photographerId, orgId: payload.orgId, unitId,
+            originalFilename: normalizeOriginalFilename(payload.originalFilename) });
         } else {
-          [result] = await conn.query(
-            `INSERT INTO photos
-              (uuid, project_id, url, thumb_url, title, description, tags, type, photographer_id, original_filename)
-             VALUES (UUID(), ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-              payload.projectId || null,
-              payload.relPath,
-              payload.thumbRel,
-              payload.title,
-              payload.description,
-              payload.tags ? JSON.stringify(payload.tags) : null,
-              payload.type,
-              payload.photographerId || null,
-              normalizeOriginalFilename(payload.originalFilename),
-            ]
-          );
+          result = await uploadDao.insertPhotoLegacy(conn, { projectId: payload.projectId, relPath: payload.relPath,
+            thumbRel: payload.thumbRel, title: payload.title, description: payload.description, tags: payload.tags,
+            type: payload.type, photographerId: payload.photographerId,
+            originalFilename: normalizeOriginalFilename(payload.originalFilename) });
         }
       } else if (err && (err.code === 'ER_NO_DEFAULT_FOR_FIELD' || String(err.message || '').includes("doesn't have a default value"))) {
         err.status = 400;
@@ -2093,8 +2037,8 @@ router.post('/video/direct/abort', requirePermission('upload.photo'), async (req
   const session = await getDirectVideoSession(req, req.body && req.body.sessionId);
   if (!session) return res.json({ ok: true });
   if (session.status === 'done') return res.json({ ok: true, committed: true, photoId: session.response.id });
-  const [committed] = await pool.query('SELECT id FROM photos WHERE url = ? AND organization_id <=> ? LIMIT 1', [session.relPath, session.orgId]);
-  if (committed.length) return res.json({ ok: true, committed: true, photoId: committed[0].id });
+  const committed = await uploadDao.findCommittedPhotoScoped(pool, { url: session.relPath, orgId: session.orgId });
+  if (committed) return res.json({ ok: true, committed: true, photoId: committed.id });
   await directVideoUploads.delete(session.id);
   if (session.storageUploadId) await cosStorage.abortMultipartUpload(session.originalKey, session.storageUploadId).catch(() => null);
   else await cosStorage.deleteObjects([session.originalKey]).catch(() => null);
