@@ -2,7 +2,6 @@ import React from 'react';
 import { navigate } from './utils/navigation';
 import { Layout, Input, TextArea, Modal, GlassSelect, SegmentedControl, DatePicker, Button, Tag, Toast } from './ui';
 import { request, resolveAssetUrl } from './services/request';
-import { getToken } from './services/authService';
 import { CHANNELS, startBatch, getBatch, retryJob, renderNewsPreview } from './services/newsMatrixService';
 import { pollNewsBatch } from './services/newsBatchPolling';
 import { newsDraftKey, importLegacyNewsDraft, formatNewsDate, recordNewsEdit, stepNewsEdit, isNewsBatchDone, resolveNewsPhotos,

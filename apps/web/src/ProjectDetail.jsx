@@ -1,5 +1,6 @@
 // src/ProjectDetail.jsx
 import { getUser } from './services/accountService';
+import { updatePhotoMeta } from './services/faceSearchService';
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { Button, Tag, Spin, Empty, Modal, Input, DateTimePicker, Toast, HexLoader } from './ui';
@@ -4760,8 +4761,7 @@ function ProjectDetailInner({
     if (!canEditItem(meta)) return Toast.warning('没有修改这张照片或视频的权限');
     const photoId = meta.id;
     if (!photoId) return Toast.warning('无法获取照片 ID');
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 20000);
+    const timeout = setTimeout(() => { viewerEditPhotoRef.current = null; }, 20000);
     setViewerEditSaving(true);
     setViewerEditError('');
     try {
@@ -4770,23 +4770,14 @@ function ProjectDetailInner({
         throw new Error('登录已失效，请重新登录后保存');
       }
       const payload = { tags: Array.from(new Set([...viewerEditTags, viewerEditTagInput.trim()].filter(Boolean))), description: viewerEditDescription || '' };
-      const url = `${BASE_URL || ''}/api/photos/${photoId}`;
-      const res = await fetch(url, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(payload),
-        signal: controller.signal
-      });
+      const res = await updatePhotoMeta(photoId, payload);
       if (res.status === 401 || res.status === 403) {
         throw new Error(res.status === 401 ? '登录已失效，请重新登录后保存' : '没有修改这张照片或视频的权限');
       }
       if (!res.ok) {
         throw new Error('保存失败，请稍后重试');
       }
-      const data = await res.json();
+      const data = res.data || {};
       const updatedTags = safeParseTags(data.tags);
       setPhotoTagsMap((prev) => ({ ...prev, [photoId]: updatedTags }));
       setPhotoDescMap((prev) => ({ ...prev, [photoId]: data.description || '' }));

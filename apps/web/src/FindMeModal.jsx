@@ -4,7 +4,7 @@
 // MaMage 不保存自拍；统一模型平台的调用日志留存见隐私说明。
 import React from 'react';
 import { Modal, Button } from './ui';
-import { getToken } from './services/authService';
+import { searchByFace } from './services/faceSearchService';
 import { rewriteMediaUrlsDeep } from './services/request';
 
 const ERR_TEXT = {
@@ -267,22 +267,11 @@ export default function FindMeModal({ visible, mode, projectId, shareCode, onClo
     if (!file || busy || compressing) return;
     setBusy(true); setErrText(''); setResult(null);
     try {
-      const fd = new FormData();
-      fd.append('photo', file, file.name || 'find-me.jpg');
-      const headers = {};
-      let url;
-      if (mode === 'share') {
-        fd.append('shareCode', shareCode || '');
-        url = '/api/faces/find-me/share';
-      } else {
-        fd.append('projectId', String(projectId || ''));
-        url = '/api/faces/find-me';
-        const token = typeof getToken === 'function' ? getToken() : null;
-        if (token) headers.Authorization = `Bearer ${token}`;
-      }
-      const resp = await fetch(url, { method: 'POST', headers, body: fd, credentials: 'same-origin' });
-      // 裸 fetch 不经 request() 封装 → 手动过内网媒体地址改写（内网入口打开时缩略图/原图走内网）
-      const data = rewriteMediaUrlsDeep(await resp.json().catch(() => ({})));
+      // 多部分上传收口到 services（request() 只处理 JSON）；内网媒体地址仍需本地改写
+      const resp = mode === 'share'
+        ? await searchByFace(file, { shareCode })
+        : await searchByFace(file, { projectId });
+      const data = rewriteMediaUrlsDeep(resp.data || {});
       if (!resp.ok) {
         if (data.error === 'MULTIPLE_FACES') setErrText(`检测到 ${data.count || '多'} 张人脸，请上传或拍摄单人照`);
         else setErrText(ERR_TEXT[data.error] || `匹配失败（${data.error || resp.status}），请重试`);

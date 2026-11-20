@@ -13,7 +13,7 @@ for f in scripts/test_*.js scripts/test_*.cjs; do
     echo "$f :: $(tail -3 /tmp/mamage_one_test.log | tr '\n' ' ' | cut -c1-160)" >> /tmp/mamage_test_failures.txt
   fi
 done
-echo "server 测试：通过 $pass，失败 $fail"
+echo "server 测试：通过 ${pass}，失败 ${fail}"
 if [ "$fail" -gt 0 ]; then
   echo "失败明细："
   cat /tmp/mamage_test_failures.txt
