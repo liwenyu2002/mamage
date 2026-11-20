@@ -430,35 +430,7 @@ router.get('/', async (req, res) => {
     const workspace = await resolveWorkspace(req);
     const unitScope = projectListScope(workspace);
 
-    let mainSql = `
-      SELECT
-        p.id,
-        p.uuid,
-        p.name AS projectName,
-        p.description,
-        p.event_date AS eventDate,
-        p.meta,
-        p.photo_ids AS photoIds,
-        p.tags,
-        p.admin_id AS adminId,
-        p.unit_id AS unitId,
-        p.created_at AS createdAt,
-        p.updated_at AS updatedAt
-      FROM projects p
-    `;
-    const mainParams = [];
-    if (orgId === null) {
-      mainSql += ' WHERE p.organization_id IS NULL';
-    } else {
-      mainSql += ' WHERE p.organization_id = ?';
-      mainParams.push(orgId);
-    }
-    if (unitScope.sql) mainSql += ` AND ${unitScope.sql}`;
-    mainParams.push(...unitScope.params);
-    mainSql += ' ORDER BY p.created_at DESC LIMIT ?';
-    mainParams.push(limit);
-
-    const [rows] = await pool.query(mainSql, mainParams);
+    const rows = await projectsDao.listLatestProjects(pool, { orgId, unitScope, limit });
 
     const list = rows.map((r) => ({
       ...r,
@@ -689,11 +661,7 @@ router.get('/list', async (req, res) => {
       : '';
 
     // 1) 先查总数
-    const [countRows] = await pool.query(
-      `SELECT COUNT(*) AS total FROM projects p ${whereSql}`,
-      params
-    );
-    const total = countRows[0]?.total || 0;
+    const total = await projectsDao.countProjects(pool, { whereSql, params });
 
     if (total === 0) {
       return res.json({
@@ -710,27 +678,7 @@ router.get('/list', async (req, res) => {
     const offset = (page - 1) * pageSize;
 
     // 2) 再查当前页
-    const selectSql = `
-      SELECT
-        p.id,
-        p.uuid,
-        p.name AS projectName,
-        p.description,
-        p.event_date AS eventDate,
-        p.meta,
-        p.photo_ids AS photoIds,
-        p.tags,
-        p.admin_id AS adminId,
-        p.unit_id AS unitId,
-        p.created_at AS createdAt,
-        p.updated_at AS updatedAt
-      FROM projects p
-      ${whereSql}
-      ORDER BY ${orderBySql}
-      LIMIT ? OFFSET ?
-    `;
-
-    const [rows] = await pool.query(selectSql, [...params, pageSize, offset]);
+    const rows = await projectsDao.listProjectsPage(pool, { whereSql, params, orderBySql, pageSize, offset });
 
     const list = rows.map((r) => ({
       ...r,
@@ -1150,27 +1098,7 @@ router.post('/', requirePermission('projects.create'), (req, res, next) => {
       await conn.commit();
       if (importJobId) externalImportWorker.wake();
 
-      const [rows] = await pool.query(
-        `
-        SELECT
-          p.id,
-          p.uuid,
-          p.name AS projectName,
-          p.description,
-          p.event_date AS eventDate,
-          p.meta,
-          p.photo_ids AS photoIds,
-          p.tags,
-          p.admin_id AS adminId,
-          p.created_at AS createdAt,
-          p.updated_at AS updatedAt
-        FROM projects p
-        WHERE p.id = ?
-        `,
-        [newId]
-      );
-
-      const project = rows[0];
+      const project = await projectsDao.findProjectSummary(pool, newId);
       project.meta = parseMeta(project.meta);
       project.tags = parseTags(project.tags);
       await attachTimelineToProject(project);
@@ -1178,10 +1106,7 @@ router.post('/', requirePermission('projects.create'), (req, res, next) => {
 
       // 计算封面（如果有照片）并填充为可访问的完整 URL
       try {
-        const [photos] = await pool.query(
-          `SELECT id, project_id AS projectId, url, thumb_url AS thumbUrl, tags, type, created_at FROM photos WHERE project_id = ? ORDER BY created_at DESC, id DESC`,
-          [newId]
-        );
+        const photos = await projectsDao.listProjectPhotosForCover(pool, newId);
         const cover = chooseCoverFromPhotos(photos);
         project.coverFullUrl = mediaUrl(req, cover.url, cover.id);
         project.coverFullThumbUrl = mediaUrl(req, cover.thumbUrl, cover.id);
@@ -1272,14 +1197,7 @@ router.post('/:id/update', requirePermission('projects.update'), async (req, res
       );
       if (timelineConfig) {
         await replaceTimelineSections(conn, id, timelineConfig.enabled ? timelineConfig.sections : []);
-        await conn.query(
-          `UPDATE photos p
-           LEFT JOIN project_timeline_sections pts
-             ON p.timeline_section_id = pts.id AND pts.project_id = ?
-           SET p.timeline_section_id = NULL
-           WHERE p.project_id = ? AND p.timeline_section_id IS NOT NULL AND pts.id IS NULL`,
-          [id, id]
-        );
+        await projectsDao.clearOrphanSectionAssignments(conn, id);
       }
       await conn.commit();
     } catch (e) {
@@ -1289,27 +1207,7 @@ router.post('/:id/update', requirePermission('projects.update'), async (req, res
       conn.release();
     }
 
-    const [rows] = await pool.query(
-      `
-      SELECT
-        p.id,
-        p.uuid,
-        p.name AS projectName,
-        p.description,
-        p.event_date AS eventDate,
-        p.meta,
-        p.photo_ids AS photoIds,
-        p.tags,
-        p.admin_id AS adminId,
-        p.created_at AS createdAt,
-        p.updated_at AS updatedAt
-      FROM projects p
-      WHERE p.id = ?
-      `,
-      [id]
-    );
-
-    const project = rows[0];
+    const project = await projectsDao.findProjectSummary(pool, id);
     project.meta = parseMeta(project.meta);
     project.tags = parseTags(project.tags);
     await attachTimelineToProject(project);
@@ -1319,10 +1217,7 @@ router.post('/:id/update', requirePermission('projects.update'), async (req, res
     if (workspace.ownPhotosOnly) delete project.photoIds;
     const owner = photoOwnerFilter(workspace);
     try {
-      const [photos] = await pool.query(
-        `SELECT id, project_id AS projectId, url, thumb_url AS thumbUrl, tags, type, created_at FROM photos WHERE project_id = ?${owner.sql} ORDER BY created_at DESC, id DESC`,
-        [id, ...owner.params]
-      );
+      const photos = await projectsDao.listProjectPhotosForCoverScoped(pool, { projectId: id, owner });
       const cover = chooseCoverFromPhotos(photos);
       project.coverFullUrl = mediaUrl(req, cover.url, cover.id);
       project.coverFullThumbUrl = mediaUrl(req, cover.thumbUrl, cover.id);
@@ -1347,12 +1242,7 @@ router.post('/:id/update', requirePermission('projects.update'), async (req, res
 async function findScopedProject(req, projectId) {
   await requireProjectAccess(req, projectId, 'metadata');
   const orgId = req.user && (req.user.organization_id !== undefined && req.user.organization_id !== null) ? parseInt(req.user.organization_id, 10) : null;
-  let sql = 'SELECT id FROM projects WHERE id = ?';
-  const params = [projectId];
-  if (orgId === null) sql += ' AND organization_id IS NULL';
-  else { sql += ' AND organization_id = ?'; params.push(orgId); }
-  const [rows] = await pool.query(sql, params);
-  return rows && rows.length ? rows[0] : null;
+  return projectsDao.findScopedProjectId(pool, { projectId, orgId });
 }
 
 // 新建环节

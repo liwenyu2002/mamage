@@ -163,3 +163,92 @@ module.exports.findForeignPhotosInProject = findForeignPhotosInProject;
 module.exports.lockProjectPhotos = lockProjectPhotos;
 module.exports.deletePhotosInProject = deletePhotosInProject;
 module.exports.deleteProjectRow = deleteProjectRow;
+
+// ---- 列表簇：首页取最新 + 分页 ----
+const PROJECT_LIST_COLUMNS = `p.id, p.uuid, p.name AS projectName, p.description, p.event_date AS eventDate,
+  p.meta, p.photo_ids AS photoIds, p.tags, p.admin_id AS adminId, p.unit_id AS unitId,
+  p.created_at AS createdAt, p.updated_at AS updatedAt`;
+
+/** 最新若干相册（首页用），orgId 为 null 时取"无组织"相册 */
+async function listLatestProjects(db, { orgId, unitScope, limit }) {
+  let sql = `SELECT ${PROJECT_LIST_COLUMNS} FROM projects p WHERE `;
+  const params = [];
+  if (orgId === null) sql += 'p.organization_id IS NULL';
+  else { sql += 'p.organization_id = ?'; params.push(orgId); }
+  if (unitScope && unitScope.sql) { sql += ` AND ${unitScope.sql}`; params.push(...unitScope.params); }
+  sql += ' ORDER BY p.created_at DESC LIMIT ?';
+  params.push(limit);
+  const [rows] = await db.query(sql, params);
+  return rows || [];
+}
+
+async function countProjects(db, { whereSql, params }) {
+  const [rows] = await db.query(`SELECT COUNT(*) AS total FROM projects p ${whereSql}`, params);
+  return Number(rows && rows[0] && rows[0].total) || 0;
+}
+
+async function listProjectsPage(db, { whereSql, params, orderBySql, pageSize, offset }) {
+  const [rows] = await db.query(
+    `SELECT ${PROJECT_LIST_COLUMNS} FROM projects p ${whereSql} ORDER BY ${orderBySql} LIMIT ? OFFSET ?`,
+    [...params, pageSize, offset]);
+  return rows || [];
+}
+
+module.exports.listLatestProjects = listLatestProjects;
+module.exports.countProjects = countProjects;
+module.exports.listProjectsPage = listProjectsPage;
+
+/** 单个相册的列表视图字段（详情/创建后回读共用） */
+async function findProjectSummary(db, projectId) {
+  const [rows] = await db.query(
+    `SELECT p.id, p.uuid, p.name AS projectName, p.description, p.event_date AS eventDate,
+            p.meta, p.photo_ids AS photoIds, p.tags, p.admin_id AS adminId,
+            p.created_at AS createdAt, p.updated_at AS updatedAt
+       FROM projects p WHERE p.id = ?`, [projectId]);
+  return rows && rows.length ? rows[0] : null;
+}
+
+/** 相册内照片（封面计算用） */
+async function listProjectPhotosForCover(db, projectId) {
+  const [rows] = await db.query(
+    `SELECT id, project_id AS projectId, url, thumb_url AS thumbUrl, tags, type, created_at
+       FROM photos WHERE project_id = ? ORDER BY created_at DESC, id DESC`, [projectId]);
+  return rows || [];
+}
+
+module.exports.findProjectSummary = findProjectSummary;
+module.exports.listProjectPhotosForCover = listProjectPhotosForCover;
+
+/** 相册内照片（带 owner 过滤，封面计算用） */
+async function listProjectPhotosForCoverScoped(db, { projectId, owner }) {
+  const [photos] = await db.query(
+    `SELECT id, project_id AS projectId, url, thumb_url AS thumbUrl, tags, type, created_at
+       FROM photos WHERE project_id = ?${owner.sql} ORDER BY created_at DESC, id DESC`,
+    [projectId, ...owner.params]);
+  return photos || [];
+}
+
+/** 清理指向已删环节的照片归属 */
+async function clearOrphanSectionAssignments(conn, projectId) {
+  await conn.query(
+    `UPDATE photos p
+       LEFT JOIN project_timeline_sections pts
+         ON p.timeline_section_id = pts.id AND pts.project_id = ?
+       SET p.timeline_section_id = NULL
+      WHERE p.project_id = ? AND p.timeline_section_id IS NOT NULL AND pts.id IS NULL`,
+    [projectId, projectId]);
+}
+
+/** 按组织范围取相册 id（元数据接口用） */
+async function findScopedProjectId(db, { projectId, orgId }) {
+  let sql = 'SELECT id FROM projects WHERE id = ?';
+  const params = [projectId];
+  if (orgId === null) sql += ' AND organization_id IS NULL';
+  else { sql += ' AND organization_id = ?'; params.push(orgId); }
+  const [rows] = await db.query(sql, params);
+  return rows && rows.length ? rows[0] : null;
+}
+
+module.exports.listProjectPhotosForCoverScoped = listProjectPhotosForCoverScoped;
+module.exports.clearOrphanSectionAssignments = clearOrphanSectionAssignments;
+module.exports.findScopedProjectId = findScopedProjectId;
