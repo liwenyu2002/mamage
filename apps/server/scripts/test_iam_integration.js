@@ -67,6 +67,7 @@ function profileUpdateFixture({ afterAuth, beforeUpdate, failAfterUpdate = false
       if (afterAuth) await afterAuth(f, req);
       next();
     },
+    usersDao: require('../lib/queries/users'),
     validAvatar: value => value !== 'invalid', buildAvatarUrl: value => value,
     normalizeEmail: value => String(value || '').trim().toLowerCase(),
     emailRegex: /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/,

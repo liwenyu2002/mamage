@@ -90,6 +90,7 @@ function fixture({ role='editor', accountRole='admin', collegeAdmin=false, enabl
     router:meRouter,pool,authMiddleware:(_req,_res,next)=>next(),console,
     validAvatar:()=>true,buildAvatarUrl:value=>value,normalizeEmail:value=>String(value||'').trim().toLowerCase(),
     emailRegex:/^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+    usersDao: require('../lib/queries/users'),
     require:key=>{
       if(key==='../lib/workspace_access')return access;
       if(key==='../lib/access_policy')return require('../lib/access_policy');

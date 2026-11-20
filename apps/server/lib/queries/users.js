@@ -57,3 +57,64 @@ module.exports = {
   findByEmail, findByStudentNo, findPublicById, findPasswordHash, updatePassword, updateRole,
   insertInvitation, lockInvitationByCode, incrementInvitationUses, queryRaw,
 };
+
+// ---- 鉴权与个人页 ----
+async function hasPasswordColumn(db) {
+  const [rows] = await db.query(
+    "SELECT COUNT(*) as cnt FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'password_hash'");
+  return Boolean(rows && rows[0] && rows[0].cnt > 0);
+}
+
+async function findForAuth(db, userId) {
+  const [rows] = await db.query(
+    'SELECT id, student_no, name, department, role, email, avatar_url, nickname, organization_id FROM users WHERE id = ?', [userId]);
+  return rows && rows.length ? rows[0] : null;
+}
+
+async function findForAuthLegacy(db, userId) {
+  const [rows] = await db.query(
+    'SELECT id, student_no, name, department, role, email, avatar_url, nickname FROM users WHERE id = ?', [userId]);
+  return rows && rows.length ? rows[0] : null;
+}
+
+async function hasIamIdentity(db, userId) {
+  const [[row]] = await db.query('SELECT user_id FROM iam_login_identities WHERE user_id = ? LIMIT 1', [userId]);
+  return Boolean(row);
+}
+
+async function hasUnitMembership(db, userId) {
+  const [[row]] = await db.query(
+    'SELECT user_id FROM organization_unit_memberships WHERE user_id = ? AND removed_at IS NULL LIMIT 1', [userId]);
+  return Boolean(row);
+}
+
+async function lockProfile(conn, userId) {
+  const [[row]] = await conn.query('SELECT id, name, email FROM users WHERE id = ? FOR UPDATE', [userId]);
+  return row || null;
+}
+
+async function emailTakenByOther(conn, { userId, email }) {
+  const [rows] = await conn.query('SELECT id FROM users WHERE id <> ? AND email = ? LIMIT 1 FOR UPDATE', [userId, email]);
+  return rows || [];
+}
+
+async function updateProfileFields(conn, { updates, params, userId }) {
+  // updated_at 走参数位，调用方只传业务字段，避免占位符与参数错位
+  await conn.query(`UPDATE users SET ${updates.join(', ')}, updated_at = ? WHERE id = ?`,
+    [...params, new Date(), userId]);
+}
+
+async function findPasswordHashWithRole(db, { where, value }) {
+  const [rows] = await db.query(`SELECT id, password_hash, role FROM users WHERE ${where} LIMIT 1`, [value]);
+  return rows && rows.length ? rows[0] : null;
+}
+
+module.exports.hasPasswordColumn = hasPasswordColumn;
+module.exports.findForAuth = findForAuth;
+module.exports.findForAuthLegacy = findForAuthLegacy;
+module.exports.hasIamIdentity = hasIamIdentity;
+module.exports.hasUnitMembership = hasUnitMembership;
+module.exports.lockProfile = lockProfile;
+module.exports.emailTakenByOther = emailTakenByOther;
+module.exports.updateProfileFields = updateProfileFields;
+module.exports.findPasswordHashWithRole = findPasswordHashWithRole;

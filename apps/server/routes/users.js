@@ -76,10 +76,7 @@ async function loginRateReset(ip) {
 let _hasPasswordColumn = null;
 async function hasPasswordColumn() {
   if (_hasPasswordColumn !== null) return _hasPasswordColumn;
-  const [rows] = await pool.query(
-    "SELECT COUNT(*) as cnt FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'password_hash'"
-  );
-  _hasPasswordColumn = rows && rows[0] && rows[0].cnt > 0;
+  _hasPasswordColumn = await usersDao.hasPasswordColumn(pool);
   return _hasPasswordColumn;
 }
 
@@ -101,16 +98,14 @@ async function authMiddleware(req, res, next) {
     if (!req.iamAccountChecked) await require('../lib/iam_account_guard').assertSession(payload.id, payload);
     let user = null;
     try {
-      const [rows] = await pool.query('SELECT id, student_no, name, department, role, email, avatar_url, nickname, organization_id FROM users WHERE id = ?', [payload.id]);
-      if (!rows || rows.length === 0) return res.status(401).json({ error: 'Invalid token (user not found)' });
-      user = rows[0];
+      user = await usersDao.findForAuth(pool, payload.id);
+      if (!user) return res.status(401).json({ error: 'Invalid token (user not found)' });
     } catch (e) {
       // If DB doesn't have organization_id column, fallback to selecting without it
       const msg = e && e.message ? e.message : '';
       if (msg.indexOf("Unknown column 'organization_id'") !== -1 || (e && e.code === 'ER_BAD_FIELD_ERROR')) {
-        const [rows2] = await pool.query('SELECT id, student_no, name, department, role, email, avatar_url, nickname FROM users WHERE id = ?', [payload.id]);
-        if (!rows2 || rows2.length === 0) return res.status(401).json({ error: 'Invalid token (user not found)' });
-        user = rows2[0];
+        user = await usersDao.findForAuthLegacy(pool, payload.id);
+        if (!user) return res.status(401).json({ error: 'Invalid token (user not found)' });
         user.organization_id = null;
       } else {
         throw e;
@@ -425,12 +420,11 @@ router.post('/login', async (req, res) => {
 
     const where = email ? 'email = ?' : 'student_no = ?';
     const val = email || student_no;
-    const [rows] = await pool.query('SELECT id, password_hash, role FROM users WHERE ' + where + ' LIMIT 1', [val]);
-    if (!rows || rows.length === 0) {
+    const user = await usersDao.findPasswordHashWithRole(pool, { where, value: val });
+    if (!user) {
       loginRateRecordFailure(ip);
       return res.status(401).json({ error: 'invalid credentials' });
     }
-    const user = rows[0];
     const ok = await bcrypt.compare(password, user.password_hash || '');
     if (!ok) {
       loginRateRecordFailure(ip);
@@ -465,8 +459,8 @@ router.get('/me', authMiddleware, async (req, res) => {
     const { getFacePermissions } = require('../lib/face_access');
     const workspace = await resolveWorkspace(req);
     const faces = await getFacePermissions(workspace);
-    const [[identity]] = await pool.query('SELECT user_id FROM iam_login_identities WHERE user_id = ? LIMIT 1', [req.user.id]);
-    const [[membership]] = await pool.query('SELECT user_id FROM organization_unit_memberships WHERE user_id = ? AND removed_at IS NULL LIMIT 1', [req.user.id]);
+    const identity = await usersDao.hasIamIdentity(pool, req.user.id);
+    const membership = await usersDao.hasUnitMembership(pool, req.user.id);
     const accessAdmin = await require('../lib/user_access_admin').accessAdministrator(pool, req.user.id);
     res.json({ ...req.user, ...userAccessProfile(workspace, req.user.permissions, faces), activeUnitId: workspace.unitId,
       unitRole: workspace.role, collegeAdmin: workspace.collegeAdmin, workspaceEnabled: workspace.enabled,
@@ -488,11 +482,11 @@ router.put('/me', authMiddleware, async (req, res) => {
     conn = await pool.getConnection();
     await conn.beginTransaction();
     inTransaction = true;
-    const [[current]] = await conn.query('SELECT id, name, email FROM users WHERE id = ? FOR UPDATE', [req.user.id]);
+    const current = await usersDao.lockProfile(conn, req.user.id);
     if (!current) throw fail(404, 'USER_NOT_FOUND');
     // First consistent read follows the user lock, which IAM also holds before binding.
     // Do not lock identities here: IAM locks identity -> users, so that would invert the order.
-    const [[identity]] = await conn.query('SELECT user_id FROM iam_login_identities WHERE user_id = ? LIMIT 1', [req.user.id]);
+    const identity = await usersDao.hasIamIdentity(conn, req.user.id);
     const body = req.body || {};
     if (identity && ['name', 'email'].some(key => body[key] !== undefined && body[key] !== current[key])) {
       throw fail(409, 'IAM_MANAGED_PROFILE', '姓名和邮箱由校园 IAM 同步，请在校园账号中修改');
@@ -514,22 +508,18 @@ router.put('/me', authMiddleware, async (req, res) => {
     if (!identity && body.email !== undefined && body.email !== null && body.email !== '') {
       if (!emailRegex.test(body.email)) throw fail(400, 'INVALID_EMAIL', '邮箱格式不正确');
       if (normalizeEmail(body.email) !== normalizeEmail(current.email)) {
-        const [conflicts] = await conn.query('SELECT id FROM users WHERE id <> ? AND email = ? LIMIT 1 FOR UPDATE',
-          [req.user.id, body.email]);
+        const conflicts = await usersDao.emailTakenByOther(conn, { userId: req.user.id, email: body.email });
         if (conflicts.length) throw fail(409, 'EMAIL_EXISTS', '该邮箱已被其他账号使用');
       }
     }
     if (updates.length) {
-      params.push(new Date(), req.user.id);
-      await conn.query(`UPDATE users SET ${updates.join(', ')}, updated_at = ? WHERE id = ?`, params);
+      await usersDao.updateProfileFields(conn, { updates, params, userId: req.user.id });
     }
-    const [rows] = await conn.query('SELECT id, student_no, name, department, role, email, avatar_url, nickname, organization_id FROM users WHERE id = ?', [req.user.id]);
+    const updated = await usersDao.findForAuth(conn, req.user.id);
     await conn.commit();
     inTransaction = false;
-    if (rows && rows[0]) {
-      rows[0].avatar_url = buildAvatarUrl(rows[0].avatar_url, rows[0].id);
-    }
-    res.json(rows[0]);
+    if (updated) updated.avatar_url = buildAvatarUrl(updated.avatar_url, updated.id);
+    res.json(updated);
   } catch (err) {
     if (inTransaction) {
       try { await conn.rollback(); } catch (rollbackError) { console.error('[users.update.rollback]', rollbackError); }
