@@ -1,4 +1,5 @@
 const express = require('express');
+const desktopDao = require('../lib/queries/album_desktop');
 const { pool } = require('../db');
 const { requirePermission } = require('../lib/permissions');
 const { resolveWorkspace, projectListScope, unitRoleAllows, metadataEditScope, sendWorkspaceError } = require('../lib/workspace_access');
@@ -71,15 +72,16 @@ router.get('/', async (req, res) => {
   try {
     const workspace = await context(req);
     conn = await pool.getConnection();
-    await conn.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+    await desktopDao.setRepeatableRead(conn);
     await conn.beginTransaction();
     const ownedAlbums = await catalog(workspace, conn);
     const sharedAlbums = await listSharedAlbums(workspace, conn);
     const sharedFolderRows = await listFolderShares(workspace, conn);
     const sharedFolders = sharedFolderRows.map(folder => ({ ...folder,
       coverUrls: (folder.covers || []).map(cover => buildMediaUrl(cover.path, { userId: workspace.userId, photoId: cover.id })) }));
-    const [shared] = await conn.query('SELECT state, revision FROM album_desktop_workspaces WHERE organization_id = ? AND unit_key = ?', [workspace.orgId, workspace.unitKey]);
-    const [personal] = await conn.query('SELECT state, revision FROM album_desktop_users WHERE user_id = ? AND organization_id = ? AND unit_key = ?', [workspace.userId, workspace.orgId, workspace.unitKey]);
+    const snapshot = await desktopDao.readOnlySnapshot(conn, { orgId: workspace.orgId, unitKey: workspace.unitKey, userId: workspace.userId });
+    const shared = snapshot.shared ? [snapshot.shared] : [];
+    const personal = snapshot.personal ? [snapshot.personal] : [];
     const storedGroups = json(shared[0]?.state, {}).groups || [];
     const referencedIds = new Set(storedGroups.flatMap(g => g.kind === 'smart' ? [] : g.projectIds || []).map(Number));
     const ownedIds = new Set(ownedAlbums.map(a => a.id));
@@ -120,10 +122,10 @@ router.put('/state', async (req, res) => {
     if (Buffer.byteLength(JSON.stringify(body)) > 512 * 1024) throw invalid('桌面数据过大', 413);
     conn = await pool.getConnection();
     await conn.beginTransaction();
-    await conn.query('INSERT IGNORE INTO album_desktop_workspaces (organization_id, unit_key, state) VALUES (?, ?, ?)', [workspace.orgId, workspace.unitKey, '{"groups":[]}']);
-    await conn.query('INSERT IGNORE INTO album_desktop_users (user_id, organization_id, unit_key, state) VALUES (?, ?, ?, ?)', [workspace.userId, workspace.orgId, workspace.unitKey, '{}']);
-    const [shared] = await conn.query('SELECT state, revision FROM album_desktop_workspaces WHERE organization_id = ? AND unit_key = ? FOR UPDATE', [workspace.orgId, workspace.unitKey]);
-    const [personal] = await conn.query('SELECT state, revision FROM album_desktop_users WHERE user_id = ? AND organization_id = ? AND unit_key = ? FOR UPDATE', [workspace.userId, workspace.orgId, workspace.unitKey]);
+    await desktopDao.ensureRows(conn, { orgId: workspace.orgId, unitKey: workspace.unitKey, userId: workspace.userId });
+    const locked = await desktopDao.lockSnapshot(conn, { orgId: workspace.orgId, unitKey: workspace.unitKey, userId: workspace.userId });
+    const shared = [locked.shared];
+    const personal = [locked.personal];
     if ((changesGroups && Number(body.workspaceRevision) !== Number(shared[0].revision))
       || (body.preferences && Number(body.userRevision) !== Number(personal[0].revision))) throw invalid('桌面已在其他页面更新，请重新加载后再操作', 409);
     const albums = await catalog(workspace, conn, false);
@@ -150,7 +152,7 @@ router.put('/state', async (req, res) => {
       groups = storedGroups.flatMap(group => hiddenIds.has(group.id) ? [group] : visible.length ? [visible.shift()] : []).concat(visible);
       validateGroups(groups, new Set(groups.flatMap(group => group.projectIds || []).map(Number)));
     }
-    if (changesGroups) await conn.query('UPDATE album_desktop_workspaces SET state = ?, revision = revision + 1 WHERE organization_id = ? AND unit_key = ?', [JSON.stringify({ groups }), workspace.orgId, workspace.unitKey]);
+    if (changesGroups) await desktopDao.writeWorkspaceState(conn, { orgId: workspace.orgId, unitKey: workspace.unitKey, groups });
     if (changesGroups) await syncFolderShares(conn, workspace.orgId, workspace.unitKey, groups);
     if (body.preferences) {
       const previous = json(personal[0].state, {});
@@ -168,7 +170,8 @@ router.put('/state', async (req, res) => {
         ? (await listSharedAlbums(workspace, conn)).map(album => Number(album.id)) : []);
       const visibleGroups = groups.filter(group => !group.restrictedToUserId || Number(group.restrictedToUserId) === workspace.userId || workspace.collegeAdmin);
       const preferences = validatePreferences(submitted, visibleGroups, ids, folderIds, sharedAlbumIds);
-      await conn.query('UPDATE album_desktop_users SET state = ?, revision = revision + 1 WHERE user_id = ? AND organization_id = ? AND unit_key = ?', [JSON.stringify(preferences), workspace.userId, workspace.orgId, workspace.unitKey]);
+      await desktopDao.writeUserState(conn, { userId: workspace.userId, orgId: workspace.orgId,
+        unitKey: workspace.unitKey, preferences });
     }
     await conn.commit();
     res.json({ workspaceRevision: Number(shared[0].revision) + (changesGroups ? 1 : 0),
