@@ -77,6 +77,7 @@ function fixture({ role='editor', accountRole='admin', collegeAdmin=false, enabl
   });
   vm.runInNewContext(source.slice(source.indexOf("router.patch('/:id'"),source.indexOf('module.exports = router;')),{
     router,pool,requirePermission:permissions.requirePermission,requirePhotoAccess:access.requirePhotoAccess,sendWorkspaceError:access.sendWorkspaceError,console,normalizePhotoAdjustments:value=>value,
+    photosDao: require('../lib/queries/photos'),
     parsePhotoAdjustments:value=>value,buildMediaUrl:value=>value,
   });
   app.use('/api/photos',router);

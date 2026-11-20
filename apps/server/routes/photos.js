@@ -679,22 +679,13 @@ router.get('/', requirePermission('photos.view'), async (req, res) => {
     sql += ' LIMIT ?';
     params.push(limit);
 
-    let rows;
-    try {
-      [rows] = await pool.query(sql, params);
-    } catch (colErr) {
-      // 缺列/新语义表未迁移时降级，不让普通素材读取直接变成 500。
-      if (colErr && (colErr.code === 'ER_BAD_FIELD_ERROR' || colErr.code === 'ER_NO_SUCH_TABLE' || /Unknown column|doesn't exist/i.test(String(colErr.message || '')))) {
-        const degraded = sql
-          .replace('p.ai_score        AS aiScore,', '')
-          .replace('p.ai_quality      AS aiQuality,', '')
-          .replace('pvs.analysis_json AS videoAnalysis,', '')
-          .replace('LEFT JOIN photo_video_semantics pvs ON pvs.photo_id = p.id', '');
-        [rows] = await pool.query(degraded, params);
-      } else {
-        throw colErr;
-      }
-    }
+    // 缺列/新语义表未迁移时降级，不让普通素材读取直接变成 500。
+    const degradedSql = sql
+      .replace('p.ai_score        AS aiScore,', '')
+      .replace('p.ai_quality      AS aiQuality,', '')
+      .replace('pvs.analysis_json AS videoAnalysis,', '')
+      .replace('LEFT JOIN photo_video_semantics pvs ON pvs.photo_id = p.id', '');
+    const rows = await photosDao.queryWithDegradedFallback(pool, { sql, degradedSql, params });
 
     const mapped = rows.map((p) => {
       // 如果文件不存在，返回一个内联 SVG 占位图（data URL）以避免浏览器断图
@@ -831,7 +822,7 @@ router.get('/scenery/random', requirePermission('photos.view'), async (req, res)
     sql += ' LIMIT ?';
     params.push(limit);
 
-    const [rows] = await pool.query(sql, params);
+    const rows = await photosDao.queryDynamic(pool, { sql, params });
 
     const mapped = (rows || []).map((p) => {
       function resolveUrl(raw) {
@@ -1007,7 +998,7 @@ router.post('/delete', requirePermission('photos.delete'), async (req, res) => {
         selSql += ' AND organization_id = ?';
         selParams.push(orgId);
       }
-      const [selectedRows] = await conn.query(`${selSql} FOR UPDATE`, selParams);
+      const selectedRows = await photosDao.lockRowsDynamic(conn, { sql: selSql, params: selParams });
       rows = selectedRows || [];
 
       if (rows.length === 0) {
@@ -1103,20 +1094,13 @@ router.post('/assign-section', requirePermission('photos.edit'), async (req, res
     const selParams = [ids];
     if (orgId === null) selSql += ' AND organization_id IS NULL';
     else { selSql += ' AND organization_id = ?'; selParams.push(orgId); }
-    const [rows] = await conn.query(selSql + ' FOR UPDATE', selParams);
+    const rows = await photosDao.lockRowsDynamic(conn, { sql: selSql, params: selParams });
     if (!rows || !rows.length) return res.status(404).json({ error: 'photos not found' });
     await requirePhotosAccess(req, ids, 'metadata', conn);
 
     if (sectionId !== null) {
       // 环节必须存在，且所有照片与环节属于同一项目（同 org 作用域）
-      const [secRows] = await conn.query(
-        `SELECT s.id, s.project_id AS projectId
-         FROM project_timeline_sections s
-         JOIN projects p ON p.id = s.project_id
-         WHERE s.id = ?${orgId === null ? ' AND p.organization_id IS NULL' : ' AND p.organization_id = ?'}`,
-        orgId === null ? [sectionId] : [sectionId, orgId]
-      );
-      const section = secRows && secRows[0];
+      const section = await photosDao.findSectionWithProjectScope(conn, { sectionId, orgId });
       if (!section) return res.status(404).json({ error: 'Section not found' });
       const mismatched = rows.filter((r) => Number(r.projectId) !== Number(section.projectId));
       if (mismatched.length) {
@@ -1486,7 +1470,7 @@ async function handleZipRequest(req, res) {
       zipSql += ' AND organization_id = ?';
       zipParams.push(orgId);
     }
-    const [rows] = await pool.query(zipSql, zipParams);
+    const rows = await photosDao.queryDynamic(pool, { sql: zipSql, params: zipParams });
 
     if (!rows || rows.length === 0) return res.status(404).json({ error: 'no photos found' });
 
@@ -1959,7 +1943,7 @@ router.get('/:id/pixel-source', requirePermission('photos.view'), async (req, re
     }
     sql += ' LIMIT 1';
 
-    const [rows] = await pool.query(sql, params);
+    const rows = await photosDao.queryDynamic(pool, { sql, params });
     if (!rows || rows.length === 0) return res.status(404).json({ error: 'photo not found' });
 
     const row = rows[0];
@@ -2128,7 +2112,7 @@ router.get('/:id', requirePermission('photos.view'), async (req, res) => {
     }
     sql += ' LIMIT 1';
 
-    const [rows] = await pool.query(sql, params);
+    const rows = await photosDao.queryDynamic(pool, { sql, params });
     if (!rows || rows.length === 0) return res.status(404).json({ error: 'photo not found' });
 
     const p = rows[0];
@@ -2274,7 +2258,7 @@ router.patch('/:id', requirePermission('photos.edit'), async (req, res) => {
     const conn = await pool.getConnection();
     try {
       await conn.beginTransaction();
-      const [ownRows] = await conn.query(ownershipSql + ' FOR UPDATE', ownershipParams);
+      const ownRows = await photosDao.lockOwnershipRow(conn, { sql: ownershipSql, params: ownershipParams });
       if (!ownRows || ownRows.length === 0) {
         throw Object.assign(new Error('photo not found'), { status: 404 });
       }
@@ -2289,17 +2273,8 @@ router.patch('/:id', requirePermission('photos.edit'), async (req, res) => {
     } finally { conn.release(); }
     if (prepared) await prepared.committed().catch(error => console.warn('[photo-edit] retired artifact cleanup failed', id, error.name));
 
-    const [rows] = await pool.query(
-      `SELECT p.id, p.project_id AS projectId, p.timeline_section_id AS timelineSectionId,
-              pts.name AS timelineSectionName, pts.section_time AS timelineSectionTime,
-              p.url, p.thumb_url AS thumbUrl, p.public_download_url AS publicDownloadUrl, p.playback_url AS playbackUrl, p.title, p.original_filename AS originalFilename, p.description, p.adjustments, p.tags,
-              ai_status AS aiStatus, ai_error AS aiError,
-              ai_started_at AS aiStartedAt, ai_finished_at AS aiFinishedAt
-       FROM photos p
-       LEFT JOIN project_timeline_sections pts ON p.timeline_section_id = pts.id
-       WHERE p.id = ?`,
-      [id]
-    );
+    const updatedRow = await photosDao.findPhotoDetail(pool, id);
+    const rows = updatedRow ? [updatedRow] : [];
     if (!rows || rows.length === 0) return res.status(404).json({ error: 'photo not found' });
 
     const p = rows[0];
