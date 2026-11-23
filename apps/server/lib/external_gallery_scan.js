@@ -94,17 +94,24 @@ function photoPlusListUrl(value) {
   }
 }
 
-function scrollProgressAt(page, point) {
+function advanceGalleryScroll(page, point) {
   return page.evaluate(({ x, y }) => {
     const root = document.scrollingElement;
-    const progress = root ? [root.scrollTop, root.scrollHeight] : [];
-    for (let element = document.elementFromPoint(x, y); element; element = element.parentElement) {
-      if (element !== root && element.scrollHeight > element.clientHeight
-          && ['auto', 'scroll'].includes(getComputedStyle(element).overflowY)) {
-        progress.push(element.scrollTop, element.scrollHeight);
+    const scrollbox = (start) => {
+      for (let element = start; element && element !== root; element = element.parentElement) {
+        if (element.scrollHeight > element.clientHeight
+            && ['auto', 'scroll'].includes(getComputedStyle(element).overflowY)) return element;
       }
+      return null;
+    };
+    const gallery = document.querySelector('.photo-content.container');
+    const inner = scrollbox(gallery) || scrollbox(document.elementFromPoint(x, y));
+    const progress = root ? [root.scrollTop, root.scrollHeight] : [];
+    if (inner) {
+      progress.push(inner.scrollTop, inner.scrollHeight);
+      inner.scrollTop = inner.scrollHeight;
     }
-    return progress.join(':');
+    return { progress: progress.join(':'), needsWheel: !inner };
   }, point);
 }
 
@@ -194,22 +201,26 @@ async function scanPhotoPlus(rawUrl, options = {}) {
     }
     let idleSteps = 0;
     let previousProgress = null;
-    let point;
+    const point = { x: VIEWPORT.width / 2, y: VIEWPORT.height * 0.75 };
+    let wheelPositioned = false;
     while (Date.now() < deadline) {
       if (options.shouldStop?.()) throw Object.assign(new Error('Import stopped'), { code: 'IMPORT_STOPPED' });
       await responseTask;
       if (responseError) throw responseError;
       if (reportedTotal && seen.size >= reportedTotal) break;
-      if (!point) {
-        point = { x: VIEWPORT.width / 2, y: VIEWPORT.height * 0.75 };
-        await page.mouse.move(point.x, point.y);
-      }
-      const progress = `${seen.size}:${await scrollProgressAt(page, point)}`;
+      const scroll = await advanceGalleryScroll(page, point);
+      const progress = `${seen.size}:${scroll.progress}`;
       idleSteps = progress === previousProgress && !pendingListRequests.size ? idleSteps + 1 : 0;
       if (idleSteps >= 3 && Date.now() - lastResponseAt > 1800) break;
       previousProgress = progress;
-      // The grid may be nested in a scrollbox or use the document's own scroll.
-      await page.mouse.wheel(0, Math.round(VIEWPORT.height * 1.2));
+      // Let the viewer's document scroll handler load the next page.
+      if (scroll.needsWheel) {
+        if (!wheelPositioned) {
+          await page.mouse.move(point.x, point.y);
+          wheelPositioned = true;
+        }
+        await page.mouse.wheel(0, Math.round(VIEWPORT.height * 1.2));
+      }
       await page.waitForTimeout(450);
     }
     await responseTask;
