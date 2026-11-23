@@ -2,7 +2,7 @@ const { Worker } = require('node:worker_threads');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { normalizePhotoAdjustments, isDefaultPhotoAdjustments } = require('./engine.mjs');
-const { getBakedEdit, editRevision } = require('./artifacts.cjs');
+const { bakedEditCleanupKeys, editRevision } = require('./artifacts.cjs');
 
 let rendering = false;
 function fail(status, message) { return Object.assign(new Error(message), { status }); }
@@ -29,13 +29,11 @@ async function preparePhotoEdit({ row, adjustments, baseRevision, storage, loadO
   const revision = editRevision(row);
   if (baseRevision != null && baseRevision !== revision) throw fail(409, '照片已被其他人编辑，请重新打开后再修改');
   const normalized = normalizePhotoAdjustments(adjustments);
-  const previous = getBakedEdit(row);
-  const retired = previous ? [previous.url, previous.thumbUrl, ...(previous.retired || [])] : [];
+  const retired = bakedEditCleanupKeys(row);
   let created = [];
   const cleanup = async keys => {
-    const safe = [...new Set(keys)].filter(key => new RegExp(`^uploads/photo-edits/${Number(row.id)}/[a-f0-9-]{36}/(?:image\\.jpg|thumb\\.webp)$`).test(key));
-    if (safe.length) {
-      const result = await storage.deleteObjects(safe);
+    if (keys.length) {
+      const result = await storage.deleteObjects(keys);
       if (result?.errors?.length || result?.skipped?.length) throw fail(502, '编辑缓存清理失败');
     }
   };

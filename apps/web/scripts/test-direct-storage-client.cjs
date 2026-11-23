@@ -32,6 +32,15 @@ test('forceRefresh bypasses a cached signed link',async()=>{
  let signed=0;const f=fixture(async url=>url.endsWith('direct-status')?{eligible:true}:{url:'http://storage/'+(++signed),expiresIn:900});
  await f.api.getDirectMediaUrl(1);assert.equal(await f.api.getDirectMediaUrl(1,'original',{forceRefresh:true}),'http://storage/2');
 });
+test('untouched original links never reuse the saved-edit cache entry',async()=>{
+ let signed=0;const f=fixture(async url=>url.endsWith('direct-status')?{eligible:true}:{url:'http://storage/'+(++signed),expiresIn:900});
+ assert.equal(await f.api.getDirectMediaUrl(1,'original',{download:true}),'http://storage/1');
+ assert.equal(await f.api.getDirectMediaUrl(1,'original',{download:true,original:true}),'http://storage/2');
+ assert.equal(await f.api.getDirectMediaUrl(1,'original',{download:true}),'http://storage/1');
+ assert.equal(await f.api.getDirectMediaUrl(1,'original',{download:true,original:true}),'http://storage/2');
+ assert.deepEqual(f.calls.filter(c=>c.url.includes('direct-url')).map(c=>new URL(c.url,'http://local').searchParams.get('original')),['0','1']);
+ assert.equal(signed,2);
+});
 test('cached authorization results do not cross account changes',async()=>{
  let signed=0;const f=fixture(async url=>url.endsWith('direct-status')?{eligible:true}:{url:'http://storage/'+(++signed),expiresIn:900});
  await f.api.getDirectMediaUrl(1);f.setToken('actor-b');assert.equal(await f.api.getDirectMediaUrl(1),'http://storage/2');

@@ -19,12 +19,12 @@ export function createMediaDownloader({ getDirectUrl, getFallbackUrl, fetchFile 
       try { await response?.body?.cancel(); } catch (_) { /* Already aborted. */ }
     }
   }
-  return async function download({ photoId, url, filename }) {
+  return async function download({ photoId, url, filename, forceOriginal = false }) {
     let directUrl;
-    try { if (photoId) directUrl = await getDirectUrl(photoId); } catch (_) { /* Refresh the authorized proxy below. */ }
+    try { if (photoId) directUrl = await getDirectUrl(photoId, { original: forceOriginal }); } catch (_) { /* Refresh the authorized proxy below. */ }
     let probe = directUrl ? await probeAttachment(directUrl) : { ok: false, retryable: true };
     if (!probe.ok && probe.retryable && photoId) {
-      try { directUrl = await getDirectUrl(photoId, { forceRefresh: true }); } catch (_) { directUrl = null; }
+      try { directUrl = await getDirectUrl(photoId, { forceRefresh: true, original: forceOriginal }); } catch (_) { directUrl = null; }
       probe = directUrl ? await probeAttachment(directUrl) : { ok: false };
       // A gateway can reject Range preflights but still allow a simple signed attachment GET.
       if (!probe.ok && probe.network) probe = await probeAttachment(directUrl, true);
@@ -32,7 +32,7 @@ export function createMediaDownloader({ getDirectUrl, getFallbackUrl, fetchFile 
     const direct = probe.ok;
     let target = directUrl;
     if (!direct) {
-      const fresh = await getFallbackUrl({ photoId, url });
+      const fresh = await getFallbackUrl({ photoId, url, original: forceOriginal });
       if (!fresh) throw new Error('无法获取下载文件，请刷新后重试');
       const parsed = new URL(fresh, getOrigin());
       // API responses may contain the configured absolute host; use its signed proxy on the current origin.

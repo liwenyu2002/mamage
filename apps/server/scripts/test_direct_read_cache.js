@@ -1,12 +1,14 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
+const storageSource = path.join(__dirname, '../lib/cos_storage.js');
+const storageRequire = require('node:module').createRequire(storageSource);
 function fixture(){
  const calls=[],module={exports:{}};
- vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../lib/cos_storage.js'),'utf8'),{
+ vm.runInNewContext(fs.readFileSync(storageSource,'utf8'),{
   module,process:{env:{COS_FORCE_PATH_STYLE:'1'}},Buffer,URL,Date,Map,Set,console,
   require(name){
    if(name==='../config/keys')return{COS_SECRET_ID:'isolated-key',COS_SECRET_KEY:'isolated-secret',COS_BUCKET:'isolated-bucket',COS_REGION:'us-east-1',COS_BASE_URL:'http://storage.test'};
    if(name==='@aws-sdk/s3-request-presigner')return{getSignedUrl:async(_client,command,options)=>{calls.push({input:command.input,options});return'http://storage.test/signed';}};
-   return require(name);
+   return storageRequire(name);
   },
  });
  return{storage:module.exports,calls};

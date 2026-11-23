@@ -81,7 +81,8 @@ export async function getDirectMediaUrl(photoId, variant = 'original', options =
   if (version !== syncCacheScope() || !status || !status.eligible) return null;
 
   const download = options.download ? '1' : '0';
-  const key = `${photoId}:${variant}:${download}`;
+  const original = options.original ? '1' : '0';
+  const key = `${photoId}:${variant}:${download}:${original}`;
   const cached = directUrlCache.get(key);
   if (!options.forceRefresh && cached && cached.expiresAt > Date.now() + 30000) return cached.url;
   const existing = directUrlRequests.get(key);
@@ -89,7 +90,7 @@ export async function getDirectMediaUrl(photoId, variant = 'original', options =
   if (options.forceRefresh) directUrlCache.delete(key);
   // Network/signing latency consumes the lifetime; a short capability must not be extended by the client.
   const startedAt = Date.now(), entry = { refresh: !!options.forceRefresh };
-  entry.promise = requestJson(`/api/photos/${encodeURIComponent(String(photoId))}/direct-url?variant=${encodeURIComponent(variant)}&download=${download}`)
+  entry.promise = requestJson(`/api/photos/${encodeURIComponent(String(photoId))}/direct-url?variant=${encodeURIComponent(variant)}&download=${download}&original=${original}`)
     .then((result) => {
       if (version !== syncCacheScope() || !result?.url) return null;
       const seconds = result.expiresIn == null ? 900 : Number(result.expiresIn);
@@ -143,10 +144,11 @@ export function triggerDirectDownload(url) {
 
 export const downloadOriginalMedia = createMediaDownloader({
   getDirectUrl: (photoId, options) => getDirectMediaUrl(photoId, 'original', { ...options, download: true }),
-  getFallbackUrl: async ({ photoId, url }) => {
-    if (!photoId || !getToken()) return url;
+  getFallbackUrl: async ({ photoId, url, original }) => {
+    const source = value => original && value ? `${value}${value.includes('?') ? '&' : '?'}original=1` : value;
+    if (!photoId || !getToken()) return source(url);
     const fresh = await request(`/api/photos/${encodeURIComponent(String(photoId))}`, { timeoutMs: 10000 });
-    return fresh?.url;
+    return source(fresh?.url);
   },
 });
 

@@ -26,8 +26,12 @@ jobs:
         working-directory: apps/web
       - run: npm run test:permissions-browser
         working-directory: apps/web
+      - run: npm run test:iam-browser
+        working-directory: apps/web
+      - run: node apps/web/scripts/test-iam-qr-browser.cjs
       - run: node apps/web/scripts/test-folder-sharing-browser.cjs
       - run: node apps/web/scripts/test-navigation-browser.cjs
+      - run: node apps/web/scripts/test-photo-geometry-browser.cjs
       - run: node scripts/install-helm.cjs
       - run: npm run test:k8s
         env:

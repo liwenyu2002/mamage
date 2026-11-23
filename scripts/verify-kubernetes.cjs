@@ -8,6 +8,7 @@ const { createRequire } = require('node:module');
 const root = path.resolve(__dirname, '..');
 const load = createRequire(path.join(root, 'apps/server/package.json'));
 const context = process.env.MAMAGE_K8S_TEST_CONTEXT;
+const imageTag = process.env.MAMAGE_K8S_TEST_TAG;
 const helm = process.env.HELM_BIN || 'helm';
 const suffix = crypto.randomBytes(4).toString('hex');
 const namespace = `mamage-verify-${suffix}`;
@@ -67,6 +68,7 @@ async function portForward(target, remote, forwards) {
 async function main() {
   // This harness may create/delete only its own namespace on an explicit local test cluster.
   if (!/^(colima|kind)-mamage-verify$/.test(context || '')) throw Error('Set MAMAGE_K8S_TEST_CONTEXT to colima-mamage-verify or kind-mamage-verify');
+  if (!/^verify-[0-9a-f]{7,40}$/.test(imageTag || '')) throw Error('Set MAMAGE_K8S_TEST_TAG to the candidate image tag (verify-<commit>)');
   const kubeconfig = JSON.parse(await run('kubectl', ['--context', context, 'config', 'view', '--minify', '-o', 'json']));
   const server = new URL(kubeconfig.clusters[0].cluster.server);
   if (!['127.0.0.1', 'localhost', '[::1]'].includes(server.hostname)) throw Error('Refusing a non-loopback Kubernetes API');
@@ -116,7 +118,7 @@ async function main() {
       { apiVersion: 'v1', kind: 'PersistentVolumeClaim', metadata: { name: 'shared-assets', namespace },
         spec: { accessModes: ['ReadWriteMany'], storageClassName: '', volumeName: `${sharedVolume}-assets`, resources: { requests: { storage: '1Gi' } } } },
       { apiVersion: 'batch/v1', kind: 'Job', metadata: { name: 'prepare-test-volume', namespace }, spec: { template: { spec: {
-        restartPolicy: 'Never', automountServiceAccountToken: false, containers: [{ name: 'prepare', image: 'mamage-api:verify-20261013', imagePullPolicy: 'Never',
+        restartPolicy: 'Never', automountServiceAccountToken: false, containers: [{ name: 'prepare', image: `mamage-api:${imageTag}`, imagePullPolicy: 'Never',
           securityContext: { runAsUser: 0 }, command: ['node', '-e', "for (const p of ['/data','/assets']) require('fs').chmodSync(p, 0o777)"],
           volumeMounts: [{ name: 'data', mountPath: '/data' }, { name: 'assets', mountPath: '/assets' }] }],
         volumes: [{ name: 'data', persistentVolumeClaim: { claimName: 'shared-data' } }, { name: 'assets', persistentVolumeClaim: { claimName: 'shared-assets' } }],
@@ -144,8 +146,8 @@ async function main() {
     `, [hash]);
     await sql(schema + '\n' + migrations + '\n' + seed);
     const values = {
-      images: { api: { repository: 'mamage-api', tag: 'verify-20261013', pullPolicy: 'Never' },
-        web: { repository: 'mamage-web', tag: 'verify-20261013', pullPolicy: 'Never' } },
+      images: { api: { repository: 'mamage-api', tag: imageTag, pullPolicy: 'Never' },
+        web: { repository: 'mamage-web', tag: imageTag, pullPolicy: 'Never' } },
       publicURL: 'http://127.0.0.1',
       objectStorage: { endpoint: 'http://unconfigured-storage:8080' },
       modelServices: { faceURL: 'http://unconfigured-face:8009' },
@@ -234,7 +236,7 @@ async function main() {
     `;
     await kubectl(['apply', '-f', '-'], { input: JSON.stringify({ apiVersion: 'v1', kind: 'Pod',
       metadata: { name: 'rollout-observer', namespace }, spec: { restartPolicy: 'Never', automountServiceAccountToken: false,
-        containers: [{ name: 'observe', image: 'mamage-api:verify-20261013', imagePullPolicy: 'Never',
+        containers: [{ name: 'observe', image: `mamage-api:${imageTag}`, imagePullPolicy: 'Never',
           command: ['node', '-e', observerCode], securityContext: { runAsNonRoot: true, runAsUser: 1000, readOnlyRootFilesystem: true,
             allowPrivilegeEscalation: false, capabilities: { drop: ['ALL'] } },
           resources: { requests: { cpu: '50m', memory: '64Mi' }, limits: { cpu: '500m', memory: '256Mi' } },

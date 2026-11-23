@@ -1,6 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const net = require('node:net');
+const os = require('node:os');
 const crypto = require('node:crypto');
 const { execFileSync, spawn, spawnSync } = require('node:child_process');
 const { createRequire } = require('node:module');
@@ -34,7 +35,7 @@ async function main() {
   const datadir = path.join(directory, 'data');
   const log = path.join(directory, 'mysql.log');
   const binary = process.env.MAMAGE_TEST_MYSQLD || 'mysqld';
-  let daemon; let container; let conn; let exit; let passed = false;
+  let daemon; let container; let conn; let exit; let socketDirectory; let passed = false;
   const execDocker = (args, options = {}) => execFileSync('docker', args, {
     encoding: 'utf8', timeout: 180000, stdio: ['ignore', 'pipe', 'inherit'], ...options,
   }).trim();
@@ -57,7 +58,11 @@ async function main() {
       if (init.error) throw init.error;
       if (init.status !== 0) throw Error(`Isolated MySQL initialization failed; inspect ${log}`);
       port = await unusedPort();
-      socketPath = path.join(directory, 'mysql.sock');
+      // Unix sockets are limited to 103 bytes on macOS, even in deep worktrees.
+      const tmp = os.tmpdir();
+      const socketRoot = Buffer.byteLength(path.join(tmp, 'mamage-db-000000/mysql.sock')) <= 103 ? tmp : '/tmp';
+      socketDirectory = fs.mkdtempSync(path.join(socketRoot, 'mamage-db-'));
+      socketPath = path.join(socketDirectory, 'mysql.sock');
       daemon = spawn(binary, ['--no-defaults', `--datadir=${datadir}`, `--socket=${socketPath}`,
         `--pid-file=${directory}/mysql.pid`, `--log-error=${log}`, `--port=${port}`,
         '--bind-address=127.0.0.1', '--mysqlx=OFF', '--skip-log-bin'], { stdio: 'inherit' });
@@ -115,6 +120,7 @@ async function main() {
       const timer = setTimeout(() => daemon.kill('SIGKILL'), 15000);
       await exit; clearTimeout(timer);
     }
+    if (socketDirectory) fs.rmSync(socketDirectory, { recursive: true, force: true });
     if (passed) fs.rmSync(directory, { recursive: true, force: true });
     else console.error(`Failed verification logs retained locally: ${directory}`);
   }

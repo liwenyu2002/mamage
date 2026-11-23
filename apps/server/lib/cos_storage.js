@@ -20,6 +20,7 @@ const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 const { createPresignedPost } = require('@aws-sdk/s3-presigned-post');
 const { Upload } = require('@aws-sdk/lib-storage');
 const keys = require('../config/keys');
+const { bakedEditCleanupKeys } = require('./photo_tone/artifacts.cjs');
 
 let client = null;
 
@@ -654,6 +655,7 @@ function deleteObjectsForPhotoRows(rows) {
     if (thumbKey) keysToDelete.push(thumbKey);
     if (publicDownloadKey) keysToDelete.push(publicDownloadKey);
     if (playbackKey) keysToDelete.push(playbackKey);
+    keysToDelete.push(...bakedEditCleanupKeys(row));
   }
   return deleteObjects(keysToDelete);
 }

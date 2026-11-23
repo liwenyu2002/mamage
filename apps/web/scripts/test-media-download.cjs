@@ -16,7 +16,7 @@ async function fixture(options = {}) {
         body: { cancel: async () => { calls.cancels++; } }, arrayBuffer() { throw Error('Must not buffer the video'); } };
     },
   });
-  return { calls, run: () => download({ photoId: 1, url: '/api/image/old?ma=expired', filename: 'video.mp4' }) };
+  return { calls, run: (input = {}) => download({ photoId: 1, url: '/api/image/old?ma=expired', filename: 'video.mp4', ...input }) };
 }
 test('valid direct attachments retain direct storage without opening a tab or buffering the source', async () => {
   const f = await fixture(); assert.equal((await f.run()).direct, true); assert.equal(f.calls.fresh, 0);
@@ -38,6 +38,20 @@ test('CORS and signed URL API failures use the same fallback without exposing cr
   for (const options of [{ fetchFile: async () => { throw TypeError('CORS'); } }, { getDirectUrl: async () => { throw Error('direct API unavailable'); } }]) {
     const f = await fixture(options); assert.equal((await f.run()).direct, false); assert.equal(f.calls.fresh, 1); assert.equal(f.calls.clicks.length, 1);
   }
+});
+test('explicit originals retain their source selection across signing retries and proxy fallback', async () => {
+  let fallbackInput;
+  const f = await fixture({
+    fetchFile: async () => new Response('expired', { status: 403 }),
+    getFallbackUrl: async input => { fallbackInput = input; return '/api/image/photo.jpg?ma=fresh&original=1'; },
+  });
+  assert.equal((await f.run({ forceOriginal: true })).direct, false);
+  assert.equal(f.calls.direct.length, 2);
+  assert.ok(f.calls.direct.every(input => input.original === true));
+  assert.equal(f.calls.direct[1].forceRefresh, true);
+  assert.equal(fallbackInput.original, true);
+  assert.equal(new URL(f.calls.clicks[0].url, 'http://local').searchParams.get('original'), '1');
+  assert.equal(f.calls.clicks[0].target, '_self');
 });
 test('stalled direct probes are aborted and fall back, rather than opening another page', async () => {
   const f = await fixture({ timeoutMs: 10, fetchFile: async (_url, input) => new Promise((_, reject) => input.signal.addEventListener('abort', () => reject(Error('aborted')), { once: true })) });

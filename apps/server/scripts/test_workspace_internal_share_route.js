@@ -2,10 +2,9 @@ const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const { Readable } = require('node:stream');
 const express = require('express');
-const jwt = require('jsonwebtoken');
 
-if (!String(process.env.DB_NAME || '').endsWith('_workspace_test')) {
-  throw new Error('Set DB_NAME to an isolated *_workspace_test database');
+if (process.env.DB_HOST !== '127.0.0.1' || !String(process.env.DB_NAME || '').endsWith('_workspace_test')) {
+  throw new Error('Use a loopback-only *_workspace_test database');
 }
 process.env.ORGANIZATION_UNITS_ACTIVE = '1';
 process.env.UPLOAD_BASE_URL = 'https://mamage.test/api/image';
@@ -13,7 +12,6 @@ process.env.MEDIA_URL_SECRET = 'workspace-integration-test-secret';
 process.env.MEDIA_URL_SIGNING = '1';
 
 const { pool } = require('../db');
-const { JWT_SECRET } = require('../config/keys');
 const storage = require('../lib/cos_storage');
 const sharesRouter = require('../routes/internal_shares');
 const facesRouter = require('../routes/faces');
@@ -24,9 +22,36 @@ const favoritesRouter = require('../routes/user_favorites');
 const projectsRouter = require('../routes/projects');
 const photosRouter = require('../routes/photos');
 const imageProxyRouter = require('../routes/image_proxy');
+const usersRouter = require('../routes/users');
+const { createIamAuthRouter } = require('../routes/auth_iam');
+const { iamConfig } = require('../lib/iam_config');
 const { requireProjectAccess, requirePhotoAccess } = require('../lib/workspace_access');
 const { buildMediaUrl, authorizeMediaKey } = require('../lib/media_access');
 const { searchPhotos } = require('../lib/photo_search');
+
+async function loginThroughIam(origin, subject) {
+  const start = await fetch(origin + '/api/auth/iam/login', { redirect: 'manual' });
+  assert.equal(start.status, 302);
+  const authorization = new URL(start.headers.get('location'));
+  assert.equal(authorization.origin, 'https://iam.example.test');
+  const cookies = start.headers.getSetCookie();
+  const cookie = cookies[0].split(';', 1)[0];
+  const callback = new URL(authorization.searchParams.get('redirect_uri'));
+  assert.equal(callback.origin, origin);
+  callback.searchParams.set('state', authorization.searchParams.get('state'));
+  callback.searchParams.set('code', subject);
+  const finish = await fetch(callback, { redirect: 'manual', headers: { Cookie: cookie } });
+  assert.equal(finish.status, 302);
+  const handoff = new URL(finish.headers.get('location'), origin);
+  const code = new URLSearchParams(handoff.hash.slice(1)).get('iam_code');
+  assert.ok(code, 'the IAM fixture identity must bind to its pre-created account');
+  const session = await fetch(origin + '/api/auth/iam/session', {
+    method: 'POST', headers: { Cookie: cookie, Origin: origin, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code }),
+  });
+  assert.equal(session.status, 200, 'the login handoff must issue a valid session');
+  return (await session.json()).token;
+}
 
 async function main() {
   const suffix = crypto.randomBytes(10).toString('hex');
@@ -59,10 +84,14 @@ async function main() {
     };
     ids.sourceUnit = await makeUnit('source');
     ids.targetUnit = await makeUnit('target');
+    const identities = new Map();
     const makeUser = async (name, unitId) => {
+      const email = `${name}-${suffix}@example.invalid`;
       const [result] = await pool.query(
-        'INSERT INTO users (student_no, name, role, organization_id, active_unit_id, view_organization_photos) VALUES (?, ?, ?, ?, ?, 1)',
-        [`${name}-${suffix}`, name, 'photographer', ids.org, unitId]);
+        'INSERT INTO users (student_no, name, email, role, organization_id, active_unit_id, view_organization_photos) VALUES (?, ?, ?, ?, ?, ?, 1)',
+        [`${name}-${suffix}`, name, email, 'photographer', ids.org, unitId]);
+      const subject = `iam-fixture-${result.insertId}`;
+      identities.set(subject, { attributes: { externalId: subject, name, email } });
       return result.insertId;
     };
     ids.owner = await makeUser('owner', ids.sourceUnit);
@@ -95,6 +124,21 @@ async function main() {
       [ids.org, ids.recipient, ids.owner, ids.org, ids.peer, ids.owner]);
     const app = express();
     app.use(express.json());
+    app.use('/api/users', usersRouter);
+    let config;
+    app.use('/api/auth/iam', createIamAuthRouter({ db: pool, config: () => config,
+      request: async (href, options) => {
+        const url = new URL(href);
+        assert.equal(url.origin, 'https://iam.example.test');
+        if (href === config.tokenUrl) {
+          const subject = new URLSearchParams(options.body).get('code');
+          assert.ok(identities.has(subject));
+          return { access_token: subject };
+        }
+        assert.equal(url.pathname, new URL(config.profileUrl).pathname);
+        return identities.get(url.searchParams.get('access_token'));
+      },
+    }));
     app.use('/api/internal-shares', sharesRouter);
     app.use('/api/workspaces', workspacesRouter);
     app.use('/api/organizations', organizationsRouter);
@@ -107,10 +151,26 @@ async function main() {
     server = await new Promise((resolve) => {
       const listener = app.listen(0, '127.0.0.1', () => resolve(listener));
     });
-    const base = `http://127.0.0.1:${server.address().port}/api/internal-shares`;
+    const origin = `http://127.0.0.1:${server.address().port}`;
+    const configured = iamConfig({ IAM_ENABLED: '1', IAM_BASE_URL: 'https://iam.example.test',
+      IAM_CLIENT_ID: 'fixture', IAM_CLIENT_SECRET: 'fixture-credential', IAM_ORGANIZATION_ID: String(ids.org),
+      IAM_PROFILE_LOGIN_MATCHING: '1', MAMAGE_PUBLIC_URL: 'https://mamage.test' });
+    assert.equal(configured.loginReady, true);
+    // Only the HTTP origin and the identity provider transport are substituted by this loopback fixture.
+    config = { ...configured, publicOrigin: origin, callback: origin + '/api/auth/iam/callback', insecureHttp: true };
+    const base = origin + '/api/internal-shares';
     const health = await fetch(base.replace(/\/internal-shares$/, '/health'));
     assert.equal(health.status, 200);
-    const token = (userId) => jwt.sign({ id: userId }, JWT_SECRET, { expiresIn: '5m' });
+    const tokens = new Map();
+    const token = userId => tokens.get(userId);
+    for (const userId of [ids.owner, ids.recipient, ids.peer]) {
+      tokens.set(userId, await loginThroughIam(origin, `iam-fixture-${userId}`));
+      const me = await fetch(origin + '/api/users/me', { headers: { Authorization: `Bearer ${token(userId)}` } });
+      assert.equal(me.status, 200);
+      const user = await me.json();
+      assert.equal(Number(user.id), userId);
+      assert.equal(user.iamManaged, true);
+    }
     const catalogUrl = base.replace(/\/internal-shares$/, '/organizations');
     assert.equal((await fetch(catalogUrl)).status, 401, 'the organization catalog is not public');
     const catalogHeaders = { Authorization: `Bearer ${token(ids.owner)}` };
@@ -266,7 +326,19 @@ async function main() {
     assert.deepEqual(ownOnlyData.photos, []);
     await pool.query('UPDATE users SET view_organization_photos = 1 WHERE id = ?', [ids.recipient]);
     await pool.query('INSERT INTO organization_unit_memberships (unit_id, user_id, role) VALUES (?, ?, ?)',
-      [ids.targetUnit, ids.owner, 'editor']);
+      [ids.targetUnit, ids.owner, 'manager']);
+    const memberUrl = `${workspaceBase}/${ids.targetUnit}/members/${ids.recipient}`;
+    const changeRole = (userId, role) => fetch(memberUrl, {
+      method: 'PUT', headers: { Authorization: `Bearer ${token(userId)}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role }),
+    });
+    assert.equal((await changeRole(ids.peer, 'editor')).status, 403);
+    assert.equal((await changeRole(ids.owner, 'manager')).status, 403);
+    const configuredMember = await changeRole(ids.owner, 'editor');
+    assert.equal(configuredMember.status, 200);
+    assert.equal((await configuredMember.json()).role, 'editor');
+    const updatedRecipient = await fetch(origin + '/api/users/me', { headers: faceHeaders });
+    assert.equal((await updatedRecipient.json()).unitRole, 'editor');
     const favoriteUrl = `${apiBase}/favorites`;
     const favoriteHeaders = { Authorization: `Bearer ${token(ids.owner)}`,
       'Content-Type': 'application/json' };
@@ -293,7 +365,7 @@ async function main() {
       assert.equal(retried.status, 'queued');
       assert.equal(retried.error_code, null);
     } finally { copyWorker.wake = originalWake; }
-    console.log('workspace internal share route integration: passed');
+    console.log('workspace IAM fixture login, scoped role assignment, and internal sharing: passed');
   } finally {
     delete process.env.DEMO_ORGANIZATION_ID;
     if (server) await new Promise((resolve) => server.close(resolve));
@@ -317,6 +389,11 @@ async function main() {
     if (ids.recipient) await pool.query('DELETE FROM face_search_grants WHERE user_id = ? AND organization_id = ?', [ids.recipient, ids.org]);
     if (ids.peer) await pool.query('DELETE FROM face_search_grants WHERE user_id = ? AND organization_id = ?', [ids.peer, ids.org]);
     if (ids.owner) await pool.query('DELETE FROM user_favorites WHERE user_id = ?', [ids.owner]);
+    const authenticatedUsers = [ids.owner, ids.recipient, ids.peer].filter(Boolean);
+    if (authenticatedUsers.length) {
+      await pool.query('DELETE FROM iam_identity_profiles WHERE user_id IN (?)', [authenticatedUsers]);
+      await pool.query('DELETE FROM iam_login_identities WHERE user_id IN (?)', [authenticatedUsers]);
+    }
     if (ids.owner) await pool.query('DELETE FROM users WHERE id = ?', [ids.owner]);
     if (ids.recipient) await pool.query('DELETE FROM users WHERE id = ?', [ids.recipient]);
     if (ids.peer) await pool.query('DELETE FROM users WHERE id = ?', [ids.peer]);

@@ -1,3 +1,5 @@
+import { clearExplicitLogout } from './logoutHold';
+
 // 兼容 IAM 里按站点根登记的回调：把 /?code=…&state=… 原样交给后端回调路由处理。
 export function forwardIamRootCallback(location = window.location) {
   try {
@@ -45,7 +47,8 @@ export async function finishIamLogin({ location = window.location, history = win
     const target = new URL(result.returnTo || '/', location.origin);
     if (target.origin !== location.origin || target.pathname.startsWith('/api/')) throw Error('Invalid destination');
     storage.setItem('mamage_jwt_token', result.token);
-    try { storage.removeItem('mamage_iam_qr_pending'); } catch {}
+    clearExplicitLogout(storage);
+    try { window.sessionStorage.removeItem('mamage_iam_qr_pending'); } catch {}
     if (target.pathname + target.search !== location.pathname + location.search) location.replace(target.pathname + target.search);
   } catch {
     history.replaceState({}, '', location.pathname + location.search + '#iam_error=IAM_LOGIN_UNAVAILABLE');

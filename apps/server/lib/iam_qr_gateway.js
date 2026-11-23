@@ -191,7 +191,7 @@ function createIamQrGateway({ transport = fetch } = {}) {
       if (!ticket || issues.some(issue => !['IAM_TICKET', 'crossbrowser'].includes(issue.type))) { note('fallback'); return { phase: 'fallback' }; }
       let go;
       try { go = completionUrl(ticket.go, cfg); }
-      catch (e) { console.warn('[iam-qr] ticket go rejected', String(ticket.go || '').slice(0, 120)); throw e; }
+      catch (e) { console.warn('[iam-qr] completion URL rejected'); throw e; }
       console.warn('[iam-qr] poll ready', result.status, 'go=' + (() => {
         try { const u = new URL(ticket.go); return u.origin + u.pathname + ' params=' + [...u.searchParams.keys()].join(','); } catch { return 'invalid'; }
       })());

@@ -47,7 +47,8 @@ async function main() {
             assert.ok(controls.every(r => r.x >= 0 && r.x + r.width <= width + 1));
             const searchBefore = await page.locator('.mamage-nav-search-group').boundingBox();
             if (albumView) {
-              assert.equal(await page.locator('.mamage-menu-trigger.is-home').evaluate(e => getComputedStyle(e).backgroundColor), 'rgba(0, 0, 0, 0)');
+              assert.equal(await page.locator('.mamage-menu-trigger.is-back').evaluate(e => getComputedStyle(e).backgroundColor), 'rgba(0, 0, 0, 0)');
+              assert.equal(await page.locator('.mamage-menu-trigger.is-back').getAttribute('aria-label'), '返回上一页');
               const title = page.locator('.mamage-brand-button.is-project-title'), before = await page.locator('.mamage-nav-brand-group').boundingBox();
               const contentTop = await page.locator('.mamage-content').evaluate(el => el.getBoundingClientRect().top);
               const frames = await page.locator('.mamage-nav-search-group').evaluate(async el => {

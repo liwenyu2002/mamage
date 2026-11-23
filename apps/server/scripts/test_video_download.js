@@ -144,6 +144,29 @@ test('mixed originals stream together in a single flat directory with exact leng
   } finally { await f.close(); }
 });
 
+test('mixed media downloads and estimates use the saved photo raster and unchanged video bytes', async () => {
+  const revision = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+  const url = `uploads/photo-edits/1/${revision}/image.jpg`;
+  const rows = [
+    { id: 1, type: 'normal', title: 'Scan.PNG', projectName: 'Campus', url: 'uploads/original.png',
+      adjustments: { version: 3, exposure: .5, baked: { photoId: 1, revision, url,
+        thumbUrl: `uploads/photo-edits/1/${revision}/thumb.webp`, width: 120, height: 80 } } },
+    { id: 2, type: 'video', title: 'Clip', projectName: 'Campus', url: 'uploads/clip.mp4' },
+  ];
+  const f = await fixture({ rows });
+  try {
+    const summary = await (await post(f.base, '/summary', { photoIds: [1, 2] })).json();
+    assert.equal(summary.items[0].name, 'Campus_Scan_1.jpg');
+    assert.equal(summary.totalBytes, Buffer.byteLength(url) + Buffer.byteLength(rows[1].url));
+    assert.deepEqual(f.calls.heads, [url, rows[1].url]);
+    const response = await post(f.base, '/mixed-zip', { photoIds: [1, 2] });
+    assert.equal(response.status, 200);
+    const zip = Buffer.from(await response.arrayBuffer());
+    assert.equal(Number(response.headers.get('content-length')), zip.length);
+    assert.deepEqual(f.calls.reads, [url, rows[1].url]);
+  } finally { await f.close(); }
+});
+
 test('the mixed download route uses one directory for originals and adjusted photos without transcoding video', async () => {
   const source = fs.readFileSync(require.resolve('../routes/photos'), 'utf8');
   const photoTone = require('../lib/photo_tone/engine.mjs');

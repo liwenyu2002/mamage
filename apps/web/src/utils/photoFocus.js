@@ -24,7 +24,7 @@ export function consumePhotoFocusIntent(projectId, photoId) {
   if (intent?.projectId !== String(projectId) || intent.photoId !== String(photoId)) return;
   const url = new URL(window.location.href);
   url.searchParams.delete('focusPhotoId');
-  window.history.replaceState({}, '', url);
+  window.history.replaceState(window.history.state, '', url);
 }
 
 export function focusPhotoCard(container, photoId, onFinished, onHighlight) {

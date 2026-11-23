@@ -5,7 +5,7 @@ const sharp = require('sharp');
 const tone = require('../lib/photo_tone/engine.mjs');
 const geometry = require('../lib/photo_tone/geometry.mjs');
 const { preparePhotoEdit } = require('../lib/photo_tone/save.cjs');
-const { getBakedEdit, editRevision, publicAdjustments, displayPhotoRow, savedDisplayKey } = require('../lib/photo_tone/artifacts.cjs');
+const { getBakedEdit, editRevision, bakedEditCleanupKeys, publicAdjustments, displayPhotoRow, savedDisplayKey } = require('../lib/photo_tone/artifacts.cjs');
 const { renderAdjustedPhotoBuffer, renderPhotoToneWorkingCopy } = require('../lib/photo_tone/render.cjs');
 
 const settings = patch => ({ ...tone.DEFAULT_PHOTO_ADJUSTMENTS, ...patch });
@@ -85,6 +85,17 @@ test('partial upload and aborted transaction preserve the prior edit and clean n
   const pending = await f.prepare({ shadows: 20 });
   await pending.abort(); assert.deepEqual(new Set(f.objects.keys()), before);
   assert.equal(f.row.adjustments.exposure, .5);
+});
+
+test('cleanup selects only tracked edits belonging to the photo', async () => {
+  const f = await fixture();
+  f.row.adjustments = (await f.prepare({ exposure: .5 })).saved;
+  const baked = getBakedEdit(f.row);
+  const retired = `uploads/photo-edits/13/${crypto.randomUUID()}/image.jpg`;
+  baked.retired = [baked.url, retired, retired, f.row.url, retired.replace('/13/', '/14/')];
+  assert.deepEqual(bakedEditCleanupKeys(f.row), [baked.url, baked.thumbUrl, retired]);
+  baked.retired = {};
+  assert.deepEqual(bakedEditCleanupKeys(f.row), [baked.url, baked.thumbUrl]);
 });
 
 test('stale editors and concurrent commits cannot overwrite a newer edit', async () => {

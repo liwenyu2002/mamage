@@ -6,7 +6,7 @@ const vm = require('node:vm');
 const { transformSync } = require('@babel/core');
 const tone = require('../../server/lib/photo_tone/engine.mjs');
 
-function loadClient() {
+function loadClient(environment = {}) {
   const module = { exports: {} };
   const code = transformSync(fs.readFileSync(path.resolve(__dirname, '../src/utils/photoAdjustments.js'), 'utf8'), {
     filename: 'photoAdjustments.js', configFile: false, babelrc: false,
@@ -19,6 +19,7 @@ function loadClient() {
       assert.equal(name, 'canvas');
       return { getContext: () => ({ fillRect() {}, drawImage() {}, getImageData: () => ({ data: new Uint8ClampedArray([10, 20, 30, 255]) }) }) };
     } },
+    ...environment,
   };
   vm.runInNewContext(code, sandbox, { filename: 'photoAdjustments.js' });
   return module.exports;
@@ -33,6 +34,15 @@ test('saved edit metadata survives client normalization without entering render 
     assert.equal(saved.exposure, 0.4);
     assert.equal(client.buildPhotoAdjustments(saved).baked, undefined);
   }
+  assert.equal(tone.isDefaultPhotoAdjustments(client.normalizePhotoAdjustments('{')), true);
+});
+
+test('the editor rejects a preview returned in place of advertised full-resolution pixels', async () => {
+  const client = loadClient({ fetch: async () => new Response(new Blob(), { headers: {
+    'X-MaMage-Tone-Engine': tone.ENGINE, 'X-MaMage-Source-Width': '6000', 'X-MaMage-Source-Height': '4000',
+  } }) });
+  await assert.rejects(client.loadTonePixels('/api/photos/11/pixel-source?variant=working&full=1',
+    { authenticated: true, fullResolution: true }), /未取得完整分辨率原图/);
 });
 
 test('original-quality editing does not reuse downscaled or transferred pixel buffers', async () => {

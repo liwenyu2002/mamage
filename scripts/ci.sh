@@ -8,6 +8,5 @@ npm --prefix apps/web run typecheck
 node --test scripts/engineering-guards.test.mjs apps/server/scripts/test_dao_contracts.js
 node scripts/audit-inline-sql.mjs
 node scripts/gen-auth-matrix.mjs --check
-npm --prefix apps/server run test:photo-tone
 npm test
 npm run build

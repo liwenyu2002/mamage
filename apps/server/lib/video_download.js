@@ -3,6 +3,7 @@ const { finished } = require('node:stream/promises');
 const { Readable } = require('node:stream');
 const { ZipFile } = require('yazl');
 const { buildAttachmentDisposition } = require('./cos_storage');
+const { displayPhotoRow } = require('./photo_tone/artifacts.cjs');
 
 function safeName(value, maxBytes = 180) {
   const chars = Array.from(String(value || '').replace(/[\u0000-\u001f\u007f\\/:*?"<>|]/g, '_').replace(/^[. ]+|[. ]+$/g, ''));
@@ -49,12 +50,12 @@ function createVideoDownloads({ pool, storage, requirePhotosAccess, buildMediaUr
   async function rowsFor(req, input, videosOnly = true) {
     const ids = parseVideoIds(input, maxIds);
     await requirePhotosAccess(req, ids, 'read');
-    const [rows] = await pool.query(`SELECT p.id, p.url, p.title, p.type, pr.name AS projectName, ts.name AS sectionName
+    const [rows] = await pool.query(`SELECT p.id, p.url, p.title, p.type, p.adjustments, pr.name AS projectName, ts.name AS sectionName
       FROM photos p LEFT JOIN projects pr ON pr.id=p.project_id
       LEFT JOIN project_timeline_sections ts ON ts.id=p.timeline_section_id WHERE p.id IN (?)`, [ids]);
     const byId = new Map(rows.map(row => [Number(row.id), row]));
     return ids.map(id => {
-      const row = byId.get(id);
+      const row = displayPhotoRow(byId.get(id));
       if (!row) { const e = new Error('VIDEO_NOT_FOUND'); e.status = 404; throw e; }
       if (videosOnly && row.type !== 'video') { const e = new Error('VIDEOS_ONLY'); e.status = 422; throw e; }
       const key = storage.keyFromUrlOrPath(row.url);
@@ -104,7 +105,7 @@ function createVideoDownloads({ pool, storage, requirePhotosAccess, buildMediaUr
       zipName: archiveName(rows), maxConcurrent: 2 };
   }
   async function estimateRows(input, signal) {
-    const rows = input.map(row => {
+    const rows = input.map(displayPhotoRow).map(row => {
       const key = storage.keyFromUrlOrPath(row.url);
       return { ...row, key: key && storage.isSafeKey(key) && key.startsWith('uploads/') ? key : null };
     });

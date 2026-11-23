@@ -6,21 +6,27 @@ const runtime = createRequire(path.resolve(__dirname, '../../server/package.json
 const sharp = runtime('sharp');
 const tone = require('../../server/lib/photo_tone/engine.mjs');
 const { renderAdjustedPhotoBuffer, renderPhotoToneWorkingCopy } = require('../../server/lib/photo_tone/render.cjs');
+const { preparePhotoEdit } = require('../../server/lib/photo_tone/save.cjs');
+const { publicAdjustments, editRevision, getBakedEdit } = require('../../server/lib/photo_tone/artifacts.cjs');
 
 async function createTonePreview({ sourcePath, sourceBuffer, faces = [], faceDelay = 0, distDirectory = path.resolve(__dirname, '../dist') } = {}) {
   const original = sourceBuffer || fs.readFileSync(sourcePath);
   const thumb = await sharp(original).rotate().resize({ width: 900, height: 900, fit: 'inside' }).withIccProfile('srgb').jpeg().toBuffer();
-  const working = await renderPhotoToneWorkingCopy(original);
+  const working = await renderPhotoToneWorkingCopy(original, 1280, true);
+  const objects = new Map();
+  const storage = { isConfigured: () => true,
+    uploadBuffer: async (key, data) => objects.set(key, data),
+    deleteObjects: async keys => { keys.forEach(key => objects.delete(key)); return { deleted: keys }; } };
   const stats = { sourceRequests: 0, faceRequests: 0, renders: 0, saves: 0 };
   const photos = [11, 12].map(id => ({ id, projectId: 9001, unitId: 1, type: 'normal', photographerId: 7,
     title: id === 11 ? '本地调色测试' : '旧版调色回归原图', originalFilename: sourcePath ? path.basename(sourcePath) : 'tone-test.png',
-    url: '/api/image/original.jpg', thumbUrl: '/api/image/thumb.jpg', description: '', tags: [], aiStatus: 'done',
+    url: `/api/image/${id}/original.jpg`, thumbUrl: `/api/image/${id}/thumb.jpg`, description: '', tags: [], aiStatus: 'done',
     adjustments: id === 12 ? { version: 2, brightness: 50, shadows: 50, temperature: -40, wbGains: [1.4, 0.7, 0.8] } : null,
   }));
   const actor = { id: 7, name: '本地测试', role: 'admin', activeUnitId: 1, metadataEditScope: 'own',
     permissions: ['projects.view', 'photos.view', 'photos.edit', 'photos.zip', 'upload.photo', 'tags.edit'] };
-  const album = () => ({ id: 9001, name: '调色本地测试', adminId: 7, unitId: 1, count: 2,
-    images: photos.map(photo => ({ ...photo, adjustments: tone.normalizePhotoAdjustments(photo.adjustments) })) });
+  const publicPhoto = photo => ({ ...photo, adjustments: publicAdjustments(photo.adjustments, photo.id), editRevision: editRevision(photo) });
+  const album = () => ({ id: 9001, name: '调色本地测试', adminId: 7, unitId: 1, count: 2, images: photos.map(publicPhoto) });
   const json = (res, data, status = 200) => { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(data)); };
   const body = async req => {
     let data = '';
@@ -43,10 +49,14 @@ async function createTonePreview({ sourcePath, sourceBuffer, faces = [], faceDel
         if (!action && req.method === 'PATCH') {
           const payload = await body(req);
           if (!Object.hasOwn(payload, 'adjustments')) return json(res, { error: 'tone-only preview' }, 400);
-          photo.adjustments = tone.normalizePhotoAdjustments(payload.adjustments); stats.saves++;
-          return json(res, photo);
+          const prepared = await preparePhotoEdit({ row: { ...photo }, adjustments: payload.adjustments, baseRevision: payload.baseEditRevision,
+            storage, loadOriginal: async () => original });
+          prepared.assertCurrent(photo);
+          photo.adjustments = prepared.saved; stats.saves++;
+          await prepared.committed();
+          return json(res, publicPhoto(photo));
         }
-        if (!action) return json(res, { ...photo, adjustments: tone.normalizePhotoAdjustments(photo.adjustments) });
+        if (!action) return json(res, publicPhoto(photo));
         if (action === 'faces') {
           stats.faceRequests++;
           if (faceDelay) await new Promise(resolve => setTimeout(resolve, faceDelay));
@@ -60,7 +70,10 @@ async function createTonePreview({ sourcePath, sourceBuffer, faces = [], faceDel
         }
         if (action === 'rendered' && req.method === 'POST') {
           const options = await body(req); stats.renders++;
-          const buffer = await renderAdjustedPhotoBuffer(options.variant === 'thumb' ? thumb : original, options.adjustments, options);
+          const baked = getBakedEdit(photo);
+          const buffer = baked && tone.getToneAdjustmentKey(photo.adjustments) === tone.getToneAdjustmentKey(options.adjustments)
+            ? objects.get(options.variant === 'thumb' ? baked.thumbUrl : baked.url)
+            : await renderAdjustedPhotoBuffer(options.variant === 'thumb' ? thumb : original, options.adjustments, options);
           res.writeHead(200, { 'Content-Type': options.format === 'png' ? 'image/png' : options.format === 'webp' ? 'image/webp' : 'image/jpeg', 'X-MaMage-Tone-Engine': tone.ENGINE });
           return res.end(buffer);
         }
@@ -68,7 +81,10 @@ async function createTonePreview({ sourcePath, sourceBuffer, faces = [], faceDel
         return json(res, {});
       }
       if (p.startsWith('/api/image/')) {
-        res.writeHead(200, { 'Content-Type': 'image/jpeg' }); return res.end(p.endsWith('thumb.jpg') ? thumb : original);
+        const photo = photos.find(item => p.includes(`/${item.id}/`)), baked = getBakedEdit(photo);
+        const isThumb = p.endsWith('thumb.jpg');
+        const saved = url.searchParams.get('original') !== '1' && baked ? objects.get(isThumb ? baked.thumbUrl : baked.url) : null;
+        res.writeHead(200, { 'Content-Type': saved && isThumb ? 'image/webp' : 'image/jpeg' }); return res.end(saved || (isThumb ? thumb : original));
       }
       if (p.startsWith('/api/')) return json(res, {});
       const filename = path.resolve(distDirectory, '.' + p);
@@ -81,9 +97,9 @@ async function createTonePreview({ sourcePath, sourceBuffer, faces = [], faceDel
       // A separate loopback-only origin and fake session; never contacts production.
       html = html.replace('<head>', '<head><script>localStorage.setItem("mamage_jwt_token","tone-local-fixture");</script>');
       res.setHeader('Content-Type', 'text/html; charset=utf-8'); res.end(html);
-    } catch (error) { console.error(error.message); if (!res.headersSent) json(res, { error: error.message }, 500); else res.end(); }
+    } catch (error) { console.error(error.message); if (!res.headersSent) json(res, { error: error.message }, error.status || 500); else res.end(); }
   });
-  return { server, stats, photos, working, original };
+  return { server, stats, photos, working, original, objects };
 }
 module.exports = { createTonePreview };
 

@@ -6,11 +6,14 @@ const express = require('express');
 process.env.IMAGE_PROXY_HEADERS_TIMEOUT_MS = '1000';
 process.env.IMAGE_PROXY_IDLE_TIMEOUT_MS = '1000';
 process.env.MEDIA_URL_SIGNING = '0';
-let read, head, allowed = true, responseClosed;
+let read, head, allowed = true, responseClosed, authorizedPhoto;
 const mock = (name, exports) => { const id = require.resolve(name); require.cache[id] = { id, filename: id, loaded: true, exports }; };
 mock('../lib/cos_storage', { keyFromUrlOrPath: value => value, isSafeKey: () => true, isConfigured: () => true,
   getObject: (...args) => read(...args), headObject: (...args) => head(...args) });
-mock('../lib/media_access', { unitIdFromKey: () => 1, authorizeMediaKey: async () => allowed });
+mock('../lib/media_access', { unitIdFromKey: () => 1, authorizeMediaKey: async (_key, _token, _db, context) => {
+  if (context) context.photo = authorizedPhoto;
+  return allowed;
+} });
 const app = express();
 app.use((_req, res, next) => { res.once('close', () => responseClosed?.()); next(); });
 app.use('/api/image', require('../routes/image_proxy'));
@@ -96,4 +99,24 @@ test('authorization and missing-object responses remain closed without opening e
   const denied = await fetch(base); assert.equal(denied.status, 403); assert.equal(calls, 0);
   allowed = true; read = async () => { throw Object.assign(Error('private upstream text'), { name: 'NoSuchKey' }); };
   const missing = await fetch(base); assert.equal(missing.status, 404); assert.equal(await missing.text(), '');
+});
+
+test('authorized previews use saved artifacts, explicit originals bypass them, and denied edits never reach storage', async () => {
+  const revision = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+  const prefix = `uploads/photo-edits/11/${revision}/`;
+  authorizedPhoto = { id: 11, url: 'uploads/photo.jpg', thumb_url: 'uploads/thumb.jpg', type: 'normal',
+    adjustments: { version: 3, baked: { photoId: 11, revision, url: prefix + 'image.jpg', thumbUrl: prefix + 'thumb.webp', width: 120, height: 80 } } };
+  let reads = [];
+  read = async key => { reads.push(key); return { Body: Readable.from([key]), ContentType: 'image/jpeg' }; };
+  head = async key => { reads.push(key); return { ContentLength: 123, ContentType: 'image/webp' }; };
+  try {
+    assert.equal(await (await fetch(base)).text(), prefix + 'image.jpg');
+    assert.equal(await (await fetch(base + '?original=1')).text(), 'uploads/photo.jpg');
+    const thumb = await fetch(base.replace('photo.jpg', 'thumb.jpg'), { method: 'HEAD' });
+    assert.equal(thumb.headers.get('content-type'), 'image/webp');
+    assert.deepEqual(reads, [prefix + 'image.jpg', 'uploads/photo.jpg', prefix + 'thumb.webp']);
+    allowed = false; reads = [];
+    assert.equal((await fetch(base)).status, 403);
+    assert.deepEqual(reads, []);
+  } finally { authorizedPhoto = null; allowed = true; }
 });

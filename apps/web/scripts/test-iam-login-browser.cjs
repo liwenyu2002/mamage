@@ -119,6 +119,20 @@ async function main() {
       await page.locator('.auth-notice').waitFor();await page.locator('.auth-provider-loading').waitFor({state:'hidden'});
       assert.equal(starts,1,'failure must not create an automatic redirect loop');
       await page.getByRole('tab',{name:'账号密码',exact:true}).click();await page.getByLabel('密码',{exact:true}).waitFor();
+      await page.evaluate(() => {
+        sessionStorage.removeItem('mamage_campus_login_attempt');
+        localStorage.setItem('mamage_explicit_logout', '1');
+        sessionStorage.setItem('mamage_iam_qr_pending', String(Date.now()));
+      });
+      await page.goto(base+'/login?signed_out=1');
+      const campus = page.getByRole('button',{name:'前往校园登录',exact:true});
+      await campus.waitFor();
+      await page.reload();
+      await campus.waitFor();
+      assert.equal(starts,1,'explicit logout prevents automatic authorization, even with a prior QR marker');
+      await campus.click();
+      await page.getByText('Container authorization fixture',{exact:true}).waitFor();
+      assert.equal(starts,2,'explicit logout does not block manual login');
     }finally{await mobile.close();}
     const failed=await browser.newContext();
     try {
@@ -126,7 +140,7 @@ async function main() {
       const page=await failed.newPage();await page.goto(base+'/');
       await page.getByText('校园登录暂不可用',{exact:true}).waitFor();await page.getByLabel('密码',{exact:true}).waitFor();
     }finally{await failed.close();}
-    console.log('Login browser checks passed: campus IAM unaffected by OIDC config, desktop/mobile/narrow screens, password fallback, registration, redirects and DingTalk container entry.');
+    console.log('Login browser checks passed: campus IAM unaffected by OIDC config, desktop/mobile/narrow screens, password fallback, registration, redirects, DingTalk container entry and explicit logout.');
   }finally{if(browser) await browser.close();server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

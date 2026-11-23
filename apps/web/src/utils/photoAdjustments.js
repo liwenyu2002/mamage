@@ -6,7 +6,9 @@ import {
 export { DEFAULT_PHOTO_ADJUSTMENTS, buildPhotoAdjustments, isDefaultPhotoAdjustments };
 export function normalizePhotoAdjustments(input) {
   let value = input;
-  if (typeof value === 'string') value = JSON.parse(value);
+  if (typeof value === 'string') {
+    try { value = JSON.parse(value); } catch { value = null; }
+  }
   return { ...normalizePixels(value), ...(value?.baked ? { baked: value.baked } : {}) };
 }
 export { getToneAdjustmentKey } from '../../../server/lib/photo_tone/engine.mjs';
@@ -39,12 +41,19 @@ export function loadTonePixels(src, options = {}) {
       img.src = imageSrc;
       await img.decode();
       const naturalWidth = sourceWidth || img.naturalWidth, naturalHeight = sourceHeight || img.naturalHeight;
+      if (fullResolution && (img.naturalWidth !== naturalWidth || img.naturalHeight !== naturalHeight)) {
+        throw new Error('未取得完整分辨率原图，请重新打开编辑');
+      }
       const scale = fullResolution ? 1 : Math.min(1, maxSize / Math.max(img.naturalWidth, img.naturalHeight));
       const width = Math.max(1, Math.round(img.naturalWidth * scale)), height = Math.max(1, Math.round(img.naturalHeight * scale));
       const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
       const ctx = canvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
       ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, width, height); ctx.drawImage(img, 0, 0, width, height);
-      return { width, height, naturalWidth, naturalHeight, data: ctx.getImageData(0, 0, width, height).data };
+      try {
+        return { width, height, naturalWidth, naturalHeight, data: ctx.getImageData(0, 0, width, height).data };
+      } finally {
+        canvas.width = canvas.height = 0;
+      }
     } finally { if (objectUrl) URL.revokeObjectURL(objectUrl); }
   })().catch(error => { if (sources.get(key) === promise) sources.delete(key); throw error; });
   // The editor transfers full-resolution pixels to its worker, detaching them.

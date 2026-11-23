@@ -241,6 +241,10 @@ async function main() {
       await page.locator('.sv-viewer').waitFor();
       await page.keyboard.press('ArrowRight');
       await page.waitForURL('**previewId=102');
+      await page.keyboard.press('ArrowRight');
+      await page.waitForURL('**previewId=103');
+      await page.keyboard.press('ArrowLeft');
+      await page.waitForURL('**previewId=102');
       await page.goBack();
       await page.locator('.sv-viewer').waitFor({ state: 'detached' });
       await page.locator('.share-photo').first().waitFor();

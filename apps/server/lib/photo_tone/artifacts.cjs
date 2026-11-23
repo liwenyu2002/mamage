@@ -16,6 +16,13 @@ function editRevision(row) {
   const raw = rawAdjustments(row?.adjustments);
   return getBakedEdit(row)?.revision || crypto.createHash('sha256').update(JSON.stringify(raw || null)).digest('hex');
 }
+function bakedEditCleanupKeys(row) {
+  const baked = getBakedEdit(row);
+  if (!baked) return [];
+  const owned = new RegExp(`^uploads/photo-edits/${Number(row.id)}/[a-f0-9-]{36}/(?:image\\.jpg|thumb\\.webp)$`);
+  const retired = Array.isArray(baked.retired) ? baked.retired : [];
+  return [...new Set([baked.url, baked.thumbUrl, ...retired].filter(key => typeof key === 'string' && owned.test(key)))];
+}
 function editableSourceUrl(url) {
   if (!url) return url;
   return `${url}${String(url).includes('?') ? '&' : '?'}original=1`;
@@ -41,4 +48,4 @@ function publicAdjustments(value, id) {
     return { ...normalized, ...(baked ? { baked: { photoId: baked.photoId, revision: baked.revision, width: baked.width, height: baked.height } } : {}) };
   } catch { return null; }
 }
-module.exports = { rawAdjustments, getBakedEdit, editRevision, editableSourceUrl, savedDisplayKey, displayPhotoRow, publicAdjustments };
+module.exports = { rawAdjustments, getBakedEdit, editRevision, bakedEditCleanupKeys, editableSourceUrl, savedDisplayKey, displayPhotoRow, publicAdjustments };

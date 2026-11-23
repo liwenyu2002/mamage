@@ -249,11 +249,17 @@ docker --context colima-mamage-verify run --rm --network none --read-only \
   mamage-api:verify-20261013 scripts/verify_container_runtime.js
 
 # 仅允许显式本地测试 context，且 API 地址必须为 loopback；不接受学校/生产 context。
+tag="verify-$(git rev-parse --short HEAD)"
+for component in api web; do
+  git archive HEAD | docker --context colima-mamage-verify build \
+    -f "deploy/docker/Dockerfile.$component" -t "mamage-$component:$tag" -
+done
 MAMAGE_K8S_TEST_CONTEXT=colima-mamage-verify \
+MAMAGE_K8S_TEST_TAG="$tag" \
 HELM_BIN="$PWD/.local/tools/darwin-arm64/helm" npm run test:k8s:smoke
 ```
 
-集群验证要求先在指定本地集群装载 API/web `verify-20261013` 镜像与脚本固定的 MySQL 8.4 镜像。Colima 使用 Docker CRI 时与 Docker 共享镜像；使用 kind/containerd 时需要显式导入对应镜像。
+集群验证要求先在指定本地集群装载本次候选提交的 API/web 镜像与脚本固定的 MySQL 8.4 镜像。脚本要求显式标签，不会回退到旧的验收镜像。Colima 使用 Docker CRI 时与 Docker 共享镜像；使用 kind/containerd 时需要显式导入对应镜像。
 
 集群脚本创建独占随机命名空间与一次性 MySQL，检查双 API/web Pod、同源代理、登录、私有媒体拒绝、旧分包缺失 404、嵌套文件夹读写、数据库账号临时锁定时的探针/协调者退出行为，以及滚动重启的数据与哈希资源保留。测试 RWX PV 是仅用于单节点本地演练的 hostPath，不能证明学校跨节点 CSI 可用；结束删除命名空间与专用测试 PV，不创建真实用户或公开入口。
 

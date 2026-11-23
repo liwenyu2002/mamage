@@ -2,6 +2,7 @@ import React from 'react';
 import { Input, Button, Toast } from './ui';
 import { IconChevronRight } from './ui/icons';
 import { campusLoginUrl, autoStartCampusLogin } from './services/iamLogin';
+import { hasExplicitLogout } from './services/logoutHold';
 import './AuthPage.css';
 import * as authService from './services/authService';
 import { getProviders, loginWithPassword, sendEmailCode, registerAccount } from './services/authService';
@@ -39,6 +40,14 @@ export default function AuthPage({ onAuthenticated }) {
     return () => window.removeEventListener('pageshow', returned);
   }, []);
   React.useEffect(() => {
+    if (!redirecting) return undefined;
+    const timer = setTimeout(() => {
+      setRedirecting(false);
+      setLoginAlert('登录页面连接较慢，请检查校园网后重试');
+    }, 12000);
+    return () => clearTimeout(timer);
+  }, [redirecting]);
+  React.useEffect(() => {
     let canceled = false;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
@@ -69,7 +78,7 @@ export default function AuthPage({ onAuthenticated }) {
   const hasCampusLogin = authProviders.iam || authProviders.dingtalk;
   const currentLoginMode = loginMode || (hasCampusLogin ? 'campus' : 'password');
   React.useEffect(() => {
-    if (providersLoading || providersFailed || active !== 'login' || loginMode || initialLoginFailure.current) return;
+    if (providersLoading || providersFailed || active !== 'login' || loginMode || initialLoginFailure.current || hasExplicitLogout()) return;
     // 扫码完成后浏览器回到本站却没拿到 code：说明 IAM 只建了会话、没走回调。
     // 此时立刻走标准授权跳转即可免密完成登录，避免用户卡在二维码页。
     try {
@@ -90,6 +99,7 @@ export default function AuthPage({ onAuthenticated }) {
   const beginCampusLogin = () => {
     const url = campusLoginUrl(authProviders, window.location);
     if (!url || redirecting) return;
+    setLoginAlert('');
     setRedirecting(true);window.location.assign(url);
   };
   const [loading, setLoading] = React.useState(false);

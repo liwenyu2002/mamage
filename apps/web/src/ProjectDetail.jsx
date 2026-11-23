@@ -2917,7 +2917,7 @@ function ProjectDetailInner({
 
     if (isVideoMeta(meta) || options.forceOriginal || isDefaultPhotoAdjustments(adjustments)) {
       const photoId = getPhotoRecordId(meta);
-      await downloadOriginalMedia({ photoId, url, filename: `${baseName}${inferDownloadExt(url)}` });
+      await downloadOriginalMedia({ photoId, url, filename: `${baseName}${inferDownloadExt(url)}`, forceOriginal: options.forceOriginal });
       return { rendered: false };
     }
 
@@ -2963,15 +2963,17 @@ function ProjectDetailInner({
     const url = meta.originalSrc || meta.url || meta.thumbSrc || images[idx];
     if (!url) return Toast.warning('无法获取媒体资源');
     try {
-      const result = await downloadRenderedPhoto(meta, idx, viewerToneVisible ? {
-        adjustments: viewerToneDraft, forceOriginal: viewerToneComparing
-      } : {});
+      const result = await downloadRenderedPhoto(meta, idx, {
+        adjustments: viewerToneVisible ? viewerToneDraft : undefined,
+        forceOriginal: viewerToneVisible ? viewerToneComparing || viewerToneHoldingOriginal : viewerShowOriginal,
+      });
       Toast.success(currentViewerIsVideo ? '已开始下载视频' : result.rendered ? '已下载调色后的照片' : '已开始下载原图');
     } catch (err) {
       console.error('downloadCurrentPhoto error', err);
       Toast.error(err?.message || '下载失败');
     }
-  }, [viewerIndex, photoMetas, images, downloadRenderedPhoto, currentViewerIsVideo, viewerToneVisible, viewerToneDraft, viewerToneComparing]);
+  }, [viewerIndex, photoMetas, images, downloadRenderedPhoto, currentViewerIsVideo,
+    viewerToneVisible, viewerToneDraft, viewerToneComparing, viewerToneHoldingOriginal, viewerShowOriginal]);
 
   // Expose a global getter so the floating TransferStation can read current selection
   React.useEffect(() => {
@@ -3695,6 +3697,7 @@ function ProjectDetailInner({
     setViewerToneHistory({ past: [], future: [] });
     setViewerToneMode('tone');
     setViewerToneSourceSize(null);
+    setViewerToneBaseRevision(null);
     setViewerToneAspect(undefined);
     toneGestureRef.current = false;
   }, [currentViewerPhotoId]);

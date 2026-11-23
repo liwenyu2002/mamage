@@ -85,13 +85,10 @@ function createIamAuthRouter({ db, config = iamConfig, store = createSharedStore
     try {
       const cfg = config();
       if (typeof req.query.code !== 'string' || !req.query.code || req.query.code.length > 2000) {
-        // IAM 回调没带 code：记录实际 query 键与错误信息（不含敏感值），用于比对注册回调。
-        console.warn('[iam-login] callback without code', JSON.stringify({ keys: Object.keys(req.query || {}),
-          error: String(req.query?.error || '').slice(0, 80), description: String(req.query?.error_description || '').slice(0, 160),
-          stateLen: typeof req.query?.state === 'string' ? req.query.state.length : 0,
-          url: String(req.originalUrl || req.url || '').slice(0, 300),
-          referer: String(req.get('referer') || '').slice(0, 200),
-          ua: String(req.get('user-agent') || '').slice(0, 120) }));
+        console.warn('[iam-login] callback without code', {
+          hasState: typeof req.query?.state === 'string',
+          hasProviderError: typeof req.query?.error === 'string',
+        });
         throw error('IAM_INVALID_CODE');
       }
       const state = await consume(req.query.state, req, cfg, 'oauth');
@@ -103,7 +100,9 @@ function createIamAuthRouter({ db, config = iamConfig, store = createSharedStore
       const url = new URL(cfg.profileUrl); url.searchParams.set('access_token', token.access_token);
       const profile = await request(url.href, { method: 'POST' });
       if (process.env.IDP_PROFILE_DEBUG === '1') {
-        console.warn('[idp-profile:iam]', JSON.stringify(profile).slice(0, 4000));
+        const fields = Object.keys(profile || {}).slice(0, 40);
+        const attributes = Object.keys(profile?.attributes || {}).slice(0, 40);
+        console.warn('[idp-profile:iam] fields', { fields, attributes });
       }
       const idpStore = require('../lib/idp_profile_store');
       const directory = createIamDirectory(database());
@@ -118,9 +117,7 @@ function createIamAuthRouter({ db, config = iamConfig, store = createSharedStore
       res.redirect('/login#iam_code=' + handoff);
     } catch (e) {
       const code = /^IAM_/.test(e.code || '') ? e.code : 'IAM_LOGIN_UNAVAILABLE';
-      // 登录失败排障：记录错误码与上游返回摘要（不含票据与密钥）。
-      console.warn('[iam-login] callback failed', JSON.stringify({ code, message: String(e.message || '').slice(0, 200),
-        status: e.status || null, hint: e.hint || null }));
+      console.warn('[iam-login] callback failed', { code, status: e.status || null });
       res.redirect('/login#iam_error=' + encodeURIComponent(code));
     }
   });

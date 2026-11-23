@@ -243,7 +243,7 @@ function AlbumShareView({ share = {}, onBack }) {
   };
 
   const previewId = new URL(route.url, window.location.origin).searchParams.get('previewId');
-  const photoKey = (photo, index) => String(photo?.id || photo?.photoId || photo?.photo_id || `index-${index}`);
+  const photoKey = React.useCallback((photo, index) => String(photo?.id || photo?.photoId || photo?.photo_id || `index-${index}`), []);
   const viewerIndex = photos.findIndex((photo, index) => photoKey(photo, index) === previewId);
   const viewerVisible = viewerIndex >= 0;
   React.useEffect(() => {
@@ -309,12 +309,12 @@ function AlbumShareView({ share = {}, onBack }) {
     openViewer(idx); // 内部会清 seq
     if (seq.length > 1) setViewerSeq(seq); // 同一批 setState,序列最终生效
   };
-  const closeViewer = () => closeMediaRoute('previewId');
-  const moveViewer = step => {
+  const closeViewer = React.useCallback(() => closeMediaRoute('previewId'), []);
+  const moveViewer = React.useCallback(step => {
     const pos = viewerSeq?.indexOf(viewerIndex);
     const index = viewerSeq ? viewerSeq[pos + step] : viewerIndex + step;
     if (index != null && photos[index]) openMediaRoute(photoKey(photos[index], index), 'previewId');
-  };
+  }, [photos, viewerIndex, viewerSeq, photoKey]);
   const viewerPrev = () => moveViewer(-1);
   const viewerNext = () => moveViewer(1);
 
@@ -323,13 +323,12 @@ function AlbumShareView({ share = {}, onBack }) {
     if (!viewerVisible) return undefined;
     const onKey = (e) => {
       if (e.key === 'Escape') closeViewer();
-      else if (e.key === 'ArrowLeft') viewerPrev();
-      else if (e.key === 'ArrowRight') viewerNext();
+      else if (e.key === 'ArrowLeft') moveViewer(-1);
+      else if (e.key === 'ArrowRight') moveViewer(1);
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewerVisible, photos.length]);
+  }, [viewerVisible, closeViewer, moveViewer]);
 
   React.useEffect(() => {
     if (!viewerVisible) return undefined;
