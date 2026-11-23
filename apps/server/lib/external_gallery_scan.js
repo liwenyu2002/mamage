@@ -9,6 +9,7 @@ const ALLOWED_BROWSER_HOSTS = new Set([
   'cdn.bootcss.com',
 ]);
 const DEFAULT_SCAN_TIMEOUT_MS = 10 * 60 * 1000;
+const VIEWPORT = { width: 1280, height: 800 };
 
 function parsePhotoPlusUrl(value) {
   let url;
@@ -84,6 +85,29 @@ function collectPhotoPlusPage(entries, activityNo, seen) {
   return batch;
 }
 
+function photoPlusListUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && url.hostname === PHOTO_PLUS_HOST && url.pathname === '/pic/list' ? url : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function scrollProgressAt(page, point) {
+  return page.evaluate(({ x, y }) => {
+    const root = document.scrollingElement;
+    const progress = root ? [root.scrollTop, root.scrollHeight] : [];
+    for (let element = document.elementFromPoint(x, y); element; element = element.parentElement) {
+      if (element !== root && element.scrollHeight > element.clientHeight
+          && ['auto', 'scroll'].includes(getComputedStyle(element).overflowY)) {
+        progress.push(element.scrollTop, element.scrollHeight);
+      }
+    }
+    return progress.join(':');
+  }, point);
+}
+
 async function scanPhotoPlus(rawUrl, options = {}) {
   const parsed = parsePhotoPlusUrl(rawUrl);
   if (!parsed) throw Object.assign(new Error('目前仅支持 PhotoPlus 的 HTTPS 相册链接'), { status: 400 });
@@ -93,7 +117,7 @@ async function scanPhotoPlus(rawUrl, options = {}) {
     ...(process.env.EXTERNAL_IMPORT_CHROMIUM_PATH ? { executablePath: process.env.EXTERNAL_IMPORT_CHROMIUM_PATH } : {}),
   });
   const context = await browser.newContext({
-    viewport: { width: 1280, height: 800 },
+    viewport: VIEWPORT,
     serviceWorkers: 'block',
     acceptDownloads: false,
   });
@@ -104,6 +128,7 @@ async function scanPhotoPlus(rawUrl, options = {}) {
   let lastResponseAt = Date.now();
   let responseTask = Promise.resolve();
   let responseError = null;
+  const pendingListRequests = new Set();
   const qualities = new Set();
   let metadataReadyResolve;
   const metadataReady = new Promise((resolve) => { metadataReadyResolve = resolve; });
@@ -117,10 +142,15 @@ async function scanPhotoPlus(rawUrl, options = {}) {
       return route.continue();
     });
     const page = await context.newPage();
+    page.on('request', request => {
+      if (photoPlusListUrl(request.url())) pendingListRequests.add(request);
+    });
+    const listRequestFinished = request => pendingListRequests.delete(request);
+    page.on('requestfinished', listRequestFinished);
+    page.on('requestfailed', listRequestFinished);
     page.on('response', (response) => {
-      let url;
-      try { url = new URL(response.url()); } catch (_) { return; }
-      if (url.hostname !== PHOTO_PLUS_HOST || url.pathname !== '/pic/list') return;
+      const url = photoPlusListUrl(response.url());
+      if (!url) return;
       if (parsed.viewerSign && url.searchParams.get('ppSign') !== parsed.viewerSign) {
         responseError = Object.assign(new Error('源站未保留链接的无水印访问参数，请检查来源链接'), { code: 'SOURCE_LINK_CONTEXT_LOST' });
         return;
@@ -162,24 +192,25 @@ async function scanPhotoPlus(rawUrl, options = {}) {
       if (responseError) throw responseError;
       await page.waitForTimeout(400);
     }
-    let unchanged = 0;
-    let previousCount = -1;
+    let idleSteps = 0;
+    let previousProgress = null;
+    let point;
     while (Date.now() < deadline) {
       if (options.shouldStop?.()) throw Object.assign(new Error('Import stopped'), { code: 'IMPORT_STOPPED' });
       await responseTask;
       if (responseError) throw responseError;
       if (reportedTotal && seen.size >= reportedTotal) break;
-      const scrolled = await page.locator('.photo-content.container').evaluate((el) => {
-        el.scrollTop = el.scrollHeight;
-        return { top: el.scrollTop, height: el.scrollHeight };
-      }).catch(() => null);
-      await page.waitForTimeout(850);
-      await responseTask;
-      if (responseError) throw responseError;
-      unchanged = seen.size === previousCount ? unchanged + 1 : 0;
-      previousCount = seen.size;
-      if (unchanged >= 3 && Date.now() - lastResponseAt > 1800) break;
-      if (!scrolled && unchanged >= 2) break;
+      if (!point) {
+        point = { x: VIEWPORT.width / 2, y: VIEWPORT.height * 0.75 };
+        await page.mouse.move(point.x, point.y);
+      }
+      const progress = `${seen.size}:${await scrollProgressAt(page, point)}`;
+      idleSteps = progress === previousProgress && !pendingListRequests.size ? idleSteps + 1 : 0;
+      if (idleSteps >= 3 && Date.now() - lastResponseAt > 1800) break;
+      previousProgress = progress;
+      // The grid may be nested in a scrollbox or use the document's own scroll.
+      await page.mouse.wheel(0, Math.round(VIEWPORT.height * 1.2));
+      await page.waitForTimeout(450);
     }
     await responseTask;
     if (responseError) throw responseError;

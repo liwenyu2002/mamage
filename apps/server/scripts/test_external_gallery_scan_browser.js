@@ -7,11 +7,11 @@ const entries = [{ id: 791030761, activity_no: 75137386, pic_name: '5016158.JPG'
   watermark_origin_img: '//pb.plusx.cn/photo.JPG~tplv-9lv23dm2t1-exif-rotate-wm-size:0:watermark/1/image/logo.JPG?sign=fixture',
   middle_img: '//pb.plusx.cn/preview.avif?sign=fixture' }];
 const page = {
-  handler: null,
-  on(_event, handler) { this.handler = handler; },
+  handlers: new Map(),
+  on(event, handler) { this.handlers.set(event, handler); },
   async goto(url) {
     navigatedUrl = url;
-    this.handler({
+    this.handlers.get('response')({
       url: () => `https://live.photoplus.cn/pic/list?activityNo=75137386${loseViewerSign ? '' : '&ppSign=6925272230967'}`,
       status: () => 200, ok: () => true,
       json: async () => ({ result: { pics_total: 1, pics_array: entries } }),

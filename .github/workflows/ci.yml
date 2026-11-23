@@ -22,6 +22,7 @@ jobs:
       - run: npx playwright install --with-deps chromium
         working-directory: apps/server
       - run: bash scripts/ci.sh
+      - run: npm --prefix apps/server run test:external-gallery
       - run: node scripts/test-project-hardening-browser.cjs
         working-directory: apps/web
       - run: npm run test:permissions-browser

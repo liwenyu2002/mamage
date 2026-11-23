@@ -45,7 +45,7 @@
     "test:photo-tone": "node --test scripts/test_photo_tone.cjs scripts/test_photo_tone_render.cjs scripts/test_photo_tone_routes.cjs scripts/test_photo_edit.cjs",
     "test:ai-timeout": "node scripts/test_ai_request_timeout.js",
     "test:public-download": "node scripts/test_public_download_variant.js",
-    "test:external-gallery": "node scripts/test_external_gallery_scan.js && node scripts/test_external_gallery_scan_browser.js && node scripts/test_external_import_rescan.js && node scripts/test_external_gallery_alltuu.js && node scripts/test_external_import_templates.js",
+    "test:external-gallery": "node scripts/test_external_gallery_scan.js && node scripts/test_external_gallery_scan_browser.js && node --test scripts/test_photoplus_pagination.js && node scripts/test_external_import_rescan.js && node scripts/test_external_gallery_alltuu.js && node scripts/test_external_import_templates.js",
     "test:video": "node scripts/test_video_production_logic.js",
     "ai:tags:backfill": "node scripts/backfill_ai_tags.js",
     "test:direct-video-proxy": "node scripts/test_direct_video_proxy.js",
