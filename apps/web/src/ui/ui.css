@@ -20,7 +20,7 @@
   transition: transform 160ms ease, background 160ms ease, border-color 160ms ease;
 }
 
-.mamage-button:not(.mamage-button-disabled):not(.mamage-button-primary):not(.mamage-button-danger):hover {
+.mamage-button:not(.mamage-button-disabled):not(.mamage-button-primary):not(.mamage-button-danger):not(.auth-primary):hover {
   background: rgba(255, 255, 255, 0.62);
   transform: translateY(-1px);
 }
