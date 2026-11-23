@@ -5,7 +5,8 @@ USER root
 ENV NODE_ENV=development
 WORKDIR /build
 COPY apps/web/package.json apps/web/package-lock.json ./
-RUN install -d -m 1777 /tmp && npm ci --no-audit --no-fund
+RUN --mount=type=cache,target=/root/.npm,sharing=locked \
+    install -d -m 1777 /tmp && npm ci --prefer-offline --no-audit --no-fund
 COPY apps/web/ ./
 COPY apps/server/lib/photo_tone/ /server/lib/photo_tone/
 # The same-origin image is portable between environments and contains no backend secrets.
