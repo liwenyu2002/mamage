@@ -1035,43 +1035,6 @@ textarea {
     transform: translateY(-6.5px) rotate(-45deg);
 }
 
-.mamage-menu-trigger.is-home {
-    gap: 0;
-}
-
-.mamage-menu-trigger.is-home span {
-    display: none;
-}
-
-.mamage-menu-trigger.is-home::before,
-.mamage-menu-trigger.is-home::after {
-    content: '';
-    position: absolute;
-    left: 50%;
-    border-color: #000;
-    pointer-events: none;
-}
-
-.mamage-menu-trigger.is-home::before {
-    top: 17px;
-    width: 15px;
-    height: 11px;
-    border: 2px solid #000;
-    border-top: 0;
-    border-radius: 2px 2px 3px 3px;
-    transform: translateX(-50%);
-}
-
-.mamage-menu-trigger.is-home::after {
-    top: 10px;
-    width: 14px;
-    height: 14px;
-    border-top: 2px solid #000;
-    border-left: 2px solid #000;
-    border-radius: 2px 0 0 0;
-    transform: translateX(-50%) rotate(45deg);
-}
-
 .mamage-mobile-nav-backdrop {
     appearance: none;
     -webkit-appearance: none;

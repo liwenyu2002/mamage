@@ -20,7 +20,7 @@ import { canAll } from './permissions/permissionStore';
 import { LiquidGlassDefs } from './liquidGlass';
 import { GlassAccountMenu, ViewerDisplaySettings, useViewerAppearance } from './ui/Glass';
 import UiZoomControl, { useUiZoom, applyDocumentZoom } from './UiZoomControl';
-import { IconFaceScan, IconSparkleAI, IconChevronRight, IconPlus } from './ui/icons';
+import { IconFaceScan, IconSparkleAI, IconChevronLeft, IconChevronRight, IconPlus } from './ui/icons';
 import useNavigation, { useNavigationScroll } from './useNavigation';
 import { navigate, goBack, openMediaRoute, closeMediaRoute } from './utils/navigation';
 import { fetchPublicShare } from './services/shareService';
@@ -1258,16 +1258,12 @@ function App() {
             {isMobileHeader ?
                   <button
                     type="button"
-                    className={`mamage-menu-trigger${currentProjectId ? ' is-home' : mobileNavVisible ? ' is-open' : ''}`}
-                    aria-label={currentProjectId ? '返回首页' : '打开导航'}
+                    className={`mamage-menu-trigger${currentProjectId ? ' is-back' : mobileNavVisible ? ' is-open' : ''}`}
                     aria-controls={currentProjectId ? undefined : 'mamage-mobile-nav'}
                     aria-expanded={currentProjectId ? undefined : mobileNavVisible}
                     aria-label={currentProjectId ? '返回上一页' : '打开导航'}
                     onClick={currentProjectId ? handleBackToList : () => setMobileNavVisible((prev) => !prev)}>
-                    
-                <span />
-                <span />
-                <span />
+                {currentProjectId ? <IconChevronLeft /> : <><span /><span /><span /></>}
               </button> :
                   null}
 
@@ -1462,7 +1458,9 @@ function App() {
 
         {currentProjectId && !isMobileHeader ?
         <div className="mamage-desktop-project-notch" data-glass="clear" aria-label="相册信息">
-            <button type="button" className="mamage-desktop-project-title" aria-label="返回上一页" title="返回上一页" onClick={handleBackToList}>{projectHeaderTitle}</button>
+            <button type="button" className="mamage-desktop-project-title" aria-label="返回上一页" title="返回上一页" onClick={handleBackToList}>
+              <IconChevronLeft />{projectHeaderTitle}
+            </button>
             {projectHeaderMeta.length > 0 ?
           <span className="mamage-notch-meta">
                 {projectHeaderMeta.map((item) => <span key={item}>{item}</span>)}
