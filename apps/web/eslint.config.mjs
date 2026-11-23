@@ -50,6 +50,7 @@ export default [
       // JSX 里用到的标识符算"已使用"，否则会把组件当死变量删掉（踩过）
       'react/jsx-uses-vars': 'error',
       'react/jsx-uses-react': 'error',
+      'react/jsx-no-undef': 'error',
       'react/react-in-jsx-scope': 'off',
       'no-cond-assign': 'error',
       'no-dupe-keys': 'error',

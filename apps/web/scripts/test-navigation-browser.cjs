@@ -133,6 +133,16 @@ async function main() {
       assert.equal(await input.inputValue(), '');
       await page.locator('.detail-gallery').waitFor();
     },
+    async albumSearchFailure(page) {
+      await page.goto(base + '/?projectId=1');
+      await page.locator('.detail-gallery').waitFor();
+      const input = page.locator('.mamage-nav-search-input');
+      await input.fill('speaker'); await input.press('Enter');
+      await page.locator('.detail-search-error').waitFor();
+      await page.goBack();
+      await page.waitForFunction(() => !new URL(location.href).searchParams.has('q'));
+      await page.locator('.detail-gallery').waitFor();
+    },
     async scrollRestore(page) {
       await page.goto(base + '/?projectId=1');
       await page.locator('[data-photo-id="125"]').scrollIntoViewIfNeeded();
@@ -317,6 +327,9 @@ async function main() {
         if (p.startsWith('/api/image/')) return route.fulfill({ contentType: 'image/jpeg', body: image });
         if (p.startsWith('/api/')) {
           if (req.method() !== 'GET') { writes.push(p); return route.abort(); }
+          if (p === '/api/photos/search' && name === 'albumSearchFailure') {
+            return route.fulfill({ status: 503, contentType: 'text/plain', body: 'Fixture search unavailable' });
+          }
           let data = {};
           if (p === '/api/users/me') data = { id: 7, name: 'Test User', role: 'admin', activeUnitId: 1, metadataEditScope: 'own',
             permissions: ['projects.view', 'projects.create', 'photos.view', 'photos.edit', 'ai.generate'] };

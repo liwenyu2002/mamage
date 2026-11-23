@@ -3,7 +3,7 @@ import { getUser } from './services/accountService';
 import { updatePhotoMeta } from './services/faceSearchService';
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { Button, Tag, Spin, Empty, Modal, Input, DateTimePicker, Toast, HexLoader } from './ui';
+import { Button, Tag, Spin, Empty, Modal, Input, DateTimePicker, Toast, HexLoader, Typography } from './ui';
 import AlbumDetailsFields from './AlbumDetailsFields';
 import AlbumFormModal from './AlbumFormModal';
 import AlbumActionBar from './AlbumActionBar';
@@ -80,6 +80,7 @@ import {
 './utils/uploadProgress';
 
 
+const { Text } = Typography;
 const ANALYSIS_POLL_INITIAL_DELAY_MS = 900;
 const ANALYSIS_POLL_INTERVAL_MS = 1800;
 const ANALYSIS_POLL_MAX_ATTEMPTS = 45;
