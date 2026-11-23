@@ -24,13 +24,20 @@ async function main() {
         role: identity === 'manager' ? 'manager' : identity === 'viewer' ? 'viewer' : 'editor', collegeAdmin: identity === 'organization_admin' };
       const access = userAccessProfile(workspace, ['projects.view', 'photos.view', 'photos.zip', 'users.invitations.create'],
         { search: identity !== 'viewer', manage: identity === 'organization_admin' });
-      const grants = new Map([[20, false], [44, true]]), writes = [], roleWrites = [], unexpected = [], errors = [];
+      const grants = new Map([[20, false], [44, true]]), writes = [], roleWrites = [], passwordWrites = [], unexpected = [], errors = [];
       let rejectNextGrant = false, memberRole = 'editor';
       try {
         await context.addInitScript(() => localStorage.setItem('mamage_jwt_token', 'isolated-permission-fixture'));
         await context.route('**/api/**', async route => {
           const req = route.request(), p = new URL(req.url()).pathname, method = req.method();
           const send = json => route.fulfill({ json });
+          if (p === '/api/users/me/password') {
+            passwordWrites.push({ method, authorized: req.headers().authorization === 'Bearer isolated-permission-fixture' });
+            if (method !== 'PUT') return route.fulfill({ status: 404, json: { error:'NOT_FOUND' } });
+            return passwordWrites.length === 1
+              ? route.fulfill({ status: 401, json: { error:'INVALID_CURRENT_PASSWORD' } })
+              : send({ success:true });
+          }
           if (p === '/api/workspaces/1/members/46' && method === 'PUT') {
             assert.equal(identity, 'manager');
             memberRole = req.postDataJSON().role;
@@ -74,6 +81,19 @@ async function main() {
         assert.equal(await page.getByText('管理员：管理邀请码', { exact: true }).count(), identity === 'organization_admin' ? 1 : 0);
         if (artifacts) await page.screenshot({ path: path.join(artifacts, `account-${identity}-${width}.png`), fullPage: true });
         assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `Account overflow: ${identity}-${width}`);
+        if (identity === 'viewer' && width === 1440) {
+          await page.getByPlaceholder('输入当前密码').fill('FixtureOld1');
+          await page.getByPlaceholder('输入 8–16 位字母和数字组合').fill('FixtureNew2');
+          const submitPassword = page.getByRole('button', { name:'确认修改', exact:true });
+          const changed = page.waitForResponse(response => new URL(response.url()).pathname === '/api/users/me/password');
+          await submitPassword.click();
+          assert.equal((await changed).request().method(), 'PUT', 'the account tab uses the actual password route');
+          await page.getByText('当前密码错误，请重新输入', { exact:true }).waitFor();
+          await page.getByPlaceholder('输入当前密码').fill('FixtureOld2');
+          await submitPassword.click();
+          await page.getByText('密码已更新，下次登录请使用新密码', { exact:true }).waitFor();
+          assert.deepEqual(passwordWrites, [{ method:'PUT', authorized:true }, { method:'PUT', authorized:true }]);
+        }
         await page.locator('.mamage-user-chip').click();
         await page.getByRole('button', { name: identity === 'manager' ? '成员管理' : '工作空间管理', exact: true }).click();
         const dialog = page.getByRole('dialog'); await dialog.waitFor();

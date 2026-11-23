@@ -43,7 +43,7 @@ async function main() {
       'INSERT INTO organization_units (organization_id, slug, name) VALUES (?, ?, ?)',
       [orgId, 'b', 'B']);
     const makeUser = async (role, activeUnitId) => insert(conn,
-      'INSERT INTO users (student_no, name, role, organization_id, active_unit_id) VALUES (?, ?, ?, ?, ?)',
+      'INSERT INTO users (student_no, name, role, organization_id, active_unit_id, view_organization_photos) VALUES (?, ?, ?, ?, ?, 1)',
       [crypto.randomBytes(12).toString('hex'), role, role, orgId, activeUnitId]);
     const ownerId = await makeUser('photographer', unitA);
     const recipientId = await makeUser('photographer', unitB);
@@ -93,6 +93,10 @@ async function main() {
     assert(link.startsWith(`https://mamage.test/api/image/${keyA}?`));
     const token = new URL(link).searchParams.get('ma');
     assert.equal(await authorizeMediaKey(keyA, token, conn), true);
+    await conn.query('UPDATE users SET view_organization_photos = 0 WHERE id = ?', [recipientId]);
+    await denied(() => requirePhotoAccess(request(recipient, unitB), photoA, 'read', conn));
+    assert.equal(await authorizeMediaKey(keyA, token, conn), false);
+    await conn.query('UPDATE users SET view_organization_photos = 1 WHERE id = ?', [recipientId]);
     await conn.query('UPDATE internal_shares SET revoked_at = NOW() WHERE id = ?', [shareId]);
     assert.equal(await authorizeMediaKey(keyA, token, conn), false);
     await conn.query('UPDATE internal_shares SET revoked_at = NULL, mode = ? WHERE id = ?', ['collaborate', shareId]);

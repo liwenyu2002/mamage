@@ -2,53 +2,20 @@ const express = require('express');
 const router = express.Router();
 const orgDao = require('../lib/queries/organizations');
 const { pool } = require('../db');
+const { requirePermission } = require('../lib/permissions');
+const { positiveId } = require('../lib/workspace_access');
 
 // GET /api/organizations
 // Optional query: q (search by name), limit
-router.get('/', async (req, res) => {
+router.get('/', requirePermission('photos.view'), async (req, res) => {
   try {
-    const q = (req.query.q || '').trim();
+    const organizationId = positiveId(req.user?.organization_id);
+    if (!organizationId) return res.json([]);
+    const query = typeof req.query.q === 'string' ? req.query.q.trim() : '';
     let limit = parseInt(req.query.limit, 10);
     if (!Number.isFinite(limit) || limit <= 0 || limit > 200) limit = 50;
 
-    // check if organizations table exists to avoid crash on older DB
-    if (!await orgDao.hasOrganizationsTable(pool)) {
-      // table not present, return empty list
-      return res.json([]);
-    }
-
-    // Detect which columns exist and build a safe SELECT accordingly
-    const colRows = await orgDao.listOrganizationColumns(pool);
-    const cols = new Set(colRows.map(r => String(r.COLUMN_NAME).toLowerCase()));
-
-    const selectParts = ['id', 'name'];
-    if (cols.has('slug')) selectParts.push('slug');
-    if (cols.has('is_public')) selectParts.push('IFNULL(is_public,1) AS is_public');
-    if (cols.has('description')) selectParts.push('description');
-
-    const params = [];
-    let sql = 'SELECT ' + selectParts.join(', ') + ' FROM organizations';
-    if (q) {
-      if (cols.has('slug')) {
-        sql += ' WHERE name LIKE ? OR slug LIKE ?';
-        params.push('%' + q + '%', '%' + q + '%');
-      } else {
-        sql += ' WHERE name LIKE ?';
-        params.push('%' + q + '%');
-      }
-    }
-    sql += ' ORDER BY name ASC LIMIT ?';
-    params.push(limit);
-
-    const rows = await orgDao.queryOrganizations(pool, { sql, params });
-    const out = rows.map(r => ({
-      id: r.id,
-      name: r.name,
-      slug: ('slug' in r) ? (r.slug || null) : null,
-      is_public: ('is_public' in r) ? !!r.is_public : true,
-      description: ('description' in r) ? (r.description || null) : null
-    }));
-    res.json(out);
+    res.json(await orgDao.listOrganizationsForMember(pool, { organizationId, query, limit }));
   } catch (err) {
     console.error('GET /api/organizations error:', err && err.stack ? err.stack : err);
     res.status(500).json({ error: 'Internal server error' });

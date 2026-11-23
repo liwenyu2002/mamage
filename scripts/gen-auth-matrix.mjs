@@ -1,147 +1,195 @@
-#!/usr/bin/env node
-// 扫描 Express 路由，生成「接口 → 鉴权要求」对照表（对齐 PhotoStory 的 api-v1-auth-matrix 做法）。
-// 用法：node scripts/gen-auth-matrix.mjs > docs/api-auth-matrix.md
-//       node scripts/gen-auth-matrix.mjs --check   # CI 用：与已提交文件不一致则失败
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { literalString, parseServerSource, projectRoot, propertyName, serverRoot, walk } from './lib/server-source.mjs';
 
-const root = path.resolve(import.meta.dirname, '..', 'apps', 'server', 'routes');
-const libDir = path.resolve(import.meta.dirname, '..', 'apps', 'server', 'lib');
-const rows = [];
+const methods = new Set(['get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'all']);
+const nameOf = node => node?.type === 'Identifier' ? node.name : null;
+const combine = (base, route) => (base + (route === '/' ? '' : route)) || '/';
+const isApi = url => url === '/api' || url.startsWith('/api/');
+const within = (route, prefix) => route === prefix || route.startsWith(prefix + '/') || prefix === '/';
 
-function walk(dir) {
-  for (const name of fs.readdirSync(dir)) {
-    const full = path.join(dir, name);
-    const stat = fs.statSync(full);
-    if (stat.isDirectory()) walk(full);
-    else if (name.endsWith('.js')) scan(full);
-  }
+function directRequire(node, file) {
+  if (node?.type !== 'CallExpression' || nameOf(node.callee) !== 'require') return null;
+  const request = literalString(node.arguments[0]);
+  if (!request?.startsWith('.')) return null;
+  const target = path.resolve(path.dirname(file), request);
+  return { file: path.extname(target) ? target : target + '.js' };
 }
 
-// lib/ 里的注册函数（registerXxx(router, ...)）由某个 routes 文件调用，
-// 实际挂载点取决于那个 routes 文件的挂载点，因此需要反查调用方。
-function libMounts() {
-  const routesDir = path.resolve(import.meta.dirname, '..', 'apps', 'server', 'routes');
-  const map = new Map();
-  for (const name of fs.readdirSync(routesDir)) {
-    if (!name.endsWith('.js')) continue;
-    const text = fs.readFileSync(path.join(routesDir, name), 'utf8');
-    const routeMount = MOUNTS.get(name.replace(/\.js$/, '')) || `/api/${name.replace(/\.js$/, '').replace(/_/g, '-')}`;
-    const re = /require\('\.\.\/lib\/([\w]+)'\)\.(\w+)\(router/g;
-    let m;
-    while ((m = re.exec(text))) {
-      map.set(m[1], routeMount);
+function loadSource(file) {
+  const ast = parseServerSource(fs.readFileSync(file, 'utf8'));
+  const imports = new Map();
+  const declarations = new Map();
+  walk(ast, (node) => {
+    if (node.type === 'FunctionDeclaration') declarations.set(node.id.name, node);
+    if (node.type !== 'VariableDeclarator') return;
+    const source = directRequire(node.init, file);
+    if (!source) return;
+    if (node.id.type === 'Identifier') imports.set(node.id.name, source);
+    if (node.id.type === 'ObjectPattern') {
+      for (const property of node.id.properties) {
+        if (property.type === 'Property' && nameOf(property.value)) {
+          imports.set(property.value.name, { ...source, imported: nameOf(property.key) || literalString(property.key) });
+        }
+      }
     }
-    // 先解构再调用：const { registerX } = require('../lib/y') … registerX(router, …)
-    const destructured = /const\s*\{([^}]+)\}\s*=\s*require\('\.\.\/lib\/([\w]+)'\)/g;
-    let d;
-    while ((d = destructured.exec(text))) {
-      if (new RegExp(`\\b${d[1].split(',')[0].trim().replace(/[^\w$]/g, '')}\\(router`).test(text)) map.set(d[2], routeMount);
+  });
+  const resolve = (node) => {
+    if (node?.type === 'MemberExpression') {
+      const source = directRequire(node.object, file) || imports.get(nameOf(node.object));
+      return source && { ...source, imported: propertyName(node) };
     }
-  }
-  return map;
+    return directRequire(node, file) || imports.get(nameOf(node));
+  };
+  return { file, ast, declarations, resolve };
 }
 
-function walkLib() {
-  const mounts = libMounts();
-  for (const name of fs.readdirSync(libDir)) {
-    if (!name.endsWith('.js')) continue;
-    const full = path.join(libDir, name);
-    const text = fs.readFileSync(full, 'utf8');
-    if (!/router\.(get|post|put|patch|delete)\(/.test(text)) continue;
-    const base = mounts.get(name.replace(/\.js$/, '')) || '/api';
-    scan(full, base);
-  }
+function guardLabel(node) {
+  const name = nameOf(node?.callee || node);
+  const permission = node?.type === 'CallExpression' && literalString(node.arguments[0]);
+  if (name === 'requirePermission' && permission) return `权限 ${permission}`;
+  if (name === 'authMiddleware' || name === 'requireAuth') return '登录';
+  if (name === 'requireAdmin') return '管理员';
+  if (name === 'requireSuperAdmin') return '超级管理员';
+  return null;
 }
 
-// 挂载点必须从 app.js 的真实注册读取，而不是用文件名猜：
-// 早期版本按 `routes/ai_news.js` 推出 `/api/ai-news`，与 `app.use('/api/ai/news')` 不符，
-// 导致矩阵里 64 条路径与真实接口对不上。
-function readMounts() {
-  const appFile = path.resolve(import.meta.dirname, '..', 'apps', 'server', 'app.js');
-  const text = fs.readFileSync(appFile, 'utf8');
-  const mounts = new Map();
+function resolveString(node, bindings) {
+  if (nameOf(node)) return bindings.get(node.name) ?? null;
+  if (node?.type === 'TemplateLiteral') {
+    const parts = node.expressions.map(expr => resolveString(expr, bindings));
+    return parts.includes(null) ? null : node.quasis.map((part, i) => part.value.cooked + (parts[i] ?? '')).join('');
+  }
+  if (node?.type === 'BinaryExpression' && node.operator === '+') {
+    const left = resolveString(node.left, bindings), right = resolveString(node.right, bindings);
+    return left === null || right === null ? null : left + right;
+  }
+  return literalString(node);
+}
 
-  // app.js 多半是先 `const aiNewsRouter = require('./routes/ai_news')` 再 `app.use('/api/ai/news', aiNewsRouter)`，
-  // 因此需要两层解析：变量名 → 文件，挂载点 → 变量名。
-  const varToFile = new Map();
-  const varRe = /const\s+(\w+)\s*=\s*require\('\.\/(?:routes|lib)\/([\w/]+)'\)/g;
-  let v;
-  while ((v = varRe.exec(text))) varToFile.set(v[1], v[2].replace(/\.js$/, ''));
-
-  const useRe = /app\.use\(\s*'(\/api[^']*)'\s*,\s*([\s\S]{0,160}?)\);/g;
-  let m;
-  while ((m = useRe.exec(text))) {
-    const [, base, target] = m;
-    const direct = target.match(/require\('\.\/(?:routes|lib)\/([\w/]+)'\)/);
-    let key = direct ? direct[1].replace(/\.js$/, '') : null;
-    if (!key) {
-      const ident = target.trim().match(/^([A-Za-z_$][\w$]*)/);
-      if (ident && varToFile.has(ident[1])) key = varToFile.get(ident[1]);
+function routePaths(call, parents) {
+  const name = call.arguments[0];
+  const plain = resolveString(name, new Map());
+  if (plain !== null) return [plain];
+  let loop = parents.get(call);
+  while (loop && loop.type !== 'ForOfStatement') loop = parents.get(loop);
+  if (loop?.left.type !== 'VariableDeclaration' || loop.right.type !== 'ArrayExpression') return [];
+  const pattern = loop.left.declarations[0].id;
+  return loop.right.elements.map((item) => {
+    const bindings = new Map();
+    if (nameOf(pattern)) bindings.set(pattern.name, literalString(item));
+    else if (pattern.type === 'ArrayPattern' && item?.type === 'ArrayExpression') {
+      pattern.elements.forEach((id, i) => { if (nameOf(id)) bindings.set(id.name, literalString(item.elements[i])); });
     }
-    if (!key) continue;
-    if (!mounts.has(key)) mounts.set(key, base);
-  }
-  return mounts;
+    return resolveString(name, bindings);
+  });
 }
 
-const MOUNTS = readMounts();
+export function inventory(root = serverRoot) {
+  const rows = [];
+  const keys = new Set();
+  const loaded = new Map();
+  const load = (file) => {
+    if (!loaded.has(file)) loaded.set(file, loadSource(file));
+    return loaded.get(file);
+  };
+  const routes = path.join(root, 'routes') + path.sep;
 
-function mountFor(file) {
-  const rel = path.relative(path.resolve(import.meta.dirname, '..', 'apps', 'server', 'routes'), file)
-    .replace(/\.js$/, '');
-  return MOUNTS.get(rel) || `/api/${path.basename(file, '.js').replace(/_/g, '-')}`;
-}
-
-function scan(file, mountOverride = null) {
-  const text = fs.readFileSync(file, 'utf8');
-  const mount = mountOverride || mountFor(file);
-  const re = /router\.(get|post|put|patch|delete)\(\s*'([^']*)'([\s\S]{0,240}?)\)/g;
-  let m;
-  while ((m = re.exec(text))) {
-    const [, method, routePath, rest] = m;
-    const guards = [];
-    if (/requirePermission\('([^']+)'\)/.test(rest)) guards.push(`权限 ${RegExp.$1}`);
-    if (/\brequireAuth\b|authMiddleware/.test(rest)) guards.push('登录');
-    if (/requireAdmin\b/.test(rest)) guards.push('管理员');
-    if (/requireSuperAdmin\b/.test(rest)) guards.push('超级管理员');
-    rows.push({
-      path: (mount + routePath).replace(/\/$/, '') || mount,
-      method: method.toUpperCase(),
-      guards: guards.length ? guards.join('、') : '（路由内自行鉴权）',
-      file: path.relative(path.resolve(import.meta.dirname, '..'), file),
+  function scan(source, body, receiver, base, inherited = [], ancestors = []) {
+    const visits = [];
+    const parents = new WeakMap();
+    walk(body, (node, parent) => {
+      if (node.type === 'CallExpression') visits.push(node);
+      if (parent) parents.set(node, parent);
     });
+    const guards = [...inherited];
+    for (const call of visits) {
+      const { callee, arguments: args } = call;
+      const verb = nameOf(callee.object) === receiver ? propertyName(callee) : null;
+      const routePath = literalString(args[0]);
+      if (verb === 'use') {
+        const prefix = combine(base, routePath || '');
+        const middleware = routePath === null ? args : args.slice(1);
+        const visible = [...guards.filter(guard => within(prefix, guard.prefix))];
+        for (const item of middleware) {
+          const label = guardLabel(item);
+          if (label) {
+            const guard = { prefix, label };
+            guards.push(guard);
+            visible.push(guard);
+          }
+          const linked = source.resolve(item);
+          if (linked?.file.startsWith(routes) && isApi(prefix)) {
+            follow(linked, prefix, visible, ancestors);
+          }
+        }
+        continue;
+      }
+      if (methods.has(verb)) {
+        const paths = routePaths(call, parents);
+        if (!paths.length || paths.some(item => item === null)) {
+          throw Error(`Cannot document dynamic route in ${source.file}:${call.loc.start.line}`);
+        }
+        const method = verb.toUpperCase();
+        for (const item of paths) {
+          const endpoint = combine(base, item);
+          if (!isApi(endpoint)) continue;
+          const key = method + ' ' + endpoint;
+          if (keys.has(key)) throw Error(`Duplicate documented route: ${key} (${source.file}:${call.loc.start.line})`);
+          keys.add(key);
+          const labels = guards.filter(guard => within(endpoint, guard.prefix)).map(guard => guard.label);
+          labels.push(...args.slice(1).map(guardLabel).filter(Boolean));
+          rows.push({ method, endpoint, guards: [...new Set(labels)], file: path.relative(root, source.file) });
+        }
+        continue;
+      }
+      if (nameOf(args[0]) === receiver) {
+        const linked = source.resolve(callee);
+        if (linked?.imported && /^(register|mount)[A-Z]/.test(linked.imported)) follow(linked, base, guards, ancestors);
+      }
+    }
   }
+
+  function follow(linked, base, inherited, ancestors) {
+    const identity = linked.file + ':' + (linked.imported || '');
+    if (ancestors.includes(identity)) throw Error(`Circular route registration: ${identity}`);
+    const source = load(linked.file);
+    const declaration = linked.imported && source.declarations.get(linked.imported);
+    if (linked.imported && !declaration) throw Error(`Missing route registration declaration: ${identity}`);
+    const receiver = declaration ? nameOf(declaration.params[0]) : 'router';
+    if (!receiver) throw Error(`Expected a router argument in ${identity}`);
+    scan(source, declaration?.body || source.ast, receiver, base, inherited, [...ancestors, identity]);
+  }
+
+  const app = load(path.join(root, 'app.js'));
+  scan(app, app.ast, 'app', '');
+  return rows.sort((a, b) => a.endpoint.localeCompare(b.endpoint, 'en') || a.method.localeCompare(b.method, 'en'));
 }
 
-walk(root);
-walkLib();
-rows.sort((a, b) => a.path.localeCompare(b.path) || a.method.localeCompare(b.method));
-
-const lines = [
-  '# API 鉴权矩阵（自动生成）',
-  '',
-  '> 由 `node scripts/gen-auth-matrix.mjs` 扫描 `apps/server/routes` 生成，请勿手改。',
-  '> 规则：凡是标「（路由内自行鉴权）」的接口，必须在实现里显式调用 requireProjectAccess / requirePermission 等，否则视为缺口。',
-  '',
-  `共 ${rows.length} 条路由。`,
-  '',
-  '| 方法 | 路径 | 鉴权 | 源文件 |',
-  '| --- | --- | --- | --- |',
-  ...rows.map(r => `| ${r.method} | \`${r.path}\` | ${r.guards} | \`${r.file}\` |`),
-  '',
-];
-const output = lines.join('\n') + '\n';
-const target = path.resolve(import.meta.dirname, '..', 'docs', 'api-auth-matrix.md');
-
-// --check：CI 里校验矩阵是否与路由现状一致，避免文档长期漂移
-if (process.argv.includes('--check')) {
-  const current = fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : '';
-  if (current !== output) {
-    console.error('api-auth-matrix.md 已过期，请运行：node scripts/gen-auth-matrix.mjs > docs/api-auth-matrix.md');
-    process.exit(1);
-  }
-  console.log(`api-auth-matrix.md 一致（${rows.length} 条路由）`);
-} else {
-  process.stdout.write(output);
+function main() {
+  const rows = inventory();
+  const output = [
+    '# API 路由与可见鉴权（自动生成）',
+    '',
+    '> 根据 app.js 的挂载及其引用的路由注册函数生成；不猜测文件名对应的路径。',
+    '> 仅列出显式 HTTP 方法注册和可静态识别的鉴权。未标出守卫不代表匿名可访问；路由内部、动态中间件及对象权限靠行为测试验证。',
+    '',
+    `共 ${rows.length} 条显式路由。`,
+    '',
+    '| 方法 | 路径 | 可识别的守卫 | 源文件 |',
+    '| --- | --- | --- | --- |',
+    ...rows.map(row => `| ${row.method} | \`${row.endpoint}\` | ${row.guards.join('、') || '未由静态检查确认'} | \`apps/server/${row.file}\` |`),
+    '',
+  ].join('\n');
+  const target = path.join(projectRoot, 'docs/api-auth-matrix.md');
+  if (process.argv.includes('--write')) fs.writeFileSync(target, output);
+  else if (process.argv.includes('--check')) {
+    if (!fs.existsSync(target) || fs.readFileSync(target, 'utf8') !== output) {
+      throw Error('api-auth-matrix.md 已过期，请运行 node scripts/gen-auth-matrix.mjs --write');
+    }
+    console.log(`API 路由清单一致（${rows.length} 条）`);
+  } else process.stdout.write(output);
 }
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();

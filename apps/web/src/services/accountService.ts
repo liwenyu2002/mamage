@@ -52,5 +52,5 @@ export const revokeInvitation = (id: number | string) =>
 export const createMyInvite = (payload: Record<string, unknown>) =>
   raw('/api/users/me/invite', { method: 'POST', body: payload });
 export const changeMyPassword = (payload: Record<string, unknown>) =>
-  raw('/api/users/me/password', { method: 'POST', body: payload });
+  raw('/api/users/me/password', { method: 'PUT', body: payload });
 export { raw as rawAccountRequest };

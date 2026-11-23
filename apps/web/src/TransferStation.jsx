@@ -6,7 +6,8 @@ import { resolveAssetUrl } from './services/request';
 import { formatBytes, formatDuration } from './services/zipDownload';
 import { cancelDirectZipJob, getDirectZipJob, listActiveDirectZipJobs, triggerDirectDownload } from './services/directStorage';
 import { batchVideoDownload } from './services/batchVideoDownload';
-import { createPublicLink } from './services/shareService';
+import { getToken } from './services/authService';
+import { createPublicShare } from './services/workspaceService';
 
 
 
@@ -373,8 +374,7 @@ export default function TransferStation({ onInternalShare, hideLauncher = false 
 
     setBusy('share');
     try {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('mamage_jwt_token') || '' : '';
-      if (!token) {
+      if (!getToken()) {
         Toast.warning('创建分享需要先登录');
         return;
       }
@@ -384,7 +384,7 @@ export default function TransferStation({ onInternalShare, hideLauncher = false 
         photoIds: ids,
         expiresInSeconds: typeof expiresInSeconds === 'number' ? expiresInSeconds : null
       };
-      const data = (await createPublicLink(body)) || {};
+      const data = (await createPublicShare(body)) || {};
       let code = data.code || data.shareCode || data.data && (data.data.code || data.data.shareCode) || null;
       const rawUrl = data.url || data.shareUrl || data.data?.url || data.data?.shareUrl || null;
       if (!code && rawUrl) {

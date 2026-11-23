@@ -20,14 +20,16 @@ Node.js 22.22 或更新版本。首次运行 `npm run setup`。
 ## 验证与发布
 
 ```bash
-npm test
-npm run build
+bash scripts/ci.sh
+npm run test:workspace:isolated
 git add <本次修改的文件>
 git commit -m "说明本次修改"
 npm run deploy
 ```
 
 发布只接受 `main` 上已提交、工作区干净的版本。它推送 GitHub 和 Gitee，在学校服务器构建并测试容器，备份数据库后切换 Kubernetes 服务，再检查相册、文件夹与图片请求。失败保留健康过渡实例并停止发布，不自动回退数据库或跨权限迁移回退旧代码。
+
+隔离数据库测试使用本机 `mysqld`（可用 `MAMAGE_TEST_MYSQLD` 指定二进制），或通过 `-- --docker` 启动与 CI 相同的临时容器。不连接生产库；需要不含 `apps/server/.env` 的检出目录。门禁范围和更新命令见[工程约定](engineering-standards.md)。
 
 同步维护 `liwenyu2002/mamage` 与校内 `Levy/MaMage`。旧的 `mamage-web` 与 `mamage-server` 仓库保留作迁移前的历史参考，旧发布任务已停用。
 

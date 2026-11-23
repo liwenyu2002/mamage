@@ -26,7 +26,7 @@ async function main() {
       ['Share test', `share-test-${suffix}`, `TEST-${suffix}`]);
     ids.org = org.insertId;
     const [user] = await pool.query(
-      'INSERT INTO users (student_no, name, role, organization_id) VALUES (?, ?, ?, ?)',
+      'INSERT INTO users (student_no, name, role, organization_id, view_organization_photos) VALUES (?, ?, ?, ?, 1)',
       [`WS-${suffix}`, 'Share test', 'photographer', ids.org]);
     ids.user = user.insertId;
     const [unit] = await pool.query(

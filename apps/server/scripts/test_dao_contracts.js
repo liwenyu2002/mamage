@@ -1,6 +1,6 @@
 // dao 层契约测试：用假 db 记录 SQL 与参数，锁住几类"容易悄悄错位"的约定：
 // 1) 占位符数量必须与参数个数一致（updated_at 这类附加参数最容易漏）；
-// 2) 写操作返回 affectedRows 数字而不是原始元组（调用方不再解构）；
+// 2) 有返回值的写操作明确返回 ID 或影响行数，不暴露驱动元组；
 // 3) 参数顺序与业务语义一致（组织范围、用户范围不串位）。
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -105,6 +105,8 @@ const aiNewsDao = require('../lib/queries/ai_news');
 const workspacesDao = require('../lib/queries/workspaces');
 const albumDesktopDao = require('../lib/queries/album_desktop');
 const externalImportsDao = require('../lib/queries/external_imports');
+const internalSharesDao = require('../lib/queries/internal_shares');
+const organizationsDao = require('../lib/queries/organizations');
 
 test('projects.listProjectsPage 把分页参数追加在业务参数之后', async () => {
   const { calls, db } = fakeDb(() => [[{ id: 1 }], null]);
@@ -171,4 +173,46 @@ test('external_imports.listAttributedSources 保留 owner 过滤片段', async (
   const [{ sql, params }] = calls;
   assert.match(sql, /j\.requested_by = \?/, '受限用户只能看到自己的转存来源');
   assert.equal(placeholders(sql), params.length);
+});
+
+test('internal share details look up by id and college, leaving sender/recipient checks to the route', async () => {
+  const expected = { id: 14, target_unit_id: 5, source_unit_id: 3 };
+  const { calls, db } = fakeDb(() => [[expected]]);
+  assert.deepEqual(await internalSharesDao.findShareInOrganization(db, { shareId: 14, orgId: 2 }), expected);
+  assert.equal(placeholders(calls[0].sql), 2);
+  assert.deepEqual(calls[0].params, [14, 2]);
+});
+
+test('internal share page uses the same copy and photo-owner scope for count and rows', async () => {
+  const { calls, db } = fakeDb((sql) => [/^SELECT COUNT/.test(sql) ? [{ total: '2' }] : [{ id: 21 }]]);
+  const page = await internalSharesDao.listSharePhotoPage(db, { orgId: 2, unitId: 5, userId: 7, ownPhotosOnly: true }, {
+    source: { kind: 'copy', projectId: 6 }, limit: 1, offset: 1,
+  });
+  assert.deepEqual(page, { total: 2, photos: [{ id: 21 }] });
+  assert.deepEqual(calls.map(call => call.params), [[6, 2, 5, 7], [6, 2, 5, 7, 1, 1]]);
+  for (const { sql, params } of calls) {
+    assert.equal(placeholders(sql), params.length);
+    assert.match(sql, /ph\.unit_id = \? AND ph\.photographer_id = \?/);
+  }
+});
+
+test('share and copy job inserts return IDs without a driver result packet', async () => {
+  const { conn } = fakeDb(() => [{ insertId: 24, affectedRows: 1 }]);
+  const options = { shareId: 12, orgId: 2, unitId: 3, targetUnitId: 4, requestedBy: 7 };
+  assert.equal(await internalSharesDao.insertShare(conn, options), 24);
+  assert.equal(await internalSharesDao.insertSystemCopyJob(conn, options), 24);
+  assert.equal(await internalSharesDao.insertCopyJob(conn, options), 24);
+});
+
+test('organization catalog preserves legacy columns and keeps slug search in the same college', async () => {
+  const { calls, db } = fakeDb((sql) => {
+    if (sql.includes('information_schema.tables')) return [[{ cnt: 1 }]];
+    if (sql.includes('information_schema.COLUMNS')) return [[{ COLUMN_NAME: 'slug' }]];
+    return [[{ id: 2, name: 'College', slug: 'campus' }]];
+  });
+  assert.deepEqual(await organizationsDao.listOrganizationsForMember(db, {
+    organizationId: 2, query: 'campus', limit: 50,
+  }), [{ id: 2, name: 'College', slug: 'campus', is_public: true, description: null }]);
+  assert.match(calls[2].sql, /WHERE id = \? AND \(name LIKE \? OR slug LIKE \?\)/);
+  assert.deepEqual(calls[2].params, [2, '%campus%', '%campus%', 50]);
 });

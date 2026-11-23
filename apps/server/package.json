@@ -5,6 +5,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node app.js",
+    "lint": "eslint .",
     "dev:news-sandbox": "node scripts/news_sandbox.js",
     "test:wechat-monitor": "node --test scripts/test_wechat_monitor.js scripts/test_wechat_monitor_schedule.js scripts/test_wechat_article_source.js",
     "db:export": "node scripts/export_db_artifacts.js",
@@ -86,6 +87,7 @@
   },
   "devDependencies": {
     "eslint": "^9.39.5",
+    "espree": "^10.4.0",
     "yaml": "2.9.1"
   }
 }

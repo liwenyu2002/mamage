@@ -21,13 +21,27 @@ jobs:
       - run: npm run setup
       - run: npx playwright install --with-deps chromium
         working-directory: apps/server
-      - run: npm test
-      - run: npm run build
+      - run: bash scripts/ci.sh
       - run: node scripts/test-project-hardening-browser.cjs
         working-directory: apps/web
       - run: npm run test:permissions-browser
         working-directory: apps/web
+      - run: node apps/web/scripts/test-folder-sharing-browser.cjs
+      - run: node apps/web/scripts/test-navigation-browser.cjs
       - run: node scripts/install-helm.cjs
       - run: npm run test:k8s
         env:
           HELM_BIN: ${{ github.workspace }}/.local/tools/linux-amd64/helm
+  workspace-integration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.22.3'
+          cache: npm
+          cache-dependency-path: apps/server/package-lock.json
+      - run: npm ci --no-audit --no-fund
+        working-directory: apps/server
+      - run: npm run test:workspace:isolated -- --docker

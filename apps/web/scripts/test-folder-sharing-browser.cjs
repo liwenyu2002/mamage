@@ -67,6 +67,11 @@ const artifacts = process.env.MAMAGE_FOLDER_SHARE_QA_DIR;
           if (req.method() === 'POST') {
             posts.push({ p, body:req.postDataJSON() });
             if (p === '/api/folder-shares') { created = true; return route.fulfill({ json:{ id:10, code:'folder-public' } }); }
+            if (p === '/api/share') {
+              const authenticated = req.headers().authorization === 'Bearer isolated-folder-sharing-fixture';
+              return route.fulfill({ status: authenticated ? 200 : 401,
+                json: authenticated ? { code:'transfer-public' } : { error:'UNAUTHORIZED' } });
+            }
             unexpected.push(p); return route.abort();
           }
           if (!['GET','HEAD','OPTIONS'].includes(req.method())) { unexpected.push(p); return route.abort(); }
@@ -92,9 +97,12 @@ const artifacts = process.env.MAMAGE_FOLDER_SHARE_QA_DIR;
           else if (p === '/api/folder-shares/received') data = [received];
           else if (p === '/api/internal-shares/sent' || p === '/api/internal-shares/received' || p === '/api/share/mine') data = [];
           else if (p.includes('/recipients')) data = [{id:67,name:'接收同学'}];
-          else if (p === '/api/share/folder-public') data = url.searchParams.has('projectId')
-            ? {code:'folder-public',shareCode:'folder-public',shareType:'project',projectId:76,title:'公开相册',photos:[photo],limit:100}
-            : {code:'folder-public',shareCode:'folder-public',shareType:'folder',title:'公开文件夹',photos:[],folder:{...sharedData,public:true}};
+          else if (p === '/api/share/folder-public') {
+            assert.equal(req.headers().authorization, undefined, 'public reads do not send the workspace token');
+            data = url.searchParams.has('projectId')
+              ? {code:'folder-public',shareCode:'folder-public',shareType:'project',projectId:76,title:'公开相册',photos:[photo],limit:100}
+              : {code:'folder-public',shareCode:'folder-public',shareType:'folder',title:'公开文件夹',photos:[],folder:{...sharedData,public:true}};
+          }
           return route.fulfill({ json:data });
         });
         const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
@@ -345,6 +353,19 @@ const artifacts = process.env.MAMAGE_FOLDER_SHARE_QA_DIR;
         if(style==='glass')await page.getByRole('button',{name:'打开文件夹 子文件夹',exact:true}).click();
         else await page.locator('.shared-folder-row').filter({hasText:'子文件夹'}).click();
         assert.ok((await page.getByRole('region',{name:'共享文件夹内容'}).innerText()).includes('子层相册'));
+        if (style === 'glass' && width === 1440) {
+          await page.evaluate(photos => localStorage.setItem('photo-transfer-selection', JSON.stringify(photos)), [photo]);
+          await page.goto(base + '/?projectId=76');
+          await page.getByTitle('中转站', { exact:true }).click();
+          await page.getByTitle('分享中转站', { exact:true }).click();
+          const createdLink = page.waitForResponse(response => new URL(response.url()).pathname === '/api/share'
+            && response.request().method() === 'POST', { timeout:5000 });
+          await page.getByRole('button', { name:'1小时', exact:true }).click();
+          assert.equal((await createdLink).status(), 200, 'transfer share creation sends the session token');
+          assert.deepEqual(posts.find(post => post.p === '/api/share').body,
+            { shareType:'collection', photoIds:[photo.id], expiresInSeconds:3600 });
+          await page.getByText('分享链接已复制到剪贴板', { exact:true }).waitFor();
+        }
         await page.evaluate(()=>localStorage.removeItem('mamage_jwt_token'));
         await page.goto(base+'/share/folder-public');await page.getByRole('region',{name:'共享文件夹内容'}).waitFor();
         await page.locator('.project-card__open').first().click();await page.getByRole('heading',{name:'公开相册',exact:true}).waitFor();

@@ -1,116 +1,36 @@
-# MaMage 工程纪律（对标 PhotoStory 后落地版）
+# MaMage 工程约定
 
-> 缘起：2026-11-20 对照 `z.gitee.cn/zgca/PhotoStory`（FastAPI + TS），只借鉴**纪律**，不迁移技术栈。
-> 每条都写成"我们现在怎么做 / 检查方式"，能自动化的都给了脚本。
+借鉴 PhotoStory 的 `CLAUDE.md`「Layered Architecture」和测试结构：HTTP 层处理请求与响应，业务层定义规则和事务，数据层只提供有业务名字的查询。沿用 Express、MySQL 和 React；只有现有职责边界不够用时再增设模块。
 
-## 一、从 PhotoStory 学到的 8 条
+## 代码与接口
 
-| # | 他们的做法 | 我们的落法 |
-|---|---|---|
-| 1 | `routers → services → dao → models`，请求/响应各一套 Pydantic schema | 服务端继续分层，但**先卡死入口守卫**：每个写接口必须显式鉴权（见 §2 矩阵） |
-| 2 | 每个对外 API 有一份契约文档（参数表、错误码、鉴权、示例） | `docs/api-auth-matrix.md` 由脚本自动生成；新增接口必须重跑脚本 |
-| 3 | 配置集中在 `config.py`（pydantic-settings，字段别名 = 环境变量名） | 服务端保留 `container_config.js` 校验必填项；新增环境变量必须同时更新校验与文档 |
-| 4 | 模块头写"契约"（如 ephemeral：不落库、只读 vector、retention=none） | 涉及数据边界的模块（上传/共享/编辑/导出）必须写 3 行契约注释 |
-| 5 | 测试按包镜像放置，回归用例以 bug 命名（`sse_parser_test`、`summary_all_cooldown_test`） | 单测文件名用 `test_<模块>_<缺陷>.js`，回归必须能指出它守的是哪个 bug |
-| 6 | 前端 TS + 按域拆 `api/` 层，路由守卫独立组件（ProtectedRoute / PublicRoute） | 暂不迁 TS；但 api 调用必须走 `services/*`，组件内禁止裸 `fetch('/api/...')`（lint 逐步收紧） |
-| 7 | 提交信息 `type(scope): 说明` | `.githooks/commit-msg` 强制校验；`git config core.hooksPath .githooks` 已开启 |
-| 8 | 数据库演进走 alembic，40 个迁移可回溯 | 迁移文件按 `YYYYMMDD_NNN_*.sql` 命名，只增不改；禁止手改线上表结构 |
+- 路由负责输入校验、权限和 HTTP 错误。跨层的共享、保存、撤权流程按需要在既有业务模块编排；相关写入使用同一事务连接。不要因为文件较长就新增只转发参数的模块。
+- 在 `apps/server/lib/queries` 新增具名操作，例如 `listReceivedShares`。调用方传组织、目标组、分页等业务参数，不传完整 SQL、排序字符串或占位符数组。数据层对外返回行、记录、创建的 ID、影响行数或无返回值，不转交驱动包。
+- 新的私有资源读写必须检查组织及对象范围。权限回归至少覆盖允许的角色和一个不允许的角色；共享另外验证点名接收、撤权和仅看本人上传。不要用快照条数代替行为测试。
+- [API 路由清单](api-auth-matrix.md)来自 `app.js` 实际挂载和受支持的静态注册形式。它列出显式 HTTP 方法和可识别守卫，不是权限证明。新增或改变路径时运行 `node scripts/gen-auth-matrix.mjs --write`；认证配置、处理器内部鉴权和资源权限分别用测试验证。
+- 在前端用现有 `services/` 封装业务请求，组件根据服务结果渲染；加载图片字节等不等同于业务 API 调用。JS 与 TS 并存；新稳定契约可用 TS，不要求无关代码迁移。Hooks 在组件中无条件调用。
+- 新环境变量更新校验、示例和运行文档。数据库迁移按 `YYYYMMDD_NNN_*.sql` 新增，已应用的文件不改写。提交信息使用 `type(scope): 说明`，本地可用 `git config core.hooksPath .githooks` 启用提交检查。
 
-## 二、我们自己的 5 条硬规则
+## 验证与发布
 
-1. **禁止热修镜像**：所有上线镜像必须能由 `scripts/release-image.sh <api|web>` 从已提交 SHA 构建，tag = `release-<sha>`。工作树不干净时脚本直接拒绝。
-2. **先 lint 再提交**：`scripts/ci.sh` 是唯一入口（lint → 单测 → 构建）。当前门槛是 **0 error**，warning 记入基线不阻塞，但每月要降。
-3. **Hooks 不准条件调用**：React 组件里 `if (!x) return null` 必须放在外层守卫组件，不能出现在 hooks 之前（已在 `ProjectDetail` 修过一次，`react-hooks/rules-of-hooks` 设为 error）。
-4. **接口必须显式鉴权**：`docs/api-auth-matrix.md` 里标"（路由内自行鉴权）"的接口，逐个确认实现里调用了 `requirePermission / requireProjectAccess / accessAdministrator`；新增接口同理。
-5. **发布留痕**：每次上线在 `docs/release-YYYYMMDD.md` 写清 SHA、镜像 tag、验证命令与已知遗留。
+| 要验证的行为 | 命令或入口 |
+| --- | --- |
+| 统一离线验证：lint、类型检查、工程门禁、DAO 和调色契约、默认回归与 Web 构建 | `bash scripts/ci.sh`，GitHub Actions 使用同一命令 |
+| 数据库集成：7 套工作空间、共享、视频、桌面及多副本任务测试 | `npm run test:workspace:isolated`；也可以追加 `-- test_workspace_internal_share_route` 单独运行 |
+| CI 上的真实 MySQL | `npm run test:workspace:isolated -- --docker`，使用部署配置里的固定 MySQL 镜像，不共享服务器或生产凭证 |
+| 候选版本的共享文件夹、权限和界面流程 | 先构建，再运行 `node apps/web/scripts/test-folder-sharing-browser.cjs` 等浏览器套件 |
+| 线上发布 | [部署与回退](deployment.md)中的 `npm run deploy`，从已提交 SHA 构建，验证镜像及在线服务并留回执 |
 
-## 三、当前基线（2026-11-20）
+隔离数据库命令创建临时 MySQL 和随机测试账号，不使用环境中的数据库连接参数。它拒绝读取 `apps/server/.env`，有这个文件时在不含运行配置的检出目录执行。集成测试失败直接返回非零；默认离线测试与显式选择的外部模型或平台测试不能混报为“全量通过”。
 
-| 项 | 数值 | 命令 |
-|---|---|---|
-| web lint error | 0（warning 27） | `cd apps/web && node_modules/.bin/eslint src` |
-| server lint error | 0（warning 24） | `cd apps/server && node_modules/.bin/eslint .` |
-| `no-unused-vars` | web 785 → **0**，server 228 → **0**（实测复跑为 0） | 同上 |
-| `react-hooks/exhaustive-deps` | web 69 → **0**（补依赖 12 处、ref 稳定 9 处、刻意豁免 21 处并写明原因） | 同上 |
-| react-hooks 违规 | 103 → **0** | 同上 |
-| 导航回归 | 17 / 19（`publicAlbum` / `publicFolder` 为既有失败，已用 worktree 在 716bbd25 复现同样两项） | `cd apps/web && node scripts/test-navigation-browser.cjs` |
-| 全量 server 测试 | 129 通过 / 15 环境门控（`bash scripts/test-all.sh`） |
-| 调色/编辑单测 | 34 项通过 | `cd apps/server && npm run test:photo-tone` |
-| 接口总数 | **224** 条（矩阵按 `app.js` 真实挂载生成，含 `lib/` 注册的 12 条） | `node scripts/gen-auth-matrix.mjs` |
+SQL 检查统计路由中的直接查询及能静态识别的语句和片段，包含通过其他函数转发的字符串。用 `node scripts/audit-inline-sql.mjs --details` 查位置；[存量上限](../scripts/route-sql-baseline.json)按文件记录，只可随着清理下调。它不是 SQL 解析器，也不能代替权限或业务行为测试。
 
-## 四、本轮顺手修掉的真问题
+## 本轮收尾
 
-- `App.jsx` 调用 `clearExplicitLogout()` 但 `services/logoutHold` 模块缺失：只要 URL 带 `dingtalk_token=` 就会 `ReferenceError` 白屏。已补齐模块与 import。
-- `ProjectDetail` 在 hooks 之前 `return null`：`projectId` 由空变非空时会抛 "Rendered more hooks than during the previous render"。已改为外层守卫组件。
+- 真实 MySQL 发现共享详情 DAO 的入参与调用方不一致。改为在学院范围内读取记录，再按发送者、接收者及管理员权限授权。列表和分页依赖具名 DAO，不再从路由透传 SQL；计数与取照片使用同一可见范围。
+- 学院列表须有查看权限，只查当前学院。注册仍核验用户输入的组织代码。
+- 浏览器验收区分匿名读与登录后创建：公开分享修复了运行时残留的泛型，创建链接复用已有授权请求。用生产构建跑分享和导航回归，而不仅是类型检查。
+- 账户页改密码保持原有的 `PUT` 契约，浏览器验收覆盖错误旧密码和一次成功更新。
+- 移除平行的镜像发布脚本：它继承可变的 `:current`，且不走验证和回执。旧的 `test-all.sh` 只委托维护中的 API 离线套件并保留退出码，不再把带环境前置的脚本扫描伪装成完整验收。
 
-## 四之二、DAO 层与 TypeScript（2026-11-20 落地）
-
-- `apps/server/lib/queries/photos.js`：照片鉴权用户、原图行、批量删除、相册 photo_ids 回写、下载名映射等 7 处
-  （`routes/photos.js` 24 → **0**）。
-- `apps/server/lib/queries/projects.js`：时间线环节 11 处（列表/加锁/更新/插入/删除/同名检测/排序号/回读），
-  `routes/projects.js` 48 → 35。
-- `apps/server/lib/queries/video_projects.js`：视频工程 CRUD、素材、渲染任务状态机 33 处（`routes/video_projects.js` 33 → **0**）。
-- `apps/server/lib/queries/users.js`：重复校验、改密、邀请码、鉴权读取、个人资料更新 28 处（`routes/users.js` 28 → **6**）。
-- `apps/server/lib/queries/workspaces.js`：单位列表/活跃单位/成员角色/移除成员/人脸授权/审计 13 处
-  （`routes/workspaces.js` 22 → **0**）。
-- `apps/server/lib/queries/upload.js`：相册 photo_ids 追加、摄影师名、视频语义分析开关 8 处
-  （`routes/upload.js` 25 → **0**：含三档 schema 降级插入）。
-- `lib/queries/wechat_content_templates.js` / `wechat_previews.js` / `wechat_style.js`：公众号模板、预览快照、样式块 15 处（三个路由归零）。
-- `apps/server/lib/queries/wechat_monitor.js`：监控文章/分组/任务/事件 10 处（`routes/wechat_monitor.js` 10 → **0**）。
-- `apps/server/lib/queries/user_favorites.js`：个人收藏 8 处（`routes/user_favorites.js` 8 → **0**）。
-- `apps/server/lib/queries/album_desktop.js`：桌面工作区/个人偏好快照 8 处（`routes/album_desktop.js` 11 → **0**）。
-- `apps/server/lib/queries/wechat_compositions.js`：公众号排版作品 CRUD 12 处（`routes/wechat_compositions.js` 12 → **0**）。
-- `apps/server/lib/queries/ai_news.js`：AI 新闻任务/批次/预设 14 处（`routes/ai_news.js` 14 → **0**）。
-- `apps/server/lib/queries/external_imports.js`：转存任务列表/进度/分页/取消/重试/隐藏来源 15 处
-  （`routes/external_imports.js` 15 → **0**）。
-- `apps/server/lib/queries/folder_shares.js`：文件夹分享建/撤/复制重试 13 处（`routes/folder_shares.js` 15 → 2）。
-- `apps/server/lib/queries/share_links.js`：建链/撤销/可管理校验/待审照片/批准写条目 6 处
-  （`routes/share.js` 16 → **0**）。
-- `apps/server/lib/queries/internal_shares.js`：幂等查重、建分享/条目/复制任务/审计、撤销 7 处
-  （`routes/internal_shares.js` 24 → **0**，含复制任务）。
-- `apps/server/lib/queries/faces.js`：人脸审计、人物编号、拆分的锁脸/建人/搬脸/封面、归属变更 9 处，
-  `routes/faces.js` 42 → **0**（含合并/拆分/标注/检测落库/找自己分享入口）。约定：dao 返回 `affectedRows` 数字而非原始元组，
-  避免调用方解构口径不一。
-- 规则：**新的查询写进 `lib/queries/<域>.js`**，routes 只做编排与错误码；SQL 不再散落在路由里。
-- 棘轮：`scripts/audit-inline-sql.mjs` 统计 `routes/` 内 `pool|conn|db.query(` 调用点，当前 **0**，
-  `ci.sh` 用 `--fail-over 0` 锁死。
-- **口径说明（重要）**：这个 0 只表示"routes 不再直接发起查询"。仍有 **70 行 SQL 文本**留在 `routes/*.js`
-  里，通过 `dao.queryRows(pool, { sql })` 之类的透传口子执行（`faces.js` 19、`photos.js` 11、
-  `internal_shares.js` 9、`projects.js` 8 等）。这属于"SQL 换了个文件放"，不是真正的分层，
-  已列入下方「已知遗留」按簇清理。
-- TypeScript：`tsconfig.json` + `@babel/preset-typescript` 已接入 webpack（`.ts/.tsx` 与 JS 同管线），
-  `npm run typecheck` 进 CI。已转 TS：`services/shareService.ts`、`services/accountService.ts`。
-  **注意**：当前 Babel 8 的 preset-typescript 不剥离“泛型调用实参”（`f<T>(x)`），TS 文件里统一用
-  `as Promise<...>` 断言代替，否则构建报 `Unexpected token`。
-
-## 五、还没做（按优先级）
-
-1. ~~`no-unused-vars` 清理~~ ✅ 已完成（web 死代码 20 处、未使用导入 464 个说明符；server 7 处）
-2. `react-hooks/exhaustive-deps` 69 条 → 逐条确认是真缺依赖还是故意
-3. 组件内裸 `fetch` 收敛到 `services/`
-4. 服务端 route 内联 SQL 抽到 `lib/`（对齐 dao 层）
-5. 前端迁移 TS（收益大但成本最高，建议新模块先行）
-
-> 2026-11-20 追加：组件内裸 `fetch('/api/...')` 已清零（20 处 → 0），全部经 `services/`。
-> 新增服务：`shareService`（公开分享读/建）、`accountService`（用户/角色/邀请码/改密）；
-> `authService` 扩了 providers/login/email-code/register/IAM 二维码取消；`projectService` 扩取景项目；`newsMatrixService` 扩服务端渲染预览。
-
-
-## 六、已知遗留（2026-11-20 三份独立复审的结论）
-
-按"风险 × 收益"排序，尚未处理：
-
-| # | 问题 | 证据 | 影响 |
-|---|---|---|---|
-| 1 | routes 里仍有 70 行 SQL 文本经 dao 透传（`queryRows(pool,{sql})`） | `grep -rniE "SELECT \|INSERT INTO..." apps/server/routes/*.js \| wc -l` → 70 | 分层只是表面；棘轮口径不覆盖 |
-| 2 | dao 写操作返回形状未统一：68 个写函数仅 23 个返回 `affectedRows` 数字 | `lib/queries/*.js` 手查 | 调用方需记两套，改一处易错位 |
-| 3 | 7 个 workspace/share 端到端测试被 `DB_NAME` 门控，CI 默认不跑 | `scripts/test_workspace_*.js:8` 直接 throw | 跨组织共享的唯一端到端保护形同虚设 |
-| 4 | `photos.photographer_id` 无索引；2 处 `ORDER BY RAND()`；列表内逐条 `fs.existsSync` | 54 个迁移里 grep 不到该索引 | 个人工作区退化为全组织扫描 |
-| 5 | 错误出口 6 套并存；500 兜底泄漏已修，但 4xx 仍在多处回传原始 message | `grep -c "catch" routes/*.js` → 383 | 文案不一致，个别处仍有信息泄漏 |
-| 6 | dao 契约测试 15 项 / 336 个导出（4.5%）；`organizations`、`operations` 零测试 | `grep -c "^test(" scripts/test_dao_contracts.js` | 覆盖假象 |
-| 7 | `ProjectDetailInner` 单函数约 6950 行、146 个 `useState` | `wc -l src/ProjectDetail.jsx` → 7604 | 全仓风险最高的单点 |
-| 8 | `GET /api/organizations` 匿名可枚举全库学院（前端无调用点） | `routes/organizations.js:8` 无权限守卫 | 遗留暴露面 |
-
-已完成（本轮复审驱动）：鉴权矩阵按 `app.js` 真实挂载重建（212 → 224 条，含 `lib/` 注册的 12 条）、
-去掉 `registerUserAccessAdmin` 重复注册、补 `GET /api/users/:id`（同组织限定）、500 兜底停止回传 DB 原文
-（upload 6 处 / faces 5 处）、`scripts/test-all.sh` 汇总行 bash 3.2 兼容、清理误提交的编辑器临时文件与一次性 codemod。
+尚有照片、相册、人脸等路由的 SQL 存量及大组件。改动这些功能时，先补能复现问题的测试，再逐个收敛接口。索引、其他错误出口和大组件拆分作为独立工作评估，不计入这次验证。

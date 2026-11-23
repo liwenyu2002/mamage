@@ -19,6 +19,7 @@ const sharesRouter = require('../routes/internal_shares');
 const facesRouter = require('../routes/faces');
 const copyWorker = require('../lib/organization_copy_worker');
 const workspacesRouter = require('../routes/workspaces');
+const organizationsRouter = require('../routes/organizations');
 const favoritesRouter = require('../routes/user_favorites');
 const projectsRouter = require('../routes/projects');
 const photosRouter = require('../routes/photos');
@@ -47,6 +48,9 @@ async function main() {
     const [org] = await pool.query('INSERT INTO organizations (name, slug, code) VALUES (?, ?, ?)',
       ['Internal share test', `share-route-${suffix}`, `TEST-${suffix}`]);
     ids.org = org.insertId;
+    const [otherOrg] = await pool.query('INSERT INTO organizations (name, slug, code) VALUES (?, ?, ?)',
+      ['Another college', `other-${suffix}`, `OTHER-${suffix}`]);
+    ids.otherOrg = otherOrg.insertId;
     process.env.DEMO_ORGANIZATION_ID = String(ids.org);
     const makeUnit = async (name) => {
       const [result] = await pool.query('INSERT INTO organization_units (organization_id, slug, name) VALUES (?, ?, ?)',
@@ -57,7 +61,7 @@ async function main() {
     ids.targetUnit = await makeUnit('target');
     const makeUser = async (name, unitId) => {
       const [result] = await pool.query(
-        'INSERT INTO users (student_no, name, role, organization_id, active_unit_id) VALUES (?, ?, ?, ?, ?)',
+        'INSERT INTO users (student_no, name, role, organization_id, active_unit_id, view_organization_photos) VALUES (?, ?, ?, ?, ?, 1)',
         [`${name}-${suffix}`, name, 'photographer', ids.org, unitId]);
       return result.insertId;
     };
@@ -93,6 +97,7 @@ async function main() {
     app.use(express.json());
     app.use('/api/internal-shares', sharesRouter);
     app.use('/api/workspaces', workspacesRouter);
+    app.use('/api/organizations', organizationsRouter);
     app.use('/api/favorites', favoritesRouter);
     app.use('/api/projects', projectsRouter);
     app.use('/api/photos', photosRouter);
@@ -106,6 +111,13 @@ async function main() {
     const health = await fetch(base.replace(/\/internal-shares$/, '/health'));
     assert.equal(health.status, 200);
     const token = (userId) => jwt.sign({ id: userId }, JWT_SECRET, { expiresIn: '5m' });
+    const catalogUrl = base.replace(/\/internal-shares$/, '/organizations');
+    assert.equal((await fetch(catalogUrl)).status, 401, 'the organization catalog is not public');
+    const catalogHeaders = { Authorization: `Bearer ${token(ids.owner)}` };
+    const catalog = await fetch(catalogUrl, { headers: catalogHeaders });
+    assert.equal(catalog.status, 200);
+    assert.deepEqual((await catalog.json()).map(org => org.id), [ids.org]);
+    assert.deepEqual(await (await fetch(catalogUrl + '?q=Another', { headers: catalogHeaders })).json(), []);
     const workspaceBase = base.replace(/\/internal-shares$/, '/workspaces');
     const demoAlbums = await fetch(base.replace(/\/internal-shares$/, '/projects?demo=1'));
     assert.deepEqual(await demoAlbums.json(), []);
@@ -188,7 +200,7 @@ async function main() {
     const recipientDetail = await fetch(`${base}/${ids.share}`, {
       headers: { Authorization: `Bearer ${token(ids.recipient)}` },
     });
-    assert.equal(recipientDetail.status, 200);
+    assert.equal(recipientDetail.status, 200, 'recipient can open the private share addressed to them');
     const copiedDetail = await recipientDetail.json();
     assert.equal(copiedDetail.projectId, ids.copiedProject);
     assert.equal(copiedDetail.sourceOrganizationName, 'Internal share test');
@@ -202,6 +214,10 @@ async function main() {
     });
     assert.equal(sourceDetail.status, 200);
     assert.deepEqual((await sourceDetail.json()).photos, []);
+    const peerDetail = await fetch(`${base}/${ids.share}`, {
+      headers: { Authorization: `Bearer ${token(ids.peer)}` },
+    });
+    assert.equal(peerDetail.status, 404);
     const apiBase = base.replace(/\/internal-shares$/, '');
     const faceHeaders = { Authorization: `Bearer ${token(ids.recipient)}` };
     const personPhotos = await fetch(`${apiBase}/persons/${ids.person}/photos`, { headers: faceHeaders });
@@ -242,6 +258,13 @@ async function main() {
     assert.equal(nextPageData.photos.length, 1);
     assert.equal(nextPageData.hasMore, false);
     assert.notEqual(nextPageData.photos[0].id, firstPageData.photos[0].id);
+    await pool.query('UPDATE users SET view_organization_photos = 0 WHERE id = ?', [ids.recipient]);
+    const ownOnlyPage = await fetch(`${base}/${ids.liveShare}`, { headers: faceHeaders });
+    assert.equal(ownOnlyPage.status, 200);
+    const ownOnlyData = await ownOnlyPage.json();
+    assert.equal(ownOnlyData.total, 0);
+    assert.deepEqual(ownOnlyData.photos, []);
+    await pool.query('UPDATE users SET view_organization_photos = 1 WHERE id = ?', [ids.recipient]);
     await pool.query('INSERT INTO organization_unit_memberships (unit_id, user_id, role) VALUES (?, ?, ?)',
       [ids.targetUnit, ids.owner, 'editor']);
     const favoriteUrl = `${apiBase}/favorites`;
@@ -298,6 +321,7 @@ async function main() {
     if (ids.recipient) await pool.query('DELETE FROM users WHERE id = ?', [ids.recipient]);
     if (ids.peer) await pool.query('DELETE FROM users WHERE id = ?', [ids.peer]);
     if (ids.org) await pool.query('DELETE FROM organizations WHERE id = ?', [ids.org]);
+    if (ids.otherOrg) await pool.query('DELETE FROM organizations WHERE id = ?', [ids.otherOrg]);
     if (ids.rolePermission) await pool.query('DELETE FROM role_permissions WHERE id = ?', [ids.rolePermission]);
     if (ids.aiPermission) await pool.query('DELETE FROM role_permissions WHERE id = ?', [ids.aiPermission]);
     await pool.end();

@@ -1,0 +1,14 @@
+{
+  "album_desktop.js": 1,
+  "auth_iam.js": 1,
+  "auth_oidc.js": 3,
+  "external_imports.js": 1,
+  "faces.js": 25,
+  "folder_shares.js": 1,
+  "photos.js": 22,
+  "projects.js": 29,
+  "share.js": 7,
+  "similarity_groups.js": 6,
+  "upload.js": 4,
+  "user_favorites.js": 2
+}

@@ -3,7 +3,6 @@ const sharesDao = require('../lib/queries/internal_shares');
 const { pool } = require('../db');
 const { buildMediaUrl } = require('../lib/media_access');
 const { requirePermission } = require('../lib/permissions');
-const { photoOwnerFilter } = require('../lib/access_policy');
 const {
   positiveId, resolveWorkspace, requireProjectAccess, requirePhotosAccess,
   sendWorkspaceError, WorkspaceAccessError,
@@ -57,19 +56,13 @@ router.post('/', requirePermission('photos.view'), async (req, res) => {
 
     await conn.beginTransaction();
     let snapshot = null;
-    let photos = [];
     let photoSnapshots = new Map();
     if (mode === 'copy') {
-      if (shareType === 'album') {
-        const loaded = await sharesDao.loadCopySnapshot(conn, { shareType, projectId, photoIds,
-          orgId: workspace.orgId, unitId: workspace.unitId });
-        if (!loaded) throw new WorkspaceAccessError('SOURCE_ALBUM_NOT_FOUND', 404);
-        snapshot = { project: loaded.project, sections: loaded.sections };
-        photos = loaded.photos;
-      } else {
-        photos = (await sharesDao.loadCopySnapshot(conn, { shareType, projectId, photoIds,
-          orgId: workspace.orgId, unitId: workspace.unitId })).photos;
-      }
+      const loaded = await sharesDao.loadCopySnapshot(conn, { shareType, projectId, photoIds,
+        orgId: workspace.orgId, unitId: workspace.unitId });
+      if (!loaded) throw new WorkspaceAccessError('SOURCE_ALBUM_NOT_FOUND', 404);
+      const { photos } = loaded;
+      if (shareType === 'album') snapshot = { project: loaded.project, sections: loaded.sections };
       if (shareType === 'collection' && photos.length !== photoIds.length) {
         throw new WorkspaceAccessError('PHOTO_NOT_FOUND', 404);
       }
@@ -87,25 +80,24 @@ router.post('/', requirePermission('photos.view'), async (req, res) => {
       }
     }
 
-    const created = await sharesDao.insertShare(conn, { orgId: workspace.orgId, sourceUnitId: workspace.unitId,
+    const shareId = await sharesDao.insertShare(conn, { orgId: workspace.orgId, sourceUnitId: workspace.unitId,
       targetUnitId, targetUserId, shareType, mode, projectId, createdBy: workspace.userId, expiresAt, snapshot });
     for (let offset = 0; offset < photoIds.length; offset += 400) {
       const rows = photoIds.slice(offset, offset + 400).map((id) =>
-        [created.insertId, id, photoSnapshots.has(id) ? JSON.stringify(photoSnapshots.get(id)) : null]);
+        [shareId, id, photoSnapshots.has(id) ? JSON.stringify(photoSnapshots.get(id)) : null]);
       await sharesDao.insertShareItems(conn, rows);
     }
     let copyJobId = null;
     if (mode === 'copy') {
-      const job = await sharesDao.insertSystemCopyJob(conn, { shareId: created.insertId, orgId: workspace.orgId,
+      copyJobId = await sharesDao.insertSystemCopyJob(conn, { shareId, orgId: workspace.orgId,
         targetUnitId, requestedBy: workspace.userId });
-      copyJobId = job.insertId;
     }
     await sharesDao.insertAccessAudit(conn, { orgId: workspace.orgId, unitId: workspace.unitId, userId: workspace.userId,
-      action: 'internal_share.create', resourceType: 'internal_share', resourceId: created.insertId,
+      action: 'internal_share.create', resourceType: 'internal_share', resourceId: shareId,
       details: { mode, shareType, targetUnitId, targetUserId, photoCount: photoIds.length } });
     await conn.commit();
     if (copyJobId) copyWorker.wake();
-    res.status(201).json({ id: created.insertId, mode, shareType, projectId,
+    res.status(201).json({ id: shareId, mode, shareType, projectId,
       targetUnitId, targetUserId, expiresAt, photoCount: photoIds.length, copyJobId });
   } catch (err) {
     try { await conn.rollback(); } catch (_) {}
@@ -117,29 +109,7 @@ router.get('/received', requirePermission('photos.view'), async (req, res) => {
   try {
     const workspace = await resolveWorkspace(req);
     if (!workspace.enabled || !workspace.unitId) return res.json([]);
-    const owner = photoOwnerFilter(workspace, 'ph');
-    const rows = await sharesDao.queryRows(pool, { sql:
-      `SELECT s.id, s.share_type AS shareType, s.mode, s.project_id AS projectId,
-              s.expires_at AS expiresAt, s.created_at AS createdAt,
-              source.name AS sourceUnitName, org.name AS sourceOrganizationName,
-              sharer.name AS sharedByName, p.name AS albumName,
-              (SELECT COUNT(*) FROM internal_share_items si JOIN photos ph ON ph.id = si.photo_id
-                WHERE si.share_id = s.id${owner.sql}) AS snapshotCount,
-              (SELECT j.status FROM organization_copy_jobs j
-               WHERE j.share_id = s.id AND j.system_initiated = 1 ORDER BY j.id DESC LIMIT 1) AS copyStatus,
-              ${workspace.ownPhotosOnly ? 'NULL' : `(SELECT j.result_json FROM organization_copy_jobs j
-               WHERE j.share_id = s.id AND j.system_initiated = 1 ORDER BY j.id DESC LIMIT 1)`} AS copyResult
-       FROM internal_shares s
-       JOIN organization_units source ON source.id = s.source_unit_id
-       JOIN organizations org ON org.id = s.organization_id
-       LEFT JOIN users sharer ON sharer.id = s.created_by
-       LEFT JOIN projects p ON p.id = s.project_id
-       WHERE s.organization_id = ? AND s.target_unit_id = ?
-         AND s.folder_share_id IS NULL
-         AND (s.target_user_id IS NULL OR s.target_user_id = ?)
-         AND s.revoked_at IS NULL AND (s.expires_at IS NULL OR s.expires_at > NOW())
-       ORDER BY s.created_at DESC LIMIT 200`,
-      params: [...owner.params, workspace.orgId, workspace.unitId, workspace.userId] });
+    const rows = await sharesDao.listReceivedShares(pool, workspace);
     const withCover = rows.map(row => ({ ...row,
       coverUrl: row.coverThumb ? buildMediaUrl(row.coverThumb, { userId: workspace.userId, photoId: row.coverPhotoId }) : null }));
     res.json(withCover);
@@ -150,27 +120,7 @@ router.get('/sent', requirePermission('photos.view'), async (req, res) => {
   try {
     const workspace = await resolveWorkspace(req);
     if (!workspace.enabled || !workspace.unitId) return res.json([]);
-    const owner = photoOwnerFilter(workspace, 'ph');
-    const rows = await sharesDao.queryRows(pool, { sql:
-      `SELECT s.id, s.share_type AS shareType, s.mode, s.project_id AS projectId,
-              s.expires_at AS expiresAt, s.revoked_at AS revokedAt,
-              s.created_at AS createdAt, target.name AS targetUnitName,
-              recipient.name AS targetUserName, p.name AS albumName,
-              (SELECT ph.thumb_url FROM photos ph WHERE ph.project_id = p.id AND ph.organization_id = p.organization_id${owner.sql}
-                ORDER BY ph.created_at DESC, ph.id DESC LIMIT 1) AS coverThumb,
-              (SELECT ph.id FROM photos ph WHERE ph.project_id = p.id AND ph.organization_id = p.organization_id${owner.sql}
-                ORDER BY ph.created_at DESC, ph.id DESC LIMIT 1) AS coverPhotoId,
-              (SELECT COUNT(*) FROM photos ph WHERE ph.project_id = p.id AND ph.organization_id = s.organization_id${owner.sql}) AS photoCount,
-              (SELECT j.status FROM organization_copy_jobs j
-               WHERE j.share_id = s.id AND j.system_initiated = 1 ORDER BY j.id DESC LIMIT 1) AS copyStatus
-       FROM internal_shares s
-       JOIN organization_units target ON target.id = s.target_unit_id
-       LEFT JOIN users recipient ON recipient.id = s.target_user_id
-       LEFT JOIN projects p ON p.id = s.project_id
-       WHERE s.organization_id = ? AND s.source_unit_id = ?
-         AND s.folder_share_id IS NULL
-       ORDER BY s.created_at DESC LIMIT 200`,
-      params: [...owner.params, ...owner.params, ...owner.params, workspace.orgId, workspace.unitId] });
+    const rows = await sharesDao.listSentShares(pool, workspace);
     res.json(rows.map(row => ({ ...row,
       coverUrl: row.coverThumb ? buildMediaUrl(row.coverThumb, { userId: workspace.userId, photoId: row.coverPhotoId }) : null })));
   } catch (err) { sendError(res, err); }
@@ -205,10 +155,10 @@ router.post('/:id/copy', requirePermission('photos.view'), async (req, res) => {
     const existing = await sharesDao.findActiveCopyJob(pool, { shareId, userId: workspace.userId,
       targetProjectId });
     if (existing) return res.json(existing);
-    const result = await sharesDao.insertCopyJob(pool, { shareId, orgId: workspace.orgId,
+    const jobId = await sharesDao.insertCopyJob(pool, { shareId, orgId: workspace.orgId,
       unitId: workspace.unitId, requestedBy: workspace.userId, targetProjectId });
     copyWorker.wake();
-    res.status(202).json({ id: result.insertId, status: 'queued', estimatedBytes: 0, copiedBytes: 0 });
+    res.status(202).json({ id: jobId, status: 'queued', estimatedBytes: 0, copiedBytes: 0 });
   } catch (err) { sendError(res, err); }
 });
 
@@ -231,7 +181,7 @@ router.get('/:id', requirePermission('photos.view'), async (req, res) => {
     const workspace = await resolveWorkspace(req);
     const id = positiveId(req.params.id);
     if (!id) throw new WorkspaceAccessError('INVALID_SHARE', 400);
-    const share = await sharesDao.findShareDetail(pool, { shareId: id, orgId: workspace.orgId });
+    const share = await sharesDao.findShareInOrganization(pool, { shareId: id, orgId: workspace.orgId });
     if (!share || share.revoked_at || (share.expires_at && new Date(share.expires_at) <= new Date())) {
       throw new WorkspaceAccessError('SHARE_NOT_FOUND', 404);
     }
@@ -253,33 +203,18 @@ router.get('/:id', requirePermission('photos.view'), async (req, res) => {
     const limit = Math.max(1, Math.min(120, Math.floor(Number(req.query.limit) || 60)));
     const offset = Math.max(0, Math.min(1000000, Math.floor(Number(req.query.offset) || 0)));
     let source = null;
-    let sourceParams = [];
-    let order = '';
     if (share.mode === 'copy') {
       if (copiedProjectId && canViewCopiedPhotos) {
-        source = 'FROM photos ph WHERE ph.project_id = ? AND ph.organization_id = ? AND ph.unit_id = ?';
-        sourceParams = [copiedProjectId, workspace.orgId, workspace.unitId];
-        order = 'ORDER BY ph.created_at DESC, ph.id DESC';
+        source = { kind: 'copy', projectId: copiedProjectId };
       }
     } else if (share.share_type === 'album') {
-      source = 'FROM photos ph WHERE ph.project_id = ? AND ph.organization_id = ?';
-      sourceParams = [share.project_id, workspace.orgId];
-      order = 'ORDER BY ph.created_at DESC, ph.id DESC';
+      source = { kind: 'album', projectId: share.project_id };
     } else {
-      source = `FROM internal_share_items si JOIN photos ph ON ph.id = si.photo_id
-        WHERE si.share_id = ? AND ph.organization_id = ?`;
-      sourceParams = [id, workspace.orgId];
-      order = 'ORDER BY si.created_at, si.id';
+      source = { kind: 'collection', shareId: id };
     }
-    let total = 0;
-    let photos = [];
-    if (source) {
-      const ownerFilter = photoOwnerFilter(workspace, 'ph');
-      source += ownerFilter.sql;
-      sourceParams.push(...ownerFilter.params);
-      total = await sharesDao.countPhotosInSource(pool, { source, params: sourceParams });
-      photos = await sharesDao.listSharePhotos(pool, { source, order, params: sourceParams, limit, offset });
-    }
+    const { total, photos } = source
+      ? await sharesDao.listSharePhotoPage(pool, workspace, { source, limit, offset })
+      : { total: 0, photos: [] };
     res.json({ id: share.id, shareType: share.share_type, mode: share.mode,
       projectId: share.mode === 'copy' ? copiedProjectId : share.project_id,
       albumName: share.albumName, copyStatus,
