@@ -5,7 +5,7 @@ USER root
 WORKDIR /app
 COPY apps/server/package-lock.json /tmp/next-package-lock.json
 RUN chmod 1777 /tmp \
-    && node -e 'if(require("/tmp/next-package-lock.json").packages["node_modules/sharp"].version!==require("sharp/package.json").version)throw Error("Rebuild native compatibility for changed Sharp")' \
+    && node -e 'if(require("/tmp/next-package-lock.json").packages["node_modules/sharp"].version!==require("./node_modules/sharp/package.json").version)throw Error("Rebuild native compatibility for changed Sharp")' \
     && rm -rf /tmp/next-package-lock.json /app/lib /app/routes /app/scripts /app/ai_function /app/config
 COPY --chown=node:node apps/server/ /app/
 RUN npm install --omit=dev --ignore-scripts --no-audit --no-fund \
