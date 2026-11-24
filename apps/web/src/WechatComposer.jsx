@@ -212,6 +212,8 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
   // 主题模板 UI 已移除：themeKey 仅作为 blockConfig 未自定义时的预设兜底键保留（草稿兼容）。
   // setThemeKey 平时不用（没有主题选择 UI），仅供"载入存档"时按存档记录的 themeKey 恢复兜底预设。
   const [themeKey, setThemeKey] = React.useState(initial.themeKey);
+  // 样式块自选：blockConfig=null 表示跟随主题预设；一旦在样式库里挑过块即转为自定义配置
+  const [blockConfig, setBlockConfig] = React.useState(initial.blockConfig);
   const [pickerOpen, setPickerOpen] = React.useState(false);
   const [stationItemsRaw, setStationItemsRaw] = React.useState(() => getTransferAll());
   const [isMobile, setIsMobile] = React.useState(() => (typeof window !== 'undefined' ? window.innerWidth <= 768 : false));
@@ -409,8 +411,6 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
     return () => document.removeEventListener('keydown', onKey);
   }, [active, handleUndo, handleRedo]);
 
-  // 样式块自选：blockConfig=null 表示跟随主题预设；一旦在样式库里挑过块即转为自定义配置
-  const [blockConfig, setBlockConfig] = React.useState(initial.blockConfig);
   const [libraryOpen, setLibraryOpen] = React.useState(false);
   const [libType, setLibType] = React.useState('h2');
   const [sideTab, setSideTab] = React.useState('style'); // 左侧面板顶层 Tab：style|album|fav

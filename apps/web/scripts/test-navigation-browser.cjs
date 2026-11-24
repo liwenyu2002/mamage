@@ -297,6 +297,45 @@ async function main() {
       await page.screenshot({ path: path.join(screenshotDir, 'mobile-returned-folder.png') });
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     },
+    async mediaStudio(page) {
+      const routes = [
+        ['推文', 'wechat-composer', '.wechat-workspace .wxc-manager'],
+        ['小红书', 'xiaohongshu', '.news-writer'],
+        ['新闻稿', 'news', '.news-writer'],
+        ['工作简报', 'brief', '.news-writer'],
+        ['视频剪辑', 'video', '.video-editor'],
+        ['微博', 'weibo', '.news-writer'],
+      ];
+      for (const width of [1440, 390]) {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto(base + '/function/weibo');
+        const nav = page.locator('.media-studio-nav');
+        const trigger = nav.getByRole('button', { name: /切换编辑类型/ });
+        const menu = page.getByRole('menu', { name: '切换编辑类型', exact: true });
+        const workspace = page.locator('.media-studio-workspace');
+        await workspace.locator('.news-writer').waitFor();
+        const y = (await workspace.boundingBox()).y;
+        assert.ok((await nav.boundingBox()).height <= 40);
+        assert.equal(await menu.isVisible(), false);
+        await trigger.press('Enter');
+        assert.equal(await menu.getByRole('menuitemradio').count(), routes.length);
+        assert.equal(await menu.getByRole('menuitemradio', { checked: true }).innerText(), '微博');
+        assert.equal((await workspace.boundingBox()).y, y);
+        const bounds = await menu.boundingBox();
+        assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width);
+        await page.keyboard.press('Escape');
+        assert.equal(await menu.isVisible(), false);
+        assert.ok(await trigger.evaluate(button => button === document.activeElement));
+        for (const [label, slug, editor] of routes) {
+          await trigger.click();
+          await menu.getByRole('menuitemradio', { name: label, exact: true }).click();
+          await page.waitForURL('**/function/' + slug);
+          await nav.getByRole('button', { name: '切换编辑类型，当前' + label, exact: true }).waitFor();
+          await workspace.locator(editor).waitFor();
+          assert.equal(await menu.isVisible(), false);
+        }
+      }
+    },
     async about(page) {
       await page.goto(base);
       await page.locator('.mamage-nav-link').filter({ hasText: '关于' }).click();

@@ -276,6 +276,8 @@ function VideoEditor() {
   const [cloudBusy, setCloudBusy] = React.useState(false);
   const [uploadingCount, setUploadingCount] = React.useState(0);
   const [renderJob, setRenderJob] = React.useState(null);
+  const renderJobId = renderJob?.id ?? null;
+  const renderJobStatus = renderJob?.status ?? null;
   const [history, setHistory] = React.useState([]);
   const [future, setFuture] = React.useState([]);
   const projectIdRef = React.useRef(null);
@@ -436,8 +438,6 @@ function VideoEditor() {
   const activeEnd = activeInfo?.end ?? 0;
   const activeSourceUrl = activeSource?.url || '';
   const activeBlank = activeClip ? isBlankClip(activeClip) : false;
-  const renderJobId = renderJob?.id ?? null;
-  const renderJobStatus = renderJob?.status ?? null;
 
   React.useEffect(() => {
     if (!activeClipId || selectedClipId === activeClipId) return;

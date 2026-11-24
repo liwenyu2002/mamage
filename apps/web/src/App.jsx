@@ -12,6 +12,7 @@ import { hasIamHandoff, finishIamLogin, forwardIamRootCallback } from './service
 import { hasOidcHandoff, finishOidcLogin } from './services/oidcLogin';
 import { buildAlbumUploadUrl, readAlbumUploadIntent, rememberAlbumUploadIntent, storedAlbumUploadIntent, clearAlbumUploadIntent } from './utils/albumUploadLink';
 import PrivacyPage from './PrivacyPage';
+import MediaStudioNav from './MediaStudioNav';
 import { fetchProjectList, fetchProjectImportStatuses, createProject } from './services/projectService';
 import { searchPhotos } from './services/photoQueryService';
 import { fetchWorkspaces, setActiveWorkspace } from './services/workspaceService';
@@ -62,9 +63,10 @@ const MEDIA_STUDIO_PLATFORMS = [
 { key: 'weibo', label: '微博', path: '/function/weibo', editor: 'writer' },
 { key: 'video_editor', label: '视频剪辑', path: '/function/video', editor: 'video' }];
 
-const TEXT_MEDIA_PLATFORMS = MEDIA_STUDIO_PLATFORMS.filter((platform) => platform.editor !== 'video');
-const VIDEO_MEDIA_PLATFORM = MEDIA_STUDIO_PLATFORMS.find((platform) => platform.editor === 'video');
 const DEFAULT_MEDIA_PLATFORM = MEDIA_STUDIO_PLATFORMS[0];
+
+const mediaStudioEditors = { wechat: WechatComposer, writer: AiNewsWriter, video: VideoEditor };
+const preloadMediaPlatform = (platform) => mediaStudioEditors[platform.editor]?.preload?.();
 
 function mediaPlatformFromPath(pathname) {
   const path = String(pathname || '').replace(/\/$/, '') || '/';
@@ -1055,8 +1057,6 @@ function App() {
 
   const userName = String(currentUser?.name || currentUser?.displayName || '账户').trim() || '账户';
   const activeMediaPlatform = MEDIA_STUDIO_PLATFORMS.find((item) => item.key === functionPage) || DEFAULT_MEDIA_PLATFORM;
-  const activeMediaSection = activeMediaPlatform.editor === 'video' ? 'video' : 'text';
-  const activeTextPlatformIndex = Math.max(0, TEXT_MEDIA_PLATFORMS.findIndex((item) => item.key === activeMediaPlatform.key));
 
   const closeMobileNav = React.useCallback(() => {
     setMobileNavVisible(false);
@@ -1081,7 +1081,7 @@ function App() {
     navigate('/scenery');
   }, []);
 
-  // 全媒体编辑台默认进入推文平台；平台切换由页面内二级导航承接。
+  // 全媒体编辑台默认进入推文平台。
   const handleNavigateFunction = React.useCallback(() => {
     navigate(DEFAULT_MEDIA_PLATFORM.path);
   }, []);
@@ -1090,9 +1090,7 @@ function App() {
     if (!platform) return;
     if (functionPage === platform.key) return;
     navigate(platform.path);
-    if (platform.editor === 'wechat' && WechatComposer.preload) WechatComposer.preload();
-    if (platform.editor === 'writer' && AiNewsWriter.preload) AiNewsWriter.preload();
-    if (platform.editor === 'video' && VideoEditor.preload) VideoEditor.preload();
+    preloadMediaPlatform(platform);
   }, [functionPage]);
 
   const handleNavigatePrivacy = React.useCallback(() => {
@@ -1754,74 +1752,8 @@ function App() {
           selectedNav === 'function' ?
           canUseMediaStudio ?
           <section className="media-studio-shell" aria-label="全媒体编辑台">
-                <nav className="media-studio-nav" aria-label="媒体平台">
-                  <div className="media-studio-nav-title">全媒体编辑台</div>
-                  <div className="media-studio-nav-groups">
-                    <div className="media-studio-primary-tabs" role="tablist" aria-label="选择内容类型">
-                      <button
-                    type="button"
-                    role="tab"
-                    aria-selected={activeMediaSection === 'text'}
-                    className={`media-studio-primary-tab${activeMediaSection === 'text' ? ' is-active' : ''}`}
-                    onPointerEnter={() => {
-                      if (WechatComposer.preload) WechatComposer.preload();
-                      if (AiNewsWriter.preload) AiNewsWriter.preload();
-                    }}
-                    onFocus={() => {
-                      if (WechatComposer.preload) WechatComposer.preload();
-                      if (AiNewsWriter.preload) AiNewsWriter.preload();
-                    }}
-                    onClick={() => handleNavigateMediaPlatform(activeMediaSection === 'text' ? activeMediaPlatform : DEFAULT_MEDIA_PLATFORM)}>
-                    
-                        <span>文本内容</span>
-                      </button>
-                      <button
-                    type="button"
-                    role="tab"
-                    aria-selected={activeMediaSection === 'video'}
-                    className={`media-studio-primary-tab${activeMediaSection === 'video' ? ' is-active' : ''}`}
-                    onPointerEnter={() => {if (VideoEditor.preload) VideoEditor.preload();}}
-                    onFocus={() => {if (VideoEditor.preload) VideoEditor.preload();}}
-                    onClick={() => handleNavigateMediaPlatform(VIDEO_MEDIA_PLATFORM)}>
-                    
-                        <span>视频剪辑</span>
-                      </button>
-                    </div>
-                    {activeMediaSection === 'text' ?
-                <div className="media-studio-secondary-row">
-                        <span className="media-studio-secondary-label">文本类型</span>
-                        <div
-                    className="media-studio-secondary-tabs"
-                    role="tablist"
-                    aria-label="选择文本类型"
-                    style={{ '--media-studio-subtab-offset': `${activeTextPlatformIndex * 67}px` }}>
-                    
-                          <span className="media-studio-subtab-indicator" aria-hidden="true" />
-                          {TEXT_MEDIA_PLATFORMS.map((platform) =>
-                    <button
-                      key={platform.key}
-                      type="button"
-                      role="tab"
-                      aria-selected={activeMediaPlatform.key === platform.key}
-                      className={`media-studio-subtab${activeMediaPlatform.key === platform.key ? ' is-active' : ''}`}
-                      onPointerEnter={() => {
-                        if (platform.editor === 'wechat' && WechatComposer.preload) WechatComposer.preload();
-                        if (platform.editor === 'writer' && AiNewsWriter.preload) AiNewsWriter.preload();
-                      }}
-                      onFocus={() => {
-                        if (platform.editor === 'wechat' && WechatComposer.preload) WechatComposer.preload();
-                        if (platform.editor === 'writer' && AiNewsWriter.preload) AiNewsWriter.preload();
-                      }}
-                      onClick={() => handleNavigateMediaPlatform(platform)}>
-                      
-                              {platform.label}
-                            </button>
-                    )}
-                        </div>
-                      </div> :
-                null}
-                  </div>
-                </nav>
+                <MediaStudioNav platforms={MEDIA_STUDIO_PLATFORMS} active={activeMediaPlatform}
+                  onSelect={handleNavigateMediaPlatform} onPreload={preloadMediaPlatform} />
                 <div className="media-studio-workspace">
                   {activeMediaPlatform.editor === 'wechat' ?
               <LazyPanel title="正在加载推文编辑台">
