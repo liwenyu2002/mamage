@@ -1911,6 +1911,7 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
       <ImageEditorModal
         visible={!!imgEditTarget}
         src={imgEditTarget ? imgEditTarget.src : ''}
+        zIndex={imgEditTarget?.cover ? 10010 : undefined}
         onCancel={() => setImgEditTarget(null)}
         onApply={applyImageEdit}
       />
@@ -1918,7 +1919,7 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
       {/* 推文预览：公众号文章页样式(标题/公众号名·作者·时间/正文) + 大小图封面编辑 + 两张卡片预览 */}
       <ArticlePreviewModal
         visible={articlePreviewOpen}
-        onClose={() => setArticlePreviewOpen(false)}
+        onClose={() => { if (!pickerOpen && !imgEditTarget) setArticlePreviewOpen(false); }}
         isMobile={isMobile}
         title={title}
         wxName={previewMeta.wxName}

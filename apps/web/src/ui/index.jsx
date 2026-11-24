@@ -606,6 +606,7 @@ const Typography = { Text, Title };
 function Modal({
   visible,
   title,
+  headerActions,
   children,
   onOk,
   onCancel,
@@ -667,6 +668,7 @@ function Modal({
         <div className="mamage-modal-content">
           <div className="mamage-modal-header">
             <div className="mamage-modal-title">{title}</div>
+            {headerActions}
             {closable ? (
               <button type="button" className="mamage-modal-close" aria-label="关闭" onClick={onCancel}>×</button>
             ) : null}

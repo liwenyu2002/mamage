@@ -633,6 +633,109 @@ async function main() {
       assert.equal(copy.svg, 0);
       assert.equal(copy.credits, true);
     },
+    async articlePreviewDisclosure(page) {
+      await page.emulateMedia({ reducedMotion: 'no-preference' });
+      await page.goto(base + '/function/wechat-composer');
+      const open = page.getByRole('button', { name: /推文预览/ });
+      await open.click();
+      const dialog = page.getByRole('dialog', { name: '推文预览', exact: true });
+      const screen = dialog.getByRole('region', { name: '手机文章预览', exact: true });
+      const details = dialog.locator('.wx-preview-details');
+      const toggle = dialog.getByRole('button', { name: '推文信息', exact: true });
+      const settle = () => dialog.evaluate(panel => Promise.allSettled(panel.getAnimations({ subtree: true })
+        .map(animation => animation.finished)).then(() => {}));
+      const centeredPhone = async () => {
+        const phone = await screen.boundingBox();
+        assert.ok(Math.abs(phone.x + phone.width / 2 - page.viewportSize().width / 2) <= 2, 'collapsed phone preview is centered');
+        return phone;
+      };
+      await screen.getByRole('heading', { name: /香山研学/ }).waitFor();
+      assert.equal(await toggle.getAttribute('aria-expanded'), 'false');
+      assert.equal(await details.isVisible(), false);
+      assert.equal(await dialog.getByRole('textbox').count(), 0, 'hidden fields are not in the tab order');
+      const closed = await centeredPhone();
+      await dialog.screenshot({ caret: 'initial', path: path.join(screenshotDir, 'wechat-phone-preview-closed.png') });
+      await dialog.getByRole('button', { name: '夜间', exact: true }).click();
+      assert.equal(await screen.getAttribute('data-mode'), 'night');
+      await screen.evaluate(node => { node.scrollTop = 160; });
+      assert.equal(await screen.evaluate(node => node.scrollTop), 160);
+
+      await toggle.press('Enter');
+      await details.waitFor();
+      await settle();
+      assert.equal(await toggle.getAttribute('aria-expanded'), 'true');
+      const expanded = await screen.boundingBox();
+      assert.ok(expanded.x < closed.x - 100, 'opening the right panel moves the phone left');
+      assert.equal(expanded.width, closed.width);
+      assert.equal(expanded.height, closed.height);
+      assert.equal(await screen.evaluate(node => node.scrollTop), 160);
+      const sidebar = await details.boundingBox();
+      assert.ok(sidebar.x > expanded.x + expanded.width);
+      assert.equal(await screen.getAttribute('data-mode'), 'night');
+      await dialog.getByRole('button', { name: '日间', exact: true }).click();
+      await details.getByRole('textbox', { name: '公众号名称', exact: true }).fill('校园融媒体');
+      await details.getByRole('textbox', { name: '作者', exact: true }).fill('编辑部');
+      await details.getByRole('textbox', { name: '发布时间', exact: true }).fill('2026-11-25 10:00');
+      assert.equal(await screen.locator('.wx-preview-account').textContent(), '校园融媒体');
+      assert.match(await screen.locator('.wx-preview-byline').textContent(), /编辑部·2026-11-25 10:00/);
+
+      const bigCard = details.getByRole('group', { name: '单图文分享卡片', exact: true });
+      const smallCard = details.getByRole('group', { name: '次条列表卡片', exact: true });
+      const cover = details.getByRole('button', { name: '更换大图封面', exact: true });
+      assert.equal(await smallCard.locator('img').getAttribute('src'), await bigCard.locator('img').getAttribute('src'));
+      await cover.click();
+      const picker = page.getByRole('dialog', { name: '选择照片（替换当前图片）', exact: true });
+      await picker.waitFor();
+      await page.keyboard.press('Escape');
+      await picker.waitFor({ state: 'hidden' });
+      assert.equal(await toggle.getAttribute('aria-expanded'), 'true', 'Escape only dismisses the frontmost photo picker');
+      await cover.click();
+      await picker.getByRole('button', { name: '中转站封面', exact: true }).click();
+      const replacement = await bigCard.locator('img').getAttribute('src');
+      assert.match(replacement, /replacement/);
+      assert.equal(await smallCard.locator('img').getAttribute('src'), replacement);
+
+      await details.getByRole('button', { name: '裁剪大图封面', exact: true }).click();
+      const crop = page.locator('.wie-panel');
+      await crop.getByRole('button', { name: '应用', exact: true }).waitFor();
+      await page.keyboard.press('Escape');
+      await crop.waitFor({ state: 'hidden' });
+      assert.equal(await toggle.getAttribute('aria-expanded'), 'true', 'Escape only dismisses the cover cropper');
+      await details.getByRole('button', { name: '裁剪大图封面', exact: true }).click();
+      await crop.getByRole('button', { name: '应用', exact: true }).click();
+      await crop.waitFor({ state: 'hidden' });
+      assert.match(await bigCard.locator('img').getAttribute('src'), /^data:image\//);
+      assert.equal(await toggle.getAttribute('aria-expanded'), 'true');
+      await page.getByText('已应用封面编辑', { exact: true }).waitFor({ state: 'hidden' });
+      await screen.evaluate(node => { node.scrollTop = 0; });
+      await details.evaluate(node => { node.scrollTop = 0; });
+      await dialog.screenshot({ caret: 'initial', path: path.join(screenshotDir, 'wechat-phone-preview-open.png') });
+
+      await page.setViewportSize({ width: 1024, height: 720 });
+      await settle();
+      assert.equal(await dialog.evaluate(panel => {
+        const rect = panel.getBoundingClientRect();
+        return rect.left >= 0 && rect.right <= innerWidth && rect.top >= 0 && rect.bottom <= innerHeight;
+      }), true);
+      await dialog.screenshot({ caret: 'initial', path: path.join(screenshotDir, 'wechat-phone-preview-laptop.png') });
+      await screen.evaluate(node => { node.scrollTop = 160; });
+      await toggle.click();
+      await settle();
+      assert.equal(await details.isVisible(), false);
+      await centeredPhone();
+      assert.equal(await screen.evaluate(node => node.scrollTop), 160);
+
+      await toggle.click();
+      await settle();
+      await dialog.getByRole('button', { name: '关闭', exact: true }).click();
+      await dialog.waitFor({ state: 'hidden' });
+      await open.click();
+      await screen.getByText('校园融媒体', { exact: true }).waitFor();
+      assert.equal(await toggle.getAttribute('aria-expanded'), 'false', 'every new opening starts with the phone only');
+      await centeredPhone();
+      await page.keyboard.press('Escape');
+      await dialog.waitFor({ state: 'hidden' });
+    },
     async about(page) {
       await page.goto(base);
       await page.locator('.mamage-nav-link').filter({ hasText: '关于' }).click();
@@ -693,6 +796,18 @@ async function main() {
         localStorage.setItem('mamage.wechat.workflow.v1:7:1', JSON.stringify({ mode: 'ai', stage: 'content' }));
         localStorage.setItem('mamage.aiNewsWriter.draft.v2:7:1', JSON.stringify({ activeChannelKey: 'wechat_article',
           selectedChannels: ['wechat_article'], channelContent: { wechat_article: { title: '访谈样稿', markdownText } } }));
+      });
+      if (name === 'articlePreviewDisclosure') await context.addInitScript(() => {
+        const styled = { title: '香山研学：在红叶与古建间上一堂行走的课', themeKey: 'minimal',
+          meta: { wxName: '学院公众号', author: '通讯员', publishTime: '', coverBig: '/api/image/test.jpg?wide' },
+          doc: [{ uid: 'header-image', kind: 'styled', type: 'imageCard', src: '/api/image/test.jpg?header', caption: '' },
+            ...Array.from({ length: 12 }, (_, index) => ({ uid: `p${index}`, kind: 'para',
+              html: '秋日的香山，红叶漫山，古建静立。一群年轻人走进这座承载历史与自然双重记忆的公园，在行走中展开研学。' }))],
+        };
+        localStorage.setItem('mamage.wechat.workflow.v1:7:1', JSON.stringify({ mode: 'ai', stage: 'styled', styled }));
+        localStorage.setItem('photo-transfer-selection', JSON.stringify([
+          { id: 801, url: '/api/image/test.jpg?replacement', description: '中转站封面' },
+        ]));
       });
       await context.route('**/*', route => {
         const req = route.request(), url = new URL(req.url()), p = url.pathname;

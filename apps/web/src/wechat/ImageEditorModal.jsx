@@ -290,7 +290,7 @@ function CropOverlay({ stageRef, displayW, displayH, crop, ratioValue, onCropCha
   );
 }
 
-function ImageEditorModal({ visible, src, onCancel, onApply }) {
+function ImageEditorModal({ visible, src, onCancel, onApply, zIndex }) {
   const [loadStatus, setLoadStatus] = useState('loading'); // loading | ready | error
   const [loadErrorMsg, setLoadErrorMsg] = useState('');
   const [imgSize, setImgSize] = useState({ w: 0, h: 0 });
@@ -492,7 +492,7 @@ function ImageEditorModal({ visible, src, onCancel, onApply }) {
   };
 
   return createPortal(
-    <div className="wie-mask">
+    <div className="wie-mask" style={zIndex ? { zIndex } : undefined}>
       <div className="wie-panel" role="dialog" aria-modal="true">
         <div className="wie-header">
           <div className="wie-title">图片编辑</div>
