@@ -68,6 +68,10 @@ function assetUrl(raw) {
     return { key, src: `/api/wx-img?url=${encodeURIComponent(url.href)}` };
   } catch { return null; }
 }
+function brandCandidate({ key, src, position }) {
+  const id = crypto.createHash('sha256').update(`${position}:${key}`).digest('hex').slice(0, 16);
+  return { id, src, position };
+}
 function observedImages(row) {
   const blocks = parsed(row.blocks, []);
   if (!Array.isArray(blocks)) return [];
@@ -145,8 +149,7 @@ function buildObservedLibrary(rows, memberships) {
     const representative = group.articles[0].row;
     const brandCandidates = [...repeatedImages.values()].filter(image => image.articles.size >= 2
       && new Set([...image.articles.values()].map(value => new Date(value).toISOString().slice(0, 10))).size >= 2)
-      .map(image => ({ id: crypto.createHash('sha256').update(`${image.position}:${image.key}`).digest('hex').slice(0, 16),
-        src: image.src, position: image.position, occurrences: image.articles.size }));
+      .map(image => ({ ...brandCandidate(image), occurrences: image.articles.size }));
     templates.push({ id: group.key, name: group.name, sourceTitle: representative.title,
       articleId: Number(representative.id), revisionId: Number(representative.current_revision_id),
       base: observedBase(representative.visual_features), brandCandidates, imageGroup,
@@ -174,7 +177,15 @@ async function loadObservedStyleLibrary(db, workspace) {
     JOIN wechat_monitor_accounts x ON x.id=g.account_id AND x.scope_key=g.scope_key
     WHERE g.scope_key=? AND g.kind='series' AND x.account_key='bjzgca' ORDER BY g.id`, [scope]);
   const observed = buildObservedLibrary(rows, memberships);
-  return { templates: [...curated.templates, ...observed.templates],
+  const curatedTemplates = curated.templates.map(({ brandImages = [], ...template }) => ({
+    ...template,
+    brandCandidates: brandImages.flatMap(({ url, position, name }) => {
+      const image = assetUrl(url);
+      return image && ['top', 'bottom'].includes(position)
+        ? [{ ...brandCandidate({ ...image, position }), name, defaultSelected: true }] : [];
+    }),
+  }));
+  return { templates: [...curatedTemplates, ...observed.templates],
     blocks: [...curated.templates.flatMap(({ styleIds, sourceUrl, sourceTitle, sourceAccount }) => {
       const ids = new Set(Object.values(styleIds));
       return curated.blocks.filter(block => ids.has(`db-${block.id}`))

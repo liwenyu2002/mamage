@@ -512,6 +512,24 @@ test('selected observed brand images retain content and their style snapshots', 
   assert.throws(() => addObservedBrandAssets(styled, [{ ...asset, src: 'https://example.com/image' }], library, 'db-monitor-image'));
 });
 
+test('template artwork remains independent of content edits and never returns after deletion', () => {
+  const article = { title: '访谈样稿', markdown: '开场。\n\n![正文图](/body.jpg)\n\n落款。' };
+  const confirmed = freezeContent(article);
+  const layout = materializeLayout(confirmed, templateLayout(confirmed.source, THEME_PRESETS.minimal));
+  const cover = { id: '0123456789abcdef', position: 'top', src: '/api/wx-img?url=https%3A%2F%2Fmmbiz.qpic.cn%2Fcover' };
+  const footer = { id: 'fedcba9876543210', position: 'bottom', src: '/api/wx-img?url=https%3A%2F%2Fmmbiz.qpic.cn%2Ffooter' };
+  const styled = addObservedBrandAssets(layout, [cover, footer]);
+  const edited = freezeContent({ ...article, markdown: article.markdown.replace('开场', '新开场') });
+  const merged = mergeContentIntoLayout(edited, styled);
+  assert.deepEqual(merged.doc.filter(block => block.type === 'imageCard').map(block => block.src), [cover.src, '/body.jpg', footer.src]);
+  assert.equal(layoutToMarkdown(merged.doc), edited.article.markdown);
+  const replacedCover = { ...merged.doc[0], src: '/new-cover.jpg', widthPct: 90 };
+  const afterEdit = mergeContentIntoLayout(edited, { ...merged, doc: [replacedCover, ...merged.doc.slice(1, -1)] });
+  assert.deepEqual(afterEdit.doc[0], replacedCover);
+  assert.deepEqual(afterEdit.doc.filter(block => block.type === 'imageCard').map(block => block.src), ['/new-cover.jpg', '/body.jpg']);
+  assert.equal(layoutToMarkdown(afterEdit.doc), edited.article.markdown);
+});
+
 test('revision sends only unique photo identifiers for server-side context hydration', () => {
   const article = { photos: [
     { id: 31, faceNames: ['cached name'], projectTitle: 'cached album', url: '/photo?token=secret' },

@@ -76,13 +76,18 @@ function layoutHtmlToText(html) {
     .replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
+function brandAssetId(block) {
+  return block?.kind === 'styled' && block.type === 'imageCard'
+    ? /^brand-([a-f0-9]{16})(?:-\d+)?$/.exec(block.uid)?.[1] : undefined;
+}
+
 // 排版稿 → 内容稿文字的轻量回写：只处理可可靠解析的段落/标题/图片/分隔线；
 // 含整文导入（raw）块时返回 null，由界面提示"暂不支持自动回写"，避免破坏复杂原文。
 export function layoutToMarkdown(doc) {
   if (!Array.isArray(doc) || !doc.length) return '';
   if (doc.some(block => block?.kind === 'raw')) return null;
   const parts = doc.map(block => {
-    if (!block) return '';
+    if (!block || brandAssetId(block)) return '';
     if (block.type === 'divider') return '---';
     if (block.type === 'imageCard') {
       const src = String(block.src || '').trim();
@@ -104,7 +109,15 @@ export function layoutToMarkdown(doc) {
 // 而不是重新走模板、丢掉用户在排版稿里做的样式/换图/图注调整。
 export function mergeContentIntoLayout(snapshot, layout) {
   if (!layout?.doc?.length) throw Error('没有可同步的排版稿');
-  const previous = layout.doc;
+  const brandPositions = new Map((layout.sourceDocument?.brandAssets || []).map(asset => [asset.id, asset.position]));
+  const top = [], bottom = [];
+  const previous = layout.doc.filter(block => {
+    const position = brandPositions.get(brandAssetId(block));
+    if (position !== 'top' && position !== 'bottom') return true;
+    (position === 'top' ? top : bottom).push(block);
+    return false;
+  });
+  if (snapshot.source.doc.length + top.length + bottom.length > 120) throw Error('同步后含首尾图的内容块超过 120 个，请减少内容块');
   const used = new Set();
   const textOf = block => String(block.content ?? block.html ?? '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
   const styleKeys = ['blockId', 'accent', 'widthPct', 'radius', 'aspect', 'galleryStyle', 'galleryTemplate'];
@@ -146,7 +159,7 @@ export function mergeContentIntoLayout(snapshot, layout) {
     return next;
   });
   const imageGroup = layout.sourceDocument?.imageGroupReference || null;
-  return { ...layout, title: snapshot.source.title, doc: arrangeImageGroups(doc, 'auto', imageGroup),
+  return { ...layout, title: snapshot.source.title, doc: [...top, ...arrangeImageGroups(doc, 'auto', imageGroup), ...bottom],
     sourceDocument: { ...(layout.sourceDocument || {}), ...snapshot.article,
       styleBlocks: layout.sourceDocument?.styleBlocks || {}, confirmedAt: snapshot.confirmedAt } };
 }

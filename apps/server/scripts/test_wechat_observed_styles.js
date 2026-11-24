@@ -57,11 +57,19 @@ test('library queries the authorized scope, official monitored account and publi
   assert.equal(queries[1].values[0], '4:5');
 });
 
-test('the curated AI青年说 source is reusable without article content or original photos', async () => {
+test('the curated AI青年说 template includes only the original edge artwork, not article photos', async () => {
   const library = await loadObservedStyleLibrary({ query: async () => [[]] }, { enabled: true, orgId: 4, unitId: 5 });
   const template = library.templates.find(item => item.id === 'curated-ai-young-voices');
   assert.equal(template.sourceAccount, '北京中关村学院研究生会');
   assert.equal(template.sourceUrl, 'https://mp.weixin.qq.com/s/9aBlc4ugohaABkymG1ciDw');
+  assert.deepEqual(template.brandCandidates.map(asset => [asset.id, asset.position, asset.defaultSelected]), [
+    ['9a2c156637a45c84', 'top', true], ['0eb761e682214518', 'bottom', true],
+  ]);
+  for (const asset of template.brandCandidates) {
+    const preview = new URL(asset.src, 'http://mamage.test');
+    assert.equal(preview.pathname, '/api/wx-img');
+    assert.equal(new URL(preview.searchParams.get('url')).origin, 'https://mmbiz.qpic.cn');
+  }
   const parts = library.blocks.find(block => 'db-' + block.id === template.styleIds.h2);
   assert.match(parts.htmlTemplate, /PART \{\{part\}\}/);
   assert.match(parts.htmlTemplate, /#0165f9/);

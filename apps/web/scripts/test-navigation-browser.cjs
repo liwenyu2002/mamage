@@ -14,6 +14,7 @@ const dist = path.resolve(__dirname, '../dist');
 async function main() {
   const image = await sharp({ create: { width: 640, height: 480, channels: 3, background: '#859da9' } }).jpeg().toBuffer();
   const layoutLibrary = await loadObservedStyleLibrary({ query: async () => [[]] }, { enabled: true, orgId: 1, unitId: 1 });
+  const brandArtwork = layoutLibrary.templates.find(template => template.id === 'curated-ai-young-voices').brandCandidates;
   const tracks = Array.from({ length: 9 }, (_, index) =>
     `<image href="https://mmbiz.qpic.cn/example/${index % 8}" x="${640 * index}" y="0" width="640" height="480"></image>`).join('');
   const carousel = templateFromSource(`<svg viewBox="0 0 640 480"><g><animateTransform attributeName="transform" type="translate"
@@ -532,6 +533,17 @@ async function main() {
       assert.match(await review.innerText(), /初审：甲 *\n终审：乙/);
       await page.getByRole('button', { name: '确认内容，选择样式', exact: true }).click();
       await page.getByRole('button', { name: /AI青年说 · 人物专访/ }).click();
+      const cover = page.getByRole('checkbox', { name: 'AI 青年说首图', exact: true });
+      const footer = page.getByRole('checkbox', { name: '融媒体末图', exact: true });
+      assert.equal(await cover.isChecked(), true);
+      assert.equal(await footer.isChecked(), true);
+      await footer.uncheck();
+      assert.equal(await cover.isChecked(), true);
+      await footer.check();
+      for (const asset of brandArtwork) {
+        const thumbnail = page.getByRole('region', { name: '模板首尾图' }).locator(`img[src="${asset.src}"]`);
+        assert.equal(await thumbnail.evaluate(img => img.decode().then(() => img.naturalWidth)), 640);
+      }
       await page.getByRole('button', { name: '应用模板，生成排版稿', exact: true }).click();
       const canvas = page.locator('.cve-canvas');
       await canvas.getByText('PART 01', { exact: true }).waitFor();
@@ -540,6 +552,9 @@ async function main() {
       const compact = canvas.locator('[data-cve-slot="content"]').filter({ hasText: '初审：甲' });
       assert.equal(await compact.evaluate(node => getComputedStyle(node).fontSize), '12px');
       assert.match(await compact.innerHTML(), /初审：甲<br>终审：乙/);
+      const blocks = canvas.locator('.cve-block');
+      assert.equal(await blocks.first().locator('img').getAttribute('src'), brandArtwork[0].src);
+      assert.equal(await blocks.last().locator('img').getAttribute('src'), brandArtwork[1].src);
 
       await canvas.locator('.cve-gallery-tools').filter({ hasText: '3 图组' })
         .getByRole('button', { name: '组图样式', exact: true }).click();
@@ -578,10 +593,14 @@ async function main() {
       await page.waitForFunction(() => window.fixtureCopy);
       const copy = await page.evaluate(() => {
         const body = new DOMParser().parseFromString(window.fixtureCopy, 'text/html');
-        return { images: [...body.querySelectorAll('img')].map(img => new URL(img.getAttribute('src'), location.origin).searchParams.get('frame')),
+        return { images: [...body.querySelectorAll('img')].map(img => img.getAttribute('src')),
           svg: body.querySelectorAll('svg').length, credits: [...body.querySelectorAll('section')].some(el => el.innerHTML === '初审：甲<br>终审：乙') };
       });
-      assert.deepEqual(copy.images, Array.from({ length: 11 }, (_, i) => String(i)));
+      const original = asset => new URL(asset.src, base).searchParams.get('url');
+      assert.equal(copy.images[0], original(brandArtwork[0]));
+      assert.equal(copy.images.at(-1), original(brandArtwork[1]));
+      assert.deepEqual(copy.images.slice(1, -1).map(src => new URL(src, base).searchParams.get('frame')),
+        Array.from({ length: 11 }, (_, i) => String(i)));
       assert.equal(copy.svg, 0);
       assert.equal(copy.credits, true);
     },
@@ -649,6 +668,9 @@ async function main() {
       await context.route('**/*', route => {
         const req = route.request(), url = new URL(req.url()), p = url.pathname;
         if (p.startsWith('/api/image/')) return route.fulfill({ contentType: 'image/jpeg', body: image });
+        if (name === 'templateCarousel' && brandArtwork.some(asset => asset.src === p + url.search)) {
+          return route.fulfill({ contentType: 'image/jpeg', body: image });
+        }
         if (p.startsWith('/api/')) {
           if (name === 'draftRecovery' && req.method() === 'DELETE' && /^\/api\/ai\/news\/recoverable-drafts\/50[1-3]$/.test(p)) {
             discardedDrafts.add(Number(p.split('/').at(-1)));

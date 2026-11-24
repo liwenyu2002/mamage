@@ -8,6 +8,18 @@
       "sourceUrl": "https://mp.weixin.qq.com/s/9aBlc4ugohaABkymG1ciDw",
       "count": 1,
       "base": { "accent": "#157aef", "fontSize": 15, "lineHeight": 2, "textIndent": true },
+      "brandImages": [
+        {
+          "position": "top",
+          "name": "AI 青年说首图",
+          "url": "https://mmbiz.qpic.cn/mmbiz_jpg/Y5quQ4EL9YPXIgWDamBlSibu3vjdwF4De6Cg48zygrFxTrFDh1Q3FONZyia5OrT2ichu8klh8qVjib8pI7rMkA2wleUIIDxv7cPWBUMRNbqzQnw/640?from=appmsg"
+        },
+        {
+          "position": "bottom",
+          "name": "融媒体末图",
+          "url": "https://mmbiz.qpic.cn/mmbiz_png/Y5quQ4EL9YO8vU2fNtIMo47T5cLhRFnRPcQNicc0tkjr3uTgCvBW86I8gaXl7mkiaLoJwwXUXkcmIBLELYEHRCWRQiaVNLGWBEkD5ZUFsAkC4s/640?from=appmsg"
+        }
+      ],
       "styleIds": {
         "h1": "builtin-h2-minimal-large",
         "h2": "db-curated-ai-young-voices-part",

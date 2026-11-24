@@ -18,7 +18,7 @@ export default function WechatLayoutPanel({ confirmed, current, storageKey, onBa
   });
   const [template, setTemplate] = React.useState('');
   const [observed, setObserved] = React.useState({ templates: [], library: {}, loading: true, error: '' });
-  const [selectedAssets, setSelectedAssets] = React.useState([]);
+  const [assetSelections, setAssetSelections] = React.useState({});
   const [failedAssets, setFailedAssets] = React.useState([]);
   const [brief, setBrief] = React.useState(() => {
     try { return JSON.parse(localStorage.getItem(jobKey) || 'null')?.brief || ''; } catch { return ''; }
@@ -137,6 +137,11 @@ export default function WechatLayoutPanel({ confirmed, current, storageKey, onBa
       : `layout-${Date.now()}-${Math.random().toString(36).slice(2)}` });
   };
   const selectedTemplate = observed.templates.find(item => item.id === template);
+  const brandCandidates = selectedTemplate?.brandCandidates || [];
+  const assetHeading = brandCandidates.some(asset => asset.defaultSelected) ? '模板首尾图' : '候选固定图';
+  const assetUnavailable = asset => !asset.defaultSelected && failedAssets.includes(asset.id);
+  const selectedAssets = brandCandidates.filter(asset => !assetUnavailable(asset)
+    && (assetSelections[template]?.[asset.id] ?? asset.defaultSelected));
   const templateConfig = selectedTemplate ? { ...THEME_PRESETS.minimal, ...selectedTemplate.styleIds,
     imageGroup: selectedTemplate.imageGroup,
     accent: selectedTemplate.base?.accent || THEME_PRESETS.minimal.accent,
@@ -163,27 +168,23 @@ export default function WechatLayoutPanel({ confirmed, current, storageKey, onBa
       {observed.templates.map(item => {
         const heading = observed.library[item.styleIds.h2];
         const sample = heading ? DOMPurify.sanitize(applyBlock(heading, { content: '活动纪实', accent: item.base?.accent || THEME_PRESETS.minimal.accent })) : '';
-        return <button type="button" key={item.id} aria-pressed={template === item.id} onClick={() => { setTemplate(item.id); setSelectedAssets([]); }}>
+        return <button type="button" key={item.id} aria-pressed={template === item.id} onClick={() => setTemplate(item.id)}>
           <span className="wechat-template-name">{item.name}</span>
           <div className="wechat-template-sample" dangerouslySetInnerHTML={{ __html: sample }} />
           <small>{item.count > 1 ? `系列 · ${item.count} 篇 · ${item.sourceTitle}` : `${item.sourceAccount || '北京中关村学院'} · 推文观察库`}{item.imageGroup ? ' · 组图' : ''}</small>
         </button>;
       })}
     </div>
-    {selectedTemplate?.brandCandidates?.length ? <section className="wechat-brand-assets" aria-label="候选固定图">
-      <h3>候选固定图</h3>
-      <p>多篇推文重复使用，请核对后选择。</p>
-      <div className="wechat-brand-assets-list">{selectedTemplate.brandCandidates.map(asset => <label key={asset.id}>
-        <input type="checkbox" disabled={failedAssets.includes(asset.id)} checked={selectedAssets.includes(asset.id)} onChange={event => {
+    {brandCandidates.length ? <section className="wechat-brand-assets" aria-label={assetHeading}>
+      <h3>{assetHeading}</h3>
+      <div className="wechat-brand-assets-list">{brandCandidates.map(asset => <label key={asset.id}>
+        <input type="checkbox" disabled={assetUnavailable(asset)} checked={selectedAssets.includes(asset)} onChange={event => {
           const checked = event.target.checked;
-          setSelectedAssets(previous => checked ? [...previous, asset.id] : previous.filter(id => id !== asset.id));
+          setAssetSelections(previous => ({ ...previous, [template]: { ...previous[template], [asset.id]: checked } }));
         }} />
         {failedAssets.includes(asset.id) ? <span className="wechat-brand-asset-unavailable">预览暂不可用</span>
-          : <img src={asset.src} alt="" loading="lazy" onError={() => {
-            setFailedAssets(previous => [...previous, asset.id]);
-            setSelectedAssets(previous => previous.filter(id => id !== asset.id));
-          }} />}
-        <span>{asset.position === 'top' ? '文首' : '文末'} · {asset.occurrences} 篇使用</span>
+          : <img src={asset.src} alt="" loading="lazy" onError={() => setFailedAssets(previous => [...previous, asset.id])} />}
+        <span>{asset.name || `${asset.position === 'top' ? '文首' : '文末'} · ${asset.occurrences} 篇使用`}</span>
       </label>)}</div>
     </section> : null}</> : <div className="wechat-layout-brief">
       <label htmlFor="wechat-style-brief">想要什么风格？</label>
@@ -199,7 +200,7 @@ export default function WechatLayoutPanel({ confirmed, current, storageKey, onBa
     <div className="wechat-layout-actions"><Button size="small" theme="borderless" icon={<IconChevronLeft />} onClick={onBack}>返回内容稿</Button>
       {pending && error ? <Button disabled={submitting} onClick={() => submit(pending)}>重试同一任务</Button> : null}
       {choice === 'template' ? <Button type="primary" disabled={!current || Boolean(pending) || !templateConfig} onClick={() => onApply(confirmed, templateLayout(confirmed.source, templateConfig), observed.library,
-        (selectedTemplate.brandCandidates || []).filter(asset => selectedAssets.includes(asset.id)), templateConfig.imageCard)}>应用模板，生成排版稿</Button>
+        selectedAssets, templateConfig.imageCard)}>应用模板，生成排版稿</Button>
         : <Button type="primary" icon={<IconSparkleAI />} disabled={!current || !brief.trim() || Boolean(pending) || submitting} onClick={run}>AI 自动排版</Button>}
     </div>
   </section>;
