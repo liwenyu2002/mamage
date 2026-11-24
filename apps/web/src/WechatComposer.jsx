@@ -1,6 +1,6 @@
 import React from 'react';
 import DOMPurify from 'dompurify';
-import { Layout, Card, Button, Input, Modal, Toast, Typography, Empty } from './ui';
+import { Layout, Button, Input, Modal, Toast, Typography, Empty } from './ui';
 import { getAll as getTransferAll, subscribe as subscribeTransfer } from './services/transferStore';
 import { request, resolveAssetUrl } from './services/request';
 import {
@@ -474,17 +474,6 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
   const [importResult, setImportResult] = React.useState(null); // 画布非空时的"替换/追加"确认弹层数据
   const [previewGen, setPreviewGen] = React.useState(false);     // 手机预览：生成中
   const [previewInfo, setPreviewInfo] = React.useState(null);    // { url, qrSvg } | null，非空显示二维码弹层
-  const [exportMenuOpen, setExportMenuOpen] = React.useState(false); // 导出「更多」溢出菜单开合
-  const exportMenuRef = React.useRef(null);
-  // 点菜单外/按 Esc 关闭「更多」溢出菜单
-  React.useEffect(() => {
-    if (!exportMenuOpen) return undefined;
-    const onDown = (e) => { if (exportMenuRef.current && !exportMenuRef.current.contains(e.target)) setExportMenuOpen(false); };
-    const onKey = (e) => { if (e.key === 'Escape') setExportMenuOpen(false); };
-    document.addEventListener('pointerdown', onDown);
-    document.addEventListener('keydown', onKey);
-    return () => { document.removeEventListener('pointerdown', onDown); document.removeEventListener('keydown', onKey); };
-  }, [exportMenuOpen]);
   const [imgEditTarget, setImgEditTarget] = React.useState(null); // { uid, imgIndex?, src } | null，图片编辑器
 
   // ── 存档（服务端多份快照）──────────────────────────────────────
@@ -1465,39 +1454,8 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
     });
   }, [openId]);
 
-  const exportCard = (
-  <Card bordered className="wxc-export-card">
-    {/* 导出区按交互优先级收敛：主操作「复制到公众号」+ 常用「手机预览」+「更多」溢出菜单，
-        从 5 个平铺按钮降到 3 个，建立主次层级，窄屏也不再挤成一片 */}
-    <div className="wxc-export-row">
-      <Button type="primary" className="wxc-export-primary" onClick={handleCopyRich}>复制到公众号</Button>
-      <Button onClick={() => setArticlePreviewOpen(true)}>👁 推文预览</Button>
-      <Button onClick={handleMobilePreview} loading={previewGen} disabled={previewGen}>📱 手机预览</Button>
-      <div className="wxc-export-more" ref={exportMenuRef}>
-        <Button
-          type="tertiary"
-          onClick={() => setExportMenuOpen((v) => !v)}
-          aria-haspopup="menu"
-          aria-expanded={exportMenuOpen}
-          className={`wxc-export-more-btn${exportMenuOpen ? ' is-open' : ''}`}
-        >
-          更多 ⌄
-        </Button>
-        {exportMenuOpen ? (
-          <div className="wxc-export-menu" role="menu">
-            <button type="button" className="wxc-export-menu-item" role="menuitem" onClick={() => { setExportMenuOpen(false); handleDownloadPack(); }}>下载图片包</button>
-            <button type="button" className="wxc-export-menu-item" role="menuitem" onClick={() => { setExportMenuOpen(false); handleCopyMarkdown(); }}>复制 Markdown</button>
-            <button type="button" className="wxc-export-menu-item" role="menuitem" title="保留 SVG 交互的源码；用 135小助手/壹伴 的“编辑源代码”或 F12 注入，免认证" onClick={() => { setExportMenuOpen(false); handleCopySvgSource(); }}>复制·SVG源码版（保交互）</button>
-            <button type="button" className="wxc-export-menu-item is-disabled" role="menuitem" disabled title="需企业公众号资质配置，即将开放">发送到草稿箱（即将开放）</button>
-          </div>
-        ) : null}
-      </div>
-    </div>
-  </Card>
-  );
-
   return (
-    <Layout className={guided ? 'wxc-guided' : undefined} style={{ padding: isMobile ? 10 : 16, overflowX: 'hidden' }}>
+    <Layout className={`wxc-composer${guided ? ' wxc-guided' : ''}`} style={{ padding: isMobile ? 10 : 16, overflowX: 'hidden' }}>
       <Modal title="新建推文" visible={creationOpen} onCancel={() => setCreationOpen(false)} footer={null} width={420}>
         <div className="wxc-create-options">
           <Button type="primary" icon={<IconSparkleAI />} onClick={() => { setCreationOpen(false); onStartAiWorkflow?.(); }}>AI 工作流</Button>
@@ -1807,7 +1765,6 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
           </aside>
 
           <div className="wxc-workarea">
-            {guided ? exportCard : null}
             <div className="wxc-canvas-region">
               <div className="wxc-canvas-toolbar">
                 <div className="wxc-canvas-toolbar-left">
@@ -1863,9 +1820,7 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
               />
             </div>
 
-            {!guided ? exportCard : null}
           </div>
-          {/* 秀米式工具栏放右侧：布局模式/全局属性/全文统计/编辑辅助，弹层向左展开不挡其他 UI */}
           <ComposerToolRail
             doc={doc}
             layoutMode={layoutMode}
@@ -1876,6 +1831,11 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
             accent={effectiveConfig.accent}
             page={effectiveConfig.page}
             onGlobalProps={handleGlobalProps}
+            publish={{
+              copy: handleCopyRich, articlePreview: () => setArticlePreviewOpen(true),
+              mobilePreview: handleMobilePreview, mobilePending: previewGen,
+              download: handleDownloadPack, markdown: handleCopyMarkdown, svg: handleCopySvgSource,
+            }}
           />
         </div>
       </Content>

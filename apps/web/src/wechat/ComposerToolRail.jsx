@@ -1,38 +1,27 @@
-// src/wechat/ComposerToolRail.jsx
-// 秀米式左侧工具栏：布局模式 / 全局属性 / 全文统计 / 编辑辅助。
-// 全局属性写回 blockConfig(body/accent/page)，画布与导出同源；统计只读；布局模式/编辑辅助为视图开关。
 import React from 'react';
+import { ChartColumn, Code, Copy, Download, Ellipsis, Eye, FileUp, LayoutGrid, LoaderCircle,
+  ScanLine, SlidersHorizontal, Smartphone, Text } from 'lucide-react';
 import { computeDocStats } from './docModel.js';
 import NumInput from './NumInput.jsx';
 import './composerTools.css';
 
 const ACCENTS = ['#1a1a1a', '#c0392b', '#1f4e8c', '#2f9e44', '#e8590c', '#7048e8', '#0c8599', '#d6336c'];
 
-function IconLayout() {
-  return <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7" rx="1.4" fill="currentColor" /><rect x="13.5" y="3.5" width="7" height="7" rx="1.4" fill="currentColor" /><rect x="3.5" y="13.5" width="7" height="7" rx="1.4" fill="currentColor" /><rect x="13.5" y="13.5" width="7" height="7" rx="1.4" fill="currentColor" /></svg>;
+const MORE_ACTIONS = [
+  { key: 'download', label: '下载图片包', icon: Download },
+  { key: 'markdown', label: '复制 Markdown', icon: Text },
+  { key: 'svg', label: '复制 SVG 源码', icon: Code },
+  { key: 'draft', label: '发送到草稿箱（即将开放）', icon: FileUp, disabled: true },
+];
+
+function RailButton({ label, shortLabel, name = label, icon: Icon, className = '', busy, ...props }) {
+  return <button type="button" className={`ctr-icon ${className}`} aria-label={name} title={name}
+    disabled={busy} aria-busy={busy || undefined} {...props}>
+    {busy ? <LoaderCircle className="ctr-spinner" size={18} aria-hidden="true" /> : <Icon size={18} strokeWidth={1.8} aria-hidden="true" />}
+    <span className={`ctr-icon-label${shortLabel ? ' has-short-label' : ''}`}>{label}</span>
+    {shortLabel ? <span className="ctr-icon-short">{shortLabel}</span> : null}
+  </button>;
 }
-function IconProps() {
-  return <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true"><path d="M12 3v18M4.2 7.5l15.6 9M19.8 7.5l-15.6 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>;
-}
-function IconStats() {
-  return <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true"><rect x="4" y="12" width="4" height="8" rx="1" fill="currentColor" /><rect x="10" y="7" width="4" height="13" rx="1" fill="currentColor" /><rect x="16" y="4" width="4" height="16" rx="1" fill="currentColor" /></svg>;
-}
-function IconEye() {
-  return <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" stroke="currentColor" strokeWidth="1.8" /><circle cx="12" cy="12" r="2.6" stroke="currentColor" strokeWidth="1.8" /></svg>;
-}
-
-// 数值步进行
-
-
-
-
-
-
-
-
-
-
-
 function Toggle({ label, on, onChange }) {
   return (
     <button type="button" className={`ctr-toggle${on ? ' is-on' : ''}`} onClick={() => onChange(!on)} role="switch" aria-checked={on}>
@@ -42,19 +31,34 @@ function Toggle({ label, on, onChange }) {
 
 }
 
-// props: { doc, layoutMode, onToggleLayout, editAids, onEditAids, body, accent, page, onGlobalProps }
 export default function ComposerToolRail({
-  doc, layoutMode, onToggleLayout, editAids, onEditAids, body, accent, page, onGlobalProps
+  doc, layoutMode, onToggleLayout, editAids, onEditAids, body, accent, page, onGlobalProps, publish,
 }) {
-  const [openTool, setOpenTool] = React.useState(null); // 'props' | 'stats' | 'aids' | null
+  const [openTool, setOpenTool] = React.useState(null);
   const rootRef = React.useRef(null);
+  const menuRef = React.useRef(null);
+  const menuId = React.useId();
+  const focusTrigger = React.useCallback(() => {
+    rootRef.current?.querySelector('.ctr-icon[aria-expanded="true"]')?.focus({ preventScroll: true });
+  }, []);
 
-  // 点外部关闭弹层
   React.useEffect(() => {
     if (!openTool) return undefined;
-    const onDown = (e) => {if (rootRef.current && !rootRef.current.contains(e.target)) setOpenTool(null);};
+    const onDown = event => { if (!rootRef.current?.contains(event.target)) setOpenTool(null); };
+    const onKey = event => {
+      if (event.key !== 'Escape' || event.isComposing) return;
+      focusTrigger();
+      setOpenTool(null);
+    };
     document.addEventListener('pointerdown', onDown);
-    return () => document.removeEventListener('pointerdown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [openTool, focusTrigger]);
+  React.useEffect(() => {
+    if (openTool === 'more') menuRef.current?.querySelector('button:not(:disabled)')?.focus({ preventScroll: true });
   }, [openTool]);
 
   const b = body || {};
@@ -76,40 +80,49 @@ export default function ComposerToolRail({
   const stats = React.useMemo(() => computeDocStats(doc), [doc]);
 
   const toggleTool = (t) => setOpenTool((cur) => cur === t ? null : t);
+  const runPublish = (action, fromMenu = false) => {
+    if (fromMenu) focusTrigger();
+    setOpenTool(null);
+    action?.();
+  };
+  const onMenuKey = event => {
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const items = [...event.currentTarget.querySelectorAll('button:not(:disabled)')];
+    const index = items.indexOf(document.activeElement);
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1
+      : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+    items[next]?.focus();
+  };
 
   return (
-    <div className="ctr-rail" ref={rootRef}>
-      <button
-        type="button"
-        className={`ctr-icon${layoutMode ? ' is-on' : ''}`}
-        onClick={() => {onToggleLayout(!layoutMode);setOpenTool(null);}}
-        title="布局模式：显示每个元素的边框和类型，看清整体结构"
-        aria-label="布局模式" aria-pressed={layoutMode}>
-        <IconLayout /><span className="ctr-icon-label">布局</span></button>
+    <aside className="ctr-rail" aria-label="排版工具栏" ref={rootRef}
+      onBlur={event => { if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) setOpenTool(null); }}>
+      <div className="ctr-dock">
+        <div className="ctr-group" role="group" aria-label="编辑工具">
+          <RailButton label="布局" name="布局模式" icon={LayoutGrid} aria-pressed={layoutMode}
+            onClick={() => { onToggleLayout(!layoutMode); setOpenTool(null); }} />
+          <RailButton label="属性" name="全局属性" icon={SlidersHorizontal} aria-expanded={openTool === 'props'} onClick={() => toggleTool('props')} />
+          <RailButton label="统计" name="全文统计" icon={ChartColumn} aria-expanded={openTool === 'stats'} onClick={() => toggleTool('stats')} />
+          <RailButton label="辅助" name="编辑辅助" icon={ScanLine} aria-expanded={openTool === 'aids'} onClick={() => toggleTool('aids')} />
+        </div>
+        <div className="ctr-group" role="group" aria-label="发布操作">
+          <RailButton label="复制推文" shortLabel="复制" name="复制到公众号" icon={Copy} className="is-primary" onClick={() => runPublish(publish.copy)} />
+          <RailButton label="推文预览" shortLabel="推文" icon={Eye} onClick={() => runPublish(publish.articlePreview)} />
+          <RailButton label="手机预览" shortLabel="扫码" icon={Smartphone} busy={publish.mobilePending} onClick={() => runPublish(publish.mobilePreview)} />
+          <RailButton label="更多" icon={Ellipsis} aria-haspopup="menu" aria-controls={openTool === 'more' ? menuId : undefined}
+            aria-expanded={openTool === 'more'} onClick={() => toggleTool('more')} />
+        </div>
 
-      <button
-        type="button"
-        className={`ctr-icon${openTool === 'props' ? ' is-open' : ''}`}
-        onClick={() => toggleTool('props')}
-        title="全局属性：正文字号/行距/字间距/颜色/主题色/页面背景"
-        aria-label="全局属性" aria-expanded={openTool === 'props'}>
-        <IconProps /><span className="ctr-icon-label">属性</span></button>
-
-      <button
-        type="button"
-        className={`ctr-icon${openTool === 'stats' ? ' is-open' : ''}`}
-        onClick={() => toggleTool('stats')}
-        title="全文统计：字数 / 段落 / 图片 / 阅读时长"
-        aria-label="全文统计" aria-expanded={openTool === 'stats'}>
-        <IconStats /><span className="ctr-icon-label">统计</span></button>
-
-      <button
-        type="button"
-        className={`ctr-icon${openTool === 'aids' ? ' is-open' : ''}`}
-        onClick={() => toggleTool('aids')}
-        title="编辑辅助：元素边框 / 序号 / 斑马底色"
-        aria-label="编辑辅助" aria-expanded={openTool === 'aids'}>
-        <IconEye /><span className="ctr-icon-label">辅助</span></button>
+        {openTool === 'more' ? <div className="ctr-panel ctr-menu" ref={menuRef} id={menuId}
+          role="menu" aria-label="更多发布操作" onKeyDown={onMenuKey}>
+          {MORE_ACTIONS.map(({ key, label, icon: Icon, disabled }) => (
+            <button type="button" className="ctr-menu-item" role="menuitem" tabIndex={-1} key={key} disabled={disabled}
+              onClick={() => runPublish(publish[key], true)}>
+              <Icon size={16} aria-hidden="true" /><span>{label}</span>
+            </button>
+          ))}
+        </div> : null}
 
       {openTool === 'props' &&
       <div className="ctr-panel">
@@ -177,6 +190,7 @@ export default function ComposerToolRail({
           <p className="ctr-hint">辅助线只在编辑时显示，不影响复制/预览/导出。</p>
         </div>
       }
-    </div>);
+      </div>
+    </aside>);
 
 }

@@ -633,6 +633,76 @@ async function main() {
       assert.equal(copy.svg, 0);
       assert.equal(copy.credits, true);
     },
+    async composerToolRail(page) {
+      await page.goto(base + '/function/wechat-composer');
+      const rail = page.getByRole('complementary', { name: '排版工具栏', exact: true });
+      const dock = rail.locator('.ctr-dock');
+      const editing = rail.getByRole('group', { name: '编辑工具', exact: true });
+      const publishing = rail.getByRole('group', { name: '发布操作', exact: true });
+      await publishing.getByRole('button', { name: '复制到公众号', exact: true }).waitFor();
+      assert.equal(await editing.getByRole('button').count(), 4);
+      assert.equal(await publishing.getByRole('button').count(), 4);
+      assert.equal(await page.locator('.wxc-export-card').count(), 0);
+      const desktop = await dock.boundingBox();
+      const workarea = await page.locator('.wxc-workarea').boundingBox();
+      const station = page.locator('[data-transfer-station-root="1"]').first();
+      assert.ok(desktop.x >= workarea.x + workarea.width, 'the rail does not cover the canvas');
+      if (await station.isVisible()) assert.ok(desktop.x + desktop.width <= (await station.boundingBox()).x, 'the rail leaves the transfer station reachable');
+
+      const blocks = page.locator('.cve-canvas .cve-block');
+      const top = (await blocks.first().boundingBox()).y;
+      await blocks.last().scrollIntoViewIfNeeded();
+      assert.ok((await blocks.first().boundingBox()).y < top);
+      assert.deepEqual(await dock.boundingBox(), desktop, 'the combined rail stays fixed while the canvas scrolls');
+      await page.screenshot({ caret: 'initial', path: path.join(screenshotDir, 'wechat-publish-rail-desktop.png') });
+      const layout = editing.getByRole('button', { name: '布局模式', exact: true });
+      await layout.click();
+      assert.equal(await layout.getAttribute('aria-pressed'), 'true');
+      await layout.click();
+      const stats = editing.getByRole('button', { name: '全文统计', exact: true });
+      await stats.click();
+      await rail.getByText('预计阅读', { exact: true }).waitFor();
+
+      const more = publishing.getByRole('button', { name: '更多', exact: true });
+      const menu = rail.getByRole('menu', { name: '更多发布操作', exact: true });
+      await more.press('Enter');
+      assert.equal(await stats.getAttribute('aria-expanded'), 'false');
+      await menu.waitFor();
+      const desktopMenu = await menu.boundingBox();
+      assert.ok(desktopMenu.x + desktopMenu.width <= desktop.x, 'the menu opens toward the canvas');
+      await page.keyboard.press('Escape');
+      assert.equal(await menu.isVisible(), false);
+      assert.equal(await more.evaluate(button => button === document.activeElement), true);
+      await page.evaluate(() => { navigator.clipboard.writeText = async text => { window.fixtureMarkdown = text; }; });
+      await more.press('Enter');
+      await page.keyboard.press('ArrowDown');
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => window.fixtureMarkdown?.includes('秋日的香山'));
+      await more.click();
+      const download = page.waitForEvent('download');
+      await menu.getByRole('menuitem', { name: '下载图片包', exact: true }).click();
+      assert.match((await download).suggestedFilename(), /图1\.jpg$/);
+
+      await publishing.getByRole('button', { name: '手机预览', exact: true }).click();
+      const qrDialog = page.getByRole('dialog', { name: '手机预览', exact: true });
+      await qrDialog.locator('.wxc-qr-code svg').waitFor();
+      assert.equal(await qrDialog.locator('.wxc-qr-url').textContent(), base + '/wechat-preview/rail-fixture');
+      await qrDialog.getByRole('button', { name: '关闭', exact: true }).click();
+
+      await page.setViewportSize({ width: 1024, height: 560 });
+      const compactDesktop = await dock.boundingBox();
+      assert.ok(compactDesktop.y >= 136 && compactDesktop.y + compactDesktop.height < 560);
+      await page.setViewportSize({ width: 390, height: 844 });
+      const mobile = await dock.boundingBox();
+      assert.ok(mobile.x >= 0 && mobile.x + mobile.width <= 390 && mobile.y + mobile.height <= 844);
+      const mobileStation = await station.boundingBox();
+      if (mobileStation) assert.ok(mobileStation.y + mobileStation.height <= mobile.y || mobileStation.x >= mobile.x + mobile.width);
+      await more.click();
+      const mobileMenu = await menu.boundingBox();
+      assert.ok(mobileMenu.x >= 0 && mobileMenu.x + mobileMenu.width <= 390 && mobileMenu.y + mobileMenu.height <= mobile.y);
+      if (mobileStation) assert.ok(mobileMenu.x + mobileMenu.width <= mobileStation.x, 'the menu clears the transfer station');
+      await page.screenshot({ caret: 'initial', path: path.join(screenshotDir, 'wechat-publish-rail-mobile.png') });
+    },
     async articlePreviewDisclosure(page) {
       await page.emulateMedia({ reducedMotion: 'no-preference' });
       await page.goto(base + '/function/wechat-composer');
@@ -756,6 +826,7 @@ async function main() {
       const errors = [], writes = [];
       const discardedDrafts = new Set();
       let recoveryPolls = 0;
+      let previewRequests = 0;
       const testPhotos = name === 'galleryPaginationRestore'
         ? [...photos, ...photos.map(photo => ({ ...photo, id: photo.id + 80 }))] : photos;
       const testAlbum = { ...album, images: testPhotos, count: testPhotos.length };
@@ -797,7 +868,7 @@ async function main() {
         localStorage.setItem('mamage.aiNewsWriter.draft.v2:7:1', JSON.stringify({ activeChannelKey: 'wechat_article',
           selectedChannels: ['wechat_article'], channelContent: { wechat_article: { title: '访谈样稿', markdownText } } }));
       });
-      if (name === 'articlePreviewDisclosure') await context.addInitScript(() => {
+      if (['articlePreviewDisclosure', 'composerToolRail'].includes(name)) await context.addInitScript(() => {
         const styled = { title: '香山研学：在红叶与古建间上一堂行走的课', themeKey: 'minimal',
           meta: { wxName: '学院公众号', author: '通讯员', publishTime: '', coverBig: '/api/image/test.jpg?wide' },
           doc: [{ uid: 'header-image', kind: 'styled', type: 'imageCard', src: '/api/image/test.jpg?header', caption: '' },
@@ -816,6 +887,12 @@ async function main() {
           return route.fulfill({ contentType: 'image/jpeg', body: image });
         }
         if (p.startsWith('/api/')) {
+          if (name === 'composerToolRail' && p === '/api/wechat-preview' && req.method() === 'POST') {
+            previewRequests++;
+            const data = req.postDataJSON();
+            if (!data.title?.startsWith('香山研学') || !data.html?.includes('秋日的香山')) return route.fulfill({ status: 400 });
+            return route.fulfill({ json: { path: '/wechat-preview/rail-fixture' } });
+          }
           if (name === 'draftRecovery' && req.method() === 'DELETE' && /^\/api\/ai\/news\/recoverable-drafts\/50[1-3]$/.test(p)) {
             discardedDrafts.add(Number(p.split('/').at(-1)));
             return route.fulfill({ status: 204 });
@@ -869,6 +946,7 @@ async function main() {
         await check(page);
         assert.deepEqual(errors, []);
         assert.deepEqual(writes, []);
+        if (name === 'composerToolRail') assert.equal(previewRequests, 1);
         if (name === 'draftRecovery') assert.deepEqual([...discardedDrafts], [503, 502, 501]);
         results.push({ name, passed: true });
       }

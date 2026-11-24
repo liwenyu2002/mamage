@@ -1450,7 +1450,7 @@ function CanvasEditor({
     const BG_SELECTOR = [
     '.wxc-workspace', '.wxc-workarea', '.wxc-canvas-region',
     '.wxc-canvas-toolbar', '.wxc-canvas-toolbar-left', '.wxc-canvas-toolbar-right',
-    '.wxc-export-row', '.wxc-page-header', '.wxc-meta-row',
+    '.wxc-page-header', '.wxc-meta-row',
     '.semi-layout', '.semi-layout-content',
     '.cve-empty-hint'].
     join(', ');

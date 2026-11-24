@@ -229,70 +229,6 @@
   line-height: 1.6;
 }
 
-/* 导出区 */
-.wxc-export-card {
-  margin-top: 4px;
-}
-.wxc-guided .wxc-export-card { margin: 0 auto 12px; max-width: 1000px; }
-.wxc-guided .wxc-export-row { flex-wrap: wrap; }
-@media (max-width: 520px) {
-  .wxc-guided .wxc-export-primary { flex: 1 0 100%; }
-}
-
-.wxc-export-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.wxc-export-primary {
-  font-weight: 600;
-}
-
-/* 「更多」溢出菜单：相对定位容器 + 向上弹出的小卡片 */
-.wxc-export-more {
-  position: relative;
-  display: inline-flex;
-}
-.wxc-export-menu {
-  position: absolute;
-  bottom: calc(100% + 6px);
-  left: 0;
-  min-width: 168px;
-  padding: 5px;
-  background: #fff;
-  border: 1px solid #e6e9ee;
-  border-radius: 10px;
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.14);
-  z-index: 60;
-  animation: wxc-export-menu-in 130ms ease;
-}
-@keyframes wxc-export-menu-in {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-.wxc-export-menu-item {
-  display: block;
-  width: 100%;
-  text-align: left;
-  padding: 9px 12px;
-  border: none;
-  background: transparent;
-  border-radius: 6px;
-  font-size: 14px;
-  color: #1a1a1a;
-  cursor: pointer;
-}
-.wxc-export-menu-item:hover {
-  background: #f2f4f7;
-}
-.wxc-export-menu-item.is-disabled {
-  color: #b0b6c0;
-  cursor: not-allowed;
-}
-.wxc-export-menu-item.is-disabled:hover {
-  background: transparent;
-}
-
 /* 插图选择器（Modal 内网格） */
 .wxc-photopick-grid {
   display: grid;
@@ -394,19 +330,8 @@
 }
 
 @media (max-width: 768px) {
-  /* 窄屏：隐藏画布提示文案（占位又易乱），导出区主操作占满一行、次操作并排 */
   .wxc-canvas-tip {
     display: none;
-  }
-  .wxc-export-row {
-    flex-wrap: wrap;
-  }
-  .wxc-export-primary {
-    flex: 1 1 100%;
-  }
-  .wxc-export-menu {
-    left: auto;
-    right: 0;
   }
 }
 
@@ -617,6 +542,13 @@
 }
 
 /* ── 秀米式左右工作区：左侧常驻样式库面板 + 右侧画布区 ── */
+.wxc-composer {
+  --wxc-rail-width: 66px;
+  --wxc-rail-offset: 140px;
+  --wxc-rail-top: 78px;
+  --wxc-rail-reserve: calc(var(--wxc-rail-offset) + var(--wxc-rail-width) + 10px);
+}
+.media-studio-shell .wxc-composer { --wxc-rail-top: 136px; }
 .wxc-workspace {
   display: flex;
   gap: 14px;
@@ -767,15 +699,16 @@
     top: 136px;
   }
 
-  .wxc-workarea {
+  .wxc-workarea,
+  .wxc-page-header {
     margin-left: 288px;
-    /* 右侧让出：固定工具栏(左移到中转站左侧,约 right:140+52) + 中转站浮窗，避免遮挡画布/导出区 */
-    margin-right: 200px;
+    margin-right: var(--wxc-rail-reserve);
   }
 }
 
 /* 969-1024px 时主导航已切成双行手机头，但编辑器侧栏仍处于桌面固定模式。 */
 @media (min-width: 969px) and (max-width: 1024px) {
+  .media-studio-shell .wxc-composer { --wxc-rail-top: 176px; }
   .media-studio-shell .wxc-side-lib {
     top: 176px;
   }
@@ -784,13 +717,6 @@
 @media (max-width: 968px) {
   .media-studio-shell .wxc-side-lib {
     top: 176px;
-  }
-}
-
-/* 固定面板占据屏幕左缘：页头（标题/摘要输入）也要让位，否则被面板遮挡 */
-@media (min-width: 969px) {
-  .wxc-page-header {
-    margin-left: 288px;
   }
 }
 
