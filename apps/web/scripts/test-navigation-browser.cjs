@@ -395,12 +395,12 @@ async function main() {
       await page.getByRole('button', { name: '立即重连', exact: true }).click();
       const title = page.getByRole('textbox', { name: '稿件标题', exact: true });
       await title.waitFor();
-      assert.equal(await title.inputValue(), '从线上找回的稿件');
+      assert.equal((await title.innerText()).trim(), '从线上找回的稿件');
       assert.equal(await page.locator('.news-edit-photo img').count(), 1);
       await page.waitForFunction(() => JSON.parse(localStorage.getItem('mamage.aiNewsWriter.draft.v2:7:1') || '{}').batchStatus === 'succeeded');
       await page.reload();
       await title.waitFor();
-      assert.equal(await title.inputValue(), '从线上找回的稿件');
+      assert.equal((await title.innerText()).trim(), '从线上找回的稿件');
       await page.getByRole('button', { name: '推文列表', exact: true }).click();
       await recovery.getByRole('button', { name: '继续编辑', exact: true }).waitFor();
       assert.equal(await recovery.getByRole('button', { name: '恢复稿件', exact: true }).count(), 0);
@@ -409,7 +409,7 @@ async function main() {
       await page.getByRole('button', { name: '推文列表', exact: true }).click();
       await recovery.getByRole('button', { name: '打开上一稿', exact: true }).click();
       await title.waitFor();
-      assert.equal(await title.inputValue(), '从线上找回的稿件');
+      assert.equal((await title.innerText()).trim(), '从线上找回的稿件');
     },
     async about(page) {
       await page.goto(base);
