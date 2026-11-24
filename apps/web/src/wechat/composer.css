@@ -544,23 +544,14 @@
 /* ── 秀米式左右工作区：左侧常驻样式库面板 + 右侧画布区 ── */
 .wxc-composer {
   overflow-x: hidden;
+  --wxc-side-width: clamp(200px, 19vw, 264px);
   --wxc-rail-width: 66px;
-  --wxc-rail-offset: 140px;
   --wxc-rail-top: 78px;
-  --wxc-rail-reserve: calc(var(--wxc-rail-offset) + var(--wxc-rail-width) + 10px);
+  --wxc-rail-drop: 16px;
 }
 .media-studio-shell .wxc-composer { --wxc-rail-top: 136px; }
-.wxc-workspace {
-  display: flex;
-  gap: 14px;
-  align-items: flex-start;
-}
 
 .wxc-side-lib {
-  flex: 0 0 264px;
-  position: sticky;
-  top: 12px;
-  max-height: calc(100vh - 90px);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -623,7 +614,6 @@
 }
 
 .wxc-workarea {
-  flex: 1;
   min-width: 0;
 }
 
@@ -661,8 +651,6 @@
     top: 70px;
     bottom: 16px;
     z-index: 3000;
-    flex: none;
-    max-height: none;
     background: rgba(255, 255, 255, 0.97);
     box-shadow: 0 18px 50px rgba(0, 0, 0, 0.25);
   }
@@ -684,17 +672,25 @@
 }
 
 @media (min-width: 969px) {
-  /* Keep horizontal clipping without creating a scroll container around the sticky sidebar. */
+  /* Equal gutters center the paper. Both sticky rails start on its row, below Undo. */
   .wxc-composer { overflow-x: clip; }
+  .wxc-workspace {
+    display: grid;
+    grid-template-columns: var(--wxc-side-width) minmax(0, 1fr) var(--wxc-side-width);
+    grid-template-areas: ". toolbar ." "styles paper tools";
+    gap: 10px 14px;
+    align-items: start;
+  }
+  .wxc-canvas-toolbar { grid-area: toolbar; width: min(100%, 677px); margin-inline: auto; }
+  .wxc-workarea { grid-area: paper; }
   .wxc-side-lib {
+    grid-area: styles;
+    position: sticky;
     top: var(--wxc-rail-top);
     max-height: calc(100dvh - var(--wxc-rail-top) - 14px);
   }
-
-  .wxc-workarea,
-  .wxc-page-header {
-    margin-right: var(--wxc-rail-reserve);
-  }
+  .wxc-side-lib .wxc-lib-accents { flex-wrap: wrap; }
+  .wxc-side-lib .wxc-lib-accents > * { flex-shrink: 0; }
 }
 
 /* 969-1024px: leave room for the two-row main navigation. */
@@ -1491,6 +1487,9 @@
 .wechat-split-reference-body figure { margin: 12px 0; }
 .wechat-split-reference-body figure img { width: 100%; border-radius: 6px; display: block; }
 .wechat-split-reference-body figcaption { margin-top: 4px; color: #8a8f96; font-size: 12px; text-align: center; }
+@media (min-width: 1181px) {
+  .wechat-split-stage.is-split .wxc-composer { --wxc-side-width: 184px; }
+}
 @media (max-width: 1180px) {
   .wechat-split-toggle { display: none; }
   .wechat-split-stage.is-split { display: block; }

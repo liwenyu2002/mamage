@@ -588,13 +588,20 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
     }
   }, []);
 
-  // 面板首次打开时拉一次"我的样式库"；草稿里引用了 db- 块时进页就要拉（否则渲染回退兜底块）
+  // Load saved styles when the library is available, or when the document references them.
   React.useEffect(() => {
-    if (myBlocksLoaded) return;
+    if (!active || view !== 'editor' || myBlocksLoaded) return undefined;
     const usesDbBlock = doc.some(block => String(block.blockId || '').startsWith('db-'))
       || (blockConfig && Object.values(blockConfig).some((v) => typeof v === 'string' && v.startsWith('db-')));
-    if (libraryOpen || usesDbBlock) loadMyBlocks();
-  }, [libraryOpen, blockConfig, doc, myBlocksLoaded, loadMyBlocks]);
+    const desktop = window.matchMedia('(min-width: 969px)');
+    if (desktop.matches || libraryOpen || usesDbBlock) {
+      loadMyBlocks();
+      return undefined;
+    }
+    const onDesktop = event => { if (event.matches) loadMyBlocks(); };
+    desktop.addEventListener('change', onDesktop);
+    return () => desktop.removeEventListener('change', onDesktop);
+  }, [active, view, libraryOpen, blockConfig, doc, myBlocksLoaded, loadMyBlocks]);
 
 
   React.useEffect(() => {
@@ -1560,6 +1567,35 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
 
       <Content>
         <div className="wxc-workspace">
+          <div className="wxc-canvas-toolbar">
+            <div className="wxc-canvas-toolbar-left">
+              {/* 窄屏打开左侧样式面板的入口 */}
+              <Button size="small" className="wxc-lib-toggle-mobile" onClick={() => setLibraryOpen((v) => !v)}>{libraryOpen ? '收起样式面板' : '样式面板'}</Button>
+              {!guided ? <Text type="secondary" className="wxc-canvas-tip">点左侧样式插入，点画布块直接编辑</Text> : null}
+            </div>
+            <div className="wxc-canvas-toolbar-right">
+              <div className="wxc-undo-group" role="group" aria-label="撤销重做">
+                <button
+                  type="button" className="wxc-undo-btn"
+                  disabled={!historyRef.current.canUndo()} onClick={handleUndo} title="撤销 ⌘Z" aria-label="撤销"
+                >
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M9 13.5 4.5 9 9 4.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+                    <path d="M4.5 9h9a5.5 5.5 0 0 1 0 11H11" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+                <button
+                  type="button" className="wxc-undo-btn"
+                  disabled={!historyRef.current.canRedo()} onClick={handleRedo} title="重做 ⌘⇧Z" aria-label="重做"
+                >
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M15 13.5 19.5 9 15 4.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+                    <path d="M19.5 9h-9a5.5 5.5 0 0 0 0 11H13" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
           {/* 桌面随画布吸顶，窄屏由样式面板按钮打开抽屉。 */}
           {libraryOpen ? <div className="wxc-side-backdrop" aria-hidden="true" onClick={() => setLibraryOpen(false)} /> : null}
           <aside className={`wxc-side-lib${libraryOpen ? ' is-open' : ''}`}>
@@ -1766,35 +1802,6 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
 
           <div className="wxc-workarea">
             <div className="wxc-canvas-region">
-              <div className="wxc-canvas-toolbar">
-                <div className="wxc-canvas-toolbar-left">
-                  {/* 窄屏打开左侧样式面板的入口 */}
-                  <Button size="small" className="wxc-lib-toggle-mobile" onClick={() => setLibraryOpen((v) => !v)}>{libraryOpen ? '收起样式面板' : '样式面板'}</Button>
-                  {!guided ? <Text type="secondary" className="wxc-canvas-tip">点左侧样式插入，点画布块直接编辑</Text> : null}
-                </div>
-                <div className="wxc-canvas-toolbar-right">
-                  <div className="wxc-undo-group" role="group" aria-label="撤销重做">
-                    <button
-                      type="button" className="wxc-undo-btn"
-                      disabled={!historyRef.current.canUndo()} onClick={handleUndo} title="撤销 ⌘Z" aria-label="撤销"
-                    >
-                      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                        <path d="M9 13.5 4.5 9 9 4.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
-                        <path d="M4.5 9h9a5.5 5.5 0 0 1 0 11H11" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    </button>
-                    <button
-                      type="button" className="wxc-undo-btn"
-                      disabled={!historyRef.current.canRedo()} onClick={handleRedo} title="重做 ⌘⇧Z" aria-label="重做"
-                    >
-                      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                        <path d="M15 13.5 19.5 9 15 4.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
-                        <path d="M19.5 9h-9a5.5 5.5 0 0 0 0 11H13" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-              </div>
               <CanvasEditor
                 ref={canvasApiRef}
                 doc={doc}

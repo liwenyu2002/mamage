@@ -9,7 +9,7 @@ const { PNG } = runtime('pngjs');
 const sharp = runtime('sharp');
 const { loadObservedStyleLibrary } = require('../../server/lib/wechat_observed_styles');
 const { templateFromSource } = require('../../server/lib/wechat_observed_gallery_templates');
-const dist = path.resolve(__dirname, '../dist');
+const dist = process.env.NAV_DIST ? path.resolve(process.env.NAV_DIST) : path.resolve(__dirname, '../dist');
 
 async function main() {
   const image = await sharp({ create: { width: 640, height: 480, channels: 3, background: '#859da9' } }).jpeg().toBuffer();
@@ -644,45 +644,49 @@ async function main() {
       assert.equal(await publishing.getByRole('button').count(), 4);
       assert.equal(await page.locator('.wxc-export-card').count(), 0);
 
-      await page.getByRole('button', { name: '样式面板', exact: true }).click();
       const sidebar = page.locator('.wxc-side-lib');
-      await sidebar.waitFor();
-      const scrollTo = y => page.evaluate(value => window.scrollTo(0, value), y);
+      const paper = page.locator('.cve-canvas');
+      await paper.waitFor();
+      assert.equal(await sidebar.isVisible(), true, 'the desktop styles panel is always present');
+      assert.equal(await page.getByRole('button', { name: /^(收起)?样式面板$/ }).count(), 0, 'desktop has no style-panel switch');
+      const scrollTo = y => page.evaluate(value => window.scrollTo({ top: value, behavior: 'instant' }), y);
       await scrollTo(0);
       const initialSidebar = await sidebar.boundingBox();
+      const initialDock = await dock.boundingBox();
       const masthead = await page.locator('.wxc-page-header').boundingBox();
-      const canvasTop = await page.locator('.wxc-canvas-region').boundingBox();
+      const canvas = await paper.boundingBox();
+      const centered = bounds => Math.abs(bounds.x + bounds.width / 2 - page.viewportSize().width / 2) <= 2;
       const stickyTop = await sidebar.evaluate(node => parseFloat(getComputedStyle(node).top));
-      assert.ok(initialSidebar.y >= masthead.y + masthead.height, 'the sidebar starts below the title and summary');
-      assert.equal(initialSidebar.y, canvasTop.y);
-      assert.ok(initialSidebar.x + initialSidebar.width < canvasTop.x, 'the styles use their own column');
+      const toolsTop = await rail.evaluate(node => parseFloat(getComputedStyle(node).top));
+      assert.ok(centered(canvas), 'the paper is centered in the editor');
+      assert.ok(initialSidebar.y >= masthead.y + masthead.height);
+      assert.equal(initialSidebar.y, canvas.y, 'the styles start beside the paper, below the toolbar');
+      assert.ok(initialDock.y >= canvas.y + 12 && initialDock.y <= canvas.y + 24, 'the right rail starts a little below the paper edge');
+      assert.ok(initialSidebar.x + initialSidebar.width < canvas.x && initialDock.x > canvas.x + canvas.width);
       assert.ok(initialSidebar.y > stickyTop + 12);
       await scrollTo(Math.floor((initialSidebar.y - stickyTop) / 2));
       const approaching = await sidebar.boundingBox();
+      const approachingDock = await dock.boundingBox();
       assert.ok(approaching.y < initialSidebar.y && approaching.y > stickyTop, 'the sidebar initially scrolls with the canvas');
-      const hitCanvas = Math.ceil(initialSidebar.y - stickyTop);
+      assert.ok(approachingDock.y < initialDock.y && approachingDock.y > toolsTop, 'the right rail initially scrolls too');
+      const hitCanvas = Math.ceil(canvas.y - stickyTop);
       for (const extra of [30, 90]) {
         await scrollTo(hitCanvas + extra);
-        const pinned = await sidebar.boundingBox();
-        assert.ok(Math.abs(pinned.y - stickyTop) <= 2, `sidebar pinned at ${pinned.y}, expected ${stickyTop}`);
+        assert.ok(Math.abs((await sidebar.boundingBox()).y - stickyTop) <= 2, 'the left panel sticks when the paper reaches the work area');
+        assert.ok(Math.abs((await dock.boundingBox()).y - toolsTop) <= 2, 'the right panel sticks at the same point');
       }
       await scrollTo(0);
       assert.deepEqual(await sidebar.boundingBox(), initialSidebar, 'scrolling back removes the sticky offset');
+      assert.deepEqual(await dock.boundingBox(), initialDock);
       await page.screenshot({ caret: 'initial', path: path.join(screenshotDir, 'wechat-sidebar-at-canvas.png') });
-      await page.getByRole('button', { name: '收起样式面板', exact: true }).click();
-      await sidebar.waitFor({ state: 'hidden' });
 
+      await scrollTo(hitCanvas + 90);
       const desktop = await dock.boundingBox();
       const workarea = await page.locator('.wxc-workarea').boundingBox();
       const station = page.locator('[data-transfer-station-root="1"]').first();
       assert.ok(desktop.x >= workarea.x + workarea.width, 'the rail does not cover the canvas');
       if (await station.isVisible()) assert.ok(desktop.x + desktop.width <= (await station.boundingBox()).x, 'the rail leaves the transfer station reachable');
 
-      const blocks = page.locator('.cve-canvas .cve-block');
-      const top = (await blocks.first().boundingBox()).y;
-      await blocks.last().scrollIntoViewIfNeeded();
-      assert.ok((await blocks.first().boundingBox()).y < top);
-      assert.deepEqual(await dock.boundingBox(), desktop, 'the combined rail stays fixed while the canvas scrolls');
       await page.screenshot({ caret: 'initial', path: path.join(screenshotDir, 'wechat-publish-rail-desktop.png') });
       const layout = editing.getByRole('button', { name: '布局模式', exact: true });
       await layout.click();
@@ -719,9 +723,14 @@ async function main() {
       await qrDialog.getByRole('button', { name: '关闭', exact: true }).click();
 
       await page.setViewportSize({ width: 1024, height: 560 });
+      await scrollTo(0);
+      assert.ok(centered(await paper.boundingBox()), 'paper remains centered on narrow desktop');
+      const compactTop = await sidebar.evaluate(node => parseFloat(getComputedStyle(node).top));
+      await scrollTo((await paper.boundingBox()).y - compactTop + 90);
       const compactDesktop = await dock.boundingBox();
       assert.ok(compactDesktop.y >= 136 && compactDesktop.y + compactDesktop.height < 560);
       await page.setViewportSize({ width: 390, height: 844 });
+      assert.equal(await sidebar.isVisible(), false, 'the narrow layout retains its drawer');
       const mobile = await dock.boundingBox();
       assert.ok(mobile.x >= 0 && mobile.x + mobile.width <= 390 && mobile.y + mobile.height <= 844);
       // The transfer station switches to its floating mobile button on the next frame.

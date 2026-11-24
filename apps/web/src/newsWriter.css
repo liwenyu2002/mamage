@@ -436,13 +436,10 @@
 .news-chat-proposal > p { font-size: 13px; color: #9b5e21; }
 .news-chat-proposal .news-paragraph-actions { margin-top: 12px; }
 .news-edit-block { min-width: 0; position: relative; padding-top: 4px; }
-.wxc-guided .wxc-lib-toggle-mobile { display: inline-flex; }
 .wxc-guided .wxc-page-header { margin: 0 auto; max-width: 1000px; }
 @media (min-width: 969px) {
   .wechat-workspace.is-styled .wechat-workflow-bar { flex-wrap: wrap; }
-  .wxc-guided .wxc-side-lib { display: none; z-index: 20; background: #fffffff5; }
-  .wxc-guided .wxc-side-lib.is-open { display: flex; }
-  .wxc-guided .wxc-page-header { margin: 0 var(--wxc-rail-reserve) 0 0; max-width: none; }
+  .wxc-guided .wxc-side-lib { background: #fffffff5; }
 }
 @media (max-width: 768px) {
   .wechat-workflow-bar { padding: 0 12px; gap: 10px; flex-wrap: wrap; }
