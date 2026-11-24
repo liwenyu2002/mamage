@@ -29,6 +29,12 @@ async function main() {
   const results = [];
   const screenshotDir = path.resolve(__dirname, '../../../.local/navigation-qa');
   fs.mkdirSync(screenshotDir, { recursive: true });
+  const openWechatDraft = async page => {
+    await page.goto(base + '/function/wechat-composer');
+    await page.getByRole('button', { name: '新建推文', exact: true }).click();
+    await page.getByRole('button', { name: 'AI 工作流', exact: true }).click();
+    await page.getByRole('heading', { name: '公众号内容稿', exact: true }).waitFor();
+  };
   const checks = {
     async folders(page) {
       await page.goto(base);
@@ -336,6 +342,75 @@ async function main() {
         }
       }
     },
+    async stationPhotoDrop(page) {
+      await openWechatDraft(page);
+      const trigger = page.locator('[data-transfer-station-root] [title="中转站"]');
+      const sourcePane = page.locator('.news-source-pane');
+      const count = sourcePane.locator('.news-attachment-count');
+      const articleType = page.getByRole('button', { name: '文章类型' });
+      await trigger.waitFor();
+      assert.equal(await trigger.getAttribute('draggable'), 'true');
+      await trigger.click();
+      await page.getByTitle('展开中转预览').click();
+      await page.locator('.transfer-preview-panel .transfer-media-item').first().dragTo(articleType);
+      await count.getByText('1 张', { exact: true }).waitFor();
+      await trigger.dragTo(articleType);
+      await count.getByText('30 张', { exact: true }).waitFor();
+      await trigger.dragTo(articleType);
+      assert.equal(await count.innerText(), '30 张');
+      assert.equal(await sourcePane.getAttribute('data-photo-drag-over'), null);
+      await page.waitForFunction(() => JSON.parse(localStorage.getItem('mamage.aiNewsWriter.draft.v2:7:1') || '{}').selectedPhotos?.length === 30);
+      const persisted = await page.evaluate(() => ({
+        attached: JSON.parse(localStorage.getItem('mamage.aiNewsWriter.draft.v2:7:1')).selectedPhotos,
+        station: JSON.parse(localStorage.getItem('photo-transfer-selection')).length,
+      }));
+      assert.deepEqual(persisted.attached.map(photo => photo.id), Array.from({ length: 30 }, (_, i) => i + 101));
+      assert.equal(persisted.attached[0].projectTitle, 'Campus Album');
+      assert.deepEqual(persisted.attached[0].tags, ['exchange']);
+      assert.equal(persisted.station, 33);
+      await page.reload();
+      await count.getByText('30 张', { exact: true }).waitFor();
+    },
+    async stationPhotoMobile(page) {
+      await page.setViewportSize({ width: 390, height: 860 });
+      await openWechatDraft(page);
+      const trigger = page.getByRole('button', { name: '中转站菜单' });
+      await trigger.waitFor();
+      assert.notEqual(await trigger.getAttribute('draggable'), 'true');
+      const addPhotos = page.getByRole('button', { name: '添加活动照片' });
+      assert.equal(await addPhotos.evaluate(node => getComputedStyle(node).borderTopStyle), 'solid');
+      await addPhotos.click();
+      const picker = page.getByRole('dialog').filter({ hasText: '选择活动照片' });
+      await picker.getByRole('button', { name: '中转站', exact: true }).click();
+      await picker.getByRole('button', { name: '选择照片 101', exact: true }).click();
+      await picker.getByRole('button', { name: '使用所选照片', exact: true }).click();
+      await page.locator('.news-attachment-count').getByText('1 张', { exact: true }).waitFor();
+    },
+    async draftRecovery(page) {
+      await page.goto(base + '/function/wechat-composer');
+      const recovery = page.getByRole('region', { name: '未保存稿件' });
+      await recovery.getByText('后台生成中的稿件', { exact: true }).waitFor();
+      assert.equal(await recovery.getByRole('button', { name: '查看进度' }).count(), 1);
+      await recovery.getByRole('button', { name: '恢复稿件', exact: true }).click();
+      await page.getByRole('button', { name: '立即重连', exact: true }).click();
+      const title = page.getByRole('textbox', { name: '稿件标题', exact: true });
+      await title.waitFor();
+      assert.equal(await title.inputValue(), '从线上找回的稿件');
+      assert.equal(await page.locator('.news-edit-photo img').count(), 1);
+      await page.waitForFunction(() => JSON.parse(localStorage.getItem('mamage.aiNewsWriter.draft.v2:7:1') || '{}').batchStatus === 'succeeded');
+      await page.reload();
+      await title.waitFor();
+      assert.equal(await title.inputValue(), '从线上找回的稿件');
+      await page.getByRole('button', { name: '推文列表', exact: true }).click();
+      await recovery.getByRole('button', { name: '继续编辑', exact: true }).waitFor();
+      assert.equal(await recovery.getByRole('button', { name: '恢复稿件', exact: true }).count(), 0);
+      await recovery.getByRole('button', { name: '查看进度', exact: true }).click();
+      await page.getByText('正在生成初稿', { exact: true }).waitFor();
+      await page.getByRole('button', { name: '推文列表', exact: true }).click();
+      await recovery.getByRole('button', { name: '打开上一稿', exact: true }).click();
+      await title.waitFor();
+      assert.equal(await title.inputValue(), '从线上找回的稿件');
+    },
     async about(page) {
       await page.goto(base);
       await page.locator('.mamage-nav-link').filter({ hasText: '关于' }).click();
@@ -351,8 +426,10 @@ async function main() {
   try {
     for (const [name, check] of Object.entries(checks)) {
       if (process.env.NAV_CASE && process.env.NAV_CASE !== name) continue;
-      const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce', serviceWorkers: 'block' });
+      const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce',
+        serviceWorkers: 'block', hasTouch: name === 'stationPhotoMobile' });
       const errors = [], writes = [];
+      let recoveryPolls = 0;
       const testPhotos = name === 'galleryPaginationRestore'
         ? [...photos, ...photos.map(photo => ({ ...photo, id: photo.id + 80 }))] : photos;
       const testAlbum = { ...album, images: testPhotos, count: testPhotos.length };
@@ -361,6 +438,15 @@ async function main() {
         : [testAlbum];
       const testGroups = groups.map(group => group.id === 'events' ? { ...group, projectIds: testAlbums.map(item => item.id) } : group);
       await context.addInitScript(() => { try { localStorage.setItem('mamage_jwt_token', 'isolated-navigation-fixture'); } catch {} });
+      if (name === 'stationPhotoDrop' || name === 'stationPhotoMobile') {
+        const station = photos.slice(0, 32).map(photo => ({ ...photo, projectTitle: album.title, tags: ['exchange'] }));
+        station.splice(1, 0, { id: 800, mediaType: 'video', url: '/api/image/video.mp4' });
+        await context.addInitScript(items => localStorage.setItem('photo-transfer-selection', JSON.stringify(items)), station);
+      }
+      if (name === 'draftRecovery') await context.addInitScript(() => {
+        const key = 'mamage.wechat.workflow.v1:7:1';
+        if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify({ mode: 'ai', stage: 'content' }));
+      });
       await context.route('**/*', route => {
         const req = route.request(), url = new URL(req.url()), p = url.pathname;
         if (p.startsWith('/api/image/')) return route.fulfill({ contentType: 'image/jpeg', body: image });
@@ -373,6 +459,20 @@ async function main() {
           if (p === '/api/users/me') data = { id: 7, name: 'Test User', role: 'admin', activeUnitId: 1, metadataEditScope: 'own',
             permissions: ['projects.view', 'projects.create', 'photos.view', 'photos.edit', 'ai.generate'] };
           else if (p === '/api/workspaces') data = { enabled: true, activeUnitId: 1, units: [{ id: 1, name: 'Test Workspace', role: 'manager' }] };
+          else if (name === 'draftRecovery' && p === '/api/ai/news/recoverable-drafts') data = { items: [
+            { batchId: 501, jobId: 601, title: '从线上找回的稿件', status: 'succeeded', createdAt: '2026-11-24T11:00:00Z' },
+            { batchId: 502, jobId: 602, title: '后台生成中的稿件', status: 'running', createdAt: '2026-11-24T11:02:00Z' },
+          ] };
+          else if (name === 'draftRecovery' && ['/api/ai/news/batches/501', '/api/ai/news/batches/502'].includes(p)) {
+            const batchId = Number(p.split('/').at(-1));
+            const recovering = url.searchParams.get('recover') === '1';
+            const ready = batchId === 501;
+            if (ready && !recovering && recoveryPolls++ === 0) return route.fulfill({ status: 500, json: { message: 'Temporary status failure' } });
+            const status = ready ? 'succeeded' : 'running';
+            data = { batchId, status, createdAt: '2026-11-24T11:00:00Z', jobs: [{ jobId: batchId + 100, channelKey: 'wechat_article', status,
+              result: ready ? { title: '从线上找回的稿件', photos: [{ id: 101, url: null }], markdown: '# 从线上找回的稿件\n\n正文。\n\n![活动](PHOTO:101)' } : null }],
+              ...(recovering ? { recovery: { form: { sourceMaterial: '原始活动材料' }, selectedPhotoIds: ready ? [101] : [] } } : {}) };
+          }
           else if (p === '/api/album-desktop') data = { albums: testAlbums, groups: testGroups, sharedAlbums: [], sharedFolders: [],
             preferences: { pins: [], recentItems: [], colors: {} }, scope: { userId: 7, unitId: 1 },
             workspaceRevision: 1, userRevision: 1, canOrganize: true, canDeleteFolders: true };

@@ -2,6 +2,15 @@ export function newsDraftKey(userId, workspaceId) {
   return userId ? `mamage.aiNewsWriter.draft.v2:${userId}:${workspaceId || 'legacy'}` : null;
 }
 
+export function hasNewsDraft(draft) {
+  if (!draft) return false;
+  return Boolean(draft.batchId || draft.selectedPhotos?.length || draft.participantChips?.length
+    || hasNewsSource(draft.formValues || {}, draft.interviewText) || newsMaterialFromForm(draft.formValues || {})
+    || [draft.referenceArticle, draft.advancedPrompt].some(value => typeof value === 'string' && value.trim())
+    || Object.values(draft.channelContent || {}).some(content =>
+      [content?.title, content?.markdownText].some(value => typeof value === 'string' && value.trim())));
+}
+
 export function importLegacyNewsDraft(draft) {
   if (!draft || typeof draft !== 'object' || Array.isArray(draft)) throw new Error('旧版草稿格式不正确');
   // Legacy chips came directly from recognition, not human confirmation.

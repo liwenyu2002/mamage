@@ -1,7 +1,8 @@
 import React from 'react';
 import ReactDOM from 'react-dom';
 import { Toast, Tooltip, Modal } from './ui';
-import { getAll, getCount, add, clear, getMediaKind, subscribe, removeById } from './services/transferStore';
+import { getAll, getCount, add, clear, getMediaKind, subscribe, removeById, STATION_PHOTO_DRAG_TYPE, canDragStationPhotos } from './services/transferStore';
+import { normalizeNewsPhoto } from './utils/newsPhotoSelection';
 import { resolveAssetUrl } from './services/request';
 import { formatBytes, formatDuration } from './services/zipDownload';
 import { cancelDirectZipJob, getDirectZipJob, listActiveDirectZipJobs, triggerDirectDownload } from './services/directStorage';
@@ -55,7 +56,7 @@ function getMediaLabel(item) {
   return getMediaKind(item) === 'video' ? '视频' : '照片';
 }
 
-export default function TransferStation({ onInternalShare, hideLauncher = false }) {
+export default function TransferStation({ onInternalShare, hideLauncher = false, enableDraftPhotoDrag = false }) {
   const detectMobile = React.useCallback(() => {
     if (typeof window === 'undefined') return false;
     const width = window.innerWidth || 0;
@@ -83,6 +84,8 @@ export default function TransferStation({ onInternalShare, hideLauncher = false 
   const [panelMounted, setPanelMounted] = React.useState(false);
   const [panelVisible, setPanelVisible] = React.useState(false);
   const [isMobile, setIsMobile] = React.useState(() => detectMobile());
+  const supportsDraftDrag = enableDraftPhotoDrag && !isMobile && canDragStationPhotos();
+  const canDragDraftPhotos = supportsDraftDrag && items.some(photo => getMediaKind(photo) === 'image' && normalizeNewsPhoto(photo));
   const [vvInset, setVvInset] = React.useState({ right: 0, bottom: 0 });
   const closeTimerRef = React.useRef(null);
   const stationRef = React.useRef(null);
@@ -584,6 +587,7 @@ export default function TransferStation({ onInternalShare, hideLauncher = false 
   }, []);
 
   const handleDragOver = React.useCallback((e) => {
+    if (Array.from(e.dataTransfer.types || []).includes(STATION_PHOTO_DRAG_TYPE)) return;
     try {
       e.preventDefault();
       e.dataTransfer.dropEffect = 'copy';
@@ -609,6 +613,14 @@ export default function TransferStation({ onInternalShare, hideLauncher = false 
   // 条目拖出（如拖到"合影救场"候选区）：payload 与相册拖入一致；
   // 拖出过程中自己也是 drop 目标，标记内部拖动避免"拖回自己"触发重复入站提示
   const internalDragRef = React.useRef(false);
+  const handleStationDragStart = (e) => {
+    e.dataTransfer.effectAllowed = 'copy';
+    e.dataTransfer.setData(STATION_PHOTO_DRAG_TYPE, 'all');
+    setPressedKey(null);
+    setOpen(false);
+    setExpanded(false);
+    setShareOptionsOpen(false);
+  };
   const handleItemDragStart = React.useCallback((e, p) => {
     internalDragRef.current = true;
     try {
@@ -616,11 +628,15 @@ export default function TransferStation({ onInternalShare, hideLauncher = false 
       e.dataTransfer.setData('application/x-mamage-photo', JSON.stringify(p));
       e.dataTransfer.setData('application/json', JSON.stringify(p));
       e.dataTransfer.setData('text/plain', p.url || '');
+      if (supportsDraftDrag && getMediaKind(p) === 'image' && normalizeNewsPhoto(p)) {
+        e.dataTransfer.setData(STATION_PHOTO_DRAG_TYPE, String(p.id));
+      }
     } catch (err) {}
-  }, []);
+  }, [supportsDraftDrag]);
   const handleItemDragEnd = React.useCallback(() => {internalDragRef.current = false;}, []);
 
   const handleDrop = React.useCallback((e) => {
+    if (Array.from(e.dataTransfer.types || []).includes(STATION_PHOTO_DRAG_TYPE)) return;
     e.preventDefault();
     setDragOver(false);
     setIsDraggingPhoto(false);
@@ -776,7 +792,7 @@ export default function TransferStation({ onInternalShare, hideLauncher = false 
     justifyContent: 'center',
     gap: 8,
     padding: '0 10px',
-    cursor: 'pointer',
+    cursor: canDragDraftPhotos ? (pressedKey === 'trigger' ? 'grabbing' : 'grab') : 'pointer',
     userSelect: 'none',
     transition: 'transform 140ms ease, box-shadow 140ms ease, background 140ms ease',
     willChange: 'transform',
@@ -992,6 +1008,8 @@ export default function TransferStation({ onInternalShare, hideLauncher = false 
   <div
     style={triggerStyle}
     onClick={handleToggleOpen}
+    draggable={canDragDraftPhotos}
+    onDragStart={canDragDraftPhotos ? handleStationDragStart : undefined}
     {...bindCircleEvents('trigger')}
     title="中转站"
     aria-expanded={open}

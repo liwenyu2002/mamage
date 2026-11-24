@@ -6,7 +6,8 @@ import { CHANNELS, startBatch, getBatch, retryJob, renderNewsPreview } from './s
 import { pollNewsBatch } from './services/newsBatchPolling';
 import { newsDraftKey, importLegacyNewsDraft, formatNewsDate, recordNewsEdit, stepNewsEdit, isNewsBatchDone, resolveNewsPhotos,
 restoreNewsForm, hasNewsSource } from './utils/newsWriterState';
-import { newsAlbumDefaults } from './utils/newsPhotoSelection';
+import { mergeNewsPhotos, newsAlbumDefaults, NEWS_PHOTO_LIMIT } from './utils/newsPhotoSelection';
+import { getAll as getTransferPhotos, getMediaKind, STATION_PHOTO_DRAG_TYPE, canDragStationPhotos } from './services/transferStore';
 import { wechatImportKey } from './utils/wechatDraftState';
 import { copyText } from './utils/clipboard';
 import './newsWriter.css';
@@ -118,7 +119,7 @@ function extractFaceNames(photo) {
   return names;
 }
 
-function NewsGenerationStatus({ startedAt, jobs, submitting, error }) {
+function NewsGenerationStatus({ startedAt, jobs, submitting, error, onReconnect }) {
   const [now, setNow] = React.useState(Date.now);
   React.useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -133,11 +134,12 @@ function NewsGenerationStatus({ startedAt, jobs, submitting, error }) {
       <strong>{submitting ? '正在提交' : error ? '正在重新连接' : running ? '正在生成初稿' : '等待生成'}</strong>
       <span>{Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, '0')}</span>
     </div>
-    <span>{error ? '连接暂时中断，后台任务继续处理' : list.length ? `${complete} / ${list.length} 个渠道完成` : '正在创建任务'}</span>
+    <span>{error ? '暂时无法读取任务状态，原任务已保留' : list.length ? `${complete} / ${list.length} 个渠道完成` : '正在创建任务'}</span>
+    {error && !submitting ? <Button size="small" theme="borderless" onClick={onReconnect}>立即重连</Button> : null}
   </div>;
 }
 
-const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, headerActions, onOpenComposer, onArticleChange, restoredArticle, onBusyChange }) => {
+const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, headerActions, onOpenComposer, onArticleChange, restoredArticle, initialDraft, onBusyChange }) => {
   const DRAFT_STORAGE_KEY = newsDraftKey(currentUser?.id, workspaceId);
   const preferredChannelKey = CHANNELS.some((item) => item.key === initialChannelKey) ? initialChannelKey : null;
   const preferredChannel = CHANNELS.find((item) => item.key === preferredChannelKey) || null;
@@ -157,6 +159,13 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
   const [selectedPhotos, setSelectedPhotos] = React.useState([]);
   const [sourceAlbumDefaults, setSourceAlbumDefaults] = React.useState({});
   const [photoPickerOpen, setPhotoPickerOpen] = React.useState(false);
+  const [photoDragOver, setPhotoDragOver] = React.useState(false);
+  React.useEffect(() => {
+    if (!photoDragOver) return undefined;
+    const clear = () => setPhotoDragOver(false);
+    window.addEventListener('dragend', clear);
+    return () => window.removeEventListener('dragend', clear);
+  }, [photoDragOver]);
   const [sourceOpen, setSourceOpen] = React.useState(false);
   const [inputError, setInputError] = React.useState('');
   const [formValues, setFormValues] = React.useState(INITIAL_FORM_VALUES);
@@ -331,13 +340,18 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
   React.useEffect(() => {
     try {
       if (!DRAFT_STORAGE_KEY) return;
-      const raw = window.localStorage.getItem(DRAFT_STORAGE_KEY);
-      storedDraftRef.current = raw;
-      if (!raw) {
+      let draft = initialDraft;
+      if (draft) {
+        try { storeDraft(draft); } catch (_) { /* The server task stays recoverable. */ }
+      } else {
+        const raw = window.localStorage.getItem(DRAFT_STORAGE_KEY);
+        storedDraftRef.current = raw;
+        draft = raw && JSON.parse(raw);
+      }
+      if (!draft) {
         setHasLegacyDraft(Boolean(localStorage.getItem('mamage.aiNewsWriter.draft.v1')));
         return;
       }
-      const draft = JSON.parse(raw);
       if (!draft || typeof draft !== 'object') return;
       if (!draft.batchId && !Object.values(draft.channelContent || {}).some((content) => content?.markdownText)) {
         setHasLegacyDraft(Boolean(localStorage.getItem('mamage.aiNewsWriter.draft.v1')));
@@ -1483,6 +1497,32 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
     setPhotoPickerOpen(false);
   };
 
+  const acceptsStationDrag = (event) => !isGenerating && !photoPickerOpen && canDragStationPhotos()
+    && Array.from(event.dataTransfer.types || []).includes(STATION_PHOTO_DRAG_TYPE);
+  const handleStationDragOver = (event) => {
+    if (!acceptsStationDrag(event)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+    setPhotoDragOver(true);
+  };
+  const handleStationDrop = (event) => {
+    setPhotoDragOver(false);
+    if (!acceptsStationDrag(event)) return;
+    event.preventDefault();
+    const source = event.dataTransfer.getData(STATION_PHOTO_DRAG_TYPE);
+    const photos = getTransferPhotos().filter(photo => getMediaKind(photo) === 'image'
+      && (source === 'all' || String(photo.id) === source));
+    const nextPhotos = mergeNewsPhotos(selectedPhotos, photos);
+    const added = nextPhotos.length - selectedPhotos.length;
+    if (added <= 0) {
+      Toast.info(selectedPhotos.length >= NEWS_PHOTO_LIMIT ? `最多添加 ${NEWS_PHOTO_LIMIT} 张照片` : '没有新的活动照片可添加');
+      return;
+    }
+    acceptPhotos(nextPhotos);
+    setSourceOpen(true);
+    Toast.success(`已添加 ${added} 张活动照片${nextPhotos.length === NEWS_PHOTO_LIMIT ? '，已达上限' : ''}`);
+  };
+
   const openComposer = () => {
     const article = articleSnapshot;
     if (onOpenComposer) {onOpenComposer(article);return;}
@@ -1528,7 +1568,8 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
           </div>
         </div>
         {isGenerating && <NewsGenerationStatus startedAt={generationStartedAt} jobs={channelJobs}
-        submitting={isSubmitting} error={trackingError} />}
+        submitting={isSubmitting} error={trackingError}
+        onReconnect={() => setTrackingEpoch(value => value + 1)} />}
         {hasManuscript && !sourceOpen && !isGenerating ? Object.entries(channelJobs).filter(([, job]) => job.status === 'failed').map(([key, job]) =>
         <div className="news-reconnect" role="alert" key={key}>
             <span>{CHANNELS.find((channel) => channel.key === key)?.name}生成失败，原稿已保留{job.error ? `：${String(job.error).slice(0, 140)}` : ''}</span>
@@ -1553,7 +1594,12 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {photoPickerOpen ? <NewsPhotoPicker photos={selectedPhotos} onConfirm={acceptPhotos} onClose={() => setPhotoPickerOpen(false)} /> : null}
           <div className="news-workspace" data-source-open={!hasManuscript || sourceOpen}>
-            <div className="news-source-pane">
+            <div className="news-source-pane" data-photo-drag-over={photoDragOver || undefined}
+              onDragOver={handleStationDragOver}
+              onDragLeave={(event) => {
+                if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setPhotoDragOver(false);
+              }}
+              onDrop={handleStationDrop}>
               {hasManuscript ? <div className="news-source-summary">
                 <div><strong>写作材料</strong><span>{selectedPhotos.length} 张配图{inlineDocImages && !selectedPhotos.length ? ` · 稿件内 ${inlineDocImages} 张图` : ''}{formValues.eventName ? ` · ${formValues.eventName}` : ''}</span></div>
                 <Button theme="borderless" size="small" icon={<IconEditStroked />} aria-expanded={sourceOpen}

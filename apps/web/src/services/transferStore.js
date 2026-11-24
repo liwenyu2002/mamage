@@ -4,6 +4,11 @@
 
 const STORAGE_KEY = 'photo-transfer-selection';
 const MAX_COUNT = 1000;
+export const STATION_PHOTO_DRAG_TYPE = 'application/x-mamage-station-photos';
+
+export function canDragStationPhotos() {
+  return typeof window !== 'undefined' && window.innerWidth > 900 && !window.matchMedia?.('(pointer: coarse)')?.matches;
+}
 
 let selection = [];
 

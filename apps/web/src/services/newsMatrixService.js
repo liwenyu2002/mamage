@@ -28,7 +28,13 @@ async function startBatch(payload) {
 // 查询批次状态（含每个渠道 job 的状态与已完成的结果），用于 2.5s 轮询。
 // resp: { batchId, status, jobs: [{ jobId, channelKey, status, error, result }] }
 async function getBatch(batchId, options = {}) {
-  return request(`/api/ai/news/batches/${encodeURIComponent(batchId)}`, { method: 'GET', signal: options.signal });
+  return request(`/api/ai/news/batches/${encodeURIComponent(batchId)}`, {
+    method: 'GET', signal: options.signal, ...(options.recover ? { data: { recover: 1 } } : {}),
+  });
+}
+
+export function listRecoverableWechatDrafts(signal) {
+  return request('/api/ai/news/recoverable-drafts', { method: 'GET', signal });
 }
 
 // 单个失败渠道重试：复用原 prompt 重新入队，返回 { jobId, status: 'pending' }。

@@ -1846,7 +1846,9 @@ function App() {
       null}
       {mountTransferStation ?
       <LazySilent>
-          <TransferStation hideLauncher={selectedNav === 'account' || personalView} onInternalShare={(photoIds) => {
+          <TransferStation hideLauncher={selectedNav === 'account' || personalView}
+          enableDraftPhotoDrag={selectedNav === 'function' && canUseMediaStudio && activeMediaPlatform.editor !== 'video'}
+          onInternalShare={(photoIds) => {
           if (!workspaceInfo?.activeUnitId) return Toast.warning('请先切换到部门工作空间');
           setAlbumShareProject(null);
           setWorkspacePanelPhotoIds(photoIds);

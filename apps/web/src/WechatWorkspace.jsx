@@ -4,11 +4,12 @@ import { navigate } from './utils/navigation';
 import { Button, Modal, Toast } from './ui';
 import { IconListView, IconDownload, IconSimilarStack } from './ui/icons';
 import { wechatAiDraftKey, wechatImportKey, hasWechatDraft } from './utils/wechatDraftState';
-import { newsDraftKey } from './utils/newsWriterState';
+import { hasNewsDraft, newsDraftKey } from './utils/newsWriterState';
 import { workflowKey, contentSignature, freezeContent, materializeLayout, addObservedBrandAssets, mergeContentIntoLayout, layoutToMarkdown } from './utils/wechatWorkflow';
 import { saveComposition } from './services/wechatCompositionService';
 import WechatLayoutPanel from './WechatLayoutPanel';
 import WechatDraftBackups from './WechatDraftBackups';
+import WechatDraftRecovery from './WechatDraftRecovery';
 import './newsWriter.css';
 
 const Composer = React.lazy(() => import('./WechatComposer'));
@@ -46,6 +47,7 @@ export default function WechatWorkspace({ currentUser, workspaceId, initialMode 
   const route = useNavigation();
   const workspaceView = new URL(route.url, window.location.origin).searchParams.get('view') === 'monitor' ? 'monitor' : 'writing';
   const draftKey = wechatAiDraftKey(currentUser?.id, workspaceId);
+  const contentKey = newsDraftKey(currentUser?.id, workspaceId);
   const importKey = wechatImportKey(currentUser?.id, workspaceId);
   const stateKey = workflowKey(currentUser?.id, workspaceId);
   const [initial] = React.useState(() => {
@@ -54,7 +56,10 @@ export default function WechatWorkspace({ currentUser, workspaceId, initialMode 
     // The composer saves before its parent snapshot, which may lag an immediate reload.
     return hasWechatDraft(savedDraft) ? { ...workflow, styled: savedDraft } : workflow;
   });
-  const [mode, setMode] = React.useState(() => ['ai', 'library'].includes(initial.mode) ? initial.mode : initialMode);
+  const [mode, setMode] = React.useState(() => {
+    if (initial.mode === 'ai' && initial.stage !== 'styled' && initial.stage !== 'styles' && !hasNewsDraft(read(contentKey))) return 'library';
+    return ['ai', 'library'].includes(initial.mode) ? initial.mode : initialMode;
+  });
   const [article, setArticle] = React.useState(() => {
     const draft = read(newsDraftKey(currentUser?.id, workspaceId));
     const content = draft?.channelContent?.wechat_article;
@@ -70,6 +75,7 @@ export default function WechatWorkspace({ currentUser, workspaceId, initialMode 
   const [composer, setComposer] = React.useState(() => initial.stage === 'styled' && (initial.styled || hasWechatDraft(read(draftKey)))
     ? { article: initial.styled || read(draftKey), version: 0 } : null);
   const [restoredArticle, setRestoredArticle] = React.useState(null);
+  const [initialContentDraft, setInitialContentDraft] = React.useState(null);
   const [backupsOpen, setBackupsOpen] = React.useState(false);
   const [splitView, setSplitView] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
@@ -224,11 +230,18 @@ export default function WechatWorkspace({ currentUser, workspaceId, initialMode 
     </nav>
     {workspaceView === 'monitor' ? <React.Suspense fallback={<p role="status">正在加载推文观察…</p>}><Monitor workspaceId={workspaceId} /></React.Suspense> : null}
     <div hidden={workspaceView !== 'writing'}>
-    {mode === 'library' ? <React.Suspense fallback={<p role="status">正在加载推文列表…</p>}>
-      <Composer currentUser={currentUser} workspaceId={workspaceId} onStartAiWorkflow={() => { setStage('content'); setMode('ai'); }} />
-    </React.Suspense> : <>
+    {mode === 'library' ? <>
+      <WechatDraftRecovery draftKey={contentKey} onOpen={draft => {
+        setRestoredArticle(null); setInitialContentDraft(draft); setStage('content'); setMode('ai');
+      }} />
+      <React.Suspense fallback={<p role="status">正在加载推文列表…</p>}>
+        <Composer currentUser={currentUser} workspaceId={workspaceId} onStartAiWorkflow={() => { setStage('content'); setMode('ai'); }} />
+      </React.Suspense>
+    </> : <>
     <div className="wechat-workflow-bar">
-      <Button size="small" theme="borderless" icon={<IconListView />} onClick={() => setMode('library')}>推文列表</Button>
+      <Button size="small" theme="borderless" icon={<IconListView />} onClick={() => {
+        setInitialContentDraft(null); setRestoredArticle(null); setMode('library');
+      }}>推文列表</Button>
       <nav aria-label="公众号制作进度">
         {[['content', '内容草稿'], ['styles', '选择样式'], ['styled', '排版稿']].map(([key, label], index) => <button key={key} type="button"
           aria-current={stage === key ? 'step' : undefined} disabled={key === 'styles' ? !contentCurrent : key === 'styled' ? !styled : false}
@@ -254,7 +267,7 @@ export default function WechatWorkspace({ currentUser, workspaceId, initialMode 
     {stage === 'content' && layoutDirty ? <p className="wechat-workflow-notice" role="status">排版稿有未回写的文字改动。 <Button size="small" onClick={syncLayoutToContent}>同步回内容稿</Button></p> : null}
     <div hidden={stage !== 'content'}><React.Suspense fallback={<p role="status">正在加载内容稿…</p>}>
       <Writer currentUser={currentUser} workspaceId={workspaceId} initialChannelKey="wechat_article" onOpenComposer={confirmContent}
-        onArticleChange={onArticleChange} onBusyChange={onBusyChange} restoredArticle={restoredArticle} />
+        onArticleChange={onArticleChange} onBusyChange={onBusyChange} restoredArticle={restoredArticle} initialDraft={initialContentDraft} />
     </React.Suspense></div>
     {confirmed ? <div hidden={stage !== 'styles'}><WechatLayoutPanel confirmed={confirmed} current={contentCurrent}
       storageKey={stateKey} onBack={openContentStage} onApply={applyLayout} onSaveContent={() => saveBackup('content')} /></div> : null}
