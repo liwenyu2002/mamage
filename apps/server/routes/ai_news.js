@@ -546,27 +546,66 @@ router.post('/generate/batch', requirePermission('ai.generate'), async (req, res
   }
 });
 
+function draftWorkspaceId(workspace) {
+  return workspace.enabled ? Number(workspace.unitId) || null : null;
+}
+
+router.get('/recoverable-drafts', requirePermission('ai.generate'), async (req, res) => {
+  res.set('Cache-Control', 'private, no-store');
+  try {
+    const unitId = draftWorkspaceId(await resolveWorkspace(req));
+    res.json({ items: await aiNewsDao.listRecoverableWechatDrafts(pool, { userId: req.user.id, unitId }) });
+  } catch (error) {
+    if (sendWorkspaceError(res, error)) return;
+    console.error('GET /api/ai/news/recoverable-drafts', error.code || error.name);
+    res.status(500).json({ message: '暂时无法读取未保存稿件' });
+  }
+});
+
+function batchRecovery(formSnapshot, storedIds) {
+  const form = {};
+  for (const key of ['sourceMaterial', 'eventName', 'eventDate', 'location', 'organizer', 'participants', 'highlights',
+    'usage', 'tone', 'targetWords', 'writingMode', 'contentTemplate', 'contentOutline']) {
+    if (typeof formSnapshot[key] === 'string') form[key] = formSnapshot[key];
+  }
+  let ids;
+  try { ids = typeof storedIds === 'string' ? JSON.parse(storedIds) : storedIds; } catch { ids = []; }
+  return { form,
+    selectedPhotoIds: [...new Set((Array.isArray(ids) ? ids : []).map(Number).filter(id => Number.isSafeInteger(id) && id > 0))].slice(0, MAX_PHOTOS),
+    interviewText: typeof formSnapshot.interviewText === 'string' ? formSnapshot.interviewText : '',
+    writingRequirements: typeof formSnapshot.writingRequirements === 'string' ? formSnapshot.writingRequirements : '',
+    participantChips: toNameList(formSnapshot.confirmedParticipantNames) };
+}
+
 // GET /api/ai/news/batches/:batchId
 router.get('/batches/:batchId', requirePermission('ai.generate'), async (req, res) => {
   try {
     const id = parseInt(req.params.batchId, 10);
     if (!id) return res.status(400).json({ code: 4001, message: 'invalid batch id' });
 
-    const batchRows = await aiNewsDao.findBatch(pool, id);
-    if (!batchRows || batchRows.length === 0) return res.status(404).json({ code: 4041, message: 'batch not found' });
-    const batch = batchRows[0];
+    const batch = await aiNewsDao.findBatch(pool, id);
+    if (!batch) return res.status(404).json({ code: 4041, message: 'batch not found' });
 
-    // 归属校验：与 GET /jobs/:jobId 同模式，仅创建者本人或超管可读，其余一律 404 不暴露存在性
+    // 仅创建者本人可读，其余一律 404 不暴露存在性。
     const requesterId = req.user && req.user.id ? Number(req.user.id) : null;
     const isOwner = requesterId !== null && batch.user_id !== null && Number(batch.user_id) === requesterId;
     if (!isOwner) return res.status(404).json({ code: 4041, message: 'batch not found' });
 
+    const recovering = req.query?.recover === '1';
+    if (recovering) {
+      res.set('Cache-Control', 'private, no-store');
+      const unitId = draftWorkspaceId(await resolveWorkspace(req));
+      if ((Number(batch.unit_id) || null) !== unitId) return res.status(404).json({ code: 4041, message: 'batch not found' });
+    }
     const jobRows = await aiNewsDao.listBatchJobs(pool, id);
+    if (recovering && !jobRows.some(job => job.channel_key === 'wechat_article')) {
+      return res.status(404).json({ code: 4041, message: 'batch not found' });
+    }
 
     // 事实校验素材：表单快照（含创建 batch 时内嵌的 selectedPhotos.faceNames）—— 一次性解析，所有 job 共用
     let formSnapshot = {};
     try {
-      formSnapshot = typeof batch.form_snapshot === 'string' ? JSON.parse(batch.form_snapshot) : (batch.form_snapshot || {});
+      formSnapshot = (typeof batch.form_snapshot === 'string' ? JSON.parse(batch.form_snapshot) : batch.form_snapshot) || {};
     } catch (e) {
       formSnapshot = {};
     }
@@ -662,8 +701,10 @@ router.get('/batches/:batchId', requirePermission('ai.generate'), async (req, re
       }
     }
 
-    res.json({ batchId: batch.id, status: aggregated, createdAt: batch.created_at, jobs });
+    res.json({ batchId: batch.id, status: aggregated, createdAt: batch.created_at, jobs,
+      ...(recovering ? { recovery: batchRecovery(formSnapshot, batch.selected_photo_ids) } : {}) });
   } catch (e) {
+    if (sendWorkspaceError(res, e)) return;
     console.error('GET /api/ai/news/batches/:batchId error', e);
     res.status(500).json({ code: 5000, message: 'Internal server error' });
   }

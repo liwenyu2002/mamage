@@ -18,10 +18,40 @@ const connection = {
     return [{ insertId: inserts.length + 100 }];
   },
 };
-mock('../db', { pool: { getConnection: async () => connection, query: async () => [[]] } });
-mock('../lib/ai_job_worker', { enqueueJob: async id => events.push(`enqueue:${id}`) });
+mock('../db', { pool: { getConnection: async () => connection, query: async (sql, [id, unitId] = []) => {
+  if (sql.includes('FROM ai_job_batches b') && sql.includes('wechat_compositions d')) {
+    assert.match(sql, /d\.user_id=b\.user_id AND d\.unit_id <=> b\.unit_id/);
+    assert.match(sql, /b\.user_id=\? AND b\.unit_id <=> \?/);
+    return [id === 7 && unitId === 2 ? [{ batchId: 203, jobId: 303, status: 'succeeded', title: '待恢复的稿件' }] : []];
+  }
+  if (id === 201 && sql.includes('FROM ai_job_batches')) {
+    return [[{ id, user_id: 7, status: 'succeeded' }]];
+  }
+  if (id === 203 && sql.includes('FROM ai_job_batches')) {
+    return [[{ id, user_id: 7, unit_id: 2, status: 'succeeded', selected_photo_ids: '[101,102,101]',
+      form_snapshot: { sourceMaterial: '原始材料', interviewText: '原有采访', writingRequirements: '保持原语气',
+        selectedPhotos: [{ id: 101, faceNames: ['不可从任务记录恢复的识别字段'] }] } }]];
+  }
+  if (id === 201 && sql.includes('FROM ai_jobs')) {
+    return [[{ id: 301, channel_key: 'press_release', status: 'succeeded' }]];
+  }
+  if (id === 301 && sql.includes('FROM ai_results')) {
+    return [[{ title: '实践交流', markdown: '# 实践交流\n\n学生介绍实践成果。' }]];
+  }
+  if (id === 203 && sql.includes('FROM ai_jobs')) {
+    return [[{ id: 303, user_id: 7, unit_id: 2, channel_key: 'wechat_article', status: 'succeeded' }]];
+  }
+  if (id === 303 && sql.includes('FROM ai_results')) {
+    return [[{ title: '待恢复的稿件', markdown: '# 待恢复的稿件\n\n正文。' }]];
+  }
+  return [[]];
+} } });
+mock('../lib/ai_job_worker', {
+  enqueueJob: async id => events.push(`enqueue:${id}`),
+  getOrgIdForUser: async () => null,
+});
 mock('../lib/news_preview_renderer', {});
-mock('../lib/workspace_access', { resolveWorkspace: async () => ({ enabled: false }), sendWorkspaceError: () => false });
+mock('../lib/workspace_access', { resolveWorkspace: async (req) => ({ enabled: Boolean(req.unitId), unitId: req.unitId }), sendWorkspaceError: () => false });
 mock('../lib/channel_templates', { getActiveTemplates: async () => [
   { channel_key: 'press_release', name: '官网新闻' }, { channel_key: 'weibo', name: '微博' },
 ] });
@@ -78,13 +108,17 @@ test('provided quotations and metrics do not receive unsupported warnings', () =
   assert(!result.issues.some(issue => issue.type.startsWith('unsupported_')));
 });
 
+async function callRoute(path, request) {
+  const handler = router.stack.find(layer => layer.route?.path === path).route.stack.at(-1).handle;
+  const response = { statusCode: 200, set() { return this; }, status(code) { this.statusCode = code; return this; }, json(value) { this.body = value; return this; } };
+  await handler(request, response);
+  return response;
+}
+
 async function generate(body) {
   events.length = 0;
   inserts.length = 0;
-  const handler = router.stack.find(layer => layer.route?.path === '/generate/batch').route.stack.at(-1).handle;
-  const response = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(value) { this.body = value; return this; } };
-  await handler({ user: { id: 7 }, body }, response);
-  return response;
+  return callRoute('/generate/batch', { user: { id: 7 }, body });
 }
 
 test('batch route stores writing requirements and a complete job matrix before enqueue', async () => {
@@ -132,4 +166,32 @@ test('failed job insertion rolls the entire batch back and starts no workers', a
     assert(!events.includes('commit'));
     assert(!events.some(value => value.startsWith('enqueue:')));
   } finally { failJob = false; }
+});
+
+test('batch polling returns a completed draft only to its owner', async () => {
+  const poll = (batchId, userId) => callRoute('/batches/:batchId', { params: { batchId }, user: { id: userId } });
+  const own = await poll('201', 7);
+  assert.equal(own.statusCode, 200);
+  assert.equal(own.body.status, 'succeeded');
+  assert.equal(own.body.jobs[0].result.title, '实践交流');
+  assert.match(own.body.jobs[0].result.markdown, /学生介绍实践成果/);
+  assert.equal((await poll('201', 8)).statusCode, 404);
+  assert.equal((await poll('202', 7)).statusCode, 404);
+});
+
+test('draft recovery is restricted to its creator and current workspace', async () => {
+  const list = (id, unitId) => callRoute('/recoverable-drafts', { user: { id }, unitId });
+  assert.deepEqual((await list(7, 2)).body.items.map(item => item.batchId), [203]);
+  assert.deepEqual((await list(8, 2)).body.items, []);
+  assert.deepEqual((await list(7, 3)).body.items, []);
+  const open = (id, unitId) => callRoute('/batches/:batchId', {
+    user: { id }, unitId, params: { batchId: '203' }, query: { recover: '1' },
+  });
+  const own = await open(7, 2);
+  assert.equal(own.statusCode, 200);
+  assert.deepEqual(own.body.recovery, { form: { sourceMaterial: '原始材料' },
+    selectedPhotoIds: [101, 102], interviewText: '原有采访', writingRequirements: '保持原语气', participantChips: [] });
+  assert.equal(own.body.jobs[0].status, 'succeeded');
+  assert.equal((await open(8, 2)).statusCode, 404);
+  assert.equal((await open(7, 3)).statusCode, 404);
 });

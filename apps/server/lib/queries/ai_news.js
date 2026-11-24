@@ -36,6 +36,24 @@ async function listBatchJobs(db, batchId) {
   return rows || [];
 }
 
+async function listRecoverableWechatDrafts(db, { userId, unitId }) {
+  const [rows] = await db.query(
+    `SELECT b.id AS batchId, j.id AS jobId, j.status, b.created_at AS createdAt,
+        COALESCE(NULLIF(r.title, ''), NULLIF(JSON_UNQUOTE(JSON_EXTRACT(b.form_snapshot,'$.eventName')), ''),
+          LEFT(JSON_UNQUOTE(JSON_EXTRACT(b.form_snapshot,'$.sourceMaterial')), 80)) AS title
+       FROM ai_job_batches b
+       JOIN ai_jobs j ON j.batch_id=b.id AND j.user_id=b.user_id AND j.unit_id <=> b.unit_id
+         AND j.channel_key='wechat_article'
+       LEFT JOIN ai_results r ON r.id=(SELECT rr.id FROM ai_results rr WHERE rr.job_id=j.id ORDER BY rr.id DESC LIMIT 1)
+       WHERE b.user_id=? AND b.unit_id <=> ? AND j.status IN ('pending','running','succeeded','failed')
+         AND NOT EXISTS (
+           SELECT 1 FROM wechat_compositions d WHERE d.user_id=b.user_id AND d.unit_id <=> b.unit_id
+             AND JSON_UNQUOTE(JSON_EXTRACT(d.source_document,'$.sourceJobId'))=CAST(j.id AS CHAR)
+         )
+       ORDER BY b.id DESC, j.id DESC LIMIT 20`, [userId, unitId]);
+  return rows || [];
+}
+
 async function listPresets(db, orgId) {
   const [rows] = await db.query(
     'SELECT id, name, kind, content, config FROM org_presets WHERE org_id = ? ORDER BY id ASC', [orgId]);
@@ -63,7 +81,7 @@ async function requeueJob(db, jobId) {
 
 module.exports = {
   insertJob, findJob, findLatestResult, findJobForReferences, findBatch, listBatchJobs,
-  listPresets, listForbiddenWords, finishBatch, requeueJob,
+  listPresets, listForbiddenWords, finishBatch, requeueJob, listRecoverableWechatDrafts,
 };
 
 async function findDefaultPreset(db, orgId) {
