@@ -643,6 +643,35 @@ async function main() {
       assert.equal(await editing.getByRole('button').count(), 4);
       assert.equal(await publishing.getByRole('button').count(), 4);
       assert.equal(await page.locator('.wxc-export-card').count(), 0);
+
+      await page.getByRole('button', { name: '样式面板', exact: true }).click();
+      const sidebar = page.locator('.wxc-side-lib');
+      await sidebar.waitFor();
+      const scrollTo = y => page.evaluate(value => window.scrollTo(0, value), y);
+      await scrollTo(0);
+      const initialSidebar = await sidebar.boundingBox();
+      const masthead = await page.locator('.wxc-page-header').boundingBox();
+      const canvasTop = await page.locator('.wxc-canvas-region').boundingBox();
+      const stickyTop = await sidebar.evaluate(node => parseFloat(getComputedStyle(node).top));
+      assert.ok(initialSidebar.y >= masthead.y + masthead.height, 'the sidebar starts below the title and summary');
+      assert.equal(initialSidebar.y, canvasTop.y);
+      assert.ok(initialSidebar.x + initialSidebar.width < canvasTop.x, 'the styles use their own column');
+      assert.ok(initialSidebar.y > stickyTop + 12);
+      await scrollTo(Math.floor((initialSidebar.y - stickyTop) / 2));
+      const approaching = await sidebar.boundingBox();
+      assert.ok(approaching.y < initialSidebar.y && approaching.y > stickyTop, 'the sidebar initially scrolls with the canvas');
+      const hitCanvas = Math.ceil(initialSidebar.y - stickyTop);
+      for (const extra of [30, 90]) {
+        await scrollTo(hitCanvas + extra);
+        const pinned = await sidebar.boundingBox();
+        assert.ok(Math.abs(pinned.y - stickyTop) <= 2, `sidebar pinned at ${pinned.y}, expected ${stickyTop}`);
+      }
+      await scrollTo(0);
+      assert.deepEqual(await sidebar.boundingBox(), initialSidebar, 'scrolling back removes the sticky offset');
+      await page.screenshot({ caret: 'initial', path: path.join(screenshotDir, 'wechat-sidebar-at-canvas.png') });
+      await page.getByRole('button', { name: '收起样式面板', exact: true }).click();
+      await sidebar.waitFor({ state: 'hidden' });
+
       const desktop = await dock.boundingBox();
       const workarea = await page.locator('.wxc-workarea').boundingBox();
       const station = page.locator('[data-transfer-station-root="1"]').first();

@@ -1455,7 +1455,7 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
   }, [openId]);
 
   return (
-    <Layout className={`wxc-composer${guided ? ' wxc-guided' : ''}`} style={{ padding: isMobile ? 10 : 16, overflowX: 'hidden' }}>
+    <Layout className={`wxc-composer${guided ? ' wxc-guided' : ''}`} style={{ padding: isMobile ? 10 : 16 }}>
       <Modal title="新建推文" visible={creationOpen} onCancel={() => setCreationOpen(false)} footer={null} width={420}>
         <div className="wxc-create-options">
           <Button type="primary" icon={<IconSparkleAI />} onClick={() => { setCreationOpen(false); onStartAiWorkflow?.(); }}>AI 工作流</Button>
@@ -1560,7 +1560,7 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
 
       <Content>
         <div className="wxc-workspace">
-          {/* 左侧面板：桌面常驻，窄屏由"样式库"按钮抽屉化；顶层三 Tab＝样式/相册/收藏 */}
+          {/* 桌面随画布吸顶，窄屏由样式面板按钮打开抽屉。 */}
           {libraryOpen ? <div className="wxc-side-backdrop" aria-hidden="true" onClick={() => setLibraryOpen(false)} /> : null}
           <aside className={`wxc-side-lib${libraryOpen ? ' is-open' : ''}`}>
             <button type="button" className="wxc-side-close" aria-label="关闭样式面板" onClick={() => setLibraryOpen(false)}>×</button>

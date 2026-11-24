@@ -543,6 +543,7 @@
 
 /* ── 秀米式左右工作区：左侧常驻样式库面板 + 右侧画布区 ── */
 .wxc-composer {
+  overflow-x: hidden;
   --wxc-rail-width: 66px;
   --wxc-rail-offset: 140px;
   --wxc-rail-top: 78px;
@@ -682,36 +683,23 @@
   flex: 0 0 auto;
 }
 
-/* 面板固定：祖先链上有 overflow-x hidden，sticky 永远不生效——桌面端直接 fixed 贴屏幕左缘，
-   滚动页面时面板纹丝不动（秀米同款）；主区让出面板宽度 */
 @media (min-width: 969px) {
+  /* Keep horizontal clipping without creating a scroll container around the sticky sidebar. */
+  .wxc-composer { overflow-x: clip; }
   .wxc-side-lib {
-    position: fixed;
-    left: 14px;
-    top: 78px;
-    bottom: 14px;
-    width: 264px;
-    max-height: none;
-  }
-
-  /* 全媒体编辑台新增平台导航后，固定侧栏从平台栏下方开始，底边不动以缩短面板高度。 */
-  .media-studio-shell .wxc-side-lib {
-    top: 136px;
+    top: var(--wxc-rail-top);
+    max-height: calc(100dvh - var(--wxc-rail-top) - 14px);
   }
 
   .wxc-workarea,
   .wxc-page-header {
-    margin-left: 288px;
     margin-right: var(--wxc-rail-reserve);
   }
 }
 
-/* 969-1024px 时主导航已切成双行手机头，但编辑器侧栏仍处于桌面固定模式。 */
+/* 969-1024px: leave room for the two-row main navigation. */
 @media (min-width: 969px) and (max-width: 1024px) {
   .media-studio-shell .wxc-composer { --wxc-rail-top: 176px; }
-  .media-studio-shell .wxc-side-lib {
-    top: 176px;
-  }
 }
 
 @media (max-width: 968px) {
