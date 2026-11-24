@@ -49,12 +49,26 @@ test('library queries the authorized scope, official monitored account and publi
   const queries = [];
   const db = { async query(sql, values) { queries.push({ sql, values }); return [queries.length === 1 ? [row(1, '01', [heading])] : []]; } };
   const result = await loadObservedStyleLibrary(db, { enabled: true, orgId: 4, unitId: 5 });
-  assert.equal(result.templates.length, 1);
+  assert.equal(result.templates.length, 2);
   assert.equal(queries[0].values[0], '4:5');
   assert.match(queries[0].sql, /x\.account_key='bjzgca'/);
   assert.match(queries[0].sql, /a\.published_at <= \?/);
   assert.match(queries[0].sql, /r\.article_id=a\.id/);
   assert.equal(queries[1].values[0], '4:5');
+});
+
+test('the curated AI青年说 source is reusable without article content or original photos', async () => {
+  const library = await loadObservedStyleLibrary({ query: async () => [[]] }, { enabled: true, orgId: 4, unitId: 5 });
+  const template = library.templates.find(item => item.id === 'curated-ai-young-voices');
+  assert.equal(template.sourceAccount, '北京中关村学院研究生会');
+  assert.equal(template.sourceUrl, 'https://mp.weixin.qq.com/s/9aBlc4ugohaABkymG1ciDw');
+  const parts = library.blocks.find(block => 'db-' + block.id === template.styleIds.h2);
+  assert.match(parts.htmlTemplate, /PART \{\{part\}\}/);
+  assert.match(parts.htmlTemplate, /#0165f9/);
+  for (const item of library.blocks) {
+    assert.equal(item.sourceUrl, template.sourceUrl);
+    assert.doesNotMatch(item.htmlTemplate, /周天行|qpic\.cn|<iframe|<video|<script/);
+  }
 });
 
 test('repeated trusted edge images across different days are candidates, not one-off pictures', () => {

@@ -26,9 +26,9 @@ test('AI structure requests require bounded input and return only an editable pr
 
 test('review roles are empty by default, can be omitted and are never duplicated', () => {
   const template = normalizeContentTemplate({ contentTemplate: 'auto', reviewCredits: true });
-  assert.equal(addReviewPlaceholders('正文', template), '正文\n\n初审：待填写\n\n终审：待填写');
-  assert.equal(addReviewPlaceholders('正文\n\n初审：待填写', template), '正文\n\n初审：待填写\n\n终审：待填写');
-  assert.equal(addReviewPlaceholders('正文\n\n初审：模型编造的姓名', template), '正文\n\n初审：待填写\n\n终审：待填写');
+  assert.equal(addReviewPlaceholders('正文', template), '正文\n\n初审：待填写  \n终审：待填写');
+  assert.equal(addReviewPlaceholders('正文\n\n初审：待填写', template), '正文\n\n初审：待填写  \n终审：待填写');
+  assert.equal(addReviewPlaceholders('正文\n\n初审：模型编造的姓名', template), '正文\n\n初审：待填写  \n终审：待填写');
   assert.match(prepareReviewPlaceholders('正文\n\n初审：需要核对的原文', template).reviewNotes[0], /需要核对的原文/);
   assert.equal(addReviewPlaceholders('正文', { reviewCredits: false }), '正文');
   assert.equal(addReviewPlaceholders('', template), '');

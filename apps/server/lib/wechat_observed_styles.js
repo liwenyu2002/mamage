@@ -4,6 +4,7 @@ const { scopeFor } = require('./wechat_monitor_store');
 const { parsed } = require('./wechat_monitor_content');
 const { observedGalleries } = require('./wechat_observed_gallery');
 const { observedGalleryTemplates } = require('./wechat_observed_gallery_templates');
+const curated = require('./wechat_curated_templates.json');
 
 const ALLOWED_TAGS = new Set(['section', 'div', 'p', 'span', 'strong', 'b', 'em', 'i', 'br', 'img']);
 const TYPES = new Set(['h2', 'h3', 'quote', 'imageCard']);
@@ -172,6 +173,12 @@ async function loadObservedStyleLibrary(db, workspace) {
     FROM wechat_monitor_groups g JOIN wechat_monitor_memberships m ON m.group_id=g.id
     JOIN wechat_monitor_accounts x ON x.id=g.account_id AND x.scope_key=g.scope_key
     WHERE g.scope_key=? AND g.kind='series' AND x.account_key='bjzgca' ORDER BY g.id`, [scope]);
-  return buildObservedLibrary(rows, memberships);
+  const observed = buildObservedLibrary(rows, memberships);
+  return { templates: [...curated.templates, ...observed.templates],
+    blocks: [...curated.templates.flatMap(({ styleIds, sourceUrl, sourceTitle, sourceAccount }) => {
+      const ids = new Set(Object.values(styleIds));
+      return curated.blocks.filter(block => ids.has(`db-${block.id}`))
+        .map(block => ({ ...block, source: 'observed', sourceUrl, sourceTitle, sourceAccount }));
+    }), ...observed.blocks] };
 }
 module.exports = { safeObservedBlock, buildObservedLibrary, loadObservedStyleLibrary };

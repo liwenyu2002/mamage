@@ -1,0 +1,48 @@
+{
+  "templates": [
+    {
+      "id": "curated-ai-young-voices",
+      "name": "AI青年说 · 人物专访",
+      "sourceTitle": "AI青年说｜周天行：让智能走进真实世界，也让科学触达更多目光",
+      "sourceAccount": "北京中关村学院研究生会",
+      "sourceUrl": "https://mp.weixin.qq.com/s/9aBlc4ugohaABkymG1ciDw",
+      "count": 1,
+      "base": { "accent": "#157aef", "fontSize": 15, "lineHeight": 2, "textIndent": true },
+      "styleIds": {
+        "h1": "builtin-h2-minimal-large",
+        "h2": "db-curated-ai-young-voices-part",
+        "intro": "db-curated-ai-young-voices-intro",
+        "review": "db-curated-ai-young-voices-review",
+        "imageCard": "db-curated-ai-young-voices-photo"
+      }
+    }
+  ],
+  "blocks": [
+    {
+      "id": "curated-ai-young-voices-part",
+      "type": "h2",
+      "name": "AI青年说 · PART 分节",
+      "htmlTemplate": "<section style=\"margin:26px 0 18px;\"><p style=\"margin:0 0 -5px;padding:0 0 0 40px;font-size:28px;font-weight:700;color:#ffffff;line-height:1.15;text-shadow:1px -1px #157aef,1px 1px #157aef,-1px 1px #157aef,-1px -1px #157aef,1px 0 #157aef,0 1px #157aef,-1px 0 #157aef,0 -1px #157aef;\">PART {{part}}</p><section style=\"box-sizing:border-box;padding:5px 12px;background-color:#0165f9;color:#ffffff;text-align:center;font-size:18px;line-height:1.6;overflow-wrap:anywhere;\"><strong>{{content}}</strong></section></section>"
+    },
+    {
+      "id": "curated-ai-young-voices-intro",
+      "type": "body",
+      "name": "AI青年说 · 栏目介绍",
+      "inheritBody": true,
+      "htmlTemplate": "<section style=\"box-sizing:border-box;width:95%;margin:15px auto;padding:0 10px 10px;border-top:2px solid #157aef;border-radius:10px;background-color:#ffffff;box-shadow:0 0 2px #989898;text-align:center;\"><p style=\"display:inline-block;margin:0 0 15px;padding:0 10px;border-radius:0 0 0.5em 0.5em;background-color:#157aef;color:#ffffff;font-size:14px;line-height:2;\">栏目介绍</p><section style=\"font-size:14px;color:#646464;text-align:justify;line-height:1.8;text-indent:2em;\">{{content}}</section></section>"
+    },
+    {
+      "id": "curated-ai-young-voices-review",
+      "type": "body",
+      "name": "AI青年说 · 审核署名",
+      "inheritBody": true,
+      "htmlTemplate": "<section style=\"margin:12px 0 20px;padding:0 10px;text-align:center;font-size:12px;line-height:1.8;color:#a0a0a0;\">{{content}}</section>"
+    },
+    {
+      "id": "curated-ai-young-voices-photo",
+      "type": "imageCard",
+      "name": "AI青年说 · 正文配图",
+      "htmlTemplate": "<section style=\"margin:18px 0;text-align:center;\"><img src=\"{{src}}\" style=\"display:block;width:100%;height:auto\" />{{#caption}}<p style=\"margin:8px 0 0;text-align:center;font-size:12px;line-height:1.8;color:#a0a0a0;\">{{caption}}</p>{{/caption}}</section>"
+    }
+  ]
+}

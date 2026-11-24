@@ -23,7 +23,7 @@ function prepareReviewPlaceholders(markdown, template) {
     if (!/待填写\s*[*_]*\s*$/.test(line)) removed.push(line.trim());
     return false;
   }).join('\n').trimEnd();
-  return { markdown: `${result}\n\n初审：待填写\n\n终审：待填写`,
+  return { markdown: `${result}\n\n初审：待填写  \n终审：待填写`,
     reviewNotes: removed.map(line => `AI 原稿含有审核署名或相关文字，已改为待填写，请核对原文：${line}`) };
 }
 function addReviewPlaceholders(markdown, template) { return prepareReviewPlaceholders(markdown, template).markdown; }
