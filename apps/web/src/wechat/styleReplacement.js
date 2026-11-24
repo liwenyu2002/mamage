@@ -26,7 +26,9 @@ export function replaceBlockStyle(doc, uid, style) {
   if (style.type === 'imageGroup') {
     const run = imageRunForUid(doc, uid);
     if (!run || run.items.length < 2) return { doc, error: '请先在内容稿中将至少两张图片设为同一组', changed: false };
-    if (isObservedGallery(style) && run.items.length < style.slots) return { doc, error: `这个原版样式需要至少 ${style.slots} 张图片，当前有 ${run.items.length} 张`, changed: false };
+    if (isObservedGallery(style) && style.galleryKind !== 'carousel' && run.items.length < style.slots) {
+      return { doc, error: `这个原版样式需要至少 ${style.slots} 张图片，当前有 ${run.items.length} 张`, changed: false };
+    }
     if (run.styleId === style.id) return { doc, error: '', changed: false };
     return { doc: setImageRunStyle(doc, uid, style.id, style), error: '', changed: true };
   }

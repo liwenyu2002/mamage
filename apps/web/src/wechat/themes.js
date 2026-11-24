@@ -73,7 +73,7 @@ function stripOrKeepConditional(template, name, keep) {
  * 用 split/join 而非正则 replace 做逐槽位替换，避免 content/caption 里出现 "$&"/"$1" 等序列被
  * String.prototype.replace 误当成特殊替换模式解析。
  * @param {{htmlTemplate:string}} block
- * @param {{content?:string, src?:string, caption?:string, accent?:string}} slots
+ * @param {{content?:string, src?:string, caption?:string, accent?:string, part?:number}} slots
  * @returns {string}
  */
 export function applyBlock(block, slots) {
@@ -91,6 +91,7 @@ export function applyBlock(block, slots) {
   const hasCaption = Boolean(caption.trim());
   out = stripOrKeepConditional(out, 'caption', hasCaption);
 
+  out = out.split('{{part}}').join(String(Number.isInteger(s.part) && s.part > 0 ? s.part : 1).padStart(2, '0'));
   out = out.split('{{content}}').join(content);
   out = out.split('{{src}}').join(src);
   out = out.split('{{caption}}').join(caption);
@@ -110,6 +111,15 @@ export function applyBlock(block, slots) {
   }
 
   return out;
+}
+
+export function sectionParts(doc, blocksById) {
+  const parts = new Map();
+  for (const block of Array.isArray(doc) ? doc : []) {
+    const template = block && blocksById?.[block.blockId]?.htmlTemplate;
+    if (typeof template === 'string' && template.includes('{{part}}')) parts.set(block.uid, parts.size + 1);
+  }
+  return parts;
 }
 
 // 按 id 建索引，重复 id 后写覆盖先写（调用方传入的 blocksById 里如果和内置块同 id，视为有意覆盖）

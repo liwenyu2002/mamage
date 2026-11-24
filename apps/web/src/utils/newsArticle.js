@@ -1,16 +1,41 @@
 import { marked } from 'marked';
 import { parseImageGroupMarker, imageGroupMarker, withDraftImageGroups } from './newsImageGroups';
 
+const reviewRole = line => /^\s*(?:\*{1,2}|_{1,2})?(初审|终审)(?:\*{1,2}|_{1,2})?\s*[：:|｜]/.exec(line)?.[1];
+
+export function hasReviewCredits(text) {
+  const roles = String(text || '').split('\n').map(reviewRole);
+  return roles.includes('初审') && roles.includes('终审');
+}
+
+export function normalizeReviewCredits(markdown) {
+  const lines = String(markdown || '').split(/\r?\n/), next = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (reviewRole(lines[i]) === '初审') {
+      let last = i + 1;
+      while (last < lines.length && !lines[last].trim()) last++;
+      if (last < lines.length && reviewRole(lines[last]) === '终审') {
+        next.push(lines[i].trimEnd() + '  ', lines[last]);
+        i = last;
+        continue;
+      }
+    }
+    next.push(lines[i]);
+  }
+  return next.join('\n');
+}
+
 export function withoutImageGroupMarkers(markdown) {
   return articleBlocks(markdown).map(block => block.type === 'image' && block.galleryId
     ? changeArticleBlock({ ...block, galleryId: null }, block.text).raw : block.raw).join('');
 }
 
 export function renderDraftArticle(markdown) {
-  const html = marked.parse(String(markdown || ''), { gfm: true });
+  const draft = normalizeReviewCredits(markdown);
+  const html = marked.parse(draft, { gfm: true });
   if (typeof DOMParser === 'undefined') return html;
   const document = new DOMParser().parseFromString(html, 'text/html');
-  const blocks = withDraftImageGroups(articleBlocks(markdown).filter(block => block.type !== 'space'));
+  const blocks = withDraftImageGroups(articleBlocks(draft).filter(block => block.type !== 'space'));
   const candidates = [...document.body.children].filter(node => node.tagName === 'P' && node.children.length === 1 && node.firstElementChild.tagName === 'IMG' && !node.textContent.trim());
   const images = blocks.filter(block => block.type === 'image');
   // Leave unusual/raw HTML alone instead of guessing which image belongs to which block.
@@ -21,6 +46,7 @@ export function renderDraftArticle(markdown) {
     if (first.type !== 'image' || !first.galleryId) continue;
     let end = start + 1;
     while (end < blocks.length && blocks[end].type === 'image' && blocks[end].galleryId === first.galleryId) end++;
+    if (end - start < 2) continue;
     const group = document.createElement('section'); group.className = 'news-draft-image-group';
     const columns = Math.min(first.galleryColumns, end - start);
     group.style.cssText = `display:grid;grid-template-columns:repeat(${columns},minmax(0,1fr));gap:8px;margin:24px 0;`;

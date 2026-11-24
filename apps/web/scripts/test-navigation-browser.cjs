@@ -5,11 +5,21 @@ const http = require('node:http');
 const { createRequire } = require('node:module');
 const runtime = createRequire(path.resolve(__dirname, '../../server/package.json'));
 const { chromium } = runtime('playwright');
+const { PNG } = runtime('pngjs');
 const sharp = runtime('sharp');
+const { loadObservedStyleLibrary } = require('../../server/lib/wechat_observed_styles');
+const { templateFromSource } = require('../../server/lib/wechat_observed_gallery_templates');
 const dist = path.resolve(__dirname, '../dist');
 
 async function main() {
   const image = await sharp({ create: { width: 640, height: 480, channels: 3, background: '#859da9' } }).jpeg().toBuffer();
+  const layoutLibrary = await loadObservedStyleLibrary({ query: async () => [[]] }, { enabled: true, orgId: 1, unitId: 1 });
+  const tracks = Array.from({ length: 9 }, (_, index) =>
+    `<image href="https://mmbiz.qpic.cn/example/${index % 8}" x="${640 * index}" y="0" width="640" height="480"></image>`).join('');
+  const carousel = templateFromSource(`<svg viewBox="0 0 640 480"><g><animateTransform attributeName="transform" type="translate"
+    values="0 0;-5120 0" begin="0s" dur="24s" repeatCount="indefinite"></animateTransform>${tracks}</g></svg>`,
+  { id: 32, current_revision_id: 1, title: '轮播测试' }, 'carousel');
+  layoutLibrary.blocks.push(carousel);
   const photos = Array.from({ length: 80 }, (_, i) => ({ id: 101 + i, projectId: 1, title: `Photo ${i + 1}`,
     projectName: 'Campus Album', type: 'normal', url: '/api/image/test.jpg', thumbUrl: '/api/image/test.jpg',
     width: 640, height: 480, unitId: 1, photographerId: 7, aiStatus: 'done' }));
@@ -512,6 +522,69 @@ async function main() {
       await b.waitFor();
       assert.deepEqual(await blocks(), ['照片拖拽测试', '开场', '照片甲', '第一段', '照片乙', '第二段']);
     },
+    async templateCarousel(page) {
+      await page.goto(base + '/function/wechat-composer');
+      const editor = page.locator('.news-edit-document');
+      await editor.getByRole('group', { name: '8 图组', exact: true }).waitFor();
+      await editor.getByRole('group', { name: '3 图组', exact: true }).waitFor();
+      assert.equal(await editor.getByRole('button', { name: /单列|双列|三列/ }).count(), 0);
+      const review = editor.locator('.news-edit-paragraph').filter({ hasText: '初审：甲' });
+      assert.match(await review.innerText(), /初审：甲 *\n终审：乙/);
+      await page.getByRole('button', { name: '确认内容，选择样式', exact: true }).click();
+      await page.getByRole('button', { name: /AI青年说 · 人物专访/ }).click();
+      await page.getByRole('button', { name: '应用模板，生成排版稿', exact: true }).click();
+      const canvas = page.locator('.cve-canvas');
+      await canvas.getByText('PART 01', { exact: true }).waitFor();
+      await canvas.getByText('PART 02', { exact: true }).waitFor();
+      await canvas.getByText('栏目介绍', { exact: true }).waitFor();
+      const compact = canvas.locator('[data-cve-slot="content"]').filter({ hasText: '初审：甲' });
+      assert.equal(await compact.evaluate(node => getComputedStyle(node).fontSize), '12px');
+      assert.match(await compact.innerHTML(), /初审：甲<br>终审：乙/);
+
+      await canvas.locator('.cve-gallery-tools').filter({ hasText: '3 图组' })
+        .getByRole('button', { name: '组图样式', exact: true }).click();
+      await page.locator(`[data-style-id="db-${carousel.id}"]`).click();
+      const preview = page.getByRole('dialog', { name: '应用此样式？' });
+      const slots = locator => locator.locator('[data-gallery-slot]').evaluateAll(nodes => [...new Set(nodes.map(node => node.dataset.gallerySlot))]);
+      assert.deepEqual(await slots(preview), ['0', '1', '2']);
+      await preview.getByRole('button', { name: '应用样式', exact: true }).click();
+      const rendered = canvas.locator('.cve-observed-original');
+      await rendered.locator('svg').waitFor();
+      assert.deepEqual(await slots(rendered), ['0', '1', '2']);
+      const motion = await rendered.locator('svg').evaluate(svg => {
+        svg.pauseAnimations();
+        const track = svg.querySelector('g');
+        svg.setCurrentTime(0);
+        const start = track.transform.animVal.getItem(0).matrix.e;
+        svg.setCurrentTime(3.1);
+        return { start, moved: track.transform.animVal.getItem(0).matrix.e };
+      });
+      assert.deepEqual(motion, { start: 0, moved: -640 });
+      await page.setViewportSize({ width: 390, height: 860 });
+      const closeLibrary = page.getByRole('button', { name: '关闭样式面板', exact: true });
+      if (await closeLibrary.isVisible()) await closeLibrary.click();
+      await rendered.scrollIntoViewIfNeeded();
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true);
+      const pixels = PNG.sync.read(await rendered.locator('svg').screenshot());
+      const center = (Math.floor(pixels.height / 2) * pixels.width + Math.floor(pixels.width / 2)) * 4;
+      assert.deepEqual([...pixels.data.subarray(center, center + 3)].map((value, index) =>
+        Math.abs(value - [133, 157, 169][index]) < 4), [true, true, true], 'the active SVG frame visibly loads a photo');
+      await page.screenshot({ path: path.join(screenshotDir, 'wechat-template-carousel-mobile.png') });
+
+      await page.evaluate(() => {
+        navigator.clipboard.write = async items => { window.fixtureCopy = await (await items[0].getType('text/html')).text(); };
+      });
+      await page.getByRole('button', { name: '复制到公众号', exact: true }).click();
+      await page.waitForFunction(() => window.fixtureCopy);
+      const copy = await page.evaluate(() => {
+        const body = new DOMParser().parseFromString(window.fixtureCopy, 'text/html');
+        return { images: [...body.querySelectorAll('img')].map(img => new URL(img.getAttribute('src'), location.origin).searchParams.get('frame')),
+          svg: body.querySelectorAll('svg').length, credits: [...body.querySelectorAll('section')].some(el => el.innerHTML === '初审：甲<br>终审：乙') };
+      });
+      assert.deepEqual(copy.images, Array.from({ length: 11 }, (_, i) => String(i)));
+      assert.equal(copy.svg, 0);
+      assert.equal(copy.credits, true);
+    },
     async about(page) {
       await page.goto(base);
       await page.locator('.mamage-nav-link').filter({ hasText: '关于' }).click();
@@ -565,6 +638,14 @@ async function main() {
             title: '照片拖拽测试', markdownText: '# 照片拖拽测试\n\n开场\n\n![照片甲](/api/image/test.jpg?first)\n\n第一段\n\n第二段\n\n![照片乙](/api/image/test.jpg?second)',
           } } }));
       });
+      if (name === 'templateCarousel') await context.addInitScript(() => {
+        const photos = Array.from({ length: 11 }, (_, index) => `![样图 ${index + 1}](/api/image/test.jpg?frame=${index})`);
+        const markdownText = ['# 访谈样稿', '本期访谈提要。', '## 研究经历', ...photos.slice(0, 8),
+          '## 校园交流', ...photos.slice(8), '初审：甲', '终审：乙'].join('\n\n');
+        localStorage.setItem('mamage.wechat.workflow.v1:7:1', JSON.stringify({ mode: 'ai', stage: 'content' }));
+        localStorage.setItem('mamage.aiNewsWriter.draft.v2:7:1', JSON.stringify({ activeChannelKey: 'wechat_article',
+          selectedChannels: ['wechat_article'], channelContent: { wechat_article: { title: '访谈样稿', markdownText } } }));
+      });
       await context.route('**/*', route => {
         const req = route.request(), url = new URL(req.url()), p = url.pathname;
         if (p.startsWith('/api/image/')) return route.fulfill({ contentType: 'image/jpeg', body: image });
@@ -581,6 +662,7 @@ async function main() {
           if (p === '/api/users/me') data = { id: 7, name: 'Test User', role: 'admin', activeUnitId: 1, metadataEditScope: 'own',
             permissions: ['projects.view', 'projects.create', 'photos.view', 'photos.edit', 'ai.generate'] };
           else if (p === '/api/workspaces') data = { enabled: true, activeUnitId: 1, units: [{ id: 1, name: 'Test Workspace', role: 'manager' }] };
+          else if (name === 'templateCarousel' && ['/api/wechat-style/monitor-templates', '/api/wechat-style/blocks'].includes(p)) data = layoutLibrary;
           else if (name === 'draftRecovery' && p === '/api/wechat-compositions') data = { items: [
             { id: 401, name: '已保存的推文', draftKind: 'layout', updatedAt: '2026-11-24T11:01:00Z' },
           ] };

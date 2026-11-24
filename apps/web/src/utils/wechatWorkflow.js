@@ -1,5 +1,5 @@
 import { markdownToDoc, sanitizeParaHtml } from '../wechat/docModel';
-import { articleBodyMarkdown } from './newsArticle';
+import { articleBodyMarkdown, hasReviewCredits, normalizeReviewCredits } from './newsArticle';
 import { BUILTIN_BLOCKS_BY_ID, THEME_PRESETS } from '../wechat/themes';
 import { arrangeImageGroups, normalizeImageGroup } from '../wechat/imageGroups';
 import { withDraftImageGroups, imageGroupMetadata } from './newsImageGroups';
@@ -15,7 +15,7 @@ export function contentSignature(article) {
 }
 export function freezeContent(article) {
   if (!article?.markdown?.trim()) throw Error('请先完成内容稿');
-  const doc = withDraftImageGroups(markdownToDoc(articleBodyMarkdown(article.markdown, article.title)).map(block => {
+  const doc = withDraftImageGroups(markdownToDoc(articleBodyMarkdown(normalizeReviewCredits(article.markdown), article.title)).map(block => {
     if (block.kind === 'para') return { uid: block.uid, kind: 'para', type: 'body',
       html: sanitizeParaHtml(block.html).replace(/<\/?(?:span|u)\b[^>]*>/gi, '') };
     return { uid: block.uid, kind: 'styled', type: block.type, content: block.content || '',
@@ -29,13 +29,20 @@ export function freezeContent(article) {
 export function normalizeLayoutLibrary(rows = []) {
   return Object.fromEntries(rows.map(row => {
     const id = String(row.id).startsWith('db-') ? String(row.id) : `db-${row.id}`;
-    return [id, { id, type: row.type, name: row.name, htmlTemplate: row.htmlTemplate || row.html_template || '', accentEditable: Boolean(row.accentEditable ?? row.accent_editable),
+    return [id, { id, type: row.type, name: row.name, htmlTemplate: row.htmlTemplate || row.html_template || '',
+      ...(row.inheritBody === true ? { inheritBody: true } : {}), accentEditable: Boolean(row.accentEditable ?? row.accent_editable),
       imageGroup: normalizeImageGroup(row.imageGroup) }];
   }));
 }
 export function templateLayout(source, config) {
+  const review = block => block.kind === 'para' && hasReviewCredits(layoutHtmlToText(block.html));
+  const firstSection = source.doc.findIndex(block => block.headingLevel >= 2);
+  const intro = config.intro && source.doc.slice(0, firstSection < 0 ? source.doc.length : firstSection)
+    .find(block => block.kind === 'para' && !review(block));
   return { blocks: source.doc.map(block => ({ uid: block.uid,
-    styleId: block.kind === 'para' ? config.bodyStyleId || 'builtin-body-plain' : block.headingLevel === 1 ? config.h1 || 'builtin-h2-minimal-large' : config[block.type] })),
+    styleId: block.kind === 'para'
+      ? (config.review && review(block) ? config.review : block === intro ? config.intro : config.bodyStyleId || 'builtin-body-plain')
+      : block.headingLevel === 1 ? config.h1 || 'builtin-h2-minimal-large' : config[block.type] })),
     accent: config.accent, body: config.body, page: { paddingX: config.page?.paddingX ?? 20 }, imageGroup: normalizeImageGroup(config.imageGroup) };
 }
 export function materializeLayout(confirmed, plan, customBlocks = {}) {

@@ -1,7 +1,7 @@
 import { Schema } from 'prosemirror-model';
-import { articleBlocks, changeArticleBlock } from './newsArticle';
+import { articleBlocks, changeArticleBlock, normalizeReviewCredits } from './newsArticle';
 import { sourceRanges } from './newsEditorSelection';
-import { withDraftImageGroups } from './newsImageGroups';
+import { MAX_WECHAT_GROUP_PHOTOS, withDraftImageGroups } from './newsImageGroups';
 
 const attrs = { original: { default: null } };
 export const newEditorGalleryId = () => `group-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
@@ -21,7 +21,7 @@ export const newsEditorSchema = new Schema({ nodes: {
 export function editorDocument(markdown) {
   const nodes = []; let gap = '', hasBlock = false;
   const empty = count => { for (let i = 0; i < count; i++) nodes.push(newsEditorSchema.nodes.paragraph.create()); };
-  for (const block of articleBlocks(markdown)) {
+  for (const block of articleBlocks(normalizeReviewCredits(markdown))) {
     if (block.type === 'space') { gap += block.raw; continue; }
     // Two newlines separate blocks; each additional pair represents an empty paragraph.
     empty(Math.max(0, Math.floor((gap.match(/\n/g) || []).length / 2) - (hasBlock ? 1 : 0)));
@@ -63,7 +63,8 @@ export function changeEditorImageGroup(state, pos, action, value) {
     assign(group.items.slice(at), newEditorGalleryId(), group.columns);
   } else if (action === 'mergeNext') {
     const next = groups[groupIndex + 1], last = group.items.at(-1);
-    if (!next || next.items[0].pos !== last.pos + last.node.nodeSize) return null;
+    if (!next || next.items[0].pos !== last.pos + last.node.nodeSize
+      || group.items.length + next.items.length > MAX_WECHAT_GROUP_PHOTOS) return null;
     assign([...group.items, ...next.items], group.id || newEditorGalleryId(), group.columns);
   } else return null;
   return transaction.setMeta('newsEditBoundary', true);
@@ -78,6 +79,7 @@ export function moveEditorPhoto(state, sourceIndex, target) {
   const source = sourceGroup.items.find(item => item.index === sourceIndex);
   const destination = target.mode === 'group' ? groupAt(target.index) : null;
   if (target.mode === 'group' && (!destination || target.index === sourceIndex)) return null;
+  if (destination && destination !== sourceGroup && destination.items.length >= MAX_WECHAT_GROUP_PHOTOS) return null;
   const index = target.index + (destination && target.after ? 1 : 0);
   const inPlace = index === sourceIndex || index === sourceIndex + 1;
   if (inPlace && (destination ? destination === sourceGroup : sourceGroup.items.length === 1)) return null;

@@ -32,6 +32,7 @@ import { isObservedGallery, observedGalleryHtml } from './wechat/observedGallery
 import { imageRunForUid } from './wechat/imageGroups';
 import { wechatDraftKey, hasWechatDraft, isBackupName } from './utils/wechatDraftState';
 import { articleBodyMarkdown } from './utils/newsArticle';
+import { MAX_WECHAT_GROUP_PHOTOS } from './utils/newsImageGroups';
 import useWechatDraftRecovery from './useWechatDraftRecovery';
 import { IconSparkleAI, IconEditStroked, IconTrash } from './ui/icons';
 import './wechat/composer.css';
@@ -77,6 +78,7 @@ function normalizeDbBlock(row) {
     name: row.name || '导入样式',
     htmlTemplate: row.html_template || row.htmlTemplate || '',
     accentEditable: !!(row.accent_editable || row.accentEditable),
+    ...(row.inheritBody === true ? { inheritBody: true } : {}),
     source: row.source === 'observed' ? 'observed' : 'extracted',
     sourceUrl: row.source_url || row.sourceUrl || null,
     ...(row.type === 'imageGroup' ? { slots: row.slots, galleryKind: row.galleryKind, occurrenceSlots: row.occurrenceSlots,
@@ -787,7 +789,8 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
     try {
       if (block.type === 'imageGroup') {
         const source = imageRunForUid(doc, replaceTarget || selectedUid)?.items.map(item => item.block.src).filter(Boolean) || [];
-        const images = Array.from({ length: block.slots }, (_, i) => source[i] || PREVIEW_IMG);
+        const count = block.galleryKind === 'carousel' && source.length >= 2 ? source.length : Math.min(block.slots, MAX_WECHAT_GROUP_PHOTOS);
+        const images = Array.from({ length: count }, (_, i) => source[i] || PREVIEW_IMG);
         if (isObservedGallery(block)) return sanitizeRawHtml(observedGalleryHtml(images.map((src, i) => ({ src: source[i] || block.sourceImages?.[i] || src })), block));
         return DOMPurify.sanitize(galleryStyleHtml(images.map(src => `<img src="${String(src).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')}" style="display:block;width:100%;height:auto;aspect-ratio:16/9;object-fit:cover;" />`), block.id));
       }
@@ -1084,7 +1087,8 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
     if (missing.length) { Toast.warning(`请先处理待补项：${missing.join('、')}`); return; }
     try {
       // 画布与复制共用 docToHtml 同源渲染（所见即所得）；标题填在公众号后台标题栏，不进正文
-      const { html, imageCount } = docToHtml(doc, { blocksById, globalAccent: effectiveConfig.accent, body: effectiveConfig.body, page: effectiveConfig.page });
+      const { html, imageCount } = docToHtml(doc, { blocksById, globalAccent: effectiveConfig.accent, body: effectiveConfig.body,
+        page: effectiveConfig.page, compatibleGalleries: true });
       // 复制到公众号:①把 /api/wx-img 代理链还原为原始 mmbiz(代理链仅本站预览用,微信里无效);
       // ②把原版复刻轮播的 SVG 背景图还原成 <img>(微信粘贴会剥 SVG/背景图,否则整组照片丢失);
       // ③把无文字图片容器的 CSS 背景图展平成 <img>——微信粘贴只留 <img> 并自动转存,
@@ -1784,7 +1788,7 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
                   </div>
                   {b.type === 'imageGroup' && b.sourceUrl ? <a className="wxc-gallery-source" href={b.sourceUrl} target="_blank" rel="noreferrer"
                     onClick={event => event.stopPropagation()} onPointerDown={event => event.stopPropagation()}>
-                    {b.sourceAccount} · {b.slots} 图 · 查看原文
+                    {b.sourceAccount} · {b.galleryKind === 'carousel' ? `2 至 ${MAX_WECHAT_GROUP_PHOTOS} 图` : `${b.slots} 图组`} · 查看原文
                   </a> : null}
                 </div>
               ))}

@@ -1,5 +1,6 @@
 import { GALLERY_STYLES_BY_ID } from './galleryStyles';
 import { isObservedGallery, snapshotGallery } from './observedGallery';
+import { MAX_WECHAT_GROUP_PHOTOS, draftGalleryColumns } from '../utils/newsImageGroups';
 
 export const IMAGE_LAYOUTS = [
   { value: 'auto', label: '沿用内容稿' }, { value: 'single', label: '单列' },
@@ -18,14 +19,15 @@ export function normalizeImageGroup(value) {
 
 // Keep explicit content groups separate even when their layouts happen to match.
 export function imageRuns(doc) {
+  if (!Array.isArray(doc)) return [];
   const runs = [];
-  (doc || []).forEach((block, index) => {
+  doc.forEach((block, index) => {
     const columns = isImage(block) ? columnsFor(block) : 1;
     const insetPercent = insetFor(block?.galleryInsetPercent);
     const template = isObservedGallery(block?.galleryTemplate) && block.galleryTemplate.id === block.galleryStyle ? block.galleryTemplate : null;
     const styleId = isImage(block) && (GALLERY_STYLES_BY_ID[block.galleryStyle] || template) ? block.galleryStyle : null;
     const previous = runs.at(-1);
-    if (isImage(block) && (columns > 1 || block.galleryId) && previous?.columns === columns && previous.insetPercent === insetPercent
+    if (isImage(block) && (columns > 1 || block.galleryId) && previous?.columns === columns && previous.items.length < MAX_WECHAT_GROUP_PHOTOS && previous.insetPercent === insetPercent
       && previous.styleId === styleId && isImage(previous.items[0].block)
       && (previous.items[0].block.galleryId || null) === (block.galleryId || null)) previous.items.push({ block, index });
     else runs.push({ columns, insetPercent, styleId, template, items: [{ block, index }] });
@@ -50,13 +52,13 @@ export function splitGallery(doc, uid) {
 export function mergeGallery(doc, uids) {
   const indexes = [...new Set(uids)].map(uid => (doc || []).findIndex(block => block.uid === uid))
     .filter(index => index >= 0).sort((a, b) => a - b);
-  if (indexes.length < 2) return doc;
+  if (indexes.length < 2 || indexes.length > MAX_WECHAT_GROUP_PHOTOS) return doc;
   const adjacent = indexes.every((value, i) => i === 0 || value === indexes[i - 1] + 1);
   const images = indexes.every(index => isImage(doc[index]));
   if (!adjacent || !images) return doc;
-  const galleryId = doc[indexes[0]].galleryId || `group-${doc[indexes[0]].uid}`;
+  const galleryId = `group-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   return doc.map((block, index) => indexes.includes(index)
-    ? { ...block, galleryId, galleryColumns: columnsFor(block) > 1 ? columnsFor(block) : 2 }
+    ? { ...block, galleryId, galleryColumns: draftGalleryColumns(indexes.length), galleryStyle: null, galleryTemplate: undefined }
     : block);
 }
 
@@ -81,10 +83,11 @@ export function arrangeImageGroups(doc, layout = 'auto', observed = null) {
   for (let start = 0; start < result.length; start++) {
     if (!isImage(result[start])) continue;
     let end = start + 1;
-    while (end < result.length && isImage(result[end]) && (result[end].galleryId || null) === (result[start].galleryId || null)) end++;
+    while (end - start < MAX_WECHAT_GROUP_PHOTOS && end < result.length && isImage(result[end])
+      && (result[end].galleryId || null) === (result[start].galleryId || null)) end++;
     const learned = layout === 'auto' ? normalizeImageGroup(observed) : null;
     const columns = layout === 'single' ? 1 : layout === 'pair' ? 2 : layout === 'triple' ? 3
-      : result[start].galleryId ? columnsFor(result[start]) : learned?.columns || (end - start >= 6 ? 3 : 2);
+      : result[start].galleryId ? columnsFor(result[start]) : learned?.columns || draftGalleryColumns(end - start);
     for (let index = start; index < end; index++) {
       if (columns > 1 && end - start > 1) result[index].galleryColumns = Math.min(columns, end - start);
       // 「沿用内容稿」时必须保留内容稿给每张图的分组列数：同一组的两张图可能被中间段落隔开，

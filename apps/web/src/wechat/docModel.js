@@ -2,7 +2,7 @@
 // 契约：/private/tmp/claude-501/-Users-liwenyu/f413e1a5-8f0f-436d-b775-8c9faffa99f1/scratchpad/canvas-editor-contracts.md 第 1 节。
 // 约束：只 import themes.js 的公开导出（applyBlock/BUILTIN_BLOCKS_BY_ID），不碰其私有函数；
 // para 正文样式在本文件内按 body 配置独立构造，刻意与 themes.js computeBodyStyles 的 p/strong/em/a 输出格式保持一致。
-import { applyBlock, BUILTIN_BLOCKS_BY_ID } from './themes.js';
+import { applyBlock, BUILTIN_BLOCKS_BY_ID, sectionParts } from './themes.js';
 import { derivePalette, applyThemeMasksToHtml } from './themeColor.js';
 import DOMPurify from 'dompurify';
 import { imageRuns, imageGroupHtml } from './imageGroups';
@@ -573,6 +573,7 @@ export function docToHtmlRaw(doc, options) {
   const globalAccent = normalizeAccent(opts.globalAccent) || '#1a1a1a';
   const bodyStyles = computeParaBodyStyles(opts.body, globalAccent);
   const themePalette = derivePalette(globalAccent); // 主题色联动：raw 块内 data-mm-theme 标注元素按此刷色
+  const numbered = sectionParts(doc, blocksById);
   let imageCount = 0;
 
   const parts = (Array.isArray(doc) ? doc : []).map((block) => {
@@ -581,7 +582,8 @@ export function docToHtmlRaw(doc, options) {
       if (block.blockId) {
         const style = lookupStyleBlock(blocksById, 'body', block.blockId);
         const inline = styleParaInlineHtml(block.html, bodyStyles);
-        return applyBlock(style, { content: `<span style="display:block;${bodyStyles.p.replace(/margin:[^;]*;/, '')}">${inline}</span>`, accent: normalizeAccent(block.accent) || globalAccent });
+        return applyBlock(style, { content: style.inheritBody ? inline : `<span style="display:block;${bodyStyles.p.replace(/margin:[^;]*;/, '')}">${inline}</span>`,
+          accent: normalizeAccent(block.accent) || globalAccent });
       }
       // 块级间距追加在正文样式之后，覆盖默认 line-height/margin（含负边距）
       return `<p style="${bodyStyles.p}${spacingToStyleString(block.spacing)}">${styleParaInlineHtml(block.html, bodyStyles)}</p>`;
@@ -612,11 +614,11 @@ export function docToHtmlRaw(doc, options) {
       return applyBlock(styleBlock, { accent });
     }
     // h2/h3/quote/signoff
-    return applyBlock(styleBlock, { content: escapeContentWithBreaks(block.content || ''), accent });
+    return applyBlock(styleBlock, { content: escapeContentWithBreaks(block.content || ''), accent, part: numbered.get(block.uid) });
   });
 
   const grouped = imageRuns(doc).map(run => run.template
-    ? observedGalleryHtml(run.items.map(item => item.block), run.template) : run.styleId
+    ? observedGalleryHtml(run.items.map(item => item.block), run.template, { compatible: opts.compatibleGalleries }) : run.styleId
     ? galleryStyleHtml(run.items.map(item => parts[item.index]), run.styleId) : run.columns > 1
     ? imageGroupHtml(run.items.map(item => parts[item.index]), run.columns, run.insetPercent)
     : run.items.map(item => parts[item.index]).join('\n'));

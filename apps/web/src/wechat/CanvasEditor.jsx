@@ -5,7 +5,7 @@
 // 不改动 WechatComposer.jsx / themes.js / builtinBlocks*.js / wechatExport.js，样式渲染只经 applyBlock。
 import React from 'react';
 import DOMPurify from 'dompurify';
-import { applyBlock, BUILTIN_BLOCKS_BY_ID, WECHAT_THEMES } from './themes.js';
+import { applyBlock, BUILTIN_BLOCKS_BY_ID, WECHAT_THEMES, sectionParts } from './themes.js';
 import {
   makeUid, sanitizeParaHtml, sanitizeRawHtml,
   splitRawHtml, applyRawImgStyle, isRawPhotoEl, listRawPhotos, splitPastedToParagraphs,
@@ -18,6 +18,7 @@ import { imageRuns, setImageRunColumns, splitGallery, mergeGallery } from './ima
 import { GALLERY_STYLES_BY_ID, galleryLayoutTree, galleryNodeStyle } from './galleryStyles';
 import { observedGalleryHtml } from './observedGallery';
 import { replacementError, styleDropBlock } from './styleReplacement';
+import { MAX_WECHAT_GROUP_PHOTOS } from '../utils/newsImageGroups';
 import './canvas.css';
 
 // 画布主渲染路径的客户端兜底清洗：样式块的 htmlTemplate 可能来自"我的库"或收藏快照，
@@ -285,14 +286,14 @@ function DividerView({ styleBlock, accent }) {
 // ---------------------------------------------------------------------------
 // h2/h3/quote/signoff 共用：整块模板渲染 + content 槽位原地编辑
 // ---------------------------------------------------------------------------
-function StyledSlotView({ block, styleBlock, accent, onCommitContent, bodyStyle }) {
+function StyledSlotView({ block, styleBlock, accent, onCommitContent, bodyStyle, part }) {
   const hostRef = React.useRef(null);
 
   // 模板骨架只在样式/颜色变化（换样式、换色）时才需要重算；文字内容单独在下面的 effect 里回填，
   // 二者分离是为了避免"打字过程中因为 doc.content 变化触发整段 innerHTML 重写、导致光标跳动"。
   const templateHtml = React.useMemo(
-    () => applyBlock(styleBlock, { content: SLOT_TOKEN, accent }),
-    [styleBlock, accent]
+    () => applyBlock(styleBlock, { content: SLOT_TOKEN, accent, part }),
+    [styleBlock, accent, part]
   );
 
   React.useLayoutEffect(() => {
@@ -318,10 +319,11 @@ function StyledSlotView({ block, styleBlock, accent, onCommitContent, bodyStyle 
       slot.contentEditable = 'true';
       if (block.kind === 'para') {
         slot.style.display = 'block';
-        ['fontSize', 'lineHeight', 'color', 'letterSpacing', 'textAlign', 'textIndent'].forEach((key) => {slot.style[key] = bodyStyle?.[key] || '';});
+        if (!styleBlock.inheritBody) ['fontSize', 'lineHeight', 'color', 'letterSpacing', 'textAlign', 'textIndent']
+          .forEach((key) => { slot.style[key] = bodyStyle?.[key] || ''; });
       }
     }
-  }, [templateHtml, block.content, block.html, block.kind, block.type, bodyStyle]);
+  }, [templateHtml, block.content, block.html, block.kind, block.type, bodyStyle, styleBlock.inheritBody]);
 
   const handleBlur = (e) => {
     const target = e.target;
@@ -789,7 +791,7 @@ function BlockToolbar({
 // 单个块的外层包裹：选中态/hover 态边框、浮动工具条定位、按 kind/type 派发到具体渲染
 // ---------------------------------------------------------------------------
 function BlockWrapper({
-  block, index, total, selected, multi, showBadge, layoutMode, styleBlock, accent, bodyStyle, activeRawImgIndex, activeRawImgKind, themePalette,
+  block, index, total, selected, multi, showBadge, layoutMode, styleBlock, accent, bodyStyle, activeRawImgIndex, activeRawImgKind, themePalette, part,
   onSelect, onMoveUp, onMoveDown, onDuplicate, onDelete,
   onChangeStyle, onChangeAccent, onInsertParaAfter, onImageClick,
   onCommitContent, onCommitCaption, onParaTransient, onParaCommit, onPasteParagraphs,
@@ -846,7 +848,7 @@ function BlockWrapper({
 
 
     }
-    return <StyledSlotView block={block} styleBlock={styleBlock} accent={accent} onCommitContent={onCommitContent} />;
+    return <StyledSlotView block={block} styleBlock={styleBlock} accent={accent} part={part} onCommitContent={onCommitContent} />;
   }
 
   return (
@@ -982,6 +984,7 @@ function CanvasEditor({
 }, ref) {
   const canvasRef = React.useRef(null);
   const list = React.useMemo(() => (Array.isArray(doc) ? doc : []), [doc]);
+  const numbered = React.useMemo(() => sectionParts(list, blocksById), [list, blocksById]);
   // 主题色调色板：以 globalAccent 为主色派生，刷到 raw 块内 data-mm-theme 标注元素（秀米式联动）
   const themePalette = React.useMemo(() => derivePalette(globalAccent || '#1a1a1a'), [globalAccent]);
 
@@ -1558,6 +1561,7 @@ function CanvasEditor({
                 selected={block.uid === selectedUid}
                 multi={multiSel.has(block.uid)}
                 styleBlock={styleBlock}
+                part={numbered.get(block.uid)}
                 accent={accent}
                 bodyStyle={computeParaStyle(bodyConfig, globalAccent)}
                 activeRawImgIndex={activeRawImg && activeRawImg.uid === block.uid ? activeRawImg.imgIndex : null}
@@ -1602,7 +1606,7 @@ function CanvasEditor({
 
           });
           if (run.template) return <div key={run.items[0].block.uid} className="cve-image-group cve-image-group--observed" data-gallery-style={run.styleId}>
-          <div className="cve-gallery-tools"><span>{run.template.name} · {content.length} 张</span>
+          <div className="cve-gallery-tools"><span>{run.template.name} · {content.length} 图组</span>
             <button type="button" onClick={() => onRequestStylePicker('imageGroup', run.items[0].block.uid)}>组图样式</button></div>
           <div className="cve-observed-original" data-cve-gallery-uid={run.items[0].block.uid}
             data-cve-drop-start={run.items[0].index} data-cve-drop-end={run.items[run.items.length - 1].index + 1}
@@ -1622,7 +1626,7 @@ function CanvasEditor({
           className={`cve-image-group${tree ? ' cve-image-group--styled' : ''}`} data-gallery-style={run.styleId || 'placeholder'}
           style={tree ? undefined : { gridTemplateColumns: `repeat(${run.columns}, minmax(0, 1fr))`,
             ...(run.insetPercent != null ? { gap: '8px 0', '--gallery-cell-inset': `${run.insetPercent}%` } : {}) }}>
-          <div className="cve-gallery-tools"><span>{GALLERY_STYLES_BY_ID[run.styleId]?.name || '组图'} · {content.length} 张</span>
+          <div className="cve-gallery-tools"><span>{run.styleId ? GALLERY_STYLES_BY_ID[run.styleId]?.name + ' · ' : ''}{content.length} 图组</span>
             <button type="button" onClick={() => onRequestStylePicker('imageGroup', run.items[0].block.uid)}>组图样式</button></div>
           {tree ? <GallerySlots node={tree}>{content}</GallerySlots> : content}</div> :
           <React.Fragment key={run.items[0].block.uid}>{content}</React.Fragment>;
@@ -1635,6 +1639,7 @@ function CanvasEditor({
         {list.filter((block) => multiSel.has(block.uid)).length >= 2 &&
         list.filter((block) => multiSel.has(block.uid)).every((block) => block.kind === 'styled' && block.type === 'imageCard') ?
         <button type="button" className="cve-multibar-btn" onClick={() => {
+          if (multiSel.size > MAX_WECHAT_GROUP_PHOTOS) { onNotify?.('info', `一组最多 ${MAX_WECHAT_GROUP_PHOTOS} 张照片`); return; }
           const next = mergeGallery(list, [...multiSel]);
           if (next === list) {onNotify?.('info', '只能合并相邻的图片');return;}
           onChange(next);clearMultiSel();onNotify?.('success', '已合并为一组组图');

@@ -23,7 +23,7 @@ async function main() {
       try {
         await page.goto(`http://127.0.0.1:${server.address().port}/?channel=wechat`);
         await page.getByRole('button', { name: '确认内容，选择样式', exact: true }).click();
-        await page.locator('.wechat-layout-templates button').filter({ hasText: '双列组图' }).first().click();
+        await page.locator('.wechat-layout-templates button').filter({ hasText: '· 组图' }).first().click();
         await page.getByRole('button', { name: '应用模板，生成排版稿', exact: true }).click();
         await page.locator('.cve-canvas').waitFor();
         const original = await readDoc(page);

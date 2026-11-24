@@ -5,7 +5,7 @@ import { IconSparkleAI, IconChevronLeft } from './ui/icons';
 import { request } from './services/request';
 import { THEME_PRESETS, applyBlock } from './wechat/themes';
 import { normalizeLayoutLibrary, templateLayout } from './utils/wechatWorkflow';
-import { IMAGE_LAYOUTS } from './wechat/imageGroups';
+import { imageRuns } from './wechat/imageGroups';
 
 export default function WechatLayoutPanel({ confirmed, current, storageKey, onBack, onApply, onSaveContent }) {
   const jobKey = storageKey ? `${storageKey}:layout-job` : null;
@@ -17,7 +17,6 @@ export default function WechatLayoutPanel({ confirmed, current, storageKey, onBa
     try { return JSON.parse(localStorage.getItem(jobKey) || 'null') ? 'ai' : 'template'; } catch { return 'template'; }
   });
   const [template, setTemplate] = React.useState('');
-  const [imageLayout, setImageLayout] = React.useState('auto');
   const [observed, setObserved] = React.useState({ templates: [], library: {}, loading: true, error: '' });
   const [selectedAssets, setSelectedAssets] = React.useState([]);
   const [failedAssets, setFailedAssets] = React.useState([]);
@@ -134,15 +133,19 @@ export default function WechatLayoutPanel({ confirmed, current, storageKey, onBa
   const run = () => {
     if (!current || !brief.trim() || pending) return;
     clearFinished();
-    submit({ confirmed, imageLayout, brief: brief.trim(), startedAt: Date.now(), clientRequestId: typeof crypto.randomUUID === 'function' ? crypto.randomUUID()
+    submit({ confirmed, brief: brief.trim(), startedAt: Date.now(), clientRequestId: typeof crypto.randomUUID === 'function' ? crypto.randomUUID()
       : `layout-${Date.now()}-${Math.random().toString(36).slice(2)}` });
   };
   const selectedTemplate = observed.templates.find(item => item.id === template);
   const templateConfig = selectedTemplate ? { ...THEME_PRESETS.minimal, ...selectedTemplate.styleIds,
     imageGroup: selectedTemplate.imageGroup,
     accent: selectedTemplate.base?.accent || THEME_PRESETS.minimal.accent,
-    body: { ...THEME_PRESETS.minimal.body, ...(selectedTemplate.base?.fontSize ? { fontSize: selectedTemplate.base.fontSize } : {}) },
-    h1: selectedTemplate.styleIds.h2, bodyStyleId: 'builtin-body-plain' } : null;
+    body: { ...THEME_PRESETS.minimal.body, ...(selectedTemplate.base?.fontSize ? { fontSize: selectedTemplate.base.fontSize } : {}),
+      ...(selectedTemplate.base?.lineHeight ? { lineHeight: selectedTemplate.base.lineHeight } : {}),
+      ...(selectedTemplate.base?.textIndent === true ? { textIndent: true } : {}) },
+    h1: selectedTemplate.styleIds.h1 || selectedTemplate.styleIds.h2,
+    bodyStyleId: 'builtin-body-plain' } : null;
+  const groups = imageRuns(confirmed?.source.doc).filter(run => run.items.length > 1);
   return <section className="wechat-layout-selection" aria-label="选择公众号样式">
     <div className="wechat-layout-heading"><div><h2>选择样式</h2><span>{confirmed?.source.title} · {confirmed?.source.doc.length || 0} 个内容块</span></div>
       <Button size="small" theme="borderless" onClick={onSaveContent}>备份内容稿</Button></div>
@@ -152,10 +155,7 @@ export default function WechatLayoutPanel({ confirmed, current, storageKey, onBa
     <p className="wechat-layout-hint">{choice === 'template'
       ? '直接套用推文观察库里保存的标题与组图样式；选中后点底部按钮生成排版稿。'
       : '按内容稿与下方风格描述让模型生成排版；失败不会覆盖现有排版稿。'}</p>
-    {confirmed?.source.doc.filter(block => block.type === 'imageCard').length > 1 ? <div className="wechat-image-layout">
-      <span>组图 <small>{confirmed.source.doc.filter(block => block.type === 'imageCard').length} 张配图</small></span>
-      <SegmentedControl label="组图布局" value={imageLayout} options={IMAGE_LAYOUTS} onChange={setImageLayout} disabled={Boolean(pending)} />
-    </div> : null}
+    {groups.length ? <div className="wechat-image-layout"><span>{groups.map(run => `${run.items.length} 图组`).join(' · ')}</span></div> : null}
     {choice === 'template' ? <>
       {observed.loading ? <p role="status">正在读取推文观察库样式</p> : observed.error ? <p role="alert">{observed.error}</p>
         : !observed.templates.length ? <p>推文观察库暂无可用的标题样式</p> : null}
@@ -166,7 +166,7 @@ export default function WechatLayoutPanel({ confirmed, current, storageKey, onBa
         return <button type="button" key={item.id} aria-pressed={template === item.id} onClick={() => { setTemplate(item.id); setSelectedAssets([]); }}>
           <span className="wechat-template-name">{item.name}</span>
           <div className="wechat-template-sample" dangerouslySetInnerHTML={{ __html: sample }} />
-          <small>{item.count > 1 ? `系列 · ${item.count} 篇 · ${item.sourceTitle}` : '北京中关村学院 · 推文观察库'}{item.imageGroup ? ` · ${item.imageGroup.columns === 2 ? '双列' : '三列'}组图` : ''}</small>
+          <small>{item.count > 1 ? `系列 · ${item.count} 篇 · ${item.sourceTitle}` : `${item.sourceAccount || '北京中关村学院'} · 推文观察库`}{item.imageGroup ? ' · 组图' : ''}</small>
         </button>;
       })}
     </div>
@@ -198,7 +198,7 @@ export default function WechatLayoutPanel({ confirmed, current, storageKey, onBa
     {error ? <p className="news-input-error" role="alert">{error}</p> : null}
     <div className="wechat-layout-actions"><Button size="small" theme="borderless" icon={<IconChevronLeft />} onClick={onBack}>返回内容稿</Button>
       {pending && error ? <Button disabled={submitting} onClick={() => submit(pending)}>重试同一任务</Button> : null}
-      {choice === 'template' ? <Button type="primary" disabled={!current || Boolean(pending) || !templateConfig} onClick={() => onApply(confirmed, { ...templateLayout(confirmed.source, templateConfig), imageLayout }, observed.library,
+      {choice === 'template' ? <Button type="primary" disabled={!current || Boolean(pending) || !templateConfig} onClick={() => onApply(confirmed, templateLayout(confirmed.source, templateConfig), observed.library,
         (selectedTemplate.brandCandidates || []).filter(asset => selectedAssets.includes(asset.id)), templateConfig.imageCard)}>应用模板，生成排版稿</Button>
         : <Button type="primary" icon={<IconSparkleAI />} disabled={!current || !brief.trim() || Boolean(pending) || submitting} onClick={run}>AI 自动排版</Button>}
     </div>

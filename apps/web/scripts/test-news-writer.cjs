@@ -24,13 +24,13 @@ const { newsDraftKey, importLegacyNewsDraft, formatNewsDate, archiveNewsContent,
 const { pollNewsBatch } = load('src/services/newsBatchPolling.js');
 const { normalizeNewsPhoto, mergeNewsPhotos, newsAlbumDefaults } = load('src/utils/newsPhotoSelection.js');
 const { wechatDraftKey, wechatAiDraftKey, wechatImportKey, hasWechatDraft } = load('src/utils/wechatDraftState.js');
-const { articleBlocks, changeArticleBlock, articleBodyMarkdown, withoutImageGroupMarkers } = load('src/utils/newsArticle.js');
+const { articleBlocks, changeArticleBlock, articleBodyMarkdown, withoutImageGroupMarkers, normalizeReviewCredits, renderDraftArticle } = load('src/utils/newsArticle.js');
 const { freezeContent, materializeLayout, templateLayout, contentSignature, workflowKey, addObservedBrandAssets, normalizeLayoutLibrary, mergeContentIntoLayout, layoutToMarkdown } = load('src/utils/wechatWorkflow.js');
 const { revisionSource, revisionPhotoReferences, applyRevision, revisionTarget, contextualRevisionTarget, revisionContinuation, REVISION_ACTIONS } = load('src/utils/newsRevision.js');
 const { sourceRanges, floatingPosition } = load('src/utils/newsEditorSelection.js');
 const { editorDocument, editorMarkdown, editorSelection, editorPhotoGroups, changeEditorImageGroup, moveEditorPhoto } = load('src/utils/newsEditorModel.js');
 const { photoDropPlacement } = load('src/utils/newsEditorPhotoDrag.js');
-const { imageGroupMarker, parseImageGroupMarker } = load('src/utils/newsImageGroups.js');
+const { imageGroupMarker, parseImageGroupMarker, MAX_WECHAT_GROUP_PHOTOS } = load('src/utils/newsImageGroups.js');
 const { EditorState, TextSelection } = require('prosemirror-state');
 const { THEME_PRESETS } = load('src/wechat/themes.js');
 const { docToHtmlRaw, createHistory } = load('src/wechat/docModel.js');
@@ -53,7 +53,7 @@ test('observed templates preserve all photos and captions through replacement, e
     const changed = replaceBlockStyle(doc, 'p0', style);
     assert.equal(changed.error, '');
     const restored = JSON.parse(JSON.stringify(changed.doc));
-    assert.equal(imageRuns(restored).length, 1);
+    assert.equal(imageRuns(restored).length, Math.ceil(count / MAX_WECHAT_GROUP_PHOTOS));
     assert.equal(imageRuns(restored)[0].template.htmlTemplate, style.htmlTemplate);
     const exported = docToHtmlRaw(restored);
     assert.equal(exported.imageCount, count);
@@ -76,7 +76,7 @@ test('complex gallery styles preserve all slots, order and adjacent group bounda
     assert.equal(result.error, ''); assert(result.changed);
     assert.equal(result.doc.at(-1), other);
     assert.deepEqual(result.doc.slice(0, count).map(({ galleryStyle, ...item }) => item), photos);
-    assert.equal(imageRuns(result.doc).length, 2);
+    assert.equal(imageRuns(result.doc).length, Math.ceil(count / MAX_WECHAT_GROUP_PHOTOS) + 1);
     const exported = docToHtmlRaw(result.doc);
     assert.equal(exported.imageCount, count + 1);
     assert.equal((exported.html.match(/data-gallery-style=/g) || []).length, 1);
@@ -173,13 +173,77 @@ test('30 selected images keep order, captions and URLs through confirmation, gro
     const { html, imageCount } = docToHtmlRaw(restored.doc);
     assert.equal(imageCount, 30); assert.equal((html.match(/<img\b/g) || []).length, 30);
     for (const photo of photos) assert(html.includes(photo.url));
-    assert.equal(imageRuns(restored.doc).filter(run => run.columns > 1).length, imageLayout === 'single' ? 0 : 1);
+    assert.deepEqual(imageRuns(restored.doc).filter(run => run.items[0].block.type === 'imageCard')
+      .map(run => run.items.length), [8, 8, 8, 6]);
+    assert.equal(imageRuns(restored.doc).filter(run => run.columns > 1).length, imageLayout === 'single' ? 0 : 4);
     const two = setImageRunColumns(restored.doc, images[4].uid, 2);
     assert.equal(imageRuns(two).find(run => run.columns > 1).columns, 2);
     const removed = two.filter(block => block.uid !== images[4].uid);
     assert.equal(docToHtmlRaw(removed).imageCount, 29, 'intentional deletion must not restore photos');
   }
   assert.equal(JSON.stringify(confirmed), original, 'presentation cannot rewrite confirmed content');
+});
+
+test('the eight-photo cap applies to inferred and legacy groups as well as drag and merge', () => {
+  const photos = Array.from({ length: 10 }, (_, i) => `![图题 ${i}](/img/${i}.jpg)`);
+  const marker = imageGroupMarker({ galleryId: 'legacy', galleryColumns: 3 });
+  for (const prefix of ['', marker]) {
+    const state = EditorState.create({ doc: editorDocument(photos.map(photo => prefix + photo).join('\n\n')) });
+    const [eight, two] = editorPhotoGroups(state.doc);
+    assert.deepEqual([eight.items.length, two.items.length], [8, 2]);
+    assert.notEqual(eight.id, two.id);
+    assert.equal(moveEditorPhoto(state, two.items[0].index, { mode: 'group', index: eight.items[0].index, after: false }), null);
+    assert.equal(changeEditorImageGroup(state, eight.items[0].pos, 'mergeNext'), null);
+    assert.ok(moveEditorPhoto(state, eight.items[0].index, { mode: 'group', index: eight.items[2].index, after: true }));
+    assert.deepEqual(editorPhotoGroups(editorDocument(editorMarkdown(state.doc).markdown)).map(group => group.items.length), [8, 2]);
+  }
+});
+
+test('observed carousels apply to every group size from 2 to 8 and compatible copy keeps all photos once', () => {
+  const { templateFromSource } = require('../../server/lib/wechat_observed_gallery_templates');
+  const makeOriginal = count => `<svg viewBox="0 0 600 400"><g><animateTransform attributeName="transform" type="translate" begin="0s" values="0 0;-600 0" dur="24s"></animateTransform>
+    ${Array.from({ length: count }, (_, i) => `<image href="https://mmbiz.qpic.cn/${i}" x="${600 * i}" width="600" height="400"></image>`).join('')}</g></svg>`;
+  const style = templateFromSource(makeOriginal(8), { id: 1, current_revision_id: 2, title: '来源' }, 'carousel');
+  assert.equal(style.slots, 8);
+  for (let count = 2; count <= 8; count++) {
+    const doc = Array.from({ length: count }, (_, i) => ({ uid: `p${i}`, kind: 'styled', type: 'imageCard',
+      galleryId: 'g', src: `/photos/${i % 2}.jpg?a=${i % 2}&b=1`, caption: `图题${i}` }));
+    const changed = replaceBlockStyle(doc, 'p0', style);
+    assert.equal(changed.error, '');
+    const rendered = docToHtmlRaw(changed.doc).html;
+    assert.equal((rendered.match(/<svg\b/gi) || []).length, 1);
+    assert.match(rendered, /animateTransform/i);
+    assert.equal(new Set([...rendered.matchAll(/data-gallery-slot="(\d+)"/g)].map(match => match[1])).size, count);
+    const compatible = docToHtmlRaw(changed.doc, { compatibleGalleries: true });
+    assert.equal(compatible.imageCount, count);
+    assert.doesNotMatch(compatible.html, /<svg\b|background-image|\{\{photo_/);
+    assert.deepEqual([...compatible.html.matchAll(/<img[^>]+src="([^"]*)"/g)].map(match => match[1]),
+      doc.map(photo => photo.src.replace('&', '&amp;')), 'even repeated URLs survive in their original order');
+    for (const photo of doc) assert(compatible.html.includes(photo.caption));
+  }
+});
+
+test('review signatures stay in one editable paragraph including in the AI青年说 template', () => {
+  const markdown = '# 人物故事\n\n栏目的本期导语。\n\n## 科研经历\n\n研究正文。\n\n## 教学交流\n\n初审：甲\n\n终审：乙';
+  const normalized = normalizeReviewCredits(markdown);
+  assert.match(normalized, /初审：甲  \n终审：乙$/);
+  assert.match(renderDraftArticle(markdown), /初审：甲<br>终审：乙/);
+  const content = editorMarkdown(editorDocument(markdown));
+  assert.equal(content.entries.filter(item => item.node.textContent.includes('初审')).length, 1);
+  assert.match(content.entries.at(-1).node.textContent, /初审：甲 *\n终审：乙/);
+  const confirmed = freezeContent({ title: '人物故事', markdown });
+  assert.equal(confirmed.source.doc.filter(block => block.html?.includes('初审')).length, 1);
+  assert.equal(confirmed.source.doc.at(-1).html, '初审：甲<br>终审：乙');
+  const curated = require('../../server/lib/wechat_curated_templates.json');
+  const config = { ...THEME_PRESETS.minimal, ...curated.templates[0].styleIds };
+  const layout = materializeLayout(confirmed, templateLayout(confirmed.source, config), normalizeLayoutLibrary(curated.blocks));
+  const exported = docToHtmlRaw(layout.doc, { blocksById: layout.sourceDocument.styleBlocks }).html;
+  assert.match(exported, /栏目介绍.*栏目的本期导语。/);
+  assert.match(exported, /PART 01.*科研经历/);
+  assert.match(exported, /PART 02.*教学交流/);
+  assert.match(exported, /color:#a0a0a0;">初审：甲<br>终审：乙<\/section>/);
+  assert.match(layoutToMarkdown(layout.doc), /初审：甲\n终审：乙$/);
+  assert.equal(docToHtmlRaw({}).imageCount, 0);
 });
 
 test('content grouping precedes observed styles, retaining their insets and source but not overriding content columns', () => {
@@ -757,8 +821,8 @@ test('splitGallery/mergeGallery handle layout image groups', () => {
   assert.equal(split[4].uid, 'i4');
   assert.equal(splitGallery(doc, 'i4'), doc, 'single image needs no split');
   const merged = mergeGallery(doc, ['i3', 'i4']);
-  assert.equal(merged[3].galleryId, 'g1');
-  assert.equal(merged[4].galleryId, 'g1');
+  assert.equal(merged[3].galleryId, merged[4].galleryId);
+  assert.notEqual(merged[3].galleryId, 'g1', 'non-selected neighbors stay in their own group');
   assert.equal(merged[4].galleryColumns, 2);
   assert.equal(mergeGallery(doc, ['i1', 'i4']), doc, 'non-adjacent images cannot merge');
   assert.equal(mergeGallery(doc, ['i1', 'p']), doc, 'non-image blocks cannot merge');

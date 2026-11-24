@@ -5,10 +5,11 @@ import { Slice, Fragment } from 'prosemirror-model';
 import { baseKeymap, splitBlockAs } from 'prosemirror-commands';
 import { keymap } from 'prosemirror-keymap';
 import 'prosemirror-view/style/prosemirror.css';
-import { TextArea } from './ui';
+import { TextArea, Toast } from './ui';
 import { editorDocument, editorMarkdown, editorSelection, setEditorBlockStyle, editorPhotoGroups,
   changeEditorImageGroup, moveEditorPhoto, newEditorGalleryId, newsEditorSchema as schema } from './utils/newsEditorModel';
 import { editorPhotoDropPlacement } from './utils/newsEditorPhotoDrag';
+import { MAX_WECHAT_GROUP_PHOTOS, draftGalleryColumns } from './utils/newsImageGroups';
 import { beginDrag, registerDropZone } from './wechat/pointerDrag';
 import NewsPhotoPicker from './NewsPhotoPicker';
 import NewsBlockControls from './NewsBlockControls';
@@ -72,23 +73,20 @@ export default function NewsArticleEditor({ markdown, onChange, title, onChangeT
           if (!group.id || group.items.length < 2) return;
           decorations.push(Decoration.widget(group.items[0].pos, () => {
             const header = document.createElement('div'); header.className = 'news-edit-gallery-header'; header.contentEditable = 'false';
-            header.setAttribute('role', 'group'); header.setAttribute('aria-label', `组图 ${groupIndex + 1}`);
-            const label = document.createElement('span'); label.textContent = `组图 ${groupIndex + 1} · ${group.items.length} 张`; header.append(label);
-            const modes = document.createElement('div'); modes.className = 'news-edit-gallery-columns'; header.append(modes);
-            const button = (parent, text, action, value) => {
-              const element = document.createElement('button'); element.type = 'button'; element.textContent = text;
-              if (action === 'columns') element.setAttribute('aria-pressed', String(group.columns === value));
+            const name = `${group.items.length} 图组`;
+            header.setAttribute('role', 'group'); header.setAttribute('aria-label', name);
+            const label = document.createElement('span'); label.textContent = name; header.append(label);
+            const next = groups[groupIndex + 1], last = group.items.at(-1);
+            if (next && next.items[0].pos === last.pos + last.node.nodeSize && group.items.length + next.items.length <= MAX_WECHAT_GROUP_PHOTOS) {
+              const element = document.createElement('button'); element.type = 'button'; element.textContent = '合并下一组';
               element.addEventListener('pointerdown', event => event.preventDefault());
               element.addEventListener('click', () => {
                 const current = view.current; if (!current || current.state.doc !== state.doc) return;
-                const transaction = changeEditorImageGroup(current.state, group.items[0].pos, action, value);
+                const transaction = changeEditorImageGroup(current.state, group.items[0].pos, 'mergeNext');
                 if (transaction) current.dispatch(transaction);
               });
-              parent.append(element);
-            };
-            [1, 2, 3].forEach(value => button(modes, ['单列', '双列', '三列'][value - 1], 'columns', value));
-            const next = groups[groupIndex + 1], last = group.items.at(-1);
-            if (next && next.items[0].pos === last.pos + last.node.nodeSize) button(header, '合并下一组', 'mergeNext');
+              header.append(element);
+            }
             return header;
           }, { side: -1, stopEvent: () => true, ignoreSelection: true }));
         });
@@ -201,7 +199,7 @@ export default function NewsArticleEditor({ markdown, onChange, title, onChangeT
         dropIndicator.hidden = !next;
         if (!next) return;
         const image = next.image, rect = image || editor.dom.getBoundingClientRect();
-        dropIndicator.dataset.mode = next.target.mode;
+        dropIndicator.dataset.mode = next.full ? 'full' : next.target.mode;
         dropIndicator.dataset.side = next.target.after ? 'after' : 'before';
         Object.assign(dropIndicator.style, { left: rect.left + 'px', top: (image ? rect.top : next.line) + 'px',
           width: rect.width + 'px', height: (image ? rect.height : 2) + 'px' });
@@ -210,6 +208,7 @@ export default function NewsArticleEditor({ markdown, onChange, title, onChangeT
       onDrop: (point, payload) => {
         const next = placement(point, payload);
         if (!next) return;
+        if (next.full) { Toast.info(`一组最多 ${MAX_WECHAT_GROUP_PHOTOS} 张照片`); return; }
         const transaction = moveEditorPhoto(editor.state, payload.data.index, next.target);
         if (transaction) editor.dispatch(transaction);
       },
@@ -301,10 +300,15 @@ export default function NewsArticleEditor({ markdown, onChange, title, onChangeT
       const editor = view.current;
       if (picking.doc !== editor.state.doc) { setInsertError('正文已变化，请重新选择插入位置'); setPicking(null); return; }
       const existing = new Set(); editor.state.doc.forEach(node => { if (node.type.name === 'photo') existing.add(node.attrs.href); });
-      const added = photos.filter(photo => !existing.has(photo.url || photo.thumbUrl)).slice(0, Math.max(0, 30 - existing.size));
-      const galleryId = added.length > 1 ? newEditorGalleryId() : null;
-      const nodes = added.filter(photo => /^(https?:\/\/|\/[^/])/.test(photo.url || photo.thumbUrl || '')).map(photo => schema.nodes.photo.create({ href: photo.url || photo.thumbUrl,
-        galleryId, galleryColumns: added.length >= 6 ? 3 : added.length > 1 ? 2 : 1 }));
+      const added = photos.filter(photo => /^(https?:\/\/|\/[^/])/.test(photo.url || photo.thumbUrl || '')
+        && !existing.has(photo.url || photo.thumbUrl)).slice(0, Math.max(0, 30 - existing.size));
+      const nodes = [];
+      for (let i = 0; i < added.length; i += MAX_WECHAT_GROUP_PHOTOS) {
+        const group = added.slice(i, i + MAX_WECHAT_GROUP_PHOTOS);
+        const galleryId = newEditorGalleryId();
+        nodes.push(...group.map(photo => schema.nodes.photo.create({ href: photo.url || photo.thumbUrl,
+          galleryId, galleryColumns: draftGalleryColumns(group.length) })));
+      }
       if (nodes.length) { insert(picking.pos, nodes); onPhotosAdded?.(added); } setPicking(null);
     }} /> : null}
   </div>;

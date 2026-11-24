@@ -8,8 +8,8 @@ if (!localStorage.getItem(key)) {
   const photos = Array.from({ length: 30 }, (_, index) => ({ id: index + 1,
     url: `/__news-qa/images/${ids[index % ids.length]}.jpg` }));
   const markdownText = '# 校园交流活动（组图测试稿）\n\n这是一份用于检查配图排版的本地测试稿。\n\n'
-    + ['活动现场', '交流记录', '更多瞬间'].map((title, group) => `## ${title}\n\n`
-      + photos.slice(group * 10, group * 10 + 10).map((photo, index) => `![现场记录 ${group * 10 + index + 1}](${photo.url})`).join('\n\n')).join('\n\n')
+    + ['活动现场', '交流记录', '更多瞬间', '活动留影'].map((title, group) => `## ${title}\n\n`
+      + photos.slice(group * 8, group * 8 + 8).map((photo, index) => `![现场记录 ${group * 8 + index + 1}](${photo.url})`).join('\n\n')).join('\n\n')
     + '\n\n初审：李老师\n终审：王老师';
   localStorage.setItem(key, JSON.stringify({ channelContent: { wechat_article: { title: '校园交流活动（组图测试稿）', markdownText, photos } },
     activeChannelKey: 'wechat_article', selectedChannels: ['wechat_article'], formValues: { sourceMaterial: '本地排版测试材料' } }));

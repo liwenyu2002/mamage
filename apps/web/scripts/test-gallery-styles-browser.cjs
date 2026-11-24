@@ -23,14 +23,14 @@ async function main() {
       try {
         await page.goto(`http://127.0.0.1:${server.address().port}/?channel=wechat`);
         await page.getByRole('button', { name: '确认内容，选择样式', exact: true }).click();
-        await page.locator('.wechat-layout-templates button').filter({ hasText: '双列组图' }).first().click();
+        await page.locator('.wechat-layout-templates button').filter({ hasText: '· 组图' }).first().click();
         await page.getByRole('button', { name: '应用模板，生成排版稿', exact: true }).click();
         await page.locator('.cve-canvas').waitFor();
         const original = await readDoc(page);
         const photos = original.filter(block => block.type === 'imageCard');
         const target = photos[0];
         const groupIds = photos.filter(block => block.galleryId === target.galleryId).map(block => block.uid);
-        assert.equal(groupIds.length, 10);
+        assert.equal(groupIds.length, 8);
         await page.getByRole('button', { name: '组图样式', exact: true }).first().click();
         const cards = page.locator('.wxc-lib-block--gallery');
         assert.ok((await cards.count()) >= 2, 'observed gallery styles are listed (corpus may add more than the two baseline styles)');
@@ -40,7 +40,7 @@ async function main() {
         for (const id of ids) {
           await page.locator(`[data-style-id="${id}"]`).click();
           await confirm.waitFor();
-          assert.equal(await confirm.locator('[data-gallery-slot]').evaluateAll(elements => new Set(elements.map(el => el.dataset.gallerySlot)).size), 10, 'preview keeps the entire group, including SVG background photos');
+          assert.equal(await confirm.locator('[data-gallery-slot]').evaluateAll(elements => new Set(elements.map(el => el.dataset.gallerySlot)).size), 8, 'preview keeps the entire group, including SVG background photos');
           assert.deepEqual(await readDoc(page), original, 'preview does not alter the draft');
           await confirm.getByRole('button', { name: '取消', exact: true }).click();
         }
@@ -54,7 +54,7 @@ async function main() {
         assert(expected.filter(block => groupIds.includes(block.uid)).every(block => block.galleryStyle === carouselId && block.galleryTemplate?.slots === appliedSlots));
         assert(expected.filter(block => !groupIds.includes(block.uid)).every(block => !block.galleryStyle));
         const gallery = page.locator(`.cve-image-group[data-gallery-style="${carouselId}"]`);
-        assert.equal(await gallery.locator('.cve-observed-images [data-cve-uid]').count(), 10);
+        assert.equal(await gallery.locator('.cve-observed-images [data-cve-uid]').count(), 8);
         await gallery.locator('.cve-gallery-tools').scrollIntoViewIfNeeded();
         await page.waitForFunction(() => document.querySelectorAll('.mamage-toast').length === 0);
         await page.screenshot({ path: path.join(shots, `${width}-applied.png`) });
@@ -79,7 +79,7 @@ async function main() {
         await page.locator('.cve-canvas').waitFor();
         assert.deepEqual(await readDoc(page), replaced);
         assert.equal((await readDoc(page)).filter(block => block.type === 'imageCard').length, 30);
-        assert.equal(await gallery.locator('.cve-observed-original [data-gallery-slot]').evaluateAll(elements => new Set(elements.map(el => el.dataset.gallerySlot)).size), 10);
+        assert.equal(await gallery.locator('.cve-observed-original [data-gallery-slot]').evaluateAll(elements => new Set(elements.map(el => el.dataset.gallerySlot)).size), 8);
 
         // 复制到公众号：轮播照片是 CSS 背景图 + SVG，微信粘贴会剥掉 → 导出必须展平成块级 <img>。
         // 拦截 navigator.clipboard.write 读最终导出 HTML（Async Clipboard 路径），断言 30 张配图都在。
@@ -121,7 +121,7 @@ async function main() {
           await page.locator('.cve-style-drop-target:not(.is-incompatible)').waitFor();
           await page.mouse.up();
           await confirm.waitFor();
-          assert.equal(await confirm.locator('[data-gallery-slot]').count(), 10);
+          assert.equal(await confirm.locator('[data-gallery-slot]').count(), 8);
           await confirm.getByRole('button', { name: '应用样式', exact: true }).click();
           const afterDrop = await readDoc(page);
           assert(afterDrop.filter(block => groupIds.includes(block.uid)).every(block => block.galleryStyle === secondId && block.galleryTemplate.slots === 4));
@@ -129,7 +129,7 @@ async function main() {
         }
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true);
         assert.deepEqual(errors, []);
-        console.log(JSON.stringify({ width, styles: ids.length, preview: 10, totalPhotos: 30, undo: true, replaceSlot: true, reload: true, copyFlatten: true, drag: width > 968 }));
+        console.log(JSON.stringify({ width, styles: ids.length, preview: 8, totalPhotos: 30, undo: true, replaceSlot: true, reload: true, copyFlatten: true, drag: width > 968 }));
       } catch (error) {
         await page.screenshot({ path: path.join(shots, `${width}-failure.png`) });
         throw error;

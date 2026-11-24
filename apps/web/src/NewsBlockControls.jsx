@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { IconPlus, IconChevronRight, IconTrash, IconSparkleAI, IconMoreStroked, IconSimilarStack, IconInfoEdit } from './ui/icons';
 import { floatingPosition } from './utils/newsEditorSelection';
 import { editorPhotoGroups } from './utils/newsEditorModel';
+import { MAX_WECHAT_GROUP_PHOTOS } from './utils/newsImageGroups';
 
 const formats = [{ value: 'paragraph', symbol: 'T', label: '正文' }, { value: 'h1', symbol: 'H1', label: '一级标题' },
   { value: 'h2', symbol: 'H2', label: '二级标题' }, { value: 'h3', symbol: 'H3', label: '三级标题' }];
@@ -23,13 +24,13 @@ export default function NewsBlockControls({ editorRef, revision, onAction, child
       const bounds = dom.getBoundingClientRect();
       const group = groups.find(item => item.items.some(photo => photo.pos === pos));
       const imageIndex = group?.items.findIndex(item => item.pos === pos);
-      const nextPhoto = group?.items.length === 1 && editor.state.doc.nodeAt(pos + node.nodeSize)?.type.name === 'photo';
+      const nextGroup = group?.items.length === 1 && groups.find(item => item.items[0].pos === pos + node.nodeSize);
       const header = imageIndex === 0 && dom.previousElementSibling?.classList.contains('news-edit-gallery-header') ? dom.previousElementSibling : null;
       blocks.push({ pos, index, top: (bounds.top - rect.top) / scale, bottom: (bounds.bottom - rect.top) / scale,
         left: (bounds.left - rect.left) / scale, width: bounds.width / scale,
         galleryId: group?.id, groupStart: imageIndex === 0, groupTop: header ? (header.getBoundingClientRect().top - rect.top) / scale : null,
         canSplitBefore: imageIndex > 0, canSplitAfter: imageIndex >= 0 && imageIndex < group.items.length - 1,
-        canMergeNext: nextPhoto,
+        canMergeNext: Boolean(nextGroup && nextGroup.items.length < MAX_WECHAT_GROUP_PHOTOS),
         hasCaption: node.type.name === 'photo' && Boolean(node.textContent.trim()),
         style: node.type.name === 'heading' ? `h${node.attrs.depth}` : node.type.name === 'photo' ? 'photo' : 'paragraph' });
     });

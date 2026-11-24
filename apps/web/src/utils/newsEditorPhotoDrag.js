@@ -1,3 +1,6 @@
+import { editorPhotoGroups } from './newsEditorModel';
+import { MAX_WECHAT_GROUP_PHOTOS } from './newsImageGroups';
+
 const horizontalDistance = (rect, x) => Math.max(rect.left - x, x - rect.right, 0);
 
 export function photoDropPlacement(blocks, { x, y }, source) {
@@ -46,5 +49,8 @@ export function editorPhotoDropPlacement(editor, point, source) {
     const image = node.type.name === 'photo' && element.querySelector('img')?.getBoundingClientRect();
     blocks.push({ index, bounds, image });
   });
-  return photoDropPlacement(blocks, point, source);
+  const placement = photoDropPlacement(blocks, point, source);
+  if (placement?.target.mode !== 'group') return placement;
+  const destination = editorPhotoGroups(source.doc).find(group => group.items.some(item => item.index === placement.target.index));
+  return { ...placement, full: destination?.items.length >= MAX_WECHAT_GROUP_PHOTOS && !destination.items.some(item => item.index === source.index) };
 }
