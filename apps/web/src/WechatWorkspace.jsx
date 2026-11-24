@@ -9,7 +9,6 @@ import { workflowKey, contentSignature, freezeContent, materializeLayout, addObs
 import { saveComposition } from './services/wechatCompositionService';
 import WechatLayoutPanel from './WechatLayoutPanel';
 import WechatDraftBackups from './WechatDraftBackups';
-import WechatDraftRecovery from './WechatDraftRecovery';
 import './newsWriter.css';
 
 const Composer = React.lazy(() => import('./WechatComposer'));
@@ -230,14 +229,12 @@ export default function WechatWorkspace({ currentUser, workspaceId, initialMode 
     </nav>
     {workspaceView === 'monitor' ? <React.Suspense fallback={<p role="status">正在加载推文观察…</p>}><Monitor workspaceId={workspaceId} /></React.Suspense> : null}
     <div hidden={workspaceView !== 'writing'}>
-    {mode === 'library' ? <>
-      <WechatDraftRecovery draftKey={contentKey} onOpen={draft => {
-        setRestoredArticle(null); setInitialContentDraft(draft); setStage('content'); setMode('ai');
-      }} />
-      <React.Suspense fallback={<p role="status">正在加载推文列表…</p>}>
-        <Composer currentUser={currentUser} workspaceId={workspaceId} onStartAiWorkflow={() => { setStage('content'); setMode('ai'); }} />
-      </React.Suspense>
-    </> : <>
+    {mode === 'library' ? <React.Suspense fallback={<p role="status">正在加载推文列表…</p>}>
+      <Composer currentUser={currentUser} workspaceId={workspaceId} onStartAiWorkflow={() => { setStage('content'); setMode('ai'); }}
+        recoveryDraftKey={contentKey} onOpenContentDraft={draft => {
+          setRestoredArticle(null); setInitialContentDraft(draft); setStage('content'); setMode('ai');
+        }} />
+    </React.Suspense> : <>
     <div className="wechat-workflow-bar">
       <Button size="small" theme="borderless" icon={<IconListView />} onClick={() => {
         setInitialContentDraft(null); setRestoredArticle(null); setMode('library');

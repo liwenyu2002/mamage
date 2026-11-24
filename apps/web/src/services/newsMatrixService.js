@@ -37,6 +37,10 @@ export function listRecoverableWechatDrafts(signal) {
   return request('/api/ai/news/recoverable-drafts', { method: 'GET', signal });
 }
 
+export function discardRecoverableWechatDraft(batchId) {
+  return request(`/api/ai/news/recoverable-drafts/${encodeURIComponent(batchId)}`, { method: 'DELETE' });
+}
+
 // 单个失败渠道重试：复用原 prompt 重新入队，返回 { jobId, status: 'pending' }。
 async function retryJob(jobId) {
   return request(`/api/ai/news/jobs/${encodeURIComponent(jobId)}/retry`, { method: 'POST' });

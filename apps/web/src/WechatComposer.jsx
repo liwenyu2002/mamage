@@ -32,7 +32,8 @@ import { isObservedGallery, observedGalleryHtml } from './wechat/observedGallery
 import { imageRunForUid } from './wechat/imageGroups';
 import { wechatDraftKey, hasWechatDraft, isBackupName } from './utils/wechatDraftState';
 import { articleBodyMarkdown } from './utils/newsArticle';
-import { IconSparkleAI, IconEditStroked } from './ui/icons';
+import useWechatDraftRecovery from './useWechatDraftRecovery';
+import { IconSparkleAI, IconEditStroked, IconTrash } from './ui/icons';
 import './wechat/composer.css';
 import './wechat/canvas.css';
 
@@ -194,7 +195,7 @@ function buildInitialState(draftKey, imported) {
 }
 
 function WechatComposer({ currentUser, workspaceId, initialArticle = null, active = true, onSnapshotChange, guided = false,
-  draftStorageKey = null, onStartAiWorkflow, onDraftSaved }) {
+  draftStorageKey = null, onStartAiWorkflow, onDraftSaved, recoveryDraftKey, onOpenContentDraft }) {
   const DRAFT_KEY = draftStorageKey || wechatDraftKey(currentUser?.id, workspaceId);
   const [creationOpen, setCreationOpen] = React.useState(false);
   const [legacyAvailable, setLegacyAvailable] = React.useState(() => {
@@ -499,6 +500,11 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
   // openId=当前编辑的服务端文件 id（null=尚未保存的新推文）；dirty=自上次保存/载入后有改动。
   // 文件列表复用上面的 archiveList* 状态（就是 /api/wechat-compositions 的列表）。
   const [view, setView] = React.useState(initial.view);
+  const recovery = useWechatDraftRecovery(view === 'manager' ? recoveryDraftKey : null, onOpenContentDraft);
+  const files = view === 'manager' ? [
+    ...archiveList.map(item => ({ ...item, key: 'file:' + item.id })),
+    ...recovery.drafts.map(item => ({ ...item, recovery: true })),
+  ].sort((a, b) => (new Date(b.updatedAt).getTime() || 0) - (new Date(a.updatedAt).getTime() || 0)) : [];
   const [openId, setOpenId] = React.useState(initial.openId);
   const [openName, setOpenName] = React.useState('');
   const [dirty, setDirty] = React.useState(initial.dirty);
@@ -1499,7 +1505,6 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
           <div className="wxc-manager">
             <div className="wxc-manager-head">
               <h2 style={{ margin: 0 }}>公众号推文</h2>
-              <Text type="secondary">选择一篇继续编辑，或新建一篇。推文存在服务端、跨设备可见。</Text>
               {legacyAvailable ? <Button size="small" theme="borderless" onClick={importLegacyDraft}>导入本机旧草稿</Button> : null}
             </div>
             <div className="wxc-manager-grid">
@@ -1507,44 +1512,50 @@ function WechatComposer({ currentUser, workspaceId, initialArticle = null, activ
                 <span className="wxc-manager-new-plus" aria-hidden="true">＋</span>
                 <span>新建推文</span>
               </button>
-              {archiveListLoading ? (
-                <div className="wxc-manager-state"><Text type="secondary">加载中…</Text></div>
-              ) : archiveListError ? (
-                <div className="wxc-manager-state">
-                  <p>加载推文列表失败，可能是网络问题。</p>
-                  <Button size="small" onClick={loadArchiveList}>重试</Button>
-                </div>
-              ) : archiveList.length === 0 ? (
-                <div className="wxc-manager-state"><Empty description="还没有推文，点「新建推文」开始排版" /></div>
-              ) : (
-                archiveList.map((item) => {
-                  const busyAction = (archiveBusyKey && archiveBusyKey.startsWith(`${item.id}:`))
-                    ? archiveBusyKey.slice(String(item.id).length + 1)
-                    : null;
-                  const rowBusy = !!busyAction;
-                  return (
-                    <div key={item.id} className="wxc-manager-card">
-                      <button
-                        type="button"
-                        className="wxc-manager-card-open"
-                        onClick={() => openFileById(item)}
-                        disabled={rowBusy}
-                        title={`打开「${item.name}」`}
-                      >
-                        <div className="wxc-manager-card-name">{item.name}</div>
-                        <div className="wxc-manager-card-meta">{item.blockCount ?? 0} 块 · {item.imageCount ?? 0} 图</div>
-                        <div className="wxc-manager-card-time">{formatArchiveTime(item.updatedAt)}</div>
-                        {busyAction === 'open' ? <div className="wxc-manager-card-loading">打开中…</div> : null}
-                      </button>
+              {files.map((item) => {
+                const isDraft = item.recovery === true;
+                const busyAction = isDraft ? (recovery.busy?.key === item.key ? recovery.busy.action : null)
+                  : archiveBusyKey?.startsWith(item.id + ':') ? archiveBusyKey.slice(String(item.id).length + 1) : null;
+                const rowBusy = isDraft ? Boolean(recovery.busy) : Boolean(busyAction);
+                return (
+                  <div key={item.key} className={`wxc-manager-card${isDraft ? ' is-draft' : ''}`}>
+                    <button
+                      type="button"
+                      className="wxc-manager-card-open"
+                      onClick={() => isDraft ? recovery.open(item) : openFileById(item)}
+                      disabled={rowBusy}
+                      title={`打开「${item.name}」`}
+                    >
+                      <div className="wxc-manager-card-name">{item.name}</div>
+                      <div className="wxc-manager-card-meta">{isDraft ? item.status : `${item.blockCount ?? 0} 块 · ${item.imageCount ?? 0} 图`}</div>
+                      <div className="wxc-manager-card-time">{formatArchiveTime(item.updatedAt)}</div>
+                      {busyAction === 'open' ? <div className="wxc-manager-card-loading">打开中…</div> : null}
+                    </button>
+                    {isDraft ?
+                      <Button size="small" theme="borderless" className="wxc-manager-draft-delete" icon={<IconTrash />}
+                        title="删除草稿" aria-label="删除草稿" loading={busyAction === 'delete'} disabled={rowBusy}
+                        onClick={() => recovery.discard(item)} /> :
                       <div className="wxc-manager-card-actions">
                         <Button size="small" disabled={rowBusy} onClick={() => handleRenameFile(item)}>重命名</Button>
                         <Button size="small" loading={busyAction === 'dup'} disabled={rowBusy} onClick={() => handleDuplicateFile(item)}>复制</Button>
                         <Button size="small" type="danger" loading={busyAction === 'delete'} disabled={rowBusy} onClick={() => handleDeleteArchiveItem(item)}>删除</Button>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
+                      </div>}
+                  </div>
+                );
+              })}
+              {archiveListError || recovery.failed ? (
+                <div className="wxc-manager-state" role="status">
+                  <Text type="secondary">部分推文暂时无法加载</Text>
+                  <Button size="small" theme="borderless" onClick={() => {
+                    if (archiveListError) loadArchiveList();
+                    if (recovery.failed) recovery.reload();
+                  }}>重试</Button>
+                </div>
+              ) : !files.length && (archiveListLoading || recovery.loading) ? (
+                <div className="wxc-manager-state"><Text type="secondary">加载中…</Text></div>
+              ) : !files.length ? (
+                <div className="wxc-manager-state"><Empty description="还没有推文，点「新建推文」开始排版" /></div>
+              ) : null}
             </div>
           </div>
         </Content>

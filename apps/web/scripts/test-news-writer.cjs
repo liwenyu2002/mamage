@@ -28,7 +28,8 @@ const { articleBlocks, changeArticleBlock, articleBodyMarkdown, withoutImageGrou
 const { freezeContent, materializeLayout, templateLayout, contentSignature, workflowKey, addObservedBrandAssets, normalizeLayoutLibrary, mergeContentIntoLayout, layoutToMarkdown } = load('src/utils/wechatWorkflow.js');
 const { revisionSource, revisionPhotoReferences, applyRevision, revisionTarget, contextualRevisionTarget, revisionContinuation, REVISION_ACTIONS } = load('src/utils/newsRevision.js');
 const { sourceRanges, floatingPosition } = load('src/utils/newsEditorSelection.js');
-const { editorDocument, editorMarkdown, editorSelection, editorPhotoGroups, changeEditorImageGroup } = load('src/utils/newsEditorModel.js');
+const { editorDocument, editorMarkdown, editorSelection, editorPhotoGroups, changeEditorImageGroup, moveEditorPhoto } = load('src/utils/newsEditorModel.js');
+const { photoDropPlacement } = load('src/utils/newsEditorPhotoDrag.js');
 const { imageGroupMarker, parseImageGroupMarker } = load('src/utils/newsImageGroups.js');
 const { EditorState, TextSelection } = require('prosemirror-state');
 const { THEME_PRESETS } = load('src/wechat/themes.js');
@@ -253,6 +254,52 @@ test('splitting, merging and changing columns are reversible single edits and ne
   assert.equal(changeEditorImageGroup(state, 0, 'mergeNext'), null);
   assert.equal(changeEditorImageGroup(state, 0, 'splitBefore'), null);
   assert.equal(changeEditorImageGroup(state, 0, 'splitAfter'), null);
+});
+
+test('photo drop uses the same row to group and its top or bottom edge to move', () => {
+  const rect = (left, top, right, bottom) => ({ left, top, right, bottom });
+  const blocks = [
+    { index: 0, bounds: rect(0, 0, 300, 32) },
+    { index: 1, bounds: rect(0, 60, 145, 180), image: rect(0, 60, 145, 153) },
+    { index: 2, bounds: rect(155, 60, 300, 180), image: rect(155, 60, 300, 153) },
+    { index: 3, bounds: rect(0, 200, 300, 232) },
+    { index: 4, bounds: rect(0, 260, 300, 440), image: rect(0, 260, 300, 440) },
+  ];
+  const at = (x, y) => photoDropPlacement(blocks, { x, y }, { index: 4 });
+  assert.deepEqual(at(147, 106).target, { mode: 'group', index: 1, after: true });
+  assert.deepEqual(at(157, 106).target, { mode: 'group', index: 2, after: false });
+  assert.deepEqual(at(157, 63).target, { mode: 'move', index: 1 });
+  assert.deepEqual(at(157, 151).target, { mode: 'move', index: 3 });
+  assert.deepEqual(at(157, 170).target, { mode: 'move', index: 3 }, 'the caption is not the image interior');
+  assert.deepEqual(at(24, 44).target, { mode: 'move', index: 1 });
+  assert.equal(at(250, 350), null, 'the source image is not a group target');
+});
+
+test('photo moves and grouping preserve captions, keep groups separate on reload and undo in one edit', () => {
+  const original = '# 正文\n\n![甲](/a.jpg)\n\n段落一\n\n段落二\n\n![乙](/b.jpg)';
+  let state = EditorState.create({ doc: editorDocument(original) });
+  const group = moveEditorPhoto(state, 4, { mode: 'group', index: 1, after: true });
+  assert.equal(group.getMeta('newsEditBoundary'), true);
+  state = state.apply(group);
+  assert.deepEqual(editorPhotoGroups(state.doc).map(group => [group.items.length, group.columns]), [[2, 2]]);
+  const combined = editorMarkdown(state.doc).markdown;
+  assert.equal(withoutImageGroupMarkers(combined), '# 正文\n\n![甲](/a.jpg)\n\n![乙](/b.jpg)\n\n段落一\n\n段落二');
+  const content = recordNewsEdit({ markdownText: original }, { markdownText: combined });
+  assert.equal(stepNewsEdit(content, 'undo').markdownText, original);
+  state = state.apply(moveEditorPhoto(state, 2, { mode: 'move', index: 3 }));
+  const separated = editorDocument(editorMarkdown(state.doc).markdown);
+  assert.deepEqual(editorPhotoGroups(separated).map(group => group.items.map(item => item.node.textContent)), [['甲'], ['乙']]);
+  const moved = state.apply(moveEditorPhoto(state, 2, { mode: 'move', index: 4 }));
+  assert.deepEqual(editorMarkdown(moved.doc).entries.map(entry => entry.node.textContent), ['正文', '甲', '段落一', '乙', '段落二']);
+  assert.equal(moveEditorPhoto(state, 3, { mode: 'group', index: 1, after: false }), null, 'text cannot start a photo drag');
+});
+
+test('moving a standalone separator does not accidentally merge the other photos', () => {
+  const original = '![甲](/a.jpg)\n\n' + imageGroupMarker({ galleryId: 'separator', galleryColumns: 1 })
+    + '![乙](/b.jpg)\n\n![丙](/c.jpg)\n\n正文';
+  const state = EditorState.create({ doc: editorDocument(original) });
+  const moved = state.apply(moveEditorPhoto(state, 1, { mode: 'move', index: 4 }));
+  assert.deepEqual(editorPhotoGroups(editorDocument(editorMarkdown(moved.doc).markdown)).map(group => group.items.length), [1, 1, 1]);
 });
 
 test('group markers do not disrupt text or caption selection offsets and are validated', () => {

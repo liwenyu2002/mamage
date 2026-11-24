@@ -388,10 +388,40 @@ async function main() {
     },
     async draftRecovery(page) {
       await page.goto(base + '/function/wechat-composer');
-      const recovery = page.getByRole('region', { name: '未保存稿件' });
-      await recovery.getByText('后台生成中的稿件', { exact: true }).waitFor();
-      assert.equal(await recovery.getByRole('button', { name: '查看进度' }).count(), 1);
-      await recovery.getByRole('button', { name: '恢复稿件', exact: true }).click();
+      const grid = page.locator('.wxc-manager-grid');
+      const card = name => grid.locator('.wxc-manager-card').filter({ has: page.getByText(name, { exact: true }) });
+      const open = name => card(name).locator('.wxc-manager-card-open').click();
+      const confirmDelete = async name => {
+        await card(name).getByRole('button', { name: '删除草稿', exact: true }).click();
+        return page.getByRole('dialog', { name: '删除草稿' });
+      };
+      const remove = async name => {
+        const dialog = await confirmDelete(name);
+        await dialog.getByRole('button', { name: '删除', exact: true }).click();
+        await card(name).waitFor({ state: 'detached' });
+      };
+      const recoveredName = '从线上找回的稿件';
+      const pendingName = '后台生成中的稿件';
+      const savedName = '已保存的推文';
+      const localName = '仅存在本机的草稿';
+      const archiveName = '不再需要的草稿';
+      await card(archiveName).waitFor();
+      await card(savedName).waitFor();
+      assert.equal(await page.getByRole('heading', { name: '未保存稿件', exact: true }).count(), 0);
+      assert.deepEqual(await grid.locator('.wxc-manager-card-name').allTextContents(),
+        [localName, pendingName, savedName, recoveredName, archiveName]);
+      await card(pendingName).getByText('生成中', { exact: true }).waitFor();
+      const cancelDialog = await confirmDelete(localName);
+      await cancelDialog.getByRole('button', { name: '取消', exact: true }).click();
+      await cancelDialog.waitFor({ state: 'detached' });
+      await card(localName).waitFor();
+      await remove(localName);
+      await remove(archiveName);
+      await page.reload();
+      await card(recoveredName).waitFor();
+      assert.equal(await card(localName).count(), 0);
+      assert.equal(await card(archiveName).count(), 0);
+      await open(recoveredName);
       await page.getByRole('button', { name: '立即重连', exact: true }).click();
       const title = page.getByRole('textbox', { name: '稿件标题', exact: true });
       await title.waitFor();
@@ -402,14 +432,85 @@ async function main() {
       await title.waitFor();
       assert.equal((await title.innerText()).trim(), '从线上找回的稿件');
       await page.getByRole('button', { name: '推文列表', exact: true }).click();
-      await recovery.getByRole('button', { name: '继续编辑', exact: true }).waitFor();
-      assert.equal(await recovery.getByRole('button', { name: '恢复稿件', exact: true }).count(), 0);
-      await recovery.getByRole('button', { name: '查看进度', exact: true }).click();
+      await card(pendingName).waitFor();
+      assert.equal(await card(recoveredName).count(), 1);
+      await open(pendingName);
       await page.getByText('正在生成初稿', { exact: true }).waitFor();
       await page.getByRole('button', { name: '推文列表', exact: true }).click();
-      await recovery.getByRole('button', { name: '打开上一稿', exact: true }).click();
+      await open(recoveredName);
       await title.waitFor();
       assert.equal((await title.innerText()).trim(), '从线上找回的稿件');
+      await page.getByRole('button', { name: '推文列表', exact: true }).click();
+      await page.setViewportSize({ width: 390, height: 860 });
+      assert.equal(await grid.evaluate(node => node.scrollWidth <= node.clientWidth), true);
+      await remove(pendingName);
+      await remove(recoveredName);
+      await page.reload();
+      await card(savedName).waitFor();
+      assert.equal(await grid.locator('.wxc-manager-card.is-draft').count(), 0);
+      assert.equal(await page.evaluate(() => ['mamage.aiNewsWriter.draft.v2:7:1', 'mamage.aiNewsWriter.draft.v2:7:1:before-recovery']
+        .some(key => Boolean(JSON.parse(localStorage.getItem(key) || '{}').batchId))), false);
+    },
+    async draftPhotoDrag(page) {
+      await page.setViewportSize({ width: 1440, height: 1440 });
+      await page.goto(base + '/function/wechat-composer');
+      const editor = page.locator('.news-edit-document');
+      const a = editor.getByRole('img', { name: '照片甲', exact: true });
+      const b = editor.getByRole('img', { name: '照片乙', exact: true });
+      const visibleIndicator = page.locator('.news-photo-drop-indicator:not([hidden])');
+      const groupIds = () => editor.locator('.news-edit-photo').evaluateAll(photos => photos.map(photo => photo.dataset.galleryId));
+      const blocks = () => editor.locator('[data-news-index]').allTextContents();
+      const start = async (source, at, mode) => {
+        const box = await source.boundingBox();
+        const from = { x: box.x + box.width * 0.5, y: box.y + box.height * 0.5 };
+        const sourceTag = await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.tagName, from);
+        await page.mouse.move(from.x, from.y);
+        await page.mouse.down();
+        await page.mouse.move(at.x, at.y, { steps: 6 });
+        await page.locator(`.news-photo-drop-indicator[data-mode="${mode}"]:not([hidden])`).waitFor().catch(async () => {
+          throw Error(`Expected ${mode} from ${sourceTag} ${JSON.stringify(from)} to ${JSON.stringify(at)}; indicator=${await visibleIndicator.count() ? await visibleIndicator.getAttribute('data-mode') : 'none'}, blocks=${JSON.stringify(await blocks())}`);
+        });
+      };
+      const finish = async () => {
+        await page.mouse.up();
+        await visibleIndicator.waitFor({ state: 'hidden' });
+      };
+      await a.waitFor();
+      await b.waitFor();
+      await b.scrollIntoViewIfNeeded();
+      const box = await a.boundingBox();
+      const original = await blocks();
+      const sameRow = { x: box.x + 0.75 * box.width, y: box.y + 0.5 * box.height };
+      await start(b, sameRow, 'group');
+      assert.deepEqual(await blocks(), original, 'hovering the target does not mutate the draft');
+      await page.keyboard.press('Escape');
+      await finish();
+      assert.deepEqual(await blocks(), original);
+      await start(b, sameRow, 'group');
+      await finish();
+      const [first, second] = await groupIds();
+      assert.ok(first);
+      assert.equal(first, second);
+      assert.deepEqual(await blocks(), ['照片拖拽测试', '开场', '照片甲', '照片乙', '第一段', '第二段']);
+      await page.getByRole('button', { name: '撤销编辑', exact: true }).click();
+      assert.deepEqual(await blocks(), original);
+      await page.getByRole('button', { name: '重做编辑', exact: true }).click();
+      const grouped = await a.boundingBox();
+      await start(b, { x: grouped.x + grouped.width * 0.5, y: grouped.y + grouped.height - 4 }, 'move');
+      await finish();
+      assert.notEqual(...await groupIds(), 'photo edge drops never combine photos');
+      await page.reload();
+      await b.waitFor();
+      assert.notEqual(...await groupIds(), 'edge moves survive reload without regrouping');
+      await editor.getByText('第二段', { exact: true }).evaluate(element => element.scrollIntoView({ block: 'center', behavior: 'instant' }));
+      const upper = await editor.getByText('第一段', { exact: true }).boundingBox();
+      const lower = await editor.getByText('第二段', { exact: true }).boundingBox();
+      await start(b, { x: upper.x + upper.width * 0.5, y: (upper.y + upper.height + lower.y) / 2 }, 'move');
+      await finish();
+      assert.deepEqual(await blocks(), ['照片拖拽测试', '开场', '照片甲', '第一段', '照片乙', '第二段']);
+      await page.reload();
+      await b.waitFor();
+      assert.deepEqual(await blocks(), ['照片拖拽测试', '开场', '照片甲', '第一段', '照片乙', '第二段']);
     },
     async about(page) {
       await page.goto(base);
@@ -429,6 +530,7 @@ async function main() {
       const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce',
         serviceWorkers: 'block', hasTouch: name === 'stationPhotoMobile' });
       const errors = [], writes = [];
+      const discardedDrafts = new Set();
       let recoveryPolls = 0;
       const testPhotos = name === 'galleryPaginationRestore'
         ? [...photos, ...photos.map(photo => ({ ...photo, id: photo.id + 80 }))] : photos;
@@ -446,11 +548,31 @@ async function main() {
       if (name === 'draftRecovery') await context.addInitScript(() => {
         const key = 'mamage.wechat.workflow.v1:7:1';
         if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify({ mode: 'ai', stage: 'content' }));
+        if (!sessionStorage.getItem('draft-recovery-fixture-seeded')) {
+          sessionStorage.setItem('draft-recovery-fixture-seeded', '1');
+          localStorage.setItem('mamage.aiNewsWriter.draft.v2:7:1:before-recovery', JSON.stringify({
+            savedAt: Date.parse('2026-11-24T11:03:00Z'), selectedChannels: ['wechat_article'],
+            formValues: { sourceMaterial: '仅存在本机的草稿' },
+          }));
+        }
+      });
+      if (name === 'draftPhotoDrag') await context.addInitScript(() => {
+        if (sessionStorage.getItem('photo-drag-fixture-seeded')) return;
+        sessionStorage.setItem('photo-drag-fixture-seeded', '1');
+        localStorage.setItem('mamage.wechat.workflow.v1:7:1', JSON.stringify({ mode: 'ai', stage: 'content' }));
+        localStorage.setItem('mamage.aiNewsWriter.draft.v2:7:1', JSON.stringify({ activeChannelKey: 'wechat_article',
+          selectedChannels: ['wechat_article'], channelContent: { wechat_article: {
+            title: '照片拖拽测试', markdownText: '# 照片拖拽测试\n\n开场\n\n![照片甲](/api/image/test.jpg?first)\n\n第一段\n\n第二段\n\n![照片乙](/api/image/test.jpg?second)',
+          } } }));
       });
       await context.route('**/*', route => {
         const req = route.request(), url = new URL(req.url()), p = url.pathname;
         if (p.startsWith('/api/image/')) return route.fulfill({ contentType: 'image/jpeg', body: image });
         if (p.startsWith('/api/')) {
+          if (name === 'draftRecovery' && req.method() === 'DELETE' && /^\/api\/ai\/news\/recoverable-drafts\/50[1-3]$/.test(p)) {
+            discardedDrafts.add(Number(p.split('/').at(-1)));
+            return route.fulfill({ status: 204 });
+          }
           if (req.method() !== 'GET') { writes.push(p); return route.abort(); }
           if (p === '/api/photos/search' && name === 'albumSearchFailure') {
             return route.fulfill({ status: 503, contentType: 'text/plain', body: 'Fixture search unavailable' });
@@ -459,10 +581,14 @@ async function main() {
           if (p === '/api/users/me') data = { id: 7, name: 'Test User', role: 'admin', activeUnitId: 1, metadataEditScope: 'own',
             permissions: ['projects.view', 'projects.create', 'photos.view', 'photos.edit', 'ai.generate'] };
           else if (p === '/api/workspaces') data = { enabled: true, activeUnitId: 1, units: [{ id: 1, name: 'Test Workspace', role: 'manager' }] };
+          else if (name === 'draftRecovery' && p === '/api/wechat-compositions') data = { items: [
+            { id: 401, name: '已保存的推文', draftKind: 'layout', updatedAt: '2026-11-24T11:01:00Z' },
+          ] };
           else if (name === 'draftRecovery' && p === '/api/ai/news/recoverable-drafts') data = { items: [
             { batchId: 501, jobId: 601, title: '从线上找回的稿件', status: 'succeeded', createdAt: '2026-11-24T11:00:00Z' },
             { batchId: 502, jobId: 602, title: '后台生成中的稿件', status: 'running', createdAt: '2026-11-24T11:02:00Z' },
-          ] };
+            { batchId: 503, jobId: 603, title: '不再需要的草稿', status: 'succeeded', createdAt: '2026-11-24T10:58:00Z' },
+          ].filter(item => !discardedDrafts.has(item.batchId)) };
           else if (name === 'draftRecovery' && ['/api/ai/news/batches/501', '/api/ai/news/batches/502'].includes(p)) {
             const batchId = Number(p.split('/').at(-1));
             const recovering = url.searchParams.get('recover') === '1';
@@ -491,7 +617,13 @@ async function main() {
       });
       const page = await context.newPage(); page.setDefaultTimeout(5000);
       page.on('pageerror', e => errors.push(e.message));
-      try { await check(page); assert.deepEqual(errors, []); assert.deepEqual(writes, []); results.push({ name, passed: true }); }
+      try {
+        await check(page);
+        assert.deepEqual(errors, []);
+        assert.deepEqual(writes, []);
+        if (name === 'draftRecovery') assert.deepEqual([...discardedDrafts], [503, 502, 501]);
+        results.push({ name, passed: true });
+      }
       catch (error) { results.push({ name, passed: false, error: error.message.split('\n').slice(0, 4).join('\n'), url: page.url(), errors }); }
       finally { await context.close(); }
     }

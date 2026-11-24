@@ -6,7 +6,10 @@ import { baseKeymap, splitBlockAs } from 'prosemirror-commands';
 import { keymap } from 'prosemirror-keymap';
 import 'prosemirror-view/style/prosemirror.css';
 import { TextArea } from './ui';
-import { editorDocument, editorMarkdown, editorSelection, setEditorBlockStyle, editorPhotoGroups, changeEditorImageGroup, newsEditorSchema as schema } from './utils/newsEditorModel';
+import { editorDocument, editorMarkdown, editorSelection, setEditorBlockStyle, editorPhotoGroups,
+  changeEditorImageGroup, moveEditorPhoto, newEditorGalleryId, newsEditorSchema as schema } from './utils/newsEditorModel';
+import { editorPhotoDropPlacement } from './utils/newsEditorPhotoDrag';
+import { beginDrag, registerDropZone } from './wechat/pointerDrag';
 import NewsPhotoPicker from './NewsPhotoPicker';
 import NewsBlockControls from './NewsBlockControls';
 
@@ -66,7 +69,7 @@ export default function NewsArticleEditor({ markdown, onChange, title, onChangeT
         groups.forEach((group, groupIndex) => {
           const columns = Math.min(group.columns, group.items.length);
           group.items.forEach((item, i) => cells.set(item.pos, { columns, start: i === 0, id: group.id }));
-          if (!group.id) return;
+          if (!group.id || group.items.length < 2) return;
           decorations.push(Decoration.widget(group.items[0].pos, () => {
             const header = document.createElement('div'); header.className = 'news-edit-gallery-header'; header.contentEditable = 'false';
             header.setAttribute('role', 'group'); header.setAttribute('aria-label', `组图 ${groupIndex + 1}`);
@@ -149,7 +152,23 @@ export default function NewsArticleEditor({ markdown, onChange, title, onChangeT
         return true;
       },
       handleDOMEvents: {
-        pointerdown: () => { pointerDown.current = true; callbacks.current.onSelectionChange?.(null); return false; },
+        pointerdown: (editor, event) => {
+          callbacks.current.onSelectionChange?.(null);
+          const image = event.target instanceof Element && event.target.closest('.news-edit-photo > img');
+          if (image && event.button === 0 && event.pointerType !== 'touch') {
+            const index = Number(image.parentElement.dataset.newsIndex);
+            const doc = editor.state.doc;
+            const group = editorPhotoGroups(doc).find(group => group.items.some(item => item.index === index));
+            if (group) {
+              event.preventDefault();
+              beginDrag(event, { kind: 'news-photo', data: { doc, index, grouped: group.items.length > 1 },
+                ghostLabel: '移动照片' });
+              return true;
+            }
+          }
+          pointerDown.current = true;
+          return false;
+        },
         pointerup: (_, event) => { pointerDown.current = false; setTimeout(() => captureRef.current(event), 0); return false; },
         keyup: (editor, event) => {
           if (event.key === 'Escape') callbacks.current.onSelectionChange?.(null);
@@ -170,6 +189,31 @@ export default function NewsArticleEditor({ markdown, onChange, title, onChangeT
       },
     });
     view.current = editor; setEditorDoc(editor.state.doc); updateMeta(editor.state.doc);
+    const dropIndicator = document.createElement('div');
+    dropIndicator.className = 'news-photo-drop-indicator';
+    dropIndicator.setAttribute('aria-hidden', 'true');
+    dropIndicator.hidden = true;
+    document.body.append(dropIndicator);
+    const placement = (point, payload) => payload.kind === 'news-photo' ? editorPhotoDropPlacement(editor, point, payload.data) : null;
+    const unregisterDrop = registerDropZone(editor.dom, {
+      onMove: (point, payload) => {
+        const next = placement(point, payload);
+        dropIndicator.hidden = !next;
+        if (!next) return;
+        const image = next.image, rect = image || editor.dom.getBoundingClientRect();
+        dropIndicator.dataset.mode = next.target.mode;
+        dropIndicator.dataset.side = next.target.after ? 'after' : 'before';
+        Object.assign(dropIndicator.style, { left: rect.left + 'px', top: (image ? rect.top : next.line) + 'px',
+          width: rect.width + 'px', height: (image ? rect.height : 2) + 'px' });
+      },
+      onLeave: () => { dropIndicator.hidden = true; },
+      onDrop: (point, payload) => {
+        const next = placement(point, payload);
+        if (!next) return;
+        const transaction = moveEditorPhoto(editor.state, payload.data.index, next.target);
+        if (transaction) editor.dispatch(transaction);
+      },
+    });
     const onSelection = () => {
       clearTimeout(timer);
       if (!window.getSelection()?.isCollapsed) timer = setTimeout(() => {
@@ -181,7 +225,11 @@ export default function NewsArticleEditor({ markdown, onChange, title, onChangeT
     let timer;
     document.addEventListener('selectionchange', onSelection);
     document.addEventListener('pointerup', finishPointer);
-    return () => { clearTimeout(timer); document.removeEventListener('selectionchange', onSelection); document.removeEventListener('pointerup', finishPointer); view.current = null; editor.destroy(); };
+    return () => {
+      clearTimeout(timer); unregisterDrop(); dropIndicator.remove();
+      document.removeEventListener('selectionchange', onSelection); document.removeEventListener('pointerup', finishPointer);
+      view.current = null; editor.destroy();
+    };
     // 初始化只跑一次；外部 markdown 变化由下一个 effect 同步进编辑器
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -254,7 +302,7 @@ export default function NewsArticleEditor({ markdown, onChange, title, onChangeT
       if (picking.doc !== editor.state.doc) { setInsertError('正文已变化，请重新选择插入位置'); setPicking(null); return; }
       const existing = new Set(); editor.state.doc.forEach(node => { if (node.type.name === 'photo') existing.add(node.attrs.href); });
       const added = photos.filter(photo => !existing.has(photo.url || photo.thumbUrl)).slice(0, Math.max(0, 30 - existing.size));
-      const galleryId = added.length > 1 ? `group-${Date.now()}-${Math.random().toString(36).slice(2, 10)}` : null;
+      const galleryId = added.length > 1 ? newEditorGalleryId() : null;
       const nodes = added.filter(photo => /^(https?:\/\/|\/[^/])/.test(photo.url || photo.thumbUrl || '')).map(photo => schema.nodes.photo.create({ href: photo.url || photo.thumbUrl,
         galleryId, galleryColumns: added.length >= 6 ? 3 : added.length > 1 ? 2 : 1 }));
       if (nodes.length) { insert(picking.pos, nodes); onPhotosAdded?.(added); } setPicking(null);

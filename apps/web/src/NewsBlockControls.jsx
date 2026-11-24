@@ -23,11 +23,13 @@ export default function NewsBlockControls({ editorRef, revision, onAction, child
       const bounds = dom.getBoundingClientRect();
       const group = groups.find(item => item.items.some(photo => photo.pos === pos));
       const imageIndex = group?.items.findIndex(item => item.pos === pos);
+      const nextPhoto = group?.items.length === 1 && editor.state.doc.nodeAt(pos + node.nodeSize)?.type.name === 'photo';
       const header = imageIndex === 0 && dom.previousElementSibling?.classList.contains('news-edit-gallery-header') ? dom.previousElementSibling : null;
       blocks.push({ pos, index, top: (bounds.top - rect.top) / scale, bottom: (bounds.bottom - rect.top) / scale,
         left: (bounds.left - rect.left) / scale, width: bounds.width / scale,
         galleryId: group?.id, groupStart: imageIndex === 0, groupTop: header ? (header.getBoundingClientRect().top - rect.top) / scale : null,
         canSplitBefore: imageIndex > 0, canSplitAfter: imageIndex >= 0 && imageIndex < group.items.length - 1,
+        canMergeNext: nextPhoto,
         hasCaption: node.type.name === 'photo' && Boolean(node.textContent.trim()),
         style: node.type.name === 'heading' ? `h${node.attrs.depth}` : node.type.name === 'photo' ? 'photo' : 'paragraph' });
     });
@@ -118,6 +120,7 @@ export default function NewsBlockControls({ editorRef, revision, onAction, child
           <IconInfoEdit /><span>{menu.hasCaption ? '移除图题' : '添加图题'}</span></button> : null}
         {menu.style === 'photo' && menu.canSplitBefore ? <button type="button" onClick={() => act('splitBefore')}><IconSimilarStack /><span>从此图开始新组</span></button> : null}
         {menu.style === 'photo' && menu.canSplitAfter ? <button type="button" onClick={() => act('splitAfter')}><IconSimilarStack /><span>在此图后拆分</span></button> : null}
+        {menu.canMergeNext ? <button type="button" onClick={() => act('mergeNext')}><IconSimilarStack /><span>合并下一组</span></button> : null}
         <button type="button" onClick={() => act('ai')}><IconSparkleAI /><span>AI 辅助</span></button>
         <button type="button" onClick={() => act('insertBefore')}><IconPlus /><span>在上方插入段落</span></button>
         <button type="button" onClick={() => act('insertAfter')}><IconPlus /><span>在下方插入段落</span></button>

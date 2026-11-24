@@ -4,6 +4,7 @@ import { sourceRanges } from './newsEditorSelection';
 import { withDraftImageGroups } from './newsImageGroups';
 
 const attrs = { original: { default: null } };
+export const newEditorGalleryId = () => `group-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 export const newsEditorSchema = new Schema({ nodes: {
   doc: { content: 'block+' },
   paragraph: { content: 'text*', group: 'block', attrs, toDOM: () => ['div', { class: 'news-edit-block news-edit-paragraph' }, 0], parseDOM: [{ tag: 'p' }, { tag: 'div' }] },
@@ -12,7 +13,7 @@ export const newsEditorSchema = new Schema({ nodes: {
     parseDOM: [1, 2, 3, 4, 5, 6].map(depth => ({ tag: `h${depth}`, attrs: { depth } })) },
   photo: { content: 'text*', group: 'block', defining: true, isolating: true, attrs: { ...attrs, href: {}, galleryId: { default: null }, galleryColumns: { default: 1 } },
     toDOM: node => ['figure', { class: 'news-edit-block news-edit-photo' },
-      ['img', { src: node.attrs.href, alt: node.textContent, contenteditable: 'false', loading: 'lazy' }],
+      ['img', { src: node.attrs.href, alt: node.textContent, contenteditable: 'false', draggable: 'false', loading: 'lazy' }],
       ['figcaption', { class: 'news-edit-caption', role: 'textbox', 'aria-label': '图片说明', 'aria-multiline': 'true' }, 0]] },
   text: { group: 'inline' },
 } });
@@ -52,19 +53,56 @@ export function changeEditorImageGroup(state, pos, action, value) {
   const groups = editorPhotoGroups(state.doc), groupIndex = groups.findIndex(group => group.items.some(item => item.pos === pos));
   const group = groups[groupIndex];
   if (!group) return null;
-  const transaction = state.tr, newId = () => `group-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  const transaction = state.tr;
   const assign = (items, id, columns) => items.forEach(item => transaction.setNodeMarkup(item.pos, null, { ...item.node.attrs, galleryId: id, galleryColumns: columns }));
-  if (action === 'columns' && [1, 2, 3].includes(value)) assign(group.items, group.id || newId(), value);
+  if (action === 'columns' && [1, 2, 3].includes(value)) assign(group.items, group.id || newEditorGalleryId(), value);
   else if (action === 'splitBefore' || action === 'splitAfter') {
     const at = group.items.findIndex(item => item.pos === pos) + (action === 'splitAfter' ? 1 : 0);
     if (at <= 0 || at >= group.items.length) return null;
-    assign(group.items.slice(0, at), group.id || newId(), group.columns);
-    assign(group.items.slice(at), newId(), group.columns);
+    assign(group.items.slice(0, at), group.id || newEditorGalleryId(), group.columns);
+    assign(group.items.slice(at), newEditorGalleryId(), group.columns);
   } else if (action === 'mergeNext') {
     const next = groups[groupIndex + 1], last = group.items.at(-1);
     if (!next || next.items[0].pos !== last.pos + last.node.nodeSize) return null;
-    assign([...group.items, ...next.items], group.id || newId(), group.columns);
+    assign([...group.items, ...next.items], group.id || newEditorGalleryId(), group.columns);
   } else return null;
+  return transaction.setMeta('newsEditBoundary', true);
+}
+
+export function moveEditorPhoto(state, sourceIndex, target) {
+  const groups = editorPhotoGroups(state.doc);
+  const groupAt = index => groups.find(group => group.items.some(item => item.index === index));
+  const sourceGroup = groupAt(sourceIndex);
+  if (!sourceGroup || !['move', 'group'].includes(target.mode)
+    || !Number.isInteger(target.index) || target.index < 0 || target.index > state.doc.childCount) return null;
+  const source = sourceGroup.items.find(item => item.index === sourceIndex);
+  const destination = target.mode === 'group' ? groupAt(target.index) : null;
+  if (target.mode === 'group' && (!destination || target.index === sourceIndex)) return null;
+  const index = target.index + (destination && target.after ? 1 : 0);
+  const inPlace = index === sourceIndex || index === sourceIndex + 1;
+  if (inPlace && (destination ? destination === sourceGroup : sourceGroup.items.length === 1)) return null;
+  let insertPos = state.doc.content.size;
+  state.doc.forEach((_, pos, i) => { if (i === index) insertPos = pos; });
+
+  // A standalone marker stops adjacent images being automatically grouped when the draft is reopened.
+  const galleryId = destination?.id || newEditorGalleryId();
+  const galleryColumns = destination ? (destination.items.length > 1 ? destination.columns : 2) : 1;
+  const attrs = node => ({ ...node.attrs, galleryId, galleryColumns });
+  const transaction = state.tr;
+  destination?.items.forEach(item => {
+    if (item.index !== sourceIndex && (item.node.attrs.galleryId !== galleryId || item.node.attrs.galleryColumns !== galleryColumns)) {
+      transaction.setNodeMarkup(item.pos, null, attrs(item.node));
+    }
+  });
+  if (!inPlace && sourceIndex > 0 && sourceIndex + 1 < state.doc.childCount) {
+    const left = transaction.doc.child(sourceIndex - 1), right = transaction.doc.child(sourceIndex + 1);
+    // Removing a separator must not turn its two formerly separate neighbors into an inferred group.
+    if ([left, right].every(node => node.type.name === 'photo' && !node.attrs.galleryId)) {
+      transaction.setNodeMarkup(source.pos - left.nodeSize, null, { ...left.attrs, galleryId: newEditorGalleryId(), galleryColumns: 1 });
+    }
+  }
+  transaction.delete(source.pos, source.pos + source.node.nodeSize);
+  transaction.insert(transaction.mapping.map(insertPos), source.node.type.create(attrs(source.node), source.node.content));
   return transaction.setMeta('newsEditBoundary', true);
 }
 
