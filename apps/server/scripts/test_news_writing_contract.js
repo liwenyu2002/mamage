@@ -7,6 +7,7 @@ const mock = (name, exports) => {
 const events = [];
 const inserts = [];
 let failJob = false;
+let discarded = false;
 const connection = {
   beginTransaction: async () => events.push('begin'),
   commit: async () => events.push('commit'),
@@ -18,11 +19,20 @@ const connection = {
     return [{ insertId: inserts.length + 100 }];
   },
 };
-mock('../db', { pool: { getConnection: async () => connection, query: async (sql, [id, unitId] = []) => {
+mock('../db', { pool: { getConnection: async () => connection, query: async (sql, [id, unitId, workspaceId] = []) => {
+  if (sql.includes('UPDATE ai_jobs') && sql.includes('wechatDraftDiscarded')) {
+    assert.match(sql, /j\.user_id=b\.user_id AND j\.unit_id <=> b\.unit_id/);
+    assert.match(sql, /b\.id=\? AND b\.user_id=\? AND b\.unit_id <=> \?/);
+    assert.match(sql, /j\.channel_key='wechat_article'/);
+    if (id !== 203 || unitId !== 7 || workspaceId !== 2) return [{ affectedRows: 0 }];
+    discarded = true;
+    return [{ affectedRows: 1 }];
+  }
   if (sql.includes('FROM ai_job_batches b') && sql.includes('wechat_compositions d')) {
     assert.match(sql, /d\.user_id=b\.user_id AND d\.unit_id <=> b\.unit_id/);
     assert.match(sql, /b\.user_id=\? AND b\.unit_id <=> \?/);
-    return [id === 7 && unitId === 2 ? [{ batchId: 203, jobId: 303, status: 'succeeded', title: '待恢复的稿件' }] : []];
+    const visible = id === 7 && unitId === 2 && !(discarded && sql.includes('wechatDraftDiscarded'));
+    return [visible ? [{ batchId: 203, jobId: 303, status: 'succeeded', title: '待恢复的稿件' }] : []];
   }
   if (id === 201 && sql.includes('FROM ai_job_batches')) {
     return [[{ id, user_id: 7, status: 'succeeded' }]];
@@ -39,7 +49,8 @@ mock('../db', { pool: { getConnection: async () => connection, query: async (sql
     return [[{ title: '实践交流', markdown: '# 实践交流\n\n学生介绍实践成果。' }]];
   }
   if (id === 203 && sql.includes('FROM ai_jobs')) {
-    return [[{ id: 303, user_id: 7, unit_id: 2, channel_key: 'wechat_article', status: 'succeeded' }]];
+    return [[{ id: 303, user_id: 7, unit_id: 2, channel_key: 'wechat_article', status: 'succeeded',
+      options: discarded ? '{"wechatDraftDiscarded":1}' : {} }]];
   }
   if (id === 303 && sql.includes('FROM ai_results')) {
     return [[{ title: '待恢复的稿件', markdown: '# 待恢复的稿件\n\n正文。' }]];
@@ -51,7 +62,8 @@ mock('../lib/ai_job_worker', {
   getOrgIdForUser: async () => null,
 });
 mock('../lib/news_preview_renderer', {});
-mock('../lib/workspace_access', { resolveWorkspace: async (req) => ({ enabled: Boolean(req.unitId), unitId: req.unitId }), sendWorkspaceError: () => false });
+mock('../lib/workspace_access', { ...require('../lib/workspace_access'),
+  resolveWorkspace: async (req) => ({ enabled: Boolean(req.unitId), unitId: req.unitId }), sendWorkspaceError: () => false });
 mock('../lib/channel_templates', { getActiveTemplates: async () => [
   { channel_key: 'press_release', name: '官网新闻' }, { channel_key: 'weibo', name: '微博' },
 ] });
@@ -109,8 +121,11 @@ test('provided quotations and metrics do not receive unsupported warnings', () =
 });
 
 async function callRoute(path, request) {
-  const handler = router.stack.find(layer => layer.route?.path === path).route.stack.at(-1).handle;
-  const response = { statusCode: 200, set() { return this; }, status(code) { this.statusCode = code; return this; }, json(value) { this.body = value; return this; } };
+  const route = router.stack.find(layer => layer.route?.path === path && layer.route.methods[request.method || 'get']);
+  assert.ok(route, `Missing ${request.method || 'get'} ${path}`);
+  const handler = route.route.stack.at(-1).handle;
+  const response = { statusCode: 200, set() { return this; }, status(code) { this.statusCode = code; return this; },
+    json(value) { this.body = value; return this; }, end() { return this; } };
   await handler(request, response);
   return response;
 }
@@ -118,7 +133,7 @@ async function callRoute(path, request) {
 async function generate(body) {
   events.length = 0;
   inserts.length = 0;
-  return callRoute('/generate/batch', { user: { id: 7 }, body });
+  return callRoute('/generate/batch', { method: 'post', user: { id: 7 }, body });
 }
 
 test('batch route stores writing requirements and a complete job matrix before enqueue', async () => {
@@ -194,4 +209,19 @@ test('draft recovery is restricted to its creator and current workspace', async 
   assert.equal(own.body.jobs[0].status, 'succeeded');
   assert.equal((await open(8, 2)).statusCode, 404);
   assert.equal((await open(7, 3)).statusCode, 404);
+});
+
+test('discard removes a WeChat draft only from its own workspace recovery', async () => {
+  const remove = (id, unitId, batchId = '203') => callRoute('/recoverable-drafts/:batchId', {
+    method: 'delete', params: { batchId }, user: { id }, unitId,
+  });
+  const own = { user: { id: 7 }, unitId: 2, params: { batchId: '203' } };
+  assert.equal((await remove(7, 2, '203x')).statusCode, 400);
+  assert.equal((await remove(7, 2, '201')).statusCode, 404);
+  assert.equal((await remove(8, 2)).statusCode, 404);
+  assert.equal((await remove(7, 3)).statusCode, 404);
+  assert.equal((await remove(7, 2)).statusCode, 204);
+  assert.deepEqual((await callRoute('/recoverable-drafts', own)).body.items, []);
+  assert.equal((await callRoute('/batches/:batchId', { ...own, query: { recover: '1' } })).statusCode, 404);
+  assert.equal((await callRoute('/batches/:batchId', own)).body.jobs[0].result.title, '待恢复的稿件');
 });

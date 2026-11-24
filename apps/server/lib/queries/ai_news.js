@@ -46,12 +46,24 @@ async function listRecoverableWechatDrafts(db, { userId, unitId }) {
          AND j.channel_key='wechat_article'
        LEFT JOIN ai_results r ON r.id=(SELECT rr.id FROM ai_results rr WHERE rr.job_id=j.id ORDER BY rr.id DESC LIMIT 1)
        WHERE b.user_id=? AND b.unit_id <=> ? AND j.status IN ('pending','running','succeeded','failed')
+         AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(j.options,'$.wechatDraftDiscarded')), '0') <> '1'
          AND NOT EXISTS (
            SELECT 1 FROM wechat_compositions d WHERE d.user_id=b.user_id AND d.unit_id <=> b.unit_id
              AND JSON_UNQUOTE(JSON_EXTRACT(d.source_document,'$.sourceJobId'))=CAST(j.id AS CHAR)
          )
        ORDER BY b.id DESC, j.id DESC LIMIT 20`, [userId, unitId]);
   return rows || [];
+}
+
+async function discardRecoverableWechatDraft(db, { batchId, userId, unitId }) {
+  // Keep the job, its accounting, and other channels in the batch intact.
+  const [result] = await db.query(
+    `UPDATE ai_jobs j
+       JOIN ai_job_batches b ON j.batch_id=b.id AND j.user_id=b.user_id AND j.unit_id <=> b.unit_id
+        SET j.options=JSON_SET(COALESCE(j.options, JSON_OBJECT()), '$.wechatDraftDiscarded', 1)
+      WHERE b.id=? AND b.user_id=? AND b.unit_id <=> ? AND j.channel_key='wechat_article'`,
+    [batchId, userId, unitId]);
+  return result.affectedRows > 0;
 }
 
 async function listPresets(db, orgId) {
@@ -81,7 +93,7 @@ async function requeueJob(db, jobId) {
 
 module.exports = {
   insertJob, findJob, findLatestResult, findJobForReferences, findBatch, listBatchJobs,
-  listPresets, listForbiddenWords, finishBatch, requeueJob, listRecoverableWechatDrafts,
+  listPresets, listForbiddenWords, finishBatch, requeueJob, listRecoverableWechatDrafts, discardRecoverableWechatDraft,
 };
 
 async function findDefaultPreset(db, orgId) {

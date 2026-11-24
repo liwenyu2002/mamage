@@ -562,6 +562,29 @@ router.get('/recoverable-drafts', requirePermission('ai.generate'), async (req, 
   }
 });
 
+router.delete('/recoverable-drafts/:batchId', requirePermission('ai.generate'), async (req, res) => {
+  const batchId = positiveId(req.params.batchId);
+  if (!batchId) return res.status(400).json({ code: 4001, message: 'invalid batch id' });
+  try {
+    const unitId = draftWorkspaceId(await resolveWorkspace(req));
+    const discarded = await aiNewsDao.discardRecoverableWechatDraft(pool, { batchId, userId: req.user.id, unitId });
+    if (!discarded) return res.status(404).json({ code: 4041, message: 'draft not found' });
+    return res.status(204).end();
+  } catch (error) {
+    if (sendWorkspaceError(res, error)) return;
+    console.error('DELETE /api/ai/news/recoverable-drafts/:batchId', error.code || error.name);
+    return res.status(500).json({ message: '暂时无法删除草稿' });
+  }
+});
+
+function isRecoverableWechatJob(job) {
+  if (job.channel_key !== 'wechat_article') return false;
+  try {
+    const options = typeof job.options === 'string' ? JSON.parse(job.options) : job.options;
+    return options?.wechatDraftDiscarded !== 1;
+  } catch (_) { return true; }
+}
+
 function batchRecovery(formSnapshot, storedIds) {
   const form = {};
   for (const key of ['sourceMaterial', 'eventName', 'eventDate', 'location', 'organizer', 'participants', 'highlights',
@@ -598,7 +621,7 @@ router.get('/batches/:batchId', requirePermission('ai.generate'), async (req, re
       if ((Number(batch.unit_id) || null) !== unitId) return res.status(404).json({ code: 4041, message: 'batch not found' });
     }
     const jobRows = await aiNewsDao.listBatchJobs(pool, id);
-    if (recovering && !jobRows.some(job => job.channel_key === 'wechat_article')) {
+    if (recovering && !jobRows.some(isRecoverableWechatJob)) {
       return res.status(404).json({ code: 4041, message: 'batch not found' });
     }
 
