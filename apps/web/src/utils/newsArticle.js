@@ -30,6 +30,53 @@ export function withoutImageGroupMarkers(markdown) {
     ? changeArticleBlock({ ...block, galleryId: null }, block.text).raw : block.raw).join('');
 }
 
+function imageWithoutCaption(raw, href) {
+  let depth = 1;
+  // The lexer has already identified an image. Keep its destination spelling and optional title.
+  for (let i = 2; i < raw.length; i++) {
+    if (raw[i] === '\\') i++;
+    else if (raw[i] === '`' && depth === 1) {
+      const end = raw.indexOf('`', i + 1);
+      if (end < 0) break;
+      i = end;
+    }
+    else if (raw[i] === '[') depth++;
+    else if (raw[i] === ']' && --depth === 0) {
+      const destination = raw.slice(i + 1);
+      if (destination.startsWith('(')) return '![]' + destination;
+      break;
+    }
+  }
+  return changeArticleBlock({ type: 'image', href }, '').raw;
+}
+
+export function withoutImageCaptions(markdown) {
+  const original = String(markdown || '');
+  const source = original.replace(/\r\n?/g, '\n');
+  const crlf = Array.from(original.matchAll(/\r\n/g), (match, i) => match.index - i);
+  let endings = 0;
+  const originalOffset = offset => {
+    while (crlf[endings] < offset) endings++;
+    return offset + endings;
+  };
+  const sections = [];
+  let cursor = 0, copied = 0;
+  // Splice the original source because the lexer can omit link definitions between blocks.
+  for (const block of articleBlocks(source)) {
+    const start = source.indexOf(block.raw, cursor);
+    if (start < 0) return original;
+    cursor = start + block.raw.length;
+    if (block.type !== 'image' || !block.text.trim()) continue;
+    const image = block.raw.indexOf(block.imageRaw);
+    if (image < 0) return original;
+    const from = originalOffset(start + image);
+    const to = originalOffset(start + image + block.imageRaw.length);
+    sections.push(original.slice(copied, from), imageWithoutCaption(original.slice(from, to), block.href));
+    copied = to;
+  }
+  return sections.length ? sections.concat(original.slice(copied)).join('') : original;
+}
+
 export function renderDraftArticle(markdown) {
   const draft = normalizeReviewCredits(markdown);
   const html = marked.parse(draft, { gfm: true });
@@ -85,7 +132,7 @@ export function articleBlocks(markdown) {
     const image = token.type === 'paragraph' && token.tokens?.length === 1 && token.tokens[0].type === 'image' ? token.tokens[0] : null;
     blocks.push({ id: index, raw: prefix + token.raw, type: image ? 'image' : token.type,
       text: image ? image.text : token.type === 'heading' ? token.text : token.raw.trimEnd(),
-      depth: token.depth, href: image?.href, ...metadata, tail: token.raw.match(/\s*$/)?.[0] || '' });
+      depth: token.depth, href: image?.href, ...(image ? { imageRaw: image.raw } : {}), ...metadata, tail: token.raw.match(/\s*$/)?.[0] || '' });
   }
   return blocks;
 }

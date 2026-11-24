@@ -24,7 +24,7 @@ const { newsDraftKey, importLegacyNewsDraft, formatNewsDate, archiveNewsContent,
 const { pollNewsBatch } = load('src/services/newsBatchPolling.js');
 const { normalizeNewsPhoto, mergeNewsPhotos, newsAlbumDefaults } = load('src/utils/newsPhotoSelection.js');
 const { wechatDraftKey, wechatAiDraftKey, wechatImportKey, hasWechatDraft } = load('src/utils/wechatDraftState.js');
-const { articleBlocks, changeArticleBlock, articleBodyMarkdown, withoutImageGroupMarkers, normalizeReviewCredits, renderDraftArticle } = load('src/utils/newsArticle.js');
+const { articleBlocks, changeArticleBlock, articleBodyMarkdown, withoutImageCaptions, withoutImageGroupMarkers, normalizeReviewCredits, renderDraftArticle } = load('src/utils/newsArticle.js');
 const { freezeContent, materializeLayout, templateLayout, contentSignature, workflowKey, addObservedBrandAssets, normalizeLayoutLibrary, mergeContentIntoLayout, layoutToMarkdown } = load('src/utils/wechatWorkflow.js');
 const { revisionSource, revisionPhotoReferences, applyRevision, revisionTarget, contextualRevisionTarget, revisionContinuation, REVISION_ACTIONS } = load('src/utils/newsRevision.js');
 const { sourceRanges, floatingPosition } = load('src/utils/newsEditorSelection.js');
@@ -671,6 +671,16 @@ test('structured editing preserves nonedited Markdown byte-for-byte, including p
   const changed = changeArticleBlock(image, '说明[补充]');
   assert.match(changed.raw, /!\[说明\\\[补充\\\]\]\(\/original.jpg\?signature=abc\)/);
   assert.equal(articleBlocks(changed.raw).find(block => block.type === 'image').href, image.href);
+});
+test('clearing draft captions keeps photo URLs, explicit groups, body text, and Markdown references', () => {
+  const marker = '<!-- mamage-image-group {"galleryId":"workshop","galleryColumns":2} -->';
+  const original = ['# 标题', '正文保留图题甲，[链接][ref]。', '[ref]: https://example.test', marker,
+    '![图题甲](/first.jpg?sign=one&size=1080)', marker, '![图题乙[现场]](/second(1).jpg "拍摄现场")',
+    '正文保留示例。', '~~~md\n![示例](/example.jpg)\n~~~', '![](/third.jpg)'].join('\r\n\r\n');
+  const cleared = withoutImageCaptions(original);
+  assert.equal(cleared, original.replace('![图题甲]', '![]').replace('![图题乙[现场]]', '![]'));
+  assert.equal(withoutImageCaptions(cleared), cleared);
+  assert.equal(withoutImageCaptions('只有正文和 [链接][ref]\n\n[ref]: https://example.test'), '只有正文和 [链接][ref]\n\n[ref]: https://example.test');
 });
 test('export and layout do not duplicate the title, or remove a different body heading', () => {
   assert.equal(articleBodyMarkdown('# 已确认标题\n\n正文。\n\n![图注](/image.jpg)', '已确认标题'), '正文。\n\n![图注](/image.jpg)');

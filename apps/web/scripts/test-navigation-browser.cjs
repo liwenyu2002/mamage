@@ -531,6 +531,35 @@ async function main() {
       assert.equal(await editor.getByRole('button', { name: /单列|双列|三列/ }).count(), 0);
       const review = editor.locator('.news-edit-paragraph').filter({ hasText: '初审：甲' });
       assert.match(await review.innerText(), /初审：甲 *\n终审：乙/);
+      const clearCaptions = page.getByRole('button', { name: '清空图题', exact: true });
+      const getPhotos = () => editor.locator('.news-edit-photo').evaluateAll(photos => photos.map(photo => ({
+        src: photo.querySelector('img').getAttribute('src'), group: photo.dataset.galleryId,
+        caption: photo.querySelector('figcaption').textContent,
+      })));
+      const originalPhotos = await getPhotos();
+      const source = page.getByRole('textbox', { name: '稿件正文', exact: true, includeHidden: true });
+      const originalMarkdown = await source.inputValue();
+      assert.equal(await clearCaptions.isEnabled(), true);
+      await page.setViewportSize({ width: 390, height: 860 });
+      await clearCaptions.scrollIntoViewIfNeeded();
+      assert.equal(await clearCaptions.evaluate(button => {
+        const { left, right } = button.getBoundingClientRect();
+        return left >= 0 && right <= innerWidth;
+      }), true);
+      await page.locator('.news-result-heading').screenshot({ caret: 'initial',
+        path: path.join(screenshotDir, 'wechat-clear-captions-mobile.png') });
+      assert.equal(await source.inputValue() === originalMarkdown, true, 'Changing viewport must not change the draft');
+      await clearCaptions.click();
+      assert.deepEqual(await getPhotos(), originalPhotos.map(photo => ({ ...photo, caption: '' })));
+      const clearedMarkdown = await source.inputValue();
+      assert.equal(clearedMarkdown === originalMarkdown.replace(/!\[样图 \d+\]/g, '![]'), true,
+        `Clearing captions must leave the rest of the source unchanged: ${JSON.stringify(clearedMarkdown.slice(-90))}`);
+      assert.equal(await clearCaptions.isDisabled(), true);
+      await page.getByRole('button', { name: '撤销编辑', exact: true }).click();
+      assert.deepEqual(await getPhotos(), originalPhotos);
+      const undoneMarkdown = await source.inputValue();
+      assert.equal(undoneMarkdown === originalMarkdown, true, `Undo must restore the exact source: ${JSON.stringify(undoneMarkdown.slice(-90))}`);
+      await page.setViewportSize({ width: 1440, height: 900 });
       await page.getByRole('button', { name: '确认内容，选择样式', exact: true }).click();
       await page.getByRole('button', { name: /AI青年说 · 人物专访/ }).click();
       const cover = page.getByRole('checkbox', { name: 'AI 青年说首图', exact: true });

@@ -12,8 +12,9 @@ import { wechatImportKey } from './utils/wechatDraftState';
 import { copyText } from './utils/clipboard';
 import './newsWriter.css';
 import { IconClose, IconPlus, IconSparkleAI, IconDownload, IconTrash, IconChevronLeft, IconChevronRight, IconEditStroked } from './ui/icons';
+import { CaptionsOff } from 'lucide-react';
 import { marked } from 'marked';
-import { renderDraftArticle, withoutImageGroupMarkers } from './utils/newsArticle';
+import { renderDraftArticle, withoutImageCaptions, withoutImageGroupMarkers } from './utils/newsArticle';
 import DOMPurify from 'dompurify';
 import { toPng } from 'html-to-image';
 import NewsPhotoPicker from './NewsPhotoPicker';
@@ -243,6 +244,15 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
   const [documentView, setDocumentView] = React.useState('editor');
   const [editSelection, setEditSelection] = React.useState(null);
   const [editHighlight, setEditHighlight] = React.useState(null);
+  const captionlessMarkdown = React.useMemo(() => documentView === 'editor'
+    ? withoutImageCaptions(activeContent.markdownText) : activeContent.markdownText, [documentView, activeContent.markdownText]);
+  const clearImageCaptions = () => {
+    if (isGenerating || captionlessMarkdown === activeContent.markdownText) return;
+    updateChannelContent(activeChannelKey, base => base.markdownText !== activeContent.markdownText ? base
+      : { ...base, markdownText: captionlessMarkdown, generatedHtml: '', factCheck: null });
+    setEditSelection(null);
+    setEditHighlight(null);
+  };
   const [selectedReference, setSelectedReference] = React.useState(null);
   React.useEffect(() => {setSelectedReference(null);}, [activeChannelKey, activeContent.sourceJobId]);
   React.useEffect(() => {
@@ -1877,6 +1887,9 @@ const AiNewsWriter = ({ initialChannelKey = null, currentUser, workspaceId, head
                     <SegmentedControl label="稿件视图" kind="tabs" value={documentView}
                     options={[{ value: 'preview', label: '预览' }, { value: 'editor', label: '编辑' }]}
                     onChange={setDocumentView} />
+                    {documentView === 'editor' ? <Button size="small" theme="borderless" icon={<CaptionsOff size={14} />}
+                      title="移除当前稿件的所有图题" disabled={isGenerating || captionlessMarkdown === activeContent.markdownText}
+                      onClick={clearImageCaptions}>清空图题</Button> : null}
                     <Button size="small" theme="borderless" onClick={handleCopyBodyWithHashtags}>
                       {activeChannelKey === 'xiaohongshu' ? '复制正文+话题' : '复制正文'}
                     </Button>
