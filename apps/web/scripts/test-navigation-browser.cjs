@@ -724,6 +724,8 @@ async function main() {
       await page.setViewportSize({ width: 390, height: 844 });
       const mobile = await dock.boundingBox();
       assert.ok(mobile.x >= 0 && mobile.x + mobile.width <= 390 && mobile.y + mobile.height <= 844);
+      // The transfer station switches to its floating mobile button on the next frame.
+      await page.waitForFunction(() => document.querySelector('[data-transfer-station-root="1"]')?.getBoundingClientRect().width <= 62);
       const mobileStation = await station.boundingBox();
       if (mobileStation) assert.ok(mobileStation.y + mobileStation.height <= mobile.y || mobileStation.x >= mobile.x + mobile.width);
       await more.click();
