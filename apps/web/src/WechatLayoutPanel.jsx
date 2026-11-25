@@ -17,8 +17,7 @@ export default function WechatLayoutPanel({ confirmed, current, storageKey, onBa
     try { return JSON.parse(localStorage.getItem(jobKey) || 'null') ? 'ai' : 'template'; } catch { return 'template'; }
   });
   const [template, setTemplate] = React.useState('');
-  const [observed, setObserved] = React.useState({ templates: [], library: {}, loading: true, error: '' });
-  const [assetSelections, setAssetSelections] = React.useState({});
+  const [observed, setObserved] = React.useState({ templates: [], brandImageSets: [], library: {}, loading: true, error: '' });
   const [failedAssets, setFailedAssets] = React.useState([]);
   const [brief, setBrief] = React.useState(() => {
     try { return JSON.parse(localStorage.getItem(jobKey) || 'null')?.brief || ''; } catch { return ''; }
@@ -26,6 +25,8 @@ export default function WechatLayoutPanel({ confirmed, current, storageKey, onBa
   const [pending, setPending] = React.useState(() => {
     try { return JSON.parse(localStorage.getItem(jobKey) || 'null'); } catch { return null; }
   });
+  const [brandSetId, setBrandSetId] = React.useState(() => pending?.brandSetId || '');
+  const [assetSelections, setAssetSelections] = React.useState(() => pending?.assetSelections || {});
   const [error, setError] = React.useState('');
   const [finished, setFinished] = React.useState(readFinished);
   const [submitting, setSubmitting] = React.useState(false);
@@ -38,9 +39,10 @@ export default function WechatLayoutPanel({ confirmed, current, storageKey, onBa
     request('/api/wechat-style/monitor-templates', { signal: controller.signal }).then(data => {
       if (controller.signal.aborted) return;
       const templates = Array.isArray(data.templates) ? data.templates : [];
-      setObserved({ templates, library: normalizeLayoutLibrary(data.blocks || []), loading: false, error: '' });
+      const brandImageSets = Array.isArray(data.brandImageSets) ? data.brandImageSets : [];
+      setObserved({ templates, brandImageSets, library: normalizeLayoutLibrary(data.blocks || []), loading: false, error: '' });
       setTemplate(previous => templates.some(item => item.id === previous) ? previous : templates[0]?.id || '');
-    }).catch(() => { if (!controller.signal.aborted) setObserved({ templates: [], library: {}, loading: false, error: '推文观察库样式暂时无法读取' }); });
+    }).catch(() => { if (!controller.signal.aborted) setObserved(previous => ({ ...previous, loading: false, error: '推文观察库样式暂时无法读取' })); });
     return () => controller.abort();
   }, []);
   const clearFinished = () => {
@@ -55,7 +57,7 @@ export default function WechatLayoutPanel({ confirmed, current, storageKey, onBa
       return;
     }
     try {
-      const applied = onApply(confirmed, finished.plan, finished.library, [], finished.plan.imageCard);
+      const applied = onApply(confirmed, finished.plan, finished.library, finished.assets);
       if (applied) { clearFinished(); setError(''); } else setError('排版未应用，原稿已保留，请重新排版');
     } catch (failure) { setError(failure.message || '应用失败，原稿已保留'); }
   };
@@ -84,13 +86,13 @@ export default function WechatLayoutPanel({ confirmed, current, storageKey, onBa
           if (controller.signal.aborted) return;
           const plan = { ...response.result.plan, imageLayout: pending.imageLayout || 'auto' };
           const normalized = normalizeLayoutLibrary(library.blocks || []);
-          const applied = applyRef.current(pending.confirmed, plan, normalized);
+          const applied = applyRef.current(pending.confirmed, plan, normalized, pending.assets);
           remember(null);
           if (applied) clearFinished();
           else {
             // 用户已离开样式步骤：把完成结果留存，回到这里可一键应用，而不是直接丢弃。
             try {
-              if (finishedKey) localStorage.setItem(finishedKey, JSON.stringify({ plan, library: normalized,
+              if (finishedKey) localStorage.setItem(finishedKey, JSON.stringify({ plan, library: normalized, assets: pending.assets,
                 confirmedSignature: pending.confirmed?.signature || '', at: Date.now() }));
             } catch (e) { /* 配额/隐私模式：只能重新排版 */ }
             setFinished(readFinished());
@@ -133,15 +135,13 @@ export default function WechatLayoutPanel({ confirmed, current, storageKey, onBa
   const run = () => {
     if (!current || !brief.trim() || pending) return;
     clearFinished();
-    submit({ confirmed, brief: brief.trim(), startedAt: Date.now(), clientRequestId: typeof crypto.randomUUID === 'function' ? crypto.randomUUID()
+    submit({ confirmed, brief: brief.trim(), brandSetId, assetSelections, assets: selectedAssets,
+      startedAt: Date.now(), clientRequestId: typeof crypto.randomUUID === 'function' ? crypto.randomUUID()
       : `layout-${Date.now()}-${Math.random().toString(36).slice(2)}` });
   };
   const selectedTemplate = observed.templates.find(item => item.id === template);
-  const brandCandidates = selectedTemplate?.brandCandidates || [];
-  const assetHeading = brandCandidates.some(asset => asset.defaultSelected) ? '模板首尾图' : '候选固定图';
-  const assetUnavailable = asset => !asset.defaultSelected && failedAssets.includes(asset.id);
-  const selectedAssets = brandCandidates.filter(asset => !assetUnavailable(asset)
-    && (assetSelections[template]?.[asset.id] ?? asset.defaultSelected));
+  const brandAssets = observed.brandImageSets.find(set => set.id === brandSetId)?.assets || [];
+  const selectedAssets = brandAssets.filter(asset => assetSelections[asset.id] !== false);
   const templateConfig = selectedTemplate ? { ...THEME_PRESETS.minimal, ...selectedTemplate.styleIds,
     imageGroup: selectedTemplate.imageGroup,
     accent: selectedTemplate.base?.accent || THEME_PRESETS.minimal.accent,
@@ -149,12 +149,29 @@ export default function WechatLayoutPanel({ confirmed, current, storageKey, onBa
       ...(selectedTemplate.base?.lineHeight ? { lineHeight: selectedTemplate.base.lineHeight } : {}),
       ...(selectedTemplate.base?.textIndent === true ? { textIndent: true } : {}) },
     h1: selectedTemplate.styleIds.h1 || selectedTemplate.styleIds.h2,
-    bodyStyleId: 'builtin-body-plain' } : null;
+    bodyStyleId: selectedTemplate.styleIds.body || 'builtin-body-plain' } : null;
   const groups = imageRuns(confirmed?.source.doc).filter(run => run.items.length > 1);
   return <section className="wechat-layout-selection" aria-label="选择公众号样式">
     <div className="wechat-layout-heading"><div><h2>选择样式</h2><span>{confirmed?.source.title} · {confirmed?.source.doc.length || 0} 个内容块</span></div>
       <Button size="small" theme="borderless" onClick={onSaveContent}>备份内容稿</Button></div>
     {!current ? <div className="news-input-error" role="alert">内容稿已修改，请重新确认后再排版。<Button size="small" onClick={onBack}>返回确认</Button></div> : null}
+    {observed.brandImageSets.length ? <fieldset className="wechat-brand-assets" disabled={Boolean(pending) || submitting}>
+      <legend>首末图</legend>
+      <SegmentedControl label="首末图套装" value={brandSetId} onChange={setBrandSetId}
+        options={[{ value: '', label: '不加首末图' }, ...observed.brandImageSets.map(set => ({ value: set.id, label: set.name }))]} />
+      {brandAssets.length ? <div className="wechat-brand-assets-list">
+        {brandAssets.map(asset => <label key={asset.id}>
+          <input type="checkbox" checked={assetSelections[asset.id] !== false} onChange={event => {
+            const checked = event.target.checked;
+            setAssetSelections(previous => ({ ...previous, [asset.id]: checked }));
+          }} />
+          {failedAssets.includes(asset.id) ? <span className="wechat-brand-asset-unavailable">预览暂不可用</span>
+            : <img src={asset.src} alt="" loading="lazy" onError={() => setFailedAssets(previous => [...previous, asset.id])} />}
+          <span>{asset.name}</span>
+        </label>)}
+      </div> : null}
+    </fieldset> : null}
+    <h3 className="wechat-layout-section-label">正文样式</h3>
     <SegmentedControl label="排版方式" value={choice} options={[{ value: 'template', label: '已有模板' }, { value: 'ai', label: 'AI 排版' }]}
       onChange={setChoice} />
     <p className="wechat-layout-hint">{choice === 'template'
@@ -175,18 +192,7 @@ export default function WechatLayoutPanel({ confirmed, current, storageKey, onBa
         </button>;
       })}
     </div>
-    {brandCandidates.length ? <section className="wechat-brand-assets" aria-label={assetHeading}>
-      <h3>{assetHeading}</h3>
-      <div className="wechat-brand-assets-list">{brandCandidates.map(asset => <label key={asset.id}>
-        <input type="checkbox" disabled={assetUnavailable(asset)} checked={selectedAssets.includes(asset)} onChange={event => {
-          const checked = event.target.checked;
-          setAssetSelections(previous => ({ ...previous, [template]: { ...previous[template], [asset.id]: checked } }));
-        }} />
-        {failedAssets.includes(asset.id) ? <span className="wechat-brand-asset-unavailable">预览暂不可用</span>
-          : <img src={asset.src} alt="" loading="lazy" onError={() => setFailedAssets(previous => [...previous, asset.id])} />}
-        <span>{asset.name || `${asset.position === 'top' ? '文首' : '文末'} · ${asset.occurrences} 篇使用`}</span>
-      </label>)}</div>
-    </section> : null}</> : <div className="wechat-layout-brief">
+    </> : <div className="wechat-layout-brief">
       <label htmlFor="wechat-style-brief">想要什么风格？</label>
       <TextArea id="wechat-style-brief" aria-label="排版风格描述" value={brief} onChange={setBrief} rows={3} maxLength={1000}
         placeholder="黑白简洁的校园纪实风，导语稍突出，正文留白多一点。" />
@@ -200,7 +206,7 @@ export default function WechatLayoutPanel({ confirmed, current, storageKey, onBa
     <div className="wechat-layout-actions"><Button size="small" theme="borderless" icon={<IconChevronLeft />} onClick={onBack}>返回内容稿</Button>
       {pending && error ? <Button disabled={submitting} onClick={() => submit(pending)}>重试同一任务</Button> : null}
       {choice === 'template' ? <Button type="primary" disabled={!current || Boolean(pending) || !templateConfig} onClick={() => onApply(confirmed, templateLayout(confirmed.source, templateConfig), observed.library,
-        selectedAssets, templateConfig.imageCard)}>应用模板，生成排版稿</Button>
+        selectedAssets)}>应用模板，生成排版稿</Button>
         : <Button type="primary" icon={<IconSparkleAI />} disabled={!current || !brief.trim() || Boolean(pending) || submitting} onClick={run}>AI 自动排版</Button>}
     </div>
   </section>;

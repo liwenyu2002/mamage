@@ -177,15 +177,20 @@ async function loadObservedStyleLibrary(db, workspace) {
     JOIN wechat_monitor_accounts x ON x.id=g.account_id AND x.scope_key=g.scope_key
     WHERE g.scope_key=? AND g.kind='series' AND x.account_key='bjzgca' ORDER BY g.id`, [scope]);
   const observed = buildObservedLibrary(rows, memberships);
-  const curatedTemplates = curated.templates.map(({ brandImages = [], ...template }) => ({
-    ...template,
-    brandCandidates: brandImages.flatMap(({ url, position, name }) => {
+  const brandImageSets = curated.brandImageSets.map(({ images, ...set }) => ({
+    ...set,
+    assets: images.flatMap(({ url, position, name }) => {
       const image = assetUrl(url);
-      return image && ['top', 'bottom'].includes(position)
-        ? [{ ...brandCandidate({ ...image, position }), name, defaultSelected: true }] : [];
+      return image && ['top', 'bottom'].includes(position) ? [{ ...brandCandidate({ ...image, position }), name }] : [];
     }),
+  })).filter(set => set.assets.length);
+  // Keep the original field for already-open editors running the previous bundle.
+  const curatedTemplates = curated.templates.map(({ legacyBrandImageSet, ...template }) => ({
+    ...template,
+    brandCandidates: (brandImageSets.find(set => set.id === legacyBrandImageSet)?.assets || [])
+      .map(asset => ({ ...asset, defaultSelected: true })),
   }));
-  return { templates: [...curatedTemplates, ...observed.templates],
+  return { templates: [...curatedTemplates, ...observed.templates], brandImageSets,
     blocks: [...curated.templates.flatMap(({ styleIds, sourceUrl, sourceTitle, sourceAccount }) => {
       const ids = new Set(Object.values(styleIds));
       return curated.blocks.filter(block => ids.has(`db-${block.id}`))

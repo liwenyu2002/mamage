@@ -49,7 +49,7 @@ test('library queries the authorized scope, official monitored account and publi
   const queries = [];
   const db = { async query(sql, values) { queries.push({ sql, values }); return [queries.length === 1 ? [row(1, '01', [heading])] : []]; } };
   const result = await loadObservedStyleLibrary(db, { enabled: true, orgId: 4, unitId: 5 });
-  assert.equal(result.templates.length, 2);
+  assert.equal(result.templates.length, 3);
   assert.equal(queries[0].values[0], '4:5');
   assert.match(queries[0].sql, /x\.account_key='bjzgca'/);
   assert.match(queries[0].sql, /a\.published_at <= \?/);
@@ -73,9 +73,31 @@ test('the curated AI青年说 template includes only the original edge artwork, 
   const parts = library.blocks.find(block => 'db-' + block.id === template.styleIds.h2);
   assert.match(parts.htmlTemplate, /PART \{\{part\}\}/);
   assert.match(parts.htmlTemplate, /#0165f9/);
-  for (const item of library.blocks) {
+  for (const item of library.blocks.filter(block => block.id.startsWith('curated-ai-young-voices-'))) {
     assert.equal(item.sourceUrl, template.sourceUrl);
     assert.doesNotMatch(item.htmlTemplate, /周天行|qpic\.cn|<iframe|<video|<script/);
+  }
+});
+
+test('the two brand image sets are separate from the source article styles', async () => {
+  const library = await loadObservedStyleLibrary({ query: async () => [[]] }, { enabled: true, orgId: 4, unitId: 5 });
+  assert.deepEqual(library.brandImageSets.map(set => [set.id, set.name, set.assets.map(asset => asset.position)]), [
+    ['graduate-union', '北京中关村学院研究生会', ['top', 'bottom']],
+    ['academy', '北京中关村学院', ['top', 'bottom']],
+  ]);
+  const assets = library.brandImageSets.flatMap(set => set.assets);
+  assert.equal(new Set(assets.map(asset => asset.id)).size, 4);
+  assert.ok(assets.every(asset => new URL(asset.src, 'http://mamage.test').pathname === '/api/wx-img'));
+  const longMarch = library.templates.find(item => item.id === 'curated-long-march');
+  assert.equal(longMarch.sourceUrl, 'https://mp.weixin.qq.com/s/Zz2abkJM555S1AFidN4Tnw');
+  assert.equal(longMarch.base.accent, '#c01c0c');
+  assert.deepEqual(longMarch.brandCandidates, []);
+  for (const [slot, styleId] of Object.entries(longMarch.styleIds)) {
+    const block = library.blocks.find(item => 'db-' + item.id === styleId);
+    assert.equal(block.type, ['intro', 'review'].includes(slot) ? 'body' : slot);
+    assert.equal(block.sourceUrl, longMarch.sourceUrl);
+    assert.match(block.htmlTemplate, slot === 'imageCard' ? /\{\{src\}\}/ : /\{\{content\}\}/);
+    assert.doesNotMatch(block.htmlTemplate, /qpic\.cn|<script|沿着展线/);
   }
 });
 

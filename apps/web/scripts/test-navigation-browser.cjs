@@ -14,7 +14,9 @@ const dist = process.env.NAV_DIST ? path.resolve(process.env.NAV_DIST) : path.re
 async function main() {
   const image = await sharp({ create: { width: 640, height: 480, channels: 3, background: '#859da9' } }).jpeg().toBuffer();
   const layoutLibrary = await loadObservedStyleLibrary({ query: async () => [[]] }, { enabled: true, orgId: 1, unitId: 1 });
-  const brandArtwork = layoutLibrary.templates.find(template => template.id === 'curated-ai-young-voices').brandCandidates;
+  const graduateArtwork = layoutLibrary.brandImageSets.find(set => set.id === 'graduate-union').assets;
+  const academyArtwork = layoutLibrary.brandImageSets.find(set => set.id === 'academy').assets;
+  const brandArtwork = [...graduateArtwork, ...academyArtwork];
   const tracks = Array.from({ length: 9 }, (_, index) =>
     `<image href="https://mmbiz.qpic.cn/example/${index % 8}" x="${640 * index}" y="0" width="640" height="480"></image>`).join('');
   const carousel = templateFromSource(`<svg viewBox="0 0 640 480"><g><animateTransform attributeName="transform" type="translate"
@@ -523,6 +525,88 @@ async function main() {
       await b.waitFor();
       assert.deepEqual(await blocks(), ['照片拖拽测试', '开场', '照片甲', '第一段', '照片乙', '第二段']);
     },
+    async independentBrandLayout(page) {
+      await page.goto(base + '/function/wechat-composer');
+      await page.getByRole('button', { name: '确认内容，选择样式', exact: true }).click();
+      const sets = page.getByRole('group', { name: '首末图套装' });
+      const none = sets.getByRole('button', { name: '不加首末图', exact: true });
+      const academy = sets.getByRole('button', { name: '北京中关村学院', exact: true });
+      const graduate = sets.getByRole('button', { name: '北京中关村学院研究生会', exact: true });
+      await none.waitFor();
+      assert.equal(await none.getAttribute('aria-pressed'), 'true');
+      assert.equal(await graduate.isVisible(), true);
+      const red = page.getByRole('button', { name: /红金纪实 · 伟大的远征/ });
+      const blue = page.getByRole('button', { name: /AI青年说 · 人物专访/ });
+      await academy.click();
+      const header = page.getByRole('checkbox', { name: '学院动态首图', exact: true });
+      const footer = page.getByRole('checkbox', { name: '学院官微末图', exact: true });
+      await footer.uncheck();
+      await red.click();
+      await blue.click();
+      await page.getByRole('group', { name: '排版方式', exact: true }).getByRole('button', { name: 'AI 排版', exact: true }).click();
+      assert.equal(await academy.getAttribute('aria-pressed'), 'true');
+      assert.equal(await footer.isChecked(), false);
+      await page.getByRole('button', { name: '已有模板', exact: true }).click();
+      await red.click();
+      assert.equal(await header.isChecked(), true);
+      assert.equal(await footer.isChecked(), false);
+      await footer.check();
+      await page.setViewportSize({ width: 390, height: 860 });
+      assert.equal(await sets.evaluate(node => {
+        const { left, right } = node.getBoundingClientRect();
+        return left >= 0 && right <= innerWidth && node.scrollWidth <= node.clientWidth + 2;
+      }), true, 'both brand names fit on narrow screens');
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await page.locator('.wechat-layout-selection').screenshot({ caret: 'initial', path: path.join(screenshotDir, 'wechat-independent-brand-style.png') });
+      const apply = page.getByRole('button', { name: '应用模板，生成排版稿', exact: true });
+      await apply.click();
+      const canvas = page.locator('.cve-canvas');
+      await canvas.getByText('首节标题', { exact: true }).waitFor();
+      const blocks = canvas.locator('.cve-block');
+      assert.equal(await blocks.first().locator('img').getAttribute('src'), academyArtwork[0].src);
+      assert.equal(await blocks.last().locator('img').getAttribute('src'), academyArtwork[1].src);
+      const heading = canvas.getByText('首节标题', { exact: true });
+      assert.equal(await heading.evaluate(node => getComputedStyle(node.closest('section')).backgroundColor), 'rgb(192, 28, 12)');
+      const brands = canvas.locator('[data-cve-uid^="brand-"]');
+      assert.equal(await brands.count(), 2);
+      await page.locator('.wechat-workflow-bar nav button').filter({ hasText: '选择样式' }).click();
+      assert.equal(await academy.getAttribute('aria-pressed'), 'true');
+      await none.click();
+      await apply.click();
+      await canvas.getByText('首节标题', { exact: true }).waitFor();
+      assert.equal(await brands.count(), 0, 'the red-and-gold style does not insert any artwork on its own');
+      assert.equal(await canvas.locator('img[src="/api/image/test.jpg"]').count(), 1, 'body photos are not removed with the artwork');
+
+      let plan, submitted, complete = false;
+      await page.route('**/api/wechat-compositions/layout**', route => {
+        if (route.request().method() === 'POST') {
+          submitted = route.request().postDataJSON();
+          const styles = { body: 'builtin-body-plain', h2: 'builtin-h2-minimal', imageCard: 'builtin-imageCard-minimal-underline' };
+          plan = { accent: '#1a1a1a', blocks: submitted.source.doc.map(({ uid, type }) => ({ uid, styleId: styles[type] })) };
+          return route.fulfill({ json: { status: 'queued' } });
+        }
+        return route.fulfill({ json: complete ? { status: 'succeeded', result: { plan } } : { status: 'running' } });
+      });
+      await page.locator('.wechat-workflow-bar nav button').filter({ hasText: '选择样式' }).click();
+      await graduate.click();
+      const graduateHeader = page.getByRole('checkbox', { name: 'AI 青年说首图', exact: true });
+      await graduateHeader.uncheck();
+      await page.getByRole('group', { name: '排版方式', exact: true }).getByRole('button', { name: 'AI 排版', exact: true }).click();
+      await page.getByRole('textbox', { name: '排版风格描述' }).fill('简洁的校园新闻排版');
+      const submittedLayout = page.waitForResponse(response => response.url().endsWith('/api/wechat-compositions/layout') && response.request().method() === 'POST');
+      await page.getByRole('button', { name: 'AI 自动排版', exact: true }).click();
+      await submittedLayout;
+      await page.getByRole('button', { name: '取消这次 AI 排版', exact: true }).waitFor();
+      assert.deepEqual(Object.keys(submitted).sort(), ['brief', 'clientRequestId', 'source'], 'brand assets stay local to the layout');
+      await page.reload();
+      await graduateHeader.waitFor();
+      assert.equal(await graduate.getAttribute('aria-pressed'), 'true');
+      assert.equal(await graduateHeader.isChecked(), false);
+      complete = true;
+      await canvas.getByText('首节标题', { exact: true }).waitFor();
+      assert.equal(await brands.count(), 1, 'the AI job restores the selected artwork after a reload');
+      assert.equal(await blocks.last().locator('img').getAttribute('src'), graduateArtwork[1].src);
+    },
     async templateCarousel(page) {
       await page.goto(base + '/function/wechat-composer');
       const editor = page.locator('.news-edit-document');
@@ -562,6 +646,7 @@ async function main() {
       await page.setViewportSize({ width: 1440, height: 900 });
       await page.getByRole('button', { name: '确认内容，选择样式', exact: true }).click();
       await page.getByRole('button', { name: /AI青年说 · 人物专访/ }).click();
+      await page.getByRole('group', { name: '首末图套装' }).getByRole('button', { name: '北京中关村学院研究生会', exact: true }).click();
       const cover = page.getByRole('checkbox', { name: 'AI 青年说首图', exact: true });
       const footer = page.getByRole('checkbox', { name: '融媒体末图', exact: true });
       assert.equal(await cover.isChecked(), true);
@@ -569,8 +654,8 @@ async function main() {
       await footer.uncheck();
       assert.equal(await cover.isChecked(), true);
       await footer.check();
-      for (const asset of brandArtwork) {
-        const thumbnail = page.getByRole('region', { name: '模板首尾图' }).locator(`img[src="${asset.src}"]`);
+      for (const asset of graduateArtwork) {
+        const thumbnail = page.getByRole('group', { name: '首末图', exact: true }).locator(`img[src="${asset.src}"]`);
         assert.equal(await thumbnail.evaluate(img => img.decode().then(() => img.naturalWidth)), 640);
       }
       await page.getByRole('button', { name: '应用模板，生成排版稿', exact: true }).click();
@@ -582,8 +667,8 @@ async function main() {
       assert.equal(await compact.evaluate(node => getComputedStyle(node).fontSize), '12px');
       assert.match(await compact.innerHTML(), /初审：甲<br>终审：乙/);
       const blocks = canvas.locator('.cve-block');
-      assert.equal(await blocks.first().locator('img').getAttribute('src'), brandArtwork[0].src);
-      assert.equal(await blocks.last().locator('img').getAttribute('src'), brandArtwork[1].src);
+      assert.equal(await blocks.first().locator('img').getAttribute('src'), graduateArtwork[0].src);
+      assert.equal(await blocks.last().locator('img').getAttribute('src'), graduateArtwork[1].src);
 
       await canvas.locator('.cve-gallery-tools').filter({ hasText: '3 图组' })
         .getByRole('button', { name: '组图样式', exact: true }).click();
@@ -900,6 +985,14 @@ async function main() {
             title: '照片拖拽测试', markdownText: '# 照片拖拽测试\n\n开场\n\n![照片甲](/api/image/test.jpg?first)\n\n第一段\n\n第二段\n\n![照片乙](/api/image/test.jpg?second)',
           } } }));
       });
+      if (name === 'independentBrandLayout') await context.addInitScript(() => {
+        if (sessionStorage.getItem('brand-layout-fixture-seeded')) return;
+        sessionStorage.setItem('brand-layout-fixture-seeded', '1');
+        const markdownText = '# 红金排版样稿\n\n导语内容。\n\n## 首节标题\n\n活动正文。\n\n![现场照](/api/image/test.jpg)\n\n初审：甲\n\n终审：乙';
+        localStorage.setItem('mamage.wechat.workflow.v1:7:1', JSON.stringify({ mode: 'ai', stage: 'content' }));
+        localStorage.setItem('mamage.aiNewsWriter.draft.v2:7:1', JSON.stringify({ activeChannelKey: 'wechat_article',
+          selectedChannels: ['wechat_article'], channelContent: { wechat_article: { title: '红金排版样稿', markdownText } } }));
+      });
       if (name === 'templateCarousel') await context.addInitScript(() => {
         const photos = Array.from({ length: 11 }, (_, index) => `![样图 ${index + 1}](/api/image/test.jpg?frame=${index})`);
         const markdownText = ['# 访谈样稿', '本期访谈提要。', '## 研究经历', ...photos.slice(0, 8),
@@ -923,7 +1016,7 @@ async function main() {
       await context.route('**/*', route => {
         const req = route.request(), url = new URL(req.url()), p = url.pathname;
         if (p.startsWith('/api/image/')) return route.fulfill({ contentType: 'image/jpeg', body: image });
-        if (name === 'templateCarousel' && brandArtwork.some(asset => asset.src === p + url.search)) {
+        if (brandArtwork.some(asset => asset.src === p + url.search)) {
           return route.fulfill({ contentType: 'image/jpeg', body: image });
         }
         if (p.startsWith('/api/')) {
@@ -945,7 +1038,8 @@ async function main() {
           if (p === '/api/users/me') data = { id: 7, name: 'Test User', role: 'admin', activeUnitId: 1, metadataEditScope: 'own',
             permissions: ['projects.view', 'projects.create', 'photos.view', 'photos.edit', 'ai.generate'] };
           else if (p === '/api/workspaces') data = { enabled: true, activeUnitId: 1, units: [{ id: 1, name: 'Test Workspace', role: 'manager' }] };
-          else if (name === 'templateCarousel' && ['/api/wechat-style/monitor-templates', '/api/wechat-style/blocks'].includes(p)) data = layoutLibrary;
+          else if (['independentBrandLayout', 'templateCarousel'].includes(name)
+            && ['/api/wechat-style/monitor-templates', '/api/wechat-style/blocks'].includes(p)) data = layoutLibrary;
           else if (name === 'draftRecovery' && p === '/api/wechat-compositions') data = { items: [
             { id: 401, name: '已保存的推文', draftKind: 'layout', updatedAt: '2026-11-24T11:01:00Z' },
           ] };

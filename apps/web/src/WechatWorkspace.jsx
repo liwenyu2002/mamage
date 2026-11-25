@@ -165,9 +165,9 @@ export default function WechatWorkspace({ currentUser, workspaceId, initialMode 
       setConfirmed(snapshot); setStage('styles');
     } catch (error) { Toast.error(error.message); }
   };
-  const applyLayout = (source, plan, library, assets = [], imageStyleId) => {
+  const applyLayout = (source, plan, library, assets = []) => {
     if (latest.current.stage !== 'styles' || contentSignature(latest.current.article) !== source.signature) return false;
-    try { openStyled(addObservedBrandAssets(materializeLayout(source, plan, library), assets, library, imageStyleId)); return true; }
+    try { openStyled(addObservedBrandAssets(materializeLayout(source, plan, library), assets)); return true; }
     catch (error) { Toast.error(error.message || '排版未应用，原稿已保留'); return false; }
   };
   const saveBackup = async kind => {

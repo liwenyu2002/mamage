@@ -164,11 +164,9 @@ export function mergeContentIntoLayout(snapshot, layout) {
       styleBlocks: layout.sourceDocument?.styleBlocks || {}, confirmedAt: snapshot.confirmedAt } };
 }
 
-export function addObservedBrandAssets(layout, assets, library = {}, imageStyleId = layout.blockConfig.imageCard) {
+export function addObservedBrandAssets(layout, assets) {
   if (!Array.isArray(assets) || !assets.length) return layout;
   if (layout.doc.length + assets.length > 120) throw Error('加入固定图后内容块超过 120 个，请减少所选图片');
-  const imageStyle = library[imageStyleId] || BUILTIN_BLOCKS_BY_ID[imageStyleId];
-  if (!imageStyle || imageStyle.type !== 'imageCard') throw Error('固定图的样式不可用，请重新选择');
   const used = new Set(layout.doc.map(block => block.uid));
   const top = [], bottom = [];
   for (const asset of assets) {
@@ -178,11 +176,10 @@ export function addObservedBrandAssets(layout, assets, library = {}, imageStyleI
     while (used.has(uid)) uid = `brand-${asset.id}-${suffix++}`;
     used.add(uid);
     const block = { uid, kind: 'styled', type: 'imageCard', src: asset.src, caption: '', content: '',
-      blockId: imageStyleId, accent: null };
+      blockId: THEME_PRESETS.minimal.imageCard, accent: null };
     (asset.position === 'top' ? top : bottom).push(block);
   }
   return { ...layout, doc: [...top, ...layout.doc, ...bottom],
     sourceDocument: { ...layout.sourceDocument,
-      styleBlocks: { ...layout.sourceDocument.styleBlocks, ...(imageStyleId.startsWith('db-') ? { [imageStyleId]: imageStyle } : {}) },
       brandAssets: assets.map(({ id, src, position }) => ({ id, src, position })) } };
 }

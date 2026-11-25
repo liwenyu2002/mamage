@@ -8,7 +8,39 @@
       "sourceUrl": "https://mp.weixin.qq.com/s/9aBlc4ugohaABkymG1ciDw",
       "count": 1,
       "base": { "accent": "#157aef", "fontSize": 15, "lineHeight": 2, "textIndent": true },
-      "brandImages": [
+      "legacyBrandImageSet": "graduate-union",
+      "styleIds": {
+        "h1": "builtin-h2-minimal-large",
+        "h2": "db-curated-ai-young-voices-part",
+        "intro": "db-curated-ai-young-voices-intro",
+        "review": "db-curated-ai-young-voices-review",
+        "imageCard": "db-curated-ai-young-voices-photo"
+      }
+    },
+    {
+      "id": "curated-long-march",
+      "name": "红金纪实 · 伟大的远征",
+      "sourceTitle": "北京中关村学院师生参观《伟大的远征》主题展览",
+      "sourceAccount": "北京中关村学院研究生会",
+      "sourceUrl": "https://mp.weixin.qq.com/s/Zz2abkJM555S1AFidN4Tnw",
+      "count": 1,
+      "base": { "accent": "#c01c0c", "fontSize": 15, "lineHeight": 1.9, "textIndent": true },
+      "styleIds": {
+        "h2": "db-curated-long-march-heading",
+        "h3": "db-curated-long-march-subheading",
+        "intro": "db-curated-long-march-intro",
+        "body": "db-curated-long-march-body",
+        "review": "db-curated-long-march-review",
+        "imageCard": "db-curated-long-march-photo"
+      }
+    }
+  ],
+  "brandImageSets": [
+    {
+      "id": "graduate-union",
+      "name": "北京中关村学院研究生会",
+      "sourceUrl": "https://mp.weixin.qq.com/s/9aBlc4ugohaABkymG1ciDw",
+      "images": [
         {
           "position": "top",
           "name": "AI 青年说首图",
@@ -19,14 +51,24 @@
           "name": "融媒体末图",
           "url": "https://mmbiz.qpic.cn/mmbiz_png/Y5quQ4EL9YO8vU2fNtIMo47T5cLhRFnRPcQNicc0tkjr3uTgCvBW86I8gaXl7mkiaLoJwwXUXkcmIBLELYEHRCWRQiaVNLGWBEkD5ZUFsAkC4s/640?from=appmsg"
         }
-      ],
-      "styleIds": {
-        "h1": "builtin-h2-minimal-large",
-        "h2": "db-curated-ai-young-voices-part",
-        "intro": "db-curated-ai-young-voices-intro",
-        "review": "db-curated-ai-young-voices-review",
-        "imageCard": "db-curated-ai-young-voices-photo"
-      }
+      ]
+    },
+    {
+      "id": "academy",
+      "name": "北京中关村学院",
+      "sourceUrl": "https://mp.weixin.qq.com/s/TeAxd38slFDeJo5-Dal_tA",
+      "images": [
+        {
+          "position": "top",
+          "name": "学院动态首图",
+          "url": "https://mmbiz.qpic.cn/mmbiz_gif/Oax1aO3yZ9swXKItI7vROicnE9r2aDCTs0dNgXBVGmBMIcW1T2rAiczkviaLlyMWlu44hwl5hOm9bGPTRvBu56z5w/640?wx_fmt=gif&from=appmsg"
+        },
+        {
+          "position": "bottom",
+          "name": "学院官微末图",
+          "url": "https://mmbiz.qpic.cn/mmbiz_png/Oax1aO3yZ9tx9ibdAEBTVq1KoCrHfqqYIRVgqvUuYshjibgjZcxPbs61NKUJ3WYHnRJAUt4KibvsOX4ccJTo9T4HQ/640?wx_fmt=png&from=appmsg"
+        }
+      ]
     }
   ],
   "blocks": [
@@ -55,6 +97,47 @@
       "type": "imageCard",
       "name": "AI青年说 · 正文配图",
       "htmlTemplate": "<section style=\"margin:18px 0;text-align:center;\"><img src=\"{{src}}\" style=\"display:block;width:100%;height:auto\" />{{#caption}}<p style=\"margin:8px 0 0;text-align:center;font-size:12px;line-height:1.8;color:#a0a0a0;\">{{caption}}</p>{{/caption}}</section>"
+    },
+    {
+      "id": "curated-long-march-heading",
+      "type": "h2",
+      "name": "红金纪实 · 红底分节",
+      "accentEditable": true,
+      "htmlTemplate": "<section style=\"box-sizing:border-box;max-width:100%;margin:26px 0 16px;text-align:center;\"><section style=\"box-sizing:border-box;display:inline-block;max-width:100%;padding:0 5px 5px 0;background-color:#feddbc;\"><section style=\"box-sizing:border-box;padding:4px 18px;border:1px solid #ee4d2d;background-color:{{accent}};background-image:linear-gradient(90deg,{{accent}} 13%,#c75739 49%,{{accent}} 88%);color:#ffffff;font-size:18px;line-height:1.65;text-align:left;overflow-wrap:anywhere;\"><strong>{{content}}</strong></section></section></section>"
+    },
+    {
+      "id": "curated-long-march-subheading",
+      "type": "h3",
+      "name": "红金纪实 · 小标题",
+      "accentEditable": true,
+      "htmlTemplate": "<section style=\"box-sizing:border-box;margin:16px 4% 10px;padding:4px 10px;border-left:3px solid {{accent}};color:{{accent}};font-size:16px;line-height:1.7;overflow-wrap:anywhere;\"><strong>{{content}}</strong></section>"
+    },
+    {
+      "id": "curated-long-march-intro",
+      "type": "body",
+      "name": "红金纪实 · 红框导语",
+      "accentEditable": true,
+      "htmlTemplate": "<section style=\"box-sizing:border-box;width:92%;margin:16px auto;padding:16px 18px;border:1px solid {{accent}};border-radius:8px;background-color:#fffdfb;\">{{content}}</section>"
+    },
+    {
+      "id": "curated-long-march-body",
+      "type": "body",
+      "name": "红金纪实 · 正文卡片",
+      "htmlTemplate": "<section style=\"box-sizing:border-box;width:92%;margin:10px auto;padding:12px 18px;border:1px solid #fff0e4;border-radius:5px;background-color:#ffffff;box-shadow:0 0 6px #ffeadb;\">{{content}}</section>"
+    },
+    {
+      "id": "curated-long-march-review",
+      "type": "body",
+      "name": "红金纪实 · 审核署名",
+      "inheritBody": true,
+      "accentEditable": true,
+      "htmlTemplate": "<section style=\"box-sizing:border-box;width:92%;margin:20px auto;padding:12px 18px;border:1px solid {{accent}};color:#777777;text-align:center;font-size:13px;line-height:1.65;\">{{content}}</section>"
+    },
+    {
+      "id": "curated-long-march-photo",
+      "type": "imageCard",
+      "name": "红金纪实 · 正文配图",
+      "htmlTemplate": "<section style=\"margin:16px 4%;text-align:center;\"><img src=\"{{src}}\" style=\"display:block;width:100%;height:auto;\" />{{#caption}}<p style=\"margin:6px 0 0;font-size:12px;line-height:1.6;color:#777777;\">{{caption}}</p>{{/caption}}</section>"
     }
   ]
 }

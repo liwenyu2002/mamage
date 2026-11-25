@@ -388,14 +388,13 @@
 .wechat-template-lines i:last-child { width: 65%; }
 .wechat-layout-templates > button > span { display: flex; gap: 8px; align-items: center; color: #4b4b4b; font-size: 13px; }
 .wechat-layout-templates > button > small { display: block; margin-top: 6px; color: #797f87; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
-.wechat-brand-assets { margin: 8px 0 24px; }
-.wechat-brand-assets h3 { margin: 0 0 6px; font-size: 15px; }
-.wechat-brand-assets p { margin: 0 0 12px; color: #727982; font-size: 13px; }
-.wechat-brand-assets-list { display: flex; flex-wrap: wrap; gap: 12px; }
-.wechat-brand-assets-list label { display: grid; grid-template-columns: auto minmax(0, 144px); gap: 6px 8px; align-items: center; padding: 8px; border: 1px solid #dfe3e7; border-radius: 6px; background: #fff; cursor: pointer; }
-.wechat-brand-assets-list img { width: 144px; height: 70px; object-fit: contain; background: #f5f6f7; }
-.wechat-brand-assets-list .wechat-brand-asset-unavailable { display: grid; place-items: center; width: 144px; height: 70px; background: #f5f6f7; }
-.wechat-brand-assets-list span { grid-column: 2; font-size: 12px; color: #68717a; }
+.wechat-brand-assets { min-inline-size: 0; margin: 0 0 20px; padding: 0 0 20px; border: 0; border-bottom: 1px solid var(--app-line, #dfe3e7); }
+.wechat-brand-assets legend, .wechat-layout-section-label { margin: 0 0 8px; padding: 0; font-size: 15px; font-weight: 650; }
+.wechat-brand-assets-list { display: grid; grid-template-columns: repeat(2, minmax(0, 180px)); gap: 10px; margin-top: 10px; }
+.wechat-brand-assets-list label { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 8px; align-items: center; padding: 8px; border: 1px solid var(--app-line, #dfe3e7); border-radius: 6px; background: var(--app-surface, #fff); cursor: pointer; }
+.wechat-brand-assets-list img, .wechat-brand-asset-unavailable { box-sizing: border-box; width: 100%; height: 70px; object-fit: contain; background: #f5f6f7; }
+.wechat-brand-asset-unavailable { display: grid; place-items: center; padding: 4px; text-align: center; color: #68717a; font-size: 12px; }
+.wechat-brand-assets-list label > span:last-child { grid-column: 2; font-size: 12px; color: var(--app-muted, #68717a); }
 .wechat-layout-templates b { width: 10px; height: 10px; border-radius: 50%; }
 .wechat-layout-brief { margin: 26px 0; }
 .wechat-layout-brief label { display: block; margin-bottom: 10px; font-size: 14px; font-weight: 600; }

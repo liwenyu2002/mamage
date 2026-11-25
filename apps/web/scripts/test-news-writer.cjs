@@ -499,17 +499,21 @@ test('confirmed content is unstyled, immutable and sensitive to all content chan
   assert.equal(JSON.stringify(article), before);
 });
 
-test('selected observed brand images retain content and their style snapshots', () => {
-  const article = { title: '测试', markdown: '# 测试\n\n原有正文。' };
-  const confirmed = freezeContent(article), styled = materializeLayout(confirmed, templateLayout(confirmed.source, THEME_PRESETS.minimal));
+test('selected brand images use an independent image style and preserve the styled content', () => {
+  const article = { title: '测试', markdown: '# 测试\n\n原有正文。\n\n![活动图](/body.jpg)' };
+  const confirmed = freezeContent(article);
+  const styled = materializeLayout(confirmed, templateLayout(confirmed.source, THEME_PRESETS.formal));
   const asset = { id: '0123456789abcdef', src: '/api/wx-img?url=https%3A%2F%2Fmmbiz.qpic.cn%2Fbrand', position: 'top' };
-  const library = { 'db-monitor-image': { id: 'db-monitor-image', type: 'imageCard', htmlTemplate: '<img src="{{src}}">' } };
-  const withBrand = addObservedBrandAssets(styled, [asset], library, 'db-monitor-image');
+  const withBrand = addObservedBrandAssets(styled, [asset]);
   assert.equal(withBrand.doc[0].src, asset.src);
+  assert.equal(withBrand.doc[0].blockId, THEME_PRESETS.minimal.imageCard);
+  assert.equal(withBrand.doc.at(-1).blockId, THEME_PRESETS.formal.imageCard);
+  assert.notEqual(withBrand.doc[0].blockId, withBrand.doc.at(-1).blockId);
   assert.deepEqual(withBrand.doc.slice(1), styled.doc);
   assert.equal(withBrand.sourceDocument.markdown, article.markdown);
-  assert.equal(withBrand.sourceDocument.styleBlocks['db-monitor-image'].type, 'imageCard');
-  assert.throws(() => addObservedBrandAssets(styled, [{ ...asset, src: 'https://example.com/image' }], library, 'db-monitor-image'));
+  assert.deepEqual(withBrand.sourceDocument.styleBlocks, styled.sourceDocument.styleBlocks);
+  assert.deepEqual(withBrand.sourceDocument.brandAssets, [asset]);
+  assert.throws(() => addObservedBrandAssets(styled, [{ ...asset, src: 'https://example.com/image' }]));
 });
 
 test('template artwork remains independent of content edits and never returns after deletion', () => {
