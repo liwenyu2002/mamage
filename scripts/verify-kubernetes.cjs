@@ -170,6 +170,12 @@ async function main() {
     const index = await fetch(web + '/index.html');
     assert.match(index.headers.get('cache-control'), /no-store/);
     const html = await index.text();
+    for (const route of ['/', '/?projectId=1', '/function/wechat-composer']) {
+      const document = await fetch(web + route);
+      assert.equal(document.status, 200);
+      assert.match(document.headers.get('cache-control') || '', /no-store/, 'HTML entry must not be cached: ' + route);
+      assert.equal(await document.text(), html);
+    }
     const asset = /src="(\/bundle\.[^"]+\.js)"/.exec(html)?.[1];
     assert.ok(asset);
     const script = await fetch(web + asset);

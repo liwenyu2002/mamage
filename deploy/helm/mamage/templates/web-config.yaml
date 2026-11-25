@@ -41,6 +41,7 @@ data:
       }
       location = /index.html { add_header Cache-Control 'no-store' always; }
       location = / {
+        add_header Cache-Control 'no-store' always;
         if ($iam_root_callback) { rewrite ^ /api/auth/iam/callback last; }
         try_files /index.html =404;
       }
