@@ -3,7 +3,7 @@ import React from 'react';
 import CardSharingStatus from '../CardSharingStatus';
 import { createPortal } from 'react-dom';
 import { IconChevronLeft, IconChevronRight, IconPlus, IconMoreStroked, IconStar,
-  IconSimilarStack, IconListView, IconSliders, IconGridView, IconSearch, IconClose, IconShare } from '../ui/icons';
+  IconSimilarStack, IconListView, IconSliders, IconGridView, IconSearch, IconClose, IconShare, IconTrash } from '../ui/icons';
 import SharedAlbums from '../SharedAlbums';
 import { SharedFolders } from '../SharedFolderView';
 import { goBack } from '../utils/navigation';
@@ -22,7 +22,7 @@ export default function FolderColumns({ groups, albums, sharedAlbums = [], share
   onPin, pins, onAppearance, onMove, onOrganize, onOrder, colors, getFolderDragProps, getAlbumDragProps,
   getGroupDropProps, dropTargetId, maxDepth, query, draftQuery, onSearch, onDraftQuery,
   searchGroups, searchAlbums, view, onView, onManagePins, workspaceName = '小组空间', canOrganize = false, onEditFolder, onCreateAlbum, onEditAlbum, footer,
-  canEditFolder = () => false, canEditAlbum = () => false, canReorderFolders = false, searchResults,
+  canEditFolder = () => false, canEditAlbum = () => false, canReorderFolders = false, canDeleteAlbum = () => false, onDeleteAlbum, searchResults,
   creationInDock = false, selecting = false, selectedAlbumIds = [], selectedFolderIds = [], selectableAlbumIds = [], selectableFolderIds = [], onToggleAlbum, onToggleFolder }) {
   const railRef = React.useRef(null);
   const pathRef = React.useRef(null);
@@ -295,7 +295,11 @@ export default function FolderColumns({ groups, albums, sharedAlbums = [], share
         {canEditFolder(menuEntry.item) && <button role="menuitem" onClick={() => run(() => onMove(menuEntry.item))}><IconListView /><span>移动到…</span></button>}
         {canEditFolder(menuEntry.item) && <button role="menuitem" onClick={() => run(() => onEditFolder(menuEntry.item))}><IconSliders /><span>编辑文件夹</span></button>}
         <button role="menuitem" onClick={() => run(() => onAppearance(menuEntry.item))}><IconSliders /><span>我的文件夹外观</span></button>
-      </> : <>{canOrganize && <button role="menuitem" onClick={() => run(() => onOrganize(menuEntry.item))}><IconListView /><span>整理到文件夹</span></button>}{onEditAlbum && canEditAlbum(menuEntry.item) && <button role="menuitem" onClick={() => run(() => onEditAlbum(menuEntry.item))}><IconSliders /><span>编辑相册</span></button>}</>}
+      </> : <>
+        {canOrganize && <button role="menuitem" onClick={() => run(() => onOrganize(menuEntry.item))}><IconListView /><span>整理到文件夹</span></button>}
+        {onEditAlbum && canEditAlbum(menuEntry.item) && <button role="menuitem" onClick={() => run(() => onEditAlbum(menuEntry.item))}><IconSliders /><span>编辑相册</span></button>}
+        {onDeleteAlbum && canDeleteAlbum(menuEntry.item) && <button className="album-menu-delete" role="menuitem" onClick={() => run(() => onDeleteAlbum(menuEntry.item))}><IconTrash /><span>删除相册</span></button>}
+      </>}
     </div>, document.body)}
   </section>;
 }

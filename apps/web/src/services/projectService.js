@@ -97,22 +97,16 @@ async function createProject(data, options = {}) {
   return resp.text();
 }
 
-async function deleteProject(id) {
-  if (!id) throw new Error('missing project id');
-  const token = (typeof window !== 'undefined') ? (localStorage.getItem('mamage_jwt_token') || '') : '';
-  const headers = token ? { Authorization: `Bearer ${token}` } : {};
-    const apiBase = (typeof window !== 'undefined' && window.__MAMAGE_API_BASE__) ? window.__MAMAGE_API_BASE__ : (REQ_BASE || '');
-  const url = `${String(apiBase).replace(/\/+$/,'')}/api/projects/${id}`;
-  const resp = await fetch(url, { method: 'DELETE', headers });
-  if (!resp.ok) {
-    const text = await resp.text();
-    const err = new Error(`deleteProject failed ${resp.status}`);
-    err.status = resp.status; err.body = text;
-    throw err;
+async function deleteProject(id, { headers } = {}) {
+  const projectId = Number(id);
+  if (!/^\d+$/.test(String(id)) || !Number.isSafeInteger(projectId) || projectId <= 0) {
+    throw new Error('无效的相册编号');
   }
-  const ct = resp.headers.get('content-type') || '';
-  if (ct.includes('application/json')) return resp.json();
-  return resp.text();
+  const result = await request(`/api/projects/${projectId}`, { method: 'DELETE', headers });
+  if (result?.success !== true || Number(result.deletedProjectId) !== projectId) {
+    throw Object.assign(new Error('未收到删除确认，请刷新后查看相册是否还在'), { code: 'PROJECT_DELETE_UNCONFIRMED' });
+  }
+  return result;
 }
 
 // ===== 时间线环节 CRUD =====

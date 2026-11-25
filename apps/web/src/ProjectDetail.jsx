@@ -39,7 +39,7 @@ import { GlassReveal, ViewerDisplaySettings, useViewerAppearance } from './ui/Gl
 import useMediaViewerDialog from './useMediaViewerDialog';
 import useNavigation, { useNavigationState } from './useNavigation';
 import { navigate, getNavigation, openMediaRoute, closeMediaRoute } from './utils/navigation';
-import { getProjectById, updateProject, createTimelineSection, updateTimelineSection, deleteTimelineSection, reorderTimelineSections } from './services/projectService';
+import { getProjectById, updateProject, deleteProject, createTimelineSection, updateTimelineSection, deleteTimelineSection, reorderTimelineSections } from './services/projectService';
 import { canEditMetadata } from './utils/metadataEditPermissions';
 import { getToken } from './services/authService';
 import { fetchRandomByProject, searchPhotos, getPhotoById, getPhotoPersonObservations, updatePhoto, assignPhotosTimelineSection, getFacePersonInfo, getFaceAvatar, getFacePersonPhotos, labelFacePerson, renameFacePerson, uploadPhotoFiles, warmUploadApiProbe, deletePhotos, getPhotoFaces, getUploadFileLimitError, FRONTEND_MAX_VIDEO_UPLOAD_TEXT, runGroupRescueJob, isBrowserUndisplayableImage, isNeverBrowserPreviewable, undisplayableFormatLabel, getPersonFaces, previewPersonSplit, splitPerson } from './services/photoService';
@@ -2626,12 +2626,8 @@ function ProjectDetailInner({
       onOk: async () => {
         setDeletingProject(true);
         try {
-          const result = await request(`/api/projects/${projectId}`, { method: 'DELETE',
+          await deleteProject(projectId, {
             headers: shareUnitId ? { 'X-Mamage-Unit-Id': String(shareUnitId) } : undefined });
-          if (result?.success !== true || Number(result.deletedProjectId) !== Number(projectId)) {
-            Toast.error('未收到删除确认，请刷新后查看相册是否还在');
-            return;
-          }
           Toast.success('相册已删除');
           if (typeof onBack === 'function') {
             onBack(true);
@@ -2651,6 +2647,8 @@ function ProjectDetailInner({
             if (typeof onBack === 'function') onBack(true);
           } else if (status === 409 && err.message === 'COPY_IN_PROGRESS') {
             Toast.warning('相册里的照片正在转存，请等转存完成后再删除');
+          } else if (err?.code === 'PROJECT_DELETE_UNCONFIRMED') {
+            Toast.error(err.message);
           } else if (status && status >= 500) {
             Toast.error('服务器异常，请稍后重试');
           } else {

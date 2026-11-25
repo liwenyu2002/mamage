@@ -37,7 +37,7 @@ async function main() {
       ].map(group => ({ parentId: null, kind: 'manual', createdBy: 7, canEdit: true, ...group }));
       const state = { albums, groups, sharedAlbums: [], sharedFolders: [], preferences: { pins: ['album:1'], colors: {}, recentItems: [] },
         workspaceRevision: 1, userRevision: 1, scope: { userId: 7, organizationId: 2, unitId: 1 }, canOrganize: true, canDeleteFolders: true };
-      let failSaves = false, failDelete = null, failSavesAfterDelete = false, allowAlbum = true;
+      let failSaves = false, failDelete = null, wrongDeleteReceipt = null, failSavesAfterDelete = false, allowAlbum = true;
       try {
         await context.addInitScript(style => {
           localStorage.setItem('mamage_jwt_token', 'isolated-desktop-dock-fixture');
@@ -75,9 +75,10 @@ async function main() {
             const id = Number(p.split('/').at(-1)); deletes.push(id);
             assert.equal(req.headers()['x-mamage-unit-id'], '1');
             if (id === failDelete) return route.fulfill({ status: 403, json: { message: 'fixture deletion denied' } });
+            if (id === wrongDeleteReceipt) return route.fulfill({ json: { success: true, deletedProjectId: id + 1 } });
             state.albums = state.albums.filter(album => album.id !== id);
             if (failSavesAfterDelete) failSaves = true;
-            return route.fulfill({ json: { success: true } });
+            return route.fulfill({ json: { success: true, deletedProjectId: id } });
           }
           if (req.method() !== 'GET') { unexpected.push(`${req.method()} ${p}`); return route.abort(); }
           let data = {};
@@ -266,7 +267,53 @@ async function main() {
         }
         if (artifacts) await page.screenshot({ path: path.join(artifacts, `unfiled-${style}-${width}.png`) });
 
+        const emptyAlbum = { id: 30, name: 'Empty QA Album', title: 'Empty QA Album', count: 0, canEdit: true };
+        state.albums.push(emptyAlbum);
+        state.groups.find(group => group.id === 'other').projectIds.push(emptyAlbum.id);
+        const albumActions = page.getByRole('button', {
+          name: `${style === 'glass' ? '更多操作' : '文件操作'} ${emptyAlbum.name}`, exact: true,
+        });
+        await go('other');
+        await albumActions.click();
+        const albumMenu = page.getByRole('menu', { name: style === 'glass' ? `相册操作 ${emptyAlbum.name}` : `${emptyAlbum.name}操作`, exact: true });
+        const deleteAlbum = albumMenu.getByRole('menuitem', { name: '删除相册', exact: true });
+        await deleteAlbum.click({ timeout: 3500 });
+        modal = page.getByRole('dialog', { name: '确认删除相册', exact: true });
+        await modal.getByText(emptyAlbum.name, { exact: true }).waitFor();
+        assert.ok(!deletes.includes(emptyAlbum.id), 'opening confirmation never sends DELETE');
+        await modal.getByRole('button', { name: '取消', exact: true }).click();
+        await modal.waitFor({ state: 'detached' });
+        assert.ok(!deletes.includes(emptyAlbum.id));
+        await albumActions.click();
+        await deleteAlbum.click();
+        const confirmAlbumDelete = modal.getByRole('button', { name: '确认删除相册', exact: true });
+        wrongDeleteReceipt = emptyAlbum.id;
+        await confirmAlbumDelete.click();
+        await modal.getByRole('alert').getByText('未收到删除确认，请刷新后查看相册是否还在', { exact: true }).waitFor({ timeout: 3500 });
+        assert.ok(await albumActions.isVisible(), 'a response for a different album must not remove the card');
+        assert.ok(state.groups.find(group => group.id === 'other').projectIds.includes(emptyAlbum.id));
+        wrongDeleteReceipt = null;
+        await confirmAlbumDelete.click();
+        await modal.waitFor({ state: 'detached' });
+        await albumActions.waitFor({ state: 'detached' });
+        assert.equal(deletes.filter(id => id === emptyAlbum.id).length, 2);
+        assert.ok(!state.groups.find(group => group.id === 'other').projectIds.includes(emptyAlbum.id));
+
+        const receivedAlbum = { ...emptyAlbum, isShared: true };
+        state.albums.push(receivedAlbum);
+        state.groups.find(group => group.id === 'other').projectIds.push(emptyAlbum.id);
+        await go('other');
+        await albumActions.click();
+        await albumMenu.waitFor();
+        assert.equal(await deleteAlbum.count(), 0, 'A received share cannot be deleted from the card menu');
+        await page.keyboard.press('Escape');
+        receivedAlbum.isShared = false;
         state.canDeleteFolders = false;
+        await go('other');
+        await albumActions.click();
+        await albumMenu.waitFor();
+        assert.equal(await deleteAlbum.count(), 0);
+        await page.keyboard.press('Escape');
         state.groups.find(group => group.id === 'other').canEdit = false;
         state.groups.find(group => group.id === 'other').createdBy = 8;
         await go('other'); modal = await openCreate();
@@ -285,7 +332,7 @@ async function main() {
         state.canOrganize = false; await go();
         assert.ok(await dock().getByRole('button', { name: '新建相册或文件夹' }).isDisabled());
         assert.deepEqual(errors, []); assert.deepEqual(unexpected, []);
-        results.push({ style, width, rootFolderUnfiledDock: true, creationRetry: true, stagedUploadRetained: true, depthLimit: true, selectionScope: true, partialDeleteSafety: true, failedFolderSaveRetainsSelection: true, failedMixedSaveRetainsFolder: true, permissions: true });
+        results.push({ style, width, rootFolderUnfiledDock: true, creationRetry: true, stagedUploadRetained: true, depthLimit: true, selectionScope: true, partialDeleteSafety: true, failedFolderSaveRetainsSelection: true, failedMixedSaveRetainsFolder: true, directAlbumDelete: true, permissions: true });
       } catch (error) {
         if (artifacts && context.pages()[0]) await context.pages()[0].screenshot({ path: path.join(artifacts, `failure-${style}-${width}.png`), fullPage: true });
         console.error({ style, width, errors, unexpected, deletes }); throw error;

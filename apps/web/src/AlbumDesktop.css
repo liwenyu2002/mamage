@@ -376,6 +376,7 @@
 .desktop-empty-cover svg { width: 32px; height: 32px; }
 .desktop-photo-menu.acp-collection-actions { position: fixed; bottom: auto; right: auto; z-index: 1600; }
 .desktop-photo-menu svg { width: 17px; height: 17px; }
+:is(.desktop-photo-menu, .acp-column-context-menu) > button.album-menu-delete:not(:hover):not(:focus-visible) { color: var(--app-danger, #b02f38); }
 .desktop-album .project-card { width: 100%; }
 .desktop-album-menu { position: absolute; right: 15px; top: 15px; z-index: 9; }
 .desktop-album-menu[open] { z-index: 40; }
