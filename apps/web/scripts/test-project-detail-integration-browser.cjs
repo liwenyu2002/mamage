@@ -53,7 +53,8 @@ async function main() {
       let project = { id: 9001, title: 'Integration album', name: 'Integration album', adminId: 7, unitId: 1,
         description: 'Original description', eventDate: '2026-10-30', tags: ['original'], timelineEnabled: timeline,
         timelineSections: timeline ? [{ id: 21, name: 'Opening', sortOrder: 0 }, { id: 22, name: 'Closing', sortOrder: 1 }] : [] };
-      let rejectDelete = false, holdUpload = null, holdVideo = null, holdEdit = null, page;
+      let rejectDelete = false, rejectAlbumDelete = true, albumDeleted = false;
+      let holdUpload = null, holdVideo = null, holdEdit = null, holdAlbumDelete = null, page;
       const base = `http://127.0.0.1:${server.address().port}`;
       const snapshot = () => ({ ...project, images: photos, count: photos.length });
       try {
@@ -72,6 +73,16 @@ async function main() {
             if (rejectDelete) { rejectDelete = false; return route.fulfill({ status: 403, json: { error: 'PHOTO_DELETE_FORBIDDEN' } }); }
             photos = photos.filter(photo => !body.photoIds.includes(photo.id));
             return send({ deletedIds: body.photoIds });
+          }
+          if (req.method() === 'DELETE' && p === '/api/projects/9001') {
+            writes.push({ kind: 'album-delete', authorization: req.headers().authorization, unit: req.headers()['x-mamage-unit-id'] });
+            if (rejectAlbumDelete) {
+              rejectAlbumDelete = false;
+              return route.fulfill({ status: 403, json: { error: 'FORBIDDEN' } });
+            }
+            if (holdAlbumDelete) await holdAlbumDelete.promise;
+            albumDeleted = true;
+            return send({ success: true, deletedProjectId: 9001 });
           }
           if (req.method() === 'POST' && p === '/api/projects/9001/update') {
             const body = req.postDataJSON(); writes.push({ kind: 'edit', path: p, method: req.method(), body, authorization: req.headers().authorization });
@@ -103,6 +114,12 @@ async function main() {
           if (p === '/api/users/me') return send(user);
           if (p === '/api/workspaces') return send({ enabled: true, activeUnitId: 1, collegeAdmin: workspace.collegeAdmin,
             units: [{ id: 1, name: 'Integration group', role: workspace.role }], shareTargets: [] });
+          if (p === '/api/album-desktop') return send({ albums: [
+            { id: 9002, name: 'Remaining album', count: 0 },
+            ...(albumDeleted ? [] : [{ id: project.id, name: project.name, count: photos.length }]),
+          ], groups: [], sharedAlbums: [], sharedFolders: [], preferences: { pins: [], colors: {}, recentItems: [] },
+          workspaceRevision: 1, userRevision: 1, canOrganize: false, canDeleteFolders: false,
+          scope: { userId: 7, organizationId: 2, unitId: 1 } });
           if (p === '/api/projects/9001') return send(snapshot());
           if (p === '/api/photos') return send({ list: photos, total: photos.length });
           if (/^\/api\/photos\/\d+$/.test(p)) return send(photos.find(photo => photo.id === Number(p.split('/').at(-1))) || {});
@@ -259,6 +276,8 @@ async function main() {
           await page.getByRole('button', { name: '修改相册信息', exact: true }).click();
           const edit = page.getByRole('dialog', { name: '编辑相册', exact: true });
           await edit.waitFor(); await assertLayout(page, edit);
+          const deleteAlbum = edit.getByRole('button', { name: '删除相册', exact: true });
+          assert.equal(await deleteAlbum.count(), access.permissions.includes('projects.delete') ? 1 : 0);
           assert.equal(await dock.isVisible(), false);
           await edit.locator('.mamage-dtp-trigger').click();
           const calendar = page.getByRole('dialog', { name: '选择日期时间', exact: true });
@@ -278,6 +297,37 @@ async function main() {
           holdEdit.resolve(); await edit.waitFor({ state: 'hidden' });
           await page.waitForFunction(() => !document.getElementById('root').inert);
           await assertLayout(page, dock);
+
+          if (access.permissions.includes('projects.delete')) {
+            await dock.getByRole('button', { name: '打开功能', exact: true }).click();
+            await page.getByRole('button', { name: '修改相册信息', exact: true }).click();
+            const confirmation = page.getByRole('dialog', { name: '确认删除相册', exact: true });
+            await deleteAlbum.click();
+            await confirmation.getByRole('button', { name: '取消', exact: true }).click();
+            assert.ok(!writes.some(write => write.kind === 'album-delete'), 'cancelling does not delete the album');
+            await deleteAlbum.click();
+            const approve = confirmation.getByRole('button', { name: '确定', exact: true });
+            await Promise.all([page.waitForRequest(req => req.method() === 'DELETE' && new URL(req.url()).pathname === '/api/projects/9001', { timeout: 3500 }),
+              approve.click()]);
+            await page.getByText('没有权限删除此相册', { exact: true }).waitFor();
+            await confirmation.waitFor({ state: 'hidden' });
+            assert.equal(new URL(page.url()).searchParams.get('projectId'), '9001');
+            assert.equal(await page.evaluate(() => Boolean(localStorage.getItem('mamage_jwt_token'))), true, '403 does not sign the user out');
+
+            holdAlbumDelete = gate();
+            await deleteAlbum.click();
+            await approve.click();
+            await poll(() => writes.filter(write => write.kind === 'album-delete').length === 2);
+            assert.deepEqual(writes.filter(write => write.kind === 'album-delete'), Array.from({ length: 2 }, () =>
+              ({ kind: 'album-delete', authorization: 'Bearer isolated-project-detail-integration', unit: '1' })));
+            assert.equal(await page.getByText('相册已删除', { exact: true }).count(), 0, 'do not report success before the response');
+            assert.equal(new URL(page.url()).searchParams.get('projectId'), '9001');
+            holdAlbumDelete.resolve();
+            await page.getByText('相册已删除', { exact: true }).waitFor();
+            await page.waitForURL(url => !url.searchParams.has('projectId'));
+            await page.getByText('Remaining album', { exact: true }).waitFor();
+            assert.equal(await page.getByText('Updated album', { exact: true }).count(), 0);
+          }
         }
         assert.deepEqual(errors, []); assert.deepEqual(unexpected, []);
         results.push({ width, scope, timeline, passed: true, visualFindings, writes });
@@ -287,7 +337,7 @@ async function main() {
         console.log(JSON.stringify({ width, scope, passed: false, error: error.message }));
         if (page) await page.screenshot({ path: path.join(output, `${scope}-${width}-failure.png`), animations: 'disabled' }).catch(() => {});
       } finally {
-        holdUpload?.resolve(); holdVideo?.resolve(); holdEdit?.resolve(); await context.close();
+        holdUpload?.resolve(); holdVideo?.resolve(); holdEdit?.resolve(); holdAlbumDelete?.resolve(); await context.close();
       }
     }
   } finally { await browser.close(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }

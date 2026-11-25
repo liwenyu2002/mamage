@@ -2618,10 +2618,7 @@ function ProjectDetailInner({
   }, [canUploadPhotos, isMobile]);
 
   const handleDeleteProject = React.useCallback(() => {
-    if (DISABLE_DELETE_FEATURE) {
-      Toast.warning('删除功能已禁用');
-      return;
-    }
+    if (!canDeleteProject || deletingProject) return;
     if (!projectId) return Toast.warning('无效的项目ID');
     Modal.confirm({
       title: '确认删除相册',
@@ -2629,22 +2626,31 @@ function ProjectDetailInner({
       onOk: async () => {
         setDeletingProject(true);
         try {
-
-          // assume success if no exception; backend may return { success: true }
+          const result = await request(`/api/projects/${projectId}`, { method: 'DELETE',
+            headers: shareUnitId ? { 'X-Mamage-Unit-Id': String(shareUnitId) } : undefined });
+          if (result?.success !== true || Number(result.deletedProjectId) !== Number(projectId)) {
+            Toast.error('未收到删除确认，请刷新后查看相册是否还在');
+            return;
+          }
           Toast.success('相册已删除');
           if (typeof onBack === 'function') {
             onBack(true);
           }
         } catch (err) {
           console.error('deleteProject error', err);
-          const status = err && err.status ? err.status : err && err.cause && err.cause.status ? err.cause.status : null;
-          if (status === 401 || status === 403) {
+          const status = err?.status ?? err?.cause?.status;
+          if (status === 401) {
             try {localStorage.removeItem('mamage_jwt_token');} catch (e) {}
-            Toast.error('权限不足或登录已过期，请重新登录或联系管理员');
+            Toast.error('登录已过期，请重新登录');
             navigate('/login');
+          } else if (status === 403) {
+            Toast.error(err.message === 'ORGANIZATION_PHOTO_ACCESS_REQUIRED'
+              ? '相册包含他人上传的照片，需要查看组织内所有照片的权限才能删除' : '没有权限删除此相册');
           } else if (status === 404) {
-            Toast.warning('相册已不存在');
+            Toast.warning('相册不存在或无权访问');
             if (typeof onBack === 'function') onBack(true);
+          } else if (status === 409 && err.message === 'COPY_IN_PROGRESS') {
+            Toast.warning('相册里的照片正在转存，请等转存完成后再删除');
           } else if (status && status >= 500) {
             Toast.error('服务器异常，请稍后重试');
           } else {
@@ -2655,7 +2661,7 @@ function ProjectDetailInner({
         }
       }
     });
-  }, [projectId, onBack, DISABLE_DELETE_FEATURE]);
+  }, [projectId, onBack, canDeleteProject, deletingProject, shareUnitId]);
 
   const getMediaFilteredIndexes = React.useCallback(() => {
     const total = Array.isArray(images) ? images.length : 0;
