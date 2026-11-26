@@ -49,6 +49,7 @@ import { findProjectPreviewIndex } from './utils/projectPreviewPhotos';
 import { buildPhotoFocusUrl, readPhotoFocusIntent, consumePhotoFocusIntent, focusPhotoCard } from './utils/photoFocus';
 import { getDirectMediaUrl, downloadOriginalMedia, clearDirectMediaUrlCache } from './services/directStorage';
 import { batchVideoDownload } from './services/batchVideoDownload';
+import { PHOTO_DRAG_TYPE, STATION_PHOTO_DRAG_TYPE } from './services/transferStore';
 import FindMeModal from './FindMeModal';
 import FacePersonMerge from './FacePersonMerge';
 import UploadProgressSummary from './UploadProgressSummary';
@@ -100,6 +101,13 @@ const GROUP_RESCUE_VISIBLE = false;
 // 移动端带 RAW/TIFF 等扩展名会被系统降级到通用文件选择器；只声明媒体 MIME 才能优先进入照片库。
 const MOBILE_MEDIA_ACCEPT = 'image/*,video/*';
 const DESKTOP_MEDIA_ACCEPT = 'image/*,video/*,.avif,.heic,.heif,.tif,.tiff,.dng,.cr2,.cr3,.crw,.nef,.nrw,.arw,.sr2,.srf,.raf,.orf,.rw2,.raw,.pef,.srw,.x3f,.rwl,.3fr,.fff,.iiq,.mrw,.dcr,.kdc,.mos,.erf';
+
+function isExternalFileDrag(dataTransfer) {
+  const types = Array.from(dataTransfer?.types || []);
+  // Browsers can include native image files alongside an in-app photo payload.
+  return !types.includes(PHOTO_DRAG_TYPE) && !types.includes(STATION_PHOTO_DRAG_TYPE) &&
+    (types.includes('Files') || Boolean(dataTransfer?.files?.length));
+}
 
 function getAISelectionLabel(label) {
   if (label === 'recommended') return 'AI推荐';
@@ -2503,9 +2511,9 @@ function ProjectDetailInner({
 
   // 系统文件直接拖入：免打开上传弹窗，落点决定所属环节
   const handleDirectFileDrop = React.useCallback((e, sectionId) => {
+    if (isMobile || !isExternalFileDrag(e.dataTransfer)) return;
     e.preventDefault();
     if (typeof e.stopPropagation === 'function') e.stopPropagation();
-    if (isMobile) return;
     fileDragDepthRef.current = 0;
     setFileDragActive(false);
     setRailDropKey(null);
@@ -2535,7 +2543,7 @@ function ProjectDetailInner({
 
   // 拖拽照片放到左侧环节导航：批量移入该环节（未归类=移出）；拖入系统文件则直接上传到该环节
   const handleRailDrop = React.useCallback(async (e, group) => {
-    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
+    if (isExternalFileDrag(e.dataTransfer)) {
       handleDirectFileDrop(e, group && group.id ? group.id : '');
       return;
     }
@@ -2546,7 +2554,7 @@ function ProjectDetailInner({
     if (assigningSection) return;
     let payload = null;
     try {
-      const raw = e.dataTransfer.getData('application/x-mamage-photo') || e.dataTransfer.getData('application/json');
+      const raw = e.dataTransfer.getData(PHOTO_DRAG_TYPE) || e.dataTransfer.getData('application/json');
       payload = raw ? JSON.parse(raw) : null;
     } catch (err) {payload = null;}
     const items = Array.isArray(payload) ? payload : payload ? [payload] : [];
@@ -2578,9 +2586,7 @@ function ProjectDetailInner({
       return undefined;
     }
     if (!canUploadPhotos || typeof window === 'undefined') return undefined;
-    const hasFiles = (e) => {
-      try {return Array.from(e.dataTransfer?.types || []).includes('Files');} catch (err) {return false;}
-    };
+    const hasFiles = (e) => isExternalFileDrag(e.dataTransfer);
     const onEnter = (e) => {
       if (!hasFiles(e)) return;
       fileDragDepthRef.current += 1;
@@ -2593,13 +2599,14 @@ function ProjectDetailInner({
     };
     const onOver = (e) => {if (hasFiles(e)) e.preventDefault();};
     const onDrop = (e) => {
-      if (!hasFiles(e)) return;
-      e.preventDefault();
-      const insideZone = e.target && e.target.closest && e.target.closest('[data-file-drop-zone="1"]');
-      if (!insideZone && directFileDropRef.current) {
-        // 无环节相册：整页任意位置松手都上传；带环节相册落到空白处 → 未归类
-        directFileDropRef.current(e, '');
-        return;
+      if (hasFiles(e) && !e.defaultPrevented) {
+        e.preventDefault();
+        const insideZone = e.target?.closest?.('[data-file-drop-zone="1"]');
+        if (!insideZone && directFileDropRef.current) {
+          // 无环节相册：整页任意位置松手都上传；带环节相册落到空白处 → 未归类
+          directFileDropRef.current(e, '');
+          return;
+        }
       }
       fileDragDepthRef.current = 0;
       setFileDragActive(false);
@@ -3537,7 +3544,7 @@ function ProjectDetailInner({
     const onDragOver = (e) => {
       try {
         const types = Array.from(e.dataTransfer?.types || []);
-        if (types.includes('application/x-mamage-photo')) {
+        if (types.includes(PHOTO_DRAG_TYPE)) {
           e.preventDefault();
           e.dataTransfer.dropEffect = 'copy';
         }
@@ -3548,7 +3555,7 @@ function ProjectDetailInner({
       }};const onDrop = (e) => {
       try {
         const types = Array.from(e.dataTransfer?.types || []);
-        if (types.includes('application/x-mamage-photo')) {
+        if (types.includes(PHOTO_DRAG_TYPE)) {
           e.preventDefault();
         }
       } catch (err) {
@@ -5178,7 +5185,7 @@ function ProjectDetailInner({
       const count = Array.isArray(payload) ? payload.length : 1;
 
       e.dataTransfer.effectAllowed = 'copy';
-      e.dataTransfer.setData('application/x-mamage-photo', JSON.stringify(payload));
+      e.dataTransfer.setData(PHOTO_DRAG_TYPE, JSON.stringify(payload));
       e.dataTransfer.setData('application/json', JSON.stringify(payload));
       e.dataTransfer.setData('text/plain', Array.isArray(payload) ? payload.map((it) => it.url || '').filter(Boolean).join('\n') : payload.url || '');
 
@@ -5548,11 +5555,13 @@ function ProjectDetailInner({
         onMouseEnter: () => setUploadHover(true),
         onMouseLeave: () => setUploadHover(false),
         onDragOver: isMobile ? undefined : (e) => {
+          if (!isExternalFileDrag(e.dataTransfer)) return;
           e.preventDefault();
           if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
           setDragActive(true);
         },
         onDragEnter: isMobile ? undefined : (e) => {
+          if (!isExternalFileDrag(e.dataTransfer)) return;
           e.preventDefault();
           setDragActive(true);
         },
@@ -5563,7 +5572,7 @@ function ProjectDetailInner({
         onDrop: isMobile ? undefined : (e) => {
           e.preventDefault();
           setDragActive(false);
-          if (e.dataTransfer && e.dataTransfer.files) handleFilesSelected(e.dataTransfer.files);
+          if (isExternalFileDrag(e.dataTransfer)) handleFilesSelected(e.dataTransfer.files);
         }
       } : {}} />
 
@@ -6423,11 +6432,13 @@ function ProjectDetailInner({
                 if (fileInputRef.current) fileInputRef.current.click();
               }}
               onDragOver={isMobile ? undefined : (e) => {
+                if (!isExternalFileDrag(e.dataTransfer)) return;
                 e.preventDefault();
                 if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
                 setDragActive(true);
               }}
               onDragEnter={isMobile ? undefined : (e) => {
+                if (!isExternalFileDrag(e.dataTransfer)) return;
                 e.preventDefault();
                 setDragActive(true);
               }}
@@ -6438,7 +6449,7 @@ function ProjectDetailInner({
               onDrop={isMobile ? undefined : (e) => {
                 e.preventDefault();
                 setDragActive(false);
-                if (e.dataTransfer && e.dataTransfer.files) handleFilesSelected(e.dataTransfer.files, selectedUploadSectionId);
+                if (isExternalFileDrag(e.dataTransfer)) handleFilesSelected(e.dataTransfer.files, selectedUploadSectionId);
               }}>
               
               <IconPlus />
@@ -6457,11 +6468,13 @@ function ProjectDetailInner({
                 key={group.key}
                 className={`detail-upload-section-group${group.active ? ' is-active' : ''}`}
                 onDragOver={isMobile ? undefined : (e) => {
+                  if (!isExternalFileDrag(e.dataTransfer)) return;
                   e.preventDefault();
                   if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
                 }}
                 onDrop={isMobile ? undefined : (e) => {
                   e.preventDefault();
+                  if (!isExternalFileDrag(e.dataTransfer)) return;
                   if (uploading) {Toast.warning('正在上传，请等待完成');return;}
                   if (e.dataTransfer && e.dataTransfer.files) handleFilesSelected(e.dataTransfer.files, group.sectionId);
                   // 拖到明确环节=明确上传意图：空闲时暂存落定后自动开始，无需再点「确认上传」

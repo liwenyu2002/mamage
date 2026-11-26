@@ -18,6 +18,53 @@ async function assertLayout(page, locator) {
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'No horizontal overflow');
 }
 
+function imageFileTransfer(page, picture, name) {
+  return page.evaluateHandle(({ bytes, name }) => {
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([Uint8Array.from(bytes)], name, { type: 'image/jpeg' }));
+    return transfer;
+  }, { bytes: [...picture], name });
+}
+
+async function dragPhotoToStation(page, picture) {
+  const source = page.locator('[data-photo-id="11"] .detail-photo-img').first();
+  const station = page.locator('[data-transfer-station-root="1"]').getByTitle('中转站', { exact: true });
+  await station.waitFor();
+  const dataTransfer = await imageFileTransfer(page, picture, 'already-in-album.jpg');
+  try {
+    await source.dispatchEvent('dragstart', { dataTransfer });
+    const types = await dataTransfer.evaluate(transfer => Array.from(transfer.types));
+    assert.ok(types.includes('Files') && types.includes('application/x-mamage-photo'));
+    const upload = page.waitForRequest(req => req.method() === 'POST' && new URL(req.url()).pathname.startsWith('/api/upload/'),
+      { timeout: 1200 }).then(() => true, err => {
+      if (err.name !== 'TimeoutError') throw err;
+      return false;
+    });
+    await station.dispatchEvent('dragenter', { dataTransfer });
+    await station.dispatchEvent('dragover', { dataTransfer });
+    await station.dispatchEvent('drop', { dataTransfer });
+    await source.dispatchEvent('dragend', { dataTransfer });
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem('photo-transfer-selection') || '[]')
+      .some(photo => Number(photo.id) === 11));
+    assert.equal(await upload, false, 'Dragging an existing photo into the station must not upload a copy to the album');
+    assert.equal(await page.getByRole('dialog', { name: '上传照片与视频', exact: true }).count(), 0);
+  } finally { await dataTransfer.dispose(); }
+}
+
+async function dragLocalImageToAlbum(page, picture, timeline) {
+  const target = timeline ? page.locator('.detail-timeline-rail-item').filter({ hasText: 'Closing' }) : page.locator('.detail-page');
+  const dataTransfer = await imageFileTransfer(page, picture, 'file-from-computer.jpg');
+  try {
+    await target.dispatchEvent('dragenter', { dataTransfer });
+    await page.locator('.detail-file-drop-overlay').waitFor();
+    await target.dispatchEvent('dragover', { dataTransfer });
+    await target.dispatchEvent('drop', { dataTransfer });
+    await page.locator('[data-photo-id="93"]').waitFor();
+    await page.locator('.detail-file-drop-overlay').waitFor({ state: 'detached' });
+    await page.getByRole('dialog', { name: '上传照片与视频', exact: true }).waitFor({ state: 'hidden' });
+  } finally { await dataTransfer.dispose(); }
+}
+
 async function main() {
   fs.mkdirSync(output, { recursive: true });
   const picture = await sharp({ create: { width: 640, height: 480, channels: 3, background: '#638d83' } }).jpeg().toBuffer();
@@ -103,8 +150,9 @@ async function main() {
             if (holdUpload) await holdUpload.promise;
             const video = p.endsWith('/video');
             if (video && holdVideo) await holdVideo.promise;
-            const photo = { id: video ? 92 : 91, projectId: 9001, unitId: 1, photographerId: 7,
+            const photo = { id: video ? 92 : file.name === 'file-from-computer.jpg' ? 93 : 91, projectId: 9001, unitId: 1, photographerId: 7,
               type: video ? 'video' : 'normal', title: file.name, ...(video ? { processingStatus: 'failed' } : {}),
+              ...(fields.timelineSectionId ? { timelineSectionId: Number(fields.timelineSectionId) } : {}),
               url: '/api/image/91.jpg', thumbUrl: '/api/image/91.jpg', aiStatus: 'skipped' };
             photos = [photo, ...photos]; return send(photo);
           }
@@ -137,6 +185,11 @@ async function main() {
         await assertLayout(page, dock);
         const rendered = await sharp(await dock.screenshot({ animations: 'disabled' })).stats();
         assert.ok(rendered.channels.some(channel => channel.stdev > 5), 'Dock screenshot must have visible controls');
+        if (width > 1024 && ['own', 'unit'].includes(scope)) {
+          await dragPhotoToStation(page, picture);
+          assert.equal(photos.length, 5, 'The album count must not change on drop into the station');
+          assert.deepEqual(writes, []);
+        }
         const select = () => dock.getByRole('button', { name: /^选择$|^完成选择/ });
         const check = id => {
           const label = page.locator(`[data-photo-id="${id}"] .detail-photo-select`), input = label.locator('input');
@@ -204,9 +257,9 @@ async function main() {
           await page.waitForFunction(() => !document.getElementById('root').inert && document.body.style.overflow !== 'hidden');
           await upload.click(); await dialog.waitFor();
           if (timeline) await dialog.getByRole('radio', { name: 'Opening', exact: true }).click();
-          const chooser = page.waitForEvent('filechooser');
-          await dialog.locator('.detail-upload-dropzone').click();
-          await (await chooser).setFiles([{ name: 'integration.jpg', mimeType: 'image/jpeg', buffer: picture },
+          const picker = dialog.locator('.detail-upload-dropzone, .detail-upload-picker');
+          const [chooser] = await Promise.all([page.waitForEvent('filechooser'), picker.click()]);
+          await chooser.setFiles([{ name: 'integration.jpg', mimeType: 'image/jpeg', buffer: picture },
             { name: 'integration.mp4', mimeType: 'video/mp4', buffer: Buffer.from('isolated-video-fixture') }]);
           await dialog.getByRole('button', { name: '确认上传', exact: true }).waitFor();
           await page.waitForFunction(() => {
@@ -236,9 +289,8 @@ async function main() {
           assert.deepEqual(visualFindings, [], 'Preview badge, section selector and remove button must not overlap');
           await videoCard.getByRole('button', { name: '移除媒体', exact: true }).click();
           await videoCard.waitFor({ state: 'detached' });
-          const reselect = page.waitForEvent('filechooser');
-          await dialog.locator('.detail-upload-dropzone').click();
-          await (await reselect).setFiles([{ name: 'integration.mp4', mimeType: 'video/mp4', buffer: Buffer.from('isolated-video-fixture') }]);
+          const [reselect] = await Promise.all([page.waitForEvent('filechooser'), picker.click()]);
+          await reselect.setFiles([{ name: 'integration.mp4', mimeType: 'video/mp4', buffer: Buffer.from('isolated-video-fixture') }]);
           await videoCard.waitFor();
           assert.equal(writes.filter(write => write.kind === 'upload').length, 0, 'Staging files never writes');
           holdUpload = gate();
@@ -271,6 +323,13 @@ async function main() {
           await page.waitForFunction(() => !document.getElementById('root').inert);
           await page.locator('[data-photo-id="91"]').waitFor();
           await page.locator('[data-photo-id="92"]').waitFor();
+
+          if (width > 1024 && ['own', 'unit'].includes(scope)) {
+            await dragLocalImageToAlbum(page, picture, timeline);
+            const externalUploads = writes.filter(write => write.name === 'file-from-computer.jpg');
+            assert.equal(externalUploads.length, 1, 'Dragging a local file into the album still uploads once');
+            assert.deepEqual(externalUploads[0].fields, { projectId: '9001', ...(timeline ? { timelineSectionId: '22' } : {}) });
+          }
 
           await dock.getByRole('button', { name: '打开功能', exact: true }).click();
           await page.getByRole('button', { name: '修改相册信息', exact: true }).click();

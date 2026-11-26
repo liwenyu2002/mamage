@@ -4,6 +4,7 @@
 
 const STORAGE_KEY = 'photo-transfer-selection';
 const MAX_COUNT = 1000;
+export const PHOTO_DRAG_TYPE = 'application/x-mamage-photo';
 export const STATION_PHOTO_DRAG_TYPE = 'application/x-mamage-station-photos';
 
 export function canDragStationPhotos() {

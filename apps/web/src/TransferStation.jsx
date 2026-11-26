@@ -1,7 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom';
 import { Toast, Tooltip, Modal } from './ui';
-import { getAll, getCount, add, clear, getMediaKind, subscribe, removeById, STATION_PHOTO_DRAG_TYPE, canDragStationPhotos } from './services/transferStore';
+import { getAll, getCount, add, clear, getMediaKind, subscribe, removeById, PHOTO_DRAG_TYPE, STATION_PHOTO_DRAG_TYPE, canDragStationPhotos } from './services/transferStore';
 import { normalizeNewsPhoto } from './utils/newsPhotoSelection';
 import { resolveAssetUrl } from './services/request';
 import { formatBytes, formatDuration } from './services/zipDownload';
@@ -625,7 +625,7 @@ export default function TransferStation({ onInternalShare, hideLauncher = false,
     internalDragRef.current = true;
     try {
       e.dataTransfer.effectAllowed = 'copy';
-      e.dataTransfer.setData('application/x-mamage-photo', JSON.stringify(p));
+      e.dataTransfer.setData(PHOTO_DRAG_TYPE, JSON.stringify(p));
       e.dataTransfer.setData('application/json', JSON.stringify(p));
       e.dataTransfer.setData('text/plain', p.url || '');
       if (supportsDraftDrag && getMediaKind(p) === 'image' && normalizeNewsPhoto(p)) {
@@ -644,7 +644,7 @@ export default function TransferStation({ onInternalShare, hideLauncher = false,
 
     let payload = null;
     try {
-      const raw = e.dataTransfer.getData('application/x-mamage-photo') || e.dataTransfer.getData('application/json') || '';
+      const raw = e.dataTransfer.getData(PHOTO_DRAG_TYPE) || e.dataTransfer.getData('application/json') || '';
       if (raw) payload = JSON.parse(raw);
     } catch (err) {
       payload = null;
