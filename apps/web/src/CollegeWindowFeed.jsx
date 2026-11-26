@@ -211,7 +211,7 @@ export default function CollegeWindowFeed() {
       {next && <div className="college-feed-more"><Button type="secondary" icon={<IconChevronRight />}
         loading={busy} disabled={busy} onClick={() => load(key, next)}>加载更多</Button></div>}
     </>}
-    {preview && <Modal visible width={880} title={preview.albumName || '学院窗照片'} onCancel={() => setPreview(null)}
+    {preview && <Modal visible width={880} className="college-feed-preview" title={preview.albumName || '学院窗照片'} onCancel={() => setPreview(null)}
       footer={<FeedDownload photo={preview} readImage={readImage} />}>
       <FeedImage key={preview.id} photo={preview} readImage={readImage} eager />
       <PhotoTags tags={preview.tags} />

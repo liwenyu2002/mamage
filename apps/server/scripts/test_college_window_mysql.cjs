@@ -24,6 +24,19 @@ const { readConfig, consumerAllowed, selectRequest, automaticTags, deliveryTags,
 const photoPath = id => 'uploads/college-window-test/' + id + '.png';
 const legacyId = 'aabaa099-0000-0000-0000-000000000000';
 const legacyKey = 'integrations/college-window/' + legacyId + '.jpg';
+const folderState = { groups: [
+  { id: 'root', name: '校园影像', projectIds: [10] },
+  { id: 'year', name: '2026', parentId: 'root' },
+  { id: 'events', name: '迎新', parentId: 'year' },
+  { id: 'arrival', name: '报到', parentId: 'events' },
+  { id: 'morning', name: '上午', parentId: 'arrival', projectIds: [10] },
+  { id: 'smart', kind: 'smart', name: '智能相册', parentId: 'arrival', projectIds: [10, 14] },
+  { id: 'private', name: '不应展示的私有文件夹', restrictedToUserId: 7 },
+  { id: 'private-child', name: '私有下级', parentId: 'private', projectIds: [14] },
+  { id: 'sensitive', name: '内部资料', projectIds: [14] },
+  { id: 'cycle1', name: '循环', parentId: 'cycle2', projectIds: [14] },
+  { id: 'cycle2', name: '循环上级', parentId: 'cycle1' },
+] };
 const schema = `
   CREATE DATABASE mamage_college_window_test CHARACTER SET utf8mb4;
   USE mamage_college_window_test;
@@ -55,6 +68,10 @@ const schema = `
 `;
 
 async function verify(db, legacyBytes) {
+  await db.query('INSERT INTO album_desktop_workspaces (organization_id,unit_key,state) VALUES ?', [[
+    [2, 1, JSON.stringify(folderState)],
+    [2, 2, JSON.stringify({ groups: [{ id: 'elsewhere', name: '其他小组摆放', projectIds: [10, 14] }] })],
+  ]]);
   const token = randomBytes(32).toString('base64url');
   const hash = createHash('sha256').update(token).digest('hex');
   const config = readConfig({ MAMAGE_COLLEGE_WINDOW_ORG_ID: 2, MAMAGE_COLLEGE_WINDOW_UNIT_ID: 1,
@@ -189,6 +206,7 @@ async function verify(db, legacyBytes) {
     await call(DELIVERY_PATH + '/photos', 401, { user: 7 });
     const [legacy] = (await list()).photos;
     assert.equal(legacy.id, legacyId);
+    assert.equal(legacy.albumName, '校园影像 / 2026 / 迎新 / 报到 / 上午 / 校园活动');
     assert.deepEqual(legacy.tags, ['室内', '全景', '教学楼'], 'Historical photos include only allowed tags');
     assert.ok(!legacy.publicImagePath);
     const historical = await call(legacy.imagePath, 200, { token });
@@ -271,14 +289,20 @@ async function verify(db, legacyBytes) {
     const { photos } = await list();
     const firstPhoto = photos.find(photo => photo.id === first.id);
     assert.equal(firstPhoto.description, '更新后的校园活动');
+    assert.equal(firstPhoto.albumName, '校园影像 / 2026 / 迎新 / 报到 / 上午 / 校园活动');
     assert.deepEqual(firstPhoto.tags, ['全景', '校园建筑']);
     assert.deepEqual(photos.find(photo => photo.id !== first.id).tags, []);
+    assert.equal(photos.find(photo => photo.id !== first.id).albumName, null);
     assert.ok(photos.every(photo => !('photoId' in photo) && !('objectKey' in photo) && !('originalUrl' in photo)
       && photo.width === null && photo.sha256 === null));
     await db.query("UPDATE photos SET description = '发布后的文字变更', tags = JSON_ARRAY('夜景','室外','待审核') WHERE id = 1");
     const updated = (await list()).photos.find(photo => photo.id === first.id);
     assert.equal(updated.description, '更新后的校园活动');
     assert.deepEqual(updated.tags, ['夜景', '室外'], 'Safe tags follow the source without republishing');
+    const renamed = { groups: folderState.groups.map(group => group.id === 'root' ? { ...group, name: '学院风光' } : group) };
+    await db.query('UPDATE album_desktop_workspaces SET state = ? WHERE organization_id=2 AND unit_key=1', [JSON.stringify(renamed)]);
+    await db.query("UPDATE projects SET name = '现场相册' WHERE id=10");
+    assert.equal((await list()).photos.find(photo => photo.id === first.id).albumName, '学院风光 / 2026 / 迎新 / 报到 / 上午 / 现场相册');
     await db.query("UPDATE photos SET source_attribution = JSON_OBJECT('type','external_import','provider','alltuu') WHERE id = 1");
     assert.ok((await list()).photos.some(photo => photo.id === first.id), 'Recording a supported direct import does not revoke a release');
 
@@ -299,7 +323,8 @@ async function verify(db, legacyBytes) {
     assert.equal((await list()).photos.length, 1);
     const third = (await publish([await preview(1)])).photos[0];
     await db.query('UPDATE photos SET project_id = 14 WHERE id = 1');
-    assert.ok((await list()).photos.some(item => item.id === third.id), 'Moves within the same eligible unit retain the reviewed version');
+    const moved = (await list()).photos.find(item => item.id === third.id);
+    assert.equal(moved.albumName, '同组另一册', 'Private, sensitive, smart and invalid paths are not exposed');
     await db.query('UPDATE photos SET project_id = 12 WHERE id = 1');
     await db.query('UPDATE photos SET project_id = 14 WHERE id = 1');
     await call(DELIVERY_PATH + '/photos/' + third.id + '/image', 404, { token });
@@ -444,7 +469,7 @@ async function main() {
     }
     assert.ok(connection, 'Disposable MySQL is required');
     await connection.query(schema);
-    const migrations = ['20261013_003_shared_runtime.sql', '20261017_001_runtime_task_failures.sql',
+    const migrations = ['20261013_002_album_desktop.sql', '20261013_003_shared_runtime.sql', '20261017_001_runtime_task_failures.sql',
       '20261126_001_college_window.sql', '20261126_002_college_window_direct_imports.sql']
       .map(filename => fs.readFileSync(path.join(__dirname, 'migrations', filename), 'utf8'));
     for (let attempt = 0; attempt < 2; attempt++) {

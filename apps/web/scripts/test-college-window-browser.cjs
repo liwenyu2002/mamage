@@ -258,7 +258,8 @@ async function checkFeed(browser, width, jpeg) {
   const page = await context.newPage();
   const key = 'test-' + randomBytes(32).toString('base64url');
   const prefix = '/api/integrations/college-window/v1';
-  const history = { id: 'aabaa101-0000-0000-0000-000000000000', albumName: '实验室展示', peopleNames: ['已确认的人物'],
+  const albumPath = '校园影像 / 2026 / 迎新 / 报到 / ' + 'LongFolderName'.repeat(5) + ' / 实验室展示';
+  const history = { id: 'aabaa101-0000-0000-0000-000000000000', albumName: albumPath, peopleNames: ['已确认的人物'],
     description: '当年已经发布的 JPEG', tags: ['室内', '全景', '学术交流', '会议室', '白天'],
     imagePath: prefix + '/photos/aabaa101-0000-0000-0000-000000000000/image' };
   const original = { id: sample.id, albumName: '校园原图', publicImagePath: sample.publicImagePath };
@@ -300,20 +301,26 @@ async function checkFeed(browser, width, jpeg) {
     assert.equal(rejected, 1);
     await field.fill(key);
     await field.press('Enter');
-    const opened = page.getByRole('button', { name: '预览 实验室展示' });
+    const opened = page.getByRole('button', { name: '预览 ' + albumPath, exact: true });
     await opened.waitFor();
     assert.ok(correct > 0);
+    await page.getByText(albumPath, { exact: true }).waitFor();
     const chips = page.getByRole('list', { name: '照片标签' });
     assert.deepEqual(await chips.getByRole('listitem').allTextContents(), ['室内', '全景', '学术交流', '+2']);
     await opened.click();
-    const modal = page.getByRole('dialog', { name: '实验室展示' });
+    const modal = page.getByRole('dialog', { name: albumPath, exact: true });
     await modal.getByText(history.description).waitFor();
     await modal.getByRole('img').waitFor();
     assert.deepEqual(await modal.getByRole('list', { name: '照片标签' }).getByRole('listitem').allTextContents(), history.tags);
     const download = page.waitForEvent('download');
     await modal.getByRole('button', { name: '下载照片' }).click();
     assert.equal((await download).suggestedFilename(), history.id + '.jpg');
-    await modal.getByRole('button', { name: '关闭' }).click();
+    const close = modal.getByRole('button', { name: '关闭' });
+    const titleBox = await modal.getByText(albumPath, { exact: true }).boundingBox();
+    const closeBox = await close.boundingBox();
+    assert.ok(titleBox.x + titleBox.width <= closeBox.x && closeBox.x + closeBox.width <= width,
+      'Long album paths wrap without crowding out the close button');
+    await close.click();
     await page.getByRole('button', { name: '加载更多' }).click();
     const rawPreview = page.getByRole('button', { name: '预览 校园原图' });
     await rawPreview.scrollIntoViewIfNeeded();

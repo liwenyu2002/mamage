@@ -1,7 +1,8 @@
 const { pool } = require('../../db');
 const { buildMediaUrl } = require('../media_access');
 const { displayPhotoRow } = require('../photo_tone/artifacts.cjs');
-const { publicationText, deliveryTags, DELIVERY_PATH, PUBLIC_IMAGE_PATH, RESTRICTED_TAGS, ANONYMIZED_TAGS } = require('../college_window_policy');
+const { safeText, publicationText, deliveryTags, DELIVERY_PATH, PUBLIC_IMAGE_PATH, RESTRICTED_TAGS, ANONYMIZED_TAGS } = require('../college_window_policy');
+const { json } = require('../album_desktop');
 
 // p/pr are the source rows, never an album or folder shortcut granted to this unit.
 const SOURCE_JOIN = 'LEFT JOIN projects pr ON pr.id = p.project_id';
@@ -108,13 +109,54 @@ async function confirmedNames(scope, ids, db = pool, { lock = false } = {}) {
   return names;
 }
 
-const PUBLICATION_COLUMNS = `w.id, w.photo_id AS photoId, w.width, w.height, w.sha256, w.metadata, w.published_at AS publishedAt,
-  w.original_url IS NOT NULL AS original, p.thumb_url AS thumbUrl, p.tags`;
+const PRIVATE_FOLDER_NAME = /(?:内部资料|非公开|不公开|私有|私人|\b(?:private|confidential|internal)\b)/iu;
 
-function publicShape(row) {
+function deliveryFolderPath(group, byId) {
+  const names = [], seen = new Set();
+  while (group) {
+    if (group.kind === 'smart' || group.restrictedToUserId || seen.has(group.id)) return null;
+    const name = safeText(group.name, 80);
+    if (!name || PRIVATE_FOLDER_NAME.test(name)) return null;
+    names.push(name);
+    seen.add(group.id);
+    if (group.parentId == null || group.parentId === '') return names.reverse();
+    group = byId.get(String(group.parentId));
+  }
+  return null;
+}
+
+async function publishedFolderPaths(scope, photos, db) {
+  const paths = new Map();
+  const projectIds = new Set(photos.map(row => Number(row.projectId)).filter(Boolean));
+  if (!projectIds.size) return paths;
+  // Only the source workspace's shared folder tree is relevant to the feed.
+  const [[row]] = await db.query('SELECT state FROM album_desktop_workspaces WHERE organization_id = ? AND unit_key = ?',
+    [scope.orgId, scope.unitId]);
+  const groups = json(row?.state, {})?.groups;
+  if (!Array.isArray(groups)) return paths;
+  const byId = new Map(groups.filter(group => group?.id).map(group => [String(group.id), group]));
+  for (const group of byId.values()) {
+    if (!Array.isArray(group.projectIds)) continue;
+    const matched = group.projectIds.map(Number).filter(id => projectIds.has(id));
+    if (!matched.length) continue;
+    const path = deliveryFolderPath(group, byId);
+    if (!path) continue;
+    for (const id of matched) {
+      if (path.length > (paths.get(id)?.length || 0)) paths.set(id, path);
+    }
+  }
+  return paths;
+}
+
+const PUBLICATION_COLUMNS = `w.id, w.photo_id AS photoId, w.width, w.height, w.sha256, w.metadata, w.published_at AS publishedAt,
+  w.original_url IS NOT NULL AS original, p.thumb_url AS thumbUrl, p.tags, p.project_id AS projectId, pr.name AS albumTitle`;
+
+function publicShape(row, folders = []) {
   const metadata = typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata;
+  const title = safeText(row.albumTitle, 160);
   return { id: row.id, width: row.width, height: row.height, sha256: row.sha256, publishedAt: row.publishedAt,
-    albumName: metadata?.albumName ?? null, peopleNames: metadata?.peopleNames ?? [], description: metadata?.description ?? null,
+    albumName: title ? [...folders, title].join(' / ') : null,
+    peopleNames: metadata?.peopleNames ?? [], description: metadata?.description ?? null,
     tags: deliveryTags(row.tags),
     imagePath: `${DELIVERY_PATH}/photos/${row.id}/image`,
     ...(row.original ? { publicImagePath: `${PUBLIC_IMAGE_PATH}/${row.id}` } : {}) };
@@ -127,10 +169,15 @@ async function listPublished(scope, workspace, { after, limit }, db = pool) {
     WHERE w.organization_id = ? AND w.unit_id = ? AND w.revoked_at IS NULL
       AND ${eligible.sql} AND ${CURRENT_PUBLICATION}${after ? ' AND w.id > ?' : ''} ORDER BY w.id LIMIT ?`,
   [scope.orgId, scope.unitId, ...eligible.params, ...(after ? [after] : []), limit + 1]);
+  const page = rows.slice(0, limit);
+  const folders = await publishedFolderPaths(scope, page, db);
   return {
-    photos: rows.slice(0, limit).map(row => workspace ? { ...publicShape(row), photoId: row.photoId,
-      ...(row.original && row.thumbUrl ? { thumbUrl: buildMediaUrl(row.thumbUrl,
-        { userId: workspace.userId, photoId: row.photoId }) } : {}) } : publicShape(row)),
+    photos: page.map(row => {
+      const photo = publicShape(row, folders.get(Number(row.projectId)));
+      return workspace ? { ...photo, photoId: row.photoId,
+        ...(row.original && row.thumbUrl ? { thumbUrl: buildMediaUrl(row.thumbUrl,
+          { userId: workspace.userId, photoId: row.photoId }) } : {}) } : photo;
+    }),
     nextCursor: rows.length > limit ? rows[limit - 1].id : null,
   };
 }

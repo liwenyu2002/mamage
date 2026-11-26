@@ -153,6 +153,6 @@ function automaticTags(generated) {
   return { sql: guards.length ? `JSON_MERGE_PRESERVE(CAST(? AS JSON), ${guards.join(', ')})` : '?', params: [generated] };
 }
 
-module.exports = { readConfig, canManage, consumerAllowed, publicationText, deliveryTags, reviewDigest, selectRequest,
+module.exports = { readConfig, canManage, consumerAllowed, safeText, publicationText, deliveryTags, reviewDigest, selectRequest,
   id, UUID, DIGEST, WindowError, MAX_CANDIDATES, MAX_PUBLISH, MAX_BATCH, DELIVERY_PATH, PUBLIC_IMAGE_PATH, ORIGINAL_MODE,
   RESTRICTED_TAGS, ANONYMIZED_TAGS, automaticTags };

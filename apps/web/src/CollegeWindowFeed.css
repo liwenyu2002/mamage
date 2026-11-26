@@ -44,6 +44,8 @@
 .college-feed-image img { width: 100%; height: 100%; display: block; object-fit: cover; }
 .college-feed-image.is-preview { aspect-ratio: auto; min-height: 150px; }
 .college-feed-image.is-preview img { width: auto; height: auto; max-width: 100%; max-height: 62vh; object-fit: contain; }
+.college-feed-preview .mamage-modal-title { min-width: 0; overflow-wrap: anywhere; }
+.college-feed-preview .mamage-modal-close { flex-shrink: 0; }
 .college-feed-photo-label { display: flex; justify-content: space-between; align-items: flex-start; min-height: 48px; gap: 8px; padding: 9px 10px; }
 .college-feed-photo-label strong { display: block; font-size: 14px; overflow-wrap: anywhere; line-height: 1.4; }
 .college-feed-photo-label p { margin: 4px 0 0; font-size: 12px; opacity: .65; overflow-wrap: anywhere; }
