@@ -1098,7 +1098,7 @@ export default function TransferStation({ onInternalShare, hideLauncher = false,
         draggable
         onDragStart={(e) => handleItemDragStart(e, p)}
         onDragEnd={handleItemDragEnd}
-        title="可拖到全媒体编辑台使用"
+        title="拖出这项素材"
         style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px', borderRadius: 12, background: 'var(--app-surface, rgba(255,255,255,0.55))', border: '1px solid var(--app-line, rgba(255,255,255,0.66))', cursor: 'grab' }}>
         
             <div className="transfer-thumb" style={{ width: 72, height: 72, overflow: 'hidden', borderRadius: 8, flex: '0 0 72px', background: 'var(--app-raised, #f1f5f9)', position: 'relative' }}>

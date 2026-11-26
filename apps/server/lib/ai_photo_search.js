@@ -248,13 +248,20 @@ function cacheSet(key, value) {
   while (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value);
 }
 
-async function callSearchModel(query) {
+async function callSearchModel(query, selection = false) {
   const { apiKey, baseURL, model } = getClientConfig();
   if (!apiKey) throw new Error('AI_TEXT_API_KEY_NOT_CONFIGURED');
   const client = new OpenAI({ apiKey, ...(baseURL ? { baseURL } : {}), maxRetries: 0 });
-  const system = [
+  const today = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
+  const system = (selection ? [
+    `你把高校展示照片的选图需求转成搜索条件。今天是北京时间 ${today}。仅输出精简 JSON，省略无条件的字段。`,
+    'mustTerms 是必须出现的简短场景词；termGroups 是各场景词的等义词组（原词放第一）。shouldTerms 是可选的画面偏好。excludeTerms 是不要出现的画面，不可混入肯定条件。',
+    '按语义提炼可检索的短词，不要把展示用途、数量、“学校图库”等泛称当成关键词。主观偏好放 shouldTerms。例如“几张有现场感的校园活动照”可用活动、合影、讲座等作可选词。',
+    '人物名仅取原文，放 people 或 excludePeople，英语 all 表示 peopleMode 多人都要出现，peopleOnly 表示不得有别人。不要把身份泛称当作姓名。动作和持物保留关系。',
+    '相册、摄影师、环节用 projects、photographers、timelineSections 数组。日期用 dateFrom/dateTo，格式 YYYY-MM-DD。quality 可为 recommended/medium/rejected，sort 可为 newest/quality，不确定不要编造。',
+  ] : [
     '你是高校活动图库的搜索查询解析器。只输出一个 JSON 对象，不要解释。',
-    `今天是北京时间 ${new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10)}，可据此换算用户明确说出的相对日期。`,
+    `今天是北京时间 ${today}，可据此换算用户明确说出的相对日期。`,
     '不要编造具体人物、相册、日期或摄影师；只抽取用户明确表达的约束。',
     '字段固定为 mustTerms, shouldTerms, termGroups, excludeTerms, people, excludePeople, peopleMode, peopleOnly, photographers, projects, timelineSections, mediaType, quality, dateFrom, dateTo, sort。',
     'mustTerms 是必须在标题、画面描述、AI标签或OCR中命中的核心可见内容，每项应为短词；不要放人物姓名、摄影师、相册或环节。',
@@ -266,9 +273,10 @@ async function callSearchModel(query) {
     'peopleOnly 是布尔值。用户说“只有某人、仅某人、某人单独、不要其他人”时必须为 true，表示画面不能出现目标以外的人脸；其他情况为 false。',
     'mediaType 只能是 all/image/video；quality 只能是 any/recommended/medium/rejected；sort 只能是 relevance/newest/quality。',
     'dateFrom/dateTo 只能是 YYYY-MM-DD 或 null。没有信息的数组给 []，枚举字段使用默认 all/any/relevance。',
-  ].join('\n');
+  ]).join('\n');
+  const timeout = selection ? Math.max(REQUEST_TIMEOUT_MS, 25_000) : REQUEST_TIMEOUT_MS;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeout);
   let response;
   try {
     response = await client.chat.completions.create({
@@ -278,8 +286,8 @@ async function callSearchModel(query) {
       { role: 'user', content: String(query || '').slice(0, 160) },
     ],
     temperature: 0.1,
-    max_tokens: 900,
-    }, { signal: controller.signal, timeout: REQUEST_TIMEOUT_MS });
+    max_tokens: selection ? 1800 : 900,
+    }, { signal: controller.signal, timeout });
   } catch (error) {
     if (controller.signal.aborted || error?.name === 'APIConnectionTimeoutError') throw new Error('AI_SEARCH_TIMEOUT');
     throw error;
@@ -301,13 +309,14 @@ async function interpretPhotoSearch(query, options = {}) {
   if (!cfg.apiKey) {
     return { plan: heuristic, aiUsed: false, cached: false, fallbackReason: 'not_configured', model: null };
   }
-  const key = `v2:${cfg.baseURL || 'default'}:${cfg.model}:${new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10)}:${String(query || '').trim().toLowerCase()}`;
+  const selection = options.selection === true;
+  const key = `v2:${selection ? 'selection' : 'search'}:${cfg.baseURL || 'default'}:${cfg.model}:${new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10)}:${String(query || '').trim().toLowerCase()}`;
   const cached = cacheGet(key);
   if (cached) return { ...cached, cached: true };
   if (inflight.has(key)) return inflight.get(key);
   if (inflight.size >= MAX_INFLIGHT) return { plan: heuristic, aiUsed: false, cached: false, fallbackReason: 'busy', model: null };
 
-  const task = callSearchModel(query)
+  const task = callSearchModel(query, selection)
     .then(({ plan, model }) => {
       // “仅此人物”属于明确且高风险的排他条件，模型漏字段时保留规则解析结果。
       const mergedPlan = { ...plan, peopleOnly: Boolean(plan.peopleOnly || heuristic.peopleOnly),

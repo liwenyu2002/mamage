@@ -179,6 +179,8 @@ app.use((req, res, next) => {
   if (process.env.REQUEST_LOGS !== '0') console.log(`${req.method} ${searchRequestLogTarget(req)}`);
   next();
 });
+const collegeWindow = require('./routes/college_window').createCollegeWindow();
+app.use(require('./lib/college_window_policy').DELIVERY_PATH, collegeWindow.delivery);
 app.use('/api/auth/iam', require('./routes/auth_iam'));
 app.use('/api/auth/oidc', require('./routes/auth_oidc'));
 app.use('/api', require('./lib/iam_account_guard').bearerGuard(keys.JWT_SECRET));
@@ -190,6 +192,7 @@ app.use('/api/photos', photosRouter);
 app.use('/api/upload', uploadRouter);
 app.use('/api/external-imports', externalImportsRouter);
 app.use('/api/users', usersRouter);
+app.use('/api/college-window', collegeWindow.manage);
 app.use('/api/operations', operationsRouter);
 app.use('/api/ai/news', aiNewsRouter);
 app.use('/api/ai/video', aiVideoRouter);

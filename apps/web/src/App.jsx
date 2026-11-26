@@ -49,6 +49,7 @@ const WechatComposer = lazyWithPreload(() => import(/* webpackChunkName: "wechat
 const VideoEditor = lazyWithPreload(() => import(/* webpackChunkName: "video-editor" */'./VideoEditor.jsx'));
 const WorkspacePanel = lazyWithPreload(() => import(/* webpackChunkName: "workspace-panel" */'./WorkspacePanel.jsx'));
 const PersonalWorkspace = lazyWithPreload(() => import(/* webpackChunkName: "personal-workspace" */'./PersonalWorkspace.jsx'));
+const CollegeWindow = lazyWithPreload(() => import(/* webpackChunkName: "college-window" */'./CollegeWindow.jsx'));
 
 const PROJECT_PAGE_SIZE = 24;
 const SEARCH_SUGGESTIONS = ['拿话筒的邹欣', '刘铁岩单人照', '举奖杯的人', '王婧琦的单人照', '穿白衣服的人', '多人合影'];
@@ -204,6 +205,8 @@ function App() {
   const [showCreateModal, setShowCreateModal] = React.useState(false);
   const [functionPage, setFunctionPage] = React.useState(null);
   const [currentUser, setCurrentUser] = React.useState(null);
+  const collegeWindowDraft = React.useMemo(() => ({ current: null }), [currentUser?.id, currentUser?.activeUnitId]);
+  const collegeWindowActive = selectedNav === 'college-window' && currentUser?.canManageCollegeWindow;
   const personalOnly = Boolean(currentUser?.needsAssignment);
   const personalView = selectedNav === 'personal' || personalOnly && ['projects', 'scenery', 'function'].includes(selectedNav);
   const [folderStyle, setFolderStyle] = useFolderStyle(currentUser?.id);
@@ -308,6 +311,7 @@ function App() {
   const preloadNavItem = React.useCallback((key) => {
     if (key === 'scenery' && Scenery.preload) Scenery.preload();
     if (key === 'function' && WechatComposer.preload) WechatComposer.preload();
+    if (key === 'college-window') CollegeWindow.preload();
   }, []);
 
   // 相册排序：key=createdAt|eventDate，order=desc|asc；选择记在 localStorage
@@ -840,7 +844,8 @@ function App() {
       navigate('/personal', { replace: true });return;
     }
     const platform = mediaPlatformFromPath(url.pathname);
-    const page = { '/about': 'about', '/account': 'account', '/privacy': 'privacy', '/scenery': 'scenery', '/personal': 'personal' }[url.pathname];
+    const page = { '/about': 'about', '/account': 'account', '/privacy': 'privacy', '/scenery': 'scenery', '/personal': 'personal',
+      '/college-window': 'college-window' }[url.pathname];
     setSelectedNav(page || (platform ? 'function' : 'projects'));
     if (platform) setFunctionPage(platform.key);
     const projectId = !page && !platform ? params.get('projectId') : null;
@@ -1120,8 +1125,9 @@ function App() {
   { key: 'scenery', label: '风景', onClick: handleNavigateScenery }] : []),
   { key: 'personal', label: '个人工具', onClick: () => navigate('/personal') },
   ...(canUseMediaStudio ? [{ key: 'function', label: '全媒体编辑台', onClick: handleNavigateFunction }] : []),
+  ...(currentUser?.canManageCollegeWindow ? [{ key: 'college-window', label: '学院窗', onClick: () => navigate('/college-window') }] : []),
   { key: 'about', label: '关于', onClick: handleNavigateAbout }],
-  [personalOnly, canUseMediaStudio, handleGoHome, handleNavigateAbout, handleNavigateFunction, handleNavigateScenery]);
+  [personalOnly, canUseMediaStudio, currentUser?.canManageCollegeWindow, handleGoHome, handleNavigateAbout, handleNavigateFunction, handleNavigateScenery]);
 
   const renderNavItem = React.useCallback((item, mobile = false) =>
   <button
@@ -1749,6 +1755,12 @@ function App() {
           <LazyPanel title="正在加载账户页">
                 <AccountPage currentUser={currentUser} membershipSummary={membershipSummary} onUpdated={(u) => {setCurrentUser(u);}} />
               </LazyPanel> :
+          selectedNav === 'college-window' ?
+          currentUser?.canManageCollegeWindow ?
+          <LazyPanel title="正在加载学院窗">
+            <CollegeWindow key={`${currentUser.id}:${currentUser.activeUnitId}`} unitId={currentUser.activeUnitId} draft={collegeWindowDraft} />
+          </LazyPanel> :
+          <UiEmpty description="当前账号或工作空间无权管理学院窗" /> :
           selectedNav === 'function' ?
           canUseMediaStudio ?
           <section className="media-studio-shell" aria-label="全媒体编辑台">
@@ -1846,8 +1858,8 @@ function App() {
       null}
       {mountTransferStation ?
       <LazySilent>
-          <TransferStation hideLauncher={selectedNav === 'account' || personalView}
-          enableDraftPhotoDrag={selectedNav === 'function' && canUseMediaStudio && activeMediaPlatform.editor !== 'video'}
+          <TransferStation hideLauncher={selectedNav === 'account' || personalView || (selectedNav === 'college-window' && (!collegeWindowActive || isMobileHeader))}
+          enableDraftPhotoDrag={collegeWindowActive || (selectedNav === 'function' && canUseMediaStudio && activeMediaPlatform.editor !== 'video')}
           onInternalShare={(photoIds) => {
           if (!workspaceInfo?.activeUnitId) return Toast.warning('请先切换到部门工作空间');
           setAlbumShareProject(null);

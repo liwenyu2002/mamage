@@ -265,7 +265,7 @@ async function searchPhotos(options = {}) {
   await notify({ type: 'status', phase: localIntent ? 'searching' : 'understanding' });
   const interpreted = filenameQuery
     ? { plan: normalizePhotoSearchPlan({ mustTerms: [query], termGroups: [[query]] }, query), aiUsed: false, cached: false, fallbackReason: null }
-    : await interpretPhotoSearch(query, { enableAi: options.enableAi !== false && !localIntent });
+    : await interpretPhotoSearch(query, { enableAi: options.enableAi !== false && !localIntent, selection: Boolean(options.collegeWindow) });
   checkActive();
   const plan = filenameQuery
     ? { ...interpreted.plan, unknownPeople: [], identityUncertain: false, faceSearchUnavailable: false }
@@ -296,13 +296,14 @@ async function searchPhotos(options = {}) {
     || plan.timelineSections.length
     || plan.photographers.length
     || plan.excludeTerms.length;
-  if (!mustTerms.length && !shouldTerms.length && !explicitPersonTerms.length && !hasStructuredFilter && query) {
+  if (!mustTerms.length && !shouldTerms.length && !explicitPersonTerms.length && !hasStructuredFilter && query
+    && !(options.collegeWindow && interpreted.aiUsed)) {
     mustTerms = literalTokens.length ? literalTokens : [query];
   }
   const relatedEligible = faceSearchAllowed && matchedPeople.length > 0 && !plan.unknownPeople.length
     && !plan.identityUncertain && mustTerms.length > 0;
   const showingRelated = options.related === true && relatedEligible;
-  const visualRequest = !filenameQuery && visualSearchEnabled(options) && plan.mediaType !== 'video' && !plan.faceSearchUnavailable && !plan.identityUncertain
+  const visualRequest = !options.collegeWindow && !filenameQuery && visualSearchEnabled(options) && plan.mediaType !== 'video' && !plan.faceSearchUnavailable && !plan.identityUncertain
     && !plan.unknownPeople.length ? compileVisualConditions({ ...plan, mustTerms: showingRelated ? [] : mustTerms }, matchedPeople,
       { semantic: process.env.SEARCH_VISUAL_SEMANTIC_ENABLED === '1', anonymous: process.env.PHOTO_PERSON_OBSERVATIONS_ENABLED === '1' }) : null;
   let visual = null;
@@ -366,6 +367,12 @@ async function searchPhotos(options = {}) {
     const ids = [...new Set(options.projectIds.map(Number).filter(id => Number.isSafeInteger(id) && id > 0))];
     where.push(ids.length ? 'p.project_id IN (?)' : '1 = 0');
     if (ids.length) whereParams.push(ids);
+  }
+  if (options.collegeWindow) {
+    const { scope, workspace, excluded, contentFilter } = options.collegeWindow;
+    const eligibility = require('./queries/college_window').candidateWhere(scope, workspace, excluded, contentFilter);
+    where.push(eligibility.sql);
+    whereParams.push(...eligibility.params);
   }
 
   if (plan.mediaType === 'video') where.push("LOWER(COALESCE(p.type, '')) = 'video'");
@@ -542,6 +549,7 @@ async function searchPhotos(options = {}) {
     );
     checkActive();
 
+    if (options.collegeWindow) return rows.map(row => ({ id: row.id }));
     const faceMap = faceSearchAllowed
       ? await loadFaceNamesForPhotos((rows || []).map((row) => row.id), orgId)
       : new Map();

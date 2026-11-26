@@ -246,6 +246,7 @@ async function _processOne(item) {
       const description = result.description || null;
       const detailedDescription = result.detailedDescription || null;
       const tags = (result.tags && result.tags.length) ? JSON.stringify(result.tags) : null;
+      const tagUpdate = require('./college_window_policy').automaticTags(tags);
       const aiScore = Number.isFinite(result.score) ? Math.max(0, Math.min(100, Math.round(result.score))) : null;
       const aiQuality = result.quality ? JSON.stringify(result.quality) : null;
       const ocrText = typeof result.ocrText === 'string' && result.ocrText ? result.ocrText : null;
@@ -264,7 +265,7 @@ async function _processOne(item) {
           `UPDATE photos
            SET description = COALESCE(?, description),
                detailed_description = ?,
-               tags = COALESCE(?, tags),
+               tags = ${tagUpdate.sql},
                ai_score = COALESCE(?, ai_score),
                ai_quality = COALESCE(?, ai_quality),
                ocr_text = COALESCE(?, ocr_text),
@@ -272,7 +273,7 @@ async function _processOne(item) {
                ai_error = NULL,
                ai_finished_at = NOW()
            WHERE id = ?`,
-          [description, detailedDescription, tags, aiScore, aiQuality, ocrText, item.id]
+          [description, detailedDescription, ...tagUpdate.params, aiScore, aiQuality, ocrText, item.id]
         );
         console.log('[ai_tags_worker] updated photo', item.id, aiScore !== null ? `score=${aiScore}` : '(no score)');
         if (process.env.PHOTO_PERSON_OBSERVATIONS_ENABLED === '1') {
@@ -286,8 +287,8 @@ async function _processOne(item) {
         if (dbErr && (dbErr.code === 'ER_BAD_FIELD_ERROR' || String(dbErr.message || '').includes('Unknown column'))) {
           try {
             await pool.query(
-              `UPDATE photos SET description = COALESCE(?, description), tags = COALESCE(?, tags) WHERE id = ?`,
-              [description, tags, item.id]
+              `UPDATE photos SET description = COALESCE(?, description), tags = ${tagUpdate.sql} WHERE id = ?`,
+              [description, ...tagUpdate.params, item.id]
             );
             // 缺列降级也必须收尾 ai_status，否则照片停在 running 被 requeueStuckPhotos 永久循环重分析
             await updatePhotoAiStatus(item.id, 'done');

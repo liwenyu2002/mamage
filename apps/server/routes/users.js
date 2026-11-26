@@ -457,10 +457,12 @@ router.get('/me', authMiddleware, async (req, res) => {
     const identity = await usersDao.hasIamIdentity(pool, req.user.id);
     const membership = await usersDao.hasUnitMembership(pool, req.user.id);
     const accessAdmin = await require('../lib/user_access_admin').accessAdministrator(pool, req.user.id);
+    const { canManage: canManageCollegeWindow, readConfig } = require('../lib/college_window_policy');
     res.json({ ...req.user, ...userAccessProfile(workspace, req.user.permissions, faces), activeUnitId: workspace.unitId,
       unitRole: workspace.role, collegeAdmin: workspace.collegeAdmin, workspaceEnabled: workspace.enabled,
       iamManaged: Boolean(identity), campusStudentNo: require('../lib/user_access_admin').displayStudentNo(req.user.student_no),
       canManageUserAccess: accessAdmin.allowed,
+      canManageCollegeWindow: Boolean(req.user.permissions?.includes('photos.view') && canManageCollegeWindow(readConfig(), workspace)),
       needsAssignment: Boolean(identity && !membership && !workspace.collegeAdmin && req.user.role !== 'superadmin') });
   } catch (err) {
     console.error('[users.me]', err);
