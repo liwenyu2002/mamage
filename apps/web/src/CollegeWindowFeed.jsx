@@ -34,6 +34,16 @@ function originalPath(photo) {
   return photo.publicImagePath === path ? path : null;
 }
 
+function PhotoTags({ tags, limit }) {
+  if (!Array.isArray(tags) || !tags.length) return null;
+  const displayed = limit ? tags.slice(0, limit) : tags;
+  const remaining = tags.length - displayed.length;
+  return <ul className="college-feed-tags" aria-label="照片标签">
+    {displayed.map(tag => <li key={tag}>{tag}</li>)}
+    {remaining > 0 && <li title={'还有 ' + remaining + ' 个标签'}>+{remaining}</li>}
+  </ul>;
+}
+
 function FeedImage({ photo, readImage, eager = false }) {
   const box = React.useRef(null);
   const [nearby, setNearby] = React.useState(eager);
@@ -195,6 +205,7 @@ export default function CollegeWindowFeed() {
               {photo.peopleNames?.length > 0 && <p>{photo.peopleNames.join('、')}</p>}</div>
             <FeedDownload photo={photo} readImage={readImage} />
           </div>
+          <PhotoTags tags={photo.tags} limit={3} />
         </article>)}
       </div> : <p className="college-feed-empty" role="status">暂无已发布照片</p>}
       {next && <div className="college-feed-more"><Button type="secondary" icon={<IconChevronRight />}
@@ -203,6 +214,7 @@ export default function CollegeWindowFeed() {
     {preview && <Modal visible width={880} title={preview.albumName || '学院窗照片'} onCancel={() => setPreview(null)}
       footer={<FeedDownload photo={preview} readImage={readImage} />}>
       <FeedImage key={preview.id} photo={preview} readImage={readImage} eager />
+      <PhotoTags tags={preview.tags} />
       {preview.peopleNames?.length > 0 && <p>{preview.peopleNames.join('、')}</p>}
       {preview.description && <p className="college-feed-description">{preview.description}</p>}
     </Modal>}

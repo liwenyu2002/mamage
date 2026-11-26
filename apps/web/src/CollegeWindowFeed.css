@@ -47,6 +47,9 @@
 .college-feed-photo-label { display: flex; justify-content: space-between; align-items: flex-start; min-height: 48px; gap: 8px; padding: 9px 10px; }
 .college-feed-photo-label strong { display: block; font-size: 14px; overflow-wrap: anywhere; line-height: 1.4; }
 .college-feed-photo-label p { margin: 4px 0 0; font-size: 12px; opacity: .65; overflow-wrap: anywhere; }
+.college-feed-tags { list-style: none; display: flex; flex-wrap: wrap; gap: 4px; margin: 10px 0 0; padding: 0; font-size: 12px; }
+.college-feed-photo > .college-feed-tags { margin: 0 10px 10px; }
+.college-feed-tags li { min-width: 0; padding: 2px 6px; border-radius: 4px; background: rgba(94, 118, 116, .12); line-height: 1.4; overflow-wrap: anywhere; }
 .college-feed-download { flex-shrink: 0; }
 .college-feed-icon { display: grid; place-items: center; width: 34px; height: 34px; padding: 6px; box-sizing: border-box; border: 0; border-radius: 6px; color: inherit; background: transparent; cursor: pointer; }
 .college-feed-icon svg { width: 17px; height: 17px; }

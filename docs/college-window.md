@@ -21,7 +21,9 @@
 | `GET /api/integrations/college-window/v1/photos?limit=50` | 当前已发布记录。每页最多 200 张。返回 `{ photos, nextCursor }`，有下一页时原样回传 `after=nextCursor`。 |
 | `GET /api/integrations/college-window/v1/photos/{id}/image` | 新发布的原图返回 302，请跟随跳转；历史供图直接返回 JPEG。不存在、未发布或被撤回时返回 404。 |
 
-内网请求均要求 `Authorization: Bearer <服务端 Key>`。列表每项有 `id`、`width`、`height`、`sha256`、`publishedAt`、`albumName`、`peopleNames`、`description`、`imagePath`；未提供的文本为 `null`，无人名时为 `[]`。原图不额外读取宽高或计算校验和，这三项为 `null`，并额外返回可从普通 MaMage 入口打开的 `publicImagePath`，附 `?download=1` 可下载原文件。没有 ZIP 或视频接口。对接方可以多页读取并逐张下载，把原文件和对应文字预存到自己的服务，断网时使用。成功拉完整份列表后，以该列表为准对齐本地缓存；网络故障时保留上一次完整结果。
+内网请求均要求 `Authorization: Bearer <服务端 Key>`。列表每项有 `id`、`width`、`height`、`sha256`、`publishedAt`、`albumName`、`peopleNames`、`description`、`tags`、`imagePath`；未提供的文本为 `null`，无人名或标签时对应数组为 `[]`。原图不额外读取宽高或计算校验和，这三项为 `null`，并额外返回可从普通 MaMage 入口打开的 `publicImagePath`，附 `?download=1` 可下载原文件。没有 ZIP 或视频接口。对接方可以多页读取并逐张下载，把原文件和对应文字预存到自己的服务，断网时使用。成功拉完整份列表后，以该列表为准对齐本地缓存；网络故障时保留上一次完整结果。
+
+`tags` 是照片在图库中的现有内容标签（如 `["室外","校园建筑","全景"]`），对已发布记录实时读取，无需重新发布。仅返回允许外发的常见场景、活动和构图等词汇，不包含自由填写的内部备注、审核标签、姓名或联系方式。网页在卡片上展示部分标签，在预览中展示全部。AI 内容标签只供选图参考，不代表人工脱敏确认。
 
 跟随原图重定向时不要把 `Authorization` 转发给对象存储地址。每次下载从返回的 `imagePath` 或 `publicImagePath` 开始，不缓存对象存储临时地址。
 

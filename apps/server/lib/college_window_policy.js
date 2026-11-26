@@ -12,6 +12,16 @@ const UUID = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
 const DIGEST = /^[a-f0-9]{64}$/;
 const RESTRICTED_TAGS = '禁止外发|不得外发|仅限内部|仅内部|保密';
 const ANONYMIZED_TAGS = '已脱敏|已匿名|已打码|人脸打码|人脸模糊|不公开姓名';
+// Photo tags also contain free-form notes and review flags. Only export reviewed vocabulary.
+const DELIVERY_TAGS = new Set([
+  '特写', '近景', '中景', '全景', '远景', '长焦', '标准焦段', '超广角',
+  '室内', '室外', '操场', '教室', '会议室', '校园', '校园风光', '校园建筑', '建筑', '教学楼',
+  '风景', '风光', '自然', '树木', '花草', '湖泊', '夜景', '日出', '日落', '雪景', '秋景',
+  '人物', '无人', '无人物', '无人脸', '无可见人脸', '单人', '双人', '多人', '动物', '合影', '背影',
+  '演讲', '运动', '鼓掌', '交流', '讲座', '运动会', '出游', '办公', '上课', '庆典',
+  '展览', '论坛', '学术交流', '研学', '校园活动',
+  '正式', '严肃', '庆祝', '动感', '青春', '温馨', '喜悦', '白天', '黑夜',
+]);
 
 class WindowError extends Error {
   constructor(status, code) { super(code); this.status = status; this.code = code; }
@@ -82,6 +92,20 @@ function publicationText(source, names = [], hidePeople = false) {
   };
 }
 
+function deliveryTags(raw) {
+  if (typeof raw === 'string') {
+    try { raw = JSON.parse(raw); } catch { return []; }
+  }
+  if (!Array.isArray(raw)) return [];
+  const tags = new Set();
+  for (const value of raw) {
+    if (typeof value !== 'string') continue;
+    const tag = value.normalize('NFKC').trim();
+    if (DELIVERY_TAGS.has(tag)) tags.add(tag);
+  }
+  return [...tags];
+}
+
 const NO_FACES = /(?:没有|不要(?:出现|有)?|不含|不出现|不露出|无)\s*(?:任何|可辨认的|可见的?)?\s*人脸|不露脸|没有脸/u;
 const NO_PEOPLE = /(?:没有(?:任何)?人(?:物)?|无人物|无人)(?=的?(?:照片?|图片|相片|画面|镜头)|[\s，、。；,;]|$)/u;
 
@@ -129,6 +153,6 @@ function automaticTags(generated) {
   return { sql: guards.length ? `JSON_MERGE_PRESERVE(CAST(? AS JSON), ${guards.join(', ')})` : '?', params: [generated] };
 }
 
-module.exports = { readConfig, canManage, consumerAllowed, publicationText, reviewDigest, selectRequest,
+module.exports = { readConfig, canManage, consumerAllowed, publicationText, deliveryTags, reviewDigest, selectRequest,
   id, UUID, DIGEST, WindowError, MAX_CANDIDATES, MAX_PUBLISH, MAX_BATCH, DELIVERY_PATH, PUBLIC_IMAGE_PATH, ORIGINAL_MODE,
   RESTRICTED_TAGS, ANONYMIZED_TAGS, automaticTags };

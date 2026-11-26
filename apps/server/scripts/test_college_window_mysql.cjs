@@ -18,7 +18,7 @@ const { createCollegeWindow } = require('../routes/college_window');
 const { candidateWhere } = require('../lib/queries/college_window');
 const { searchPhotos } = require('../lib/photo_search');
 const { pool: applicationPool } = require('../db');
-const { readConfig, consumerAllowed, selectRequest, automaticTags, DELIVERY_PATH,
+const { readConfig, consumerAllowed, selectRequest, automaticTags, deliveryTags, DELIVERY_PATH,
   PUBLIC_IMAGE_PATH, ORIGINAL_MODE } = require('../lib/college_window_policy');
 
 const photoPath = id => 'uploads/college-window-test/' + id + '.png';
@@ -68,11 +68,17 @@ async function verify(db, legacyBytes) {
     { query: '校园秋景', contentFilter: 'no-faces', ai: true, limit: 24, exclude: [] });
   assert.equal(selectRequest({ query: '无人机照片', mode: 'ai' }).contentFilter, undefined);
   assert.equal(selectRequest({ query: '不要无人脸照片', mode: 'ai' }).contentFilter, undefined);
+  assert.deepEqual(deliveryTags(null), []);
+  assert.deepEqual(deliveryTags('{"tags":["室内"]}'), []);
+  assert.deepEqual(deliveryTags('室内,室外'), []);
+  const fixtureTags = ['室内', '　全景 ', '室内', '教学楼', 'AI recommended', '待审核',
+    '姓名示例', '联系方式 13800138000', { value: '室内' }, ['室外'], '<script>'];
+  assert.deepEqual(deliveryTags(JSON.stringify(fixtureTags)), ['室内', '全景', '教学楼']);
   const fixture = [
     [1, 10, 1, 7, 'normal', null, null], [2, 10, 1, 7, 'normal', '["禁止外发"]', null],
     [3, 11, 1, 7, 'normal', null, null], [4, 10, 1, 7, 'video', null, null],
     [5, 12, 2, 7, 'normal', null, null], [6, 10, 1, 7, 'normal', null, '{"sourceUnitId":2}'],
-    [7, 10, 1, 8, 'normal', null, null], [8, 13, 1, 7, 'normal', null, null],
+    [7, 10, 1, 8, 'normal', JSON.stringify(fixtureTags), null], [8, 13, 1, 7, 'normal', null, null],
     [9, null, 1, 7, 'normal', null, null],
     [10, 10, null, 7, 'cover', null, '{"type":"external_import","provider":"photoplus"}'],
     [11, 10, 2, 7, 'normal', null, null],
@@ -183,6 +189,7 @@ async function verify(db, legacyBytes) {
     await call(DELIVERY_PATH + '/photos', 401, { user: 7 });
     const [legacy] = (await list()).photos;
     assert.equal(legacy.id, legacyId);
+    assert.deepEqual(legacy.tags, ['室内', '全景', '教学楼'], 'Historical photos include only allowed tags');
     assert.ok(!legacy.publicImagePath);
     const historical = await call(legacy.imagePath, 200, { token });
     assert.deepEqual(Buffer.from(await historical.arrayBuffer()), legacyBytes);
@@ -235,7 +242,7 @@ async function verify(db, legacyBytes) {
     assert.equal((await preview(7)).description, null);
     await call('/manage/publish', 409, { user: 7, method: 'POST', body: { photos: [{ photoId: 1, review: one.review }] } });
     await publish([one], 409, 8);
-    await db.query("UPDATE photos SET description = '更新后的校园活动' WHERE id = 1");
+    await db.query("UPDATE photos SET description = '更新后的校园活动', tags = JSON_ARRAY('全景','校园建筑','AI medium') WHERE id = 1");
     await publish([one], 409);
     const reviewed = await preview(1);
     const releases = (await publish([reviewed, cropped])).photos;
@@ -262,11 +269,16 @@ async function verify(db, legacyBytes) {
     assert.equal((await sharp(originalBytes).metadata()).width, 180);
     assert.ok((await sharp(originalBytes).metadata()).exif);
     const { photos } = await list();
-    assert.equal(photos.find(photo => photo.id === first.id).description, '更新后的校园活动');
+    const firstPhoto = photos.find(photo => photo.id === first.id);
+    assert.equal(firstPhoto.description, '更新后的校园活动');
+    assert.deepEqual(firstPhoto.tags, ['全景', '校园建筑']);
+    assert.deepEqual(photos.find(photo => photo.id !== first.id).tags, []);
     assert.ok(photos.every(photo => !('photoId' in photo) && !('objectKey' in photo) && !('originalUrl' in photo)
       && photo.width === null && photo.sha256 === null));
-    await db.query("UPDATE photos SET description = '发布后的文字变更' WHERE id = 1");
-    assert.equal((await list()).photos.find(photo => photo.id === first.id).description, '更新后的校园活动');
+    await db.query("UPDATE photos SET description = '发布后的文字变更', tags = JSON_ARRAY('夜景','室外','待审核') WHERE id = 1");
+    const updated = (await list()).photos.find(photo => photo.id === first.id);
+    assert.equal(updated.description, '更新后的校园活动');
+    assert.deepEqual(updated.tags, ['夜景', '室外'], 'Safe tags follow the source without republishing');
     await db.query("UPDATE photos SET source_attribution = JSON_OBJECT('type','external_import','provider','alltuu') WHERE id = 1");
     assert.ok((await list()).photos.some(photo => photo.id === first.id), 'Recording a supported direct import does not revoke a release');
 

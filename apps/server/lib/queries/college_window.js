@@ -1,7 +1,7 @@
 const { pool } = require('../../db');
 const { buildMediaUrl } = require('../media_access');
 const { displayPhotoRow } = require('../photo_tone/artifacts.cjs');
-const { publicationText, DELIVERY_PATH, PUBLIC_IMAGE_PATH, RESTRICTED_TAGS, ANONYMIZED_TAGS } = require('../college_window_policy');
+const { publicationText, deliveryTags, DELIVERY_PATH, PUBLIC_IMAGE_PATH, RESTRICTED_TAGS, ANONYMIZED_TAGS } = require('../college_window_policy');
 
 // p/pr are the source rows, never an album or folder shortcut granted to this unit.
 const SOURCE_JOIN = 'LEFT JOIN projects pr ON pr.id = p.project_id';
@@ -109,12 +109,13 @@ async function confirmedNames(scope, ids, db = pool, { lock = false } = {}) {
 }
 
 const PUBLICATION_COLUMNS = `w.id, w.photo_id AS photoId, w.width, w.height, w.sha256, w.metadata, w.published_at AS publishedAt,
-  w.original_url IS NOT NULL AS original, p.thumb_url AS thumbUrl`;
+  w.original_url IS NOT NULL AS original, p.thumb_url AS thumbUrl, p.tags`;
 
 function publicShape(row) {
   const metadata = typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata;
   return { id: row.id, width: row.width, height: row.height, sha256: row.sha256, publishedAt: row.publishedAt,
     albumName: metadata?.albumName ?? null, peopleNames: metadata?.peopleNames ?? [], description: metadata?.description ?? null,
+    tags: deliveryTags(row.tags),
     imagePath: `${DELIVERY_PATH}/photos/${row.id}/image`,
     ...(row.original ? { publicImagePath: `${PUBLIC_IMAGE_PATH}/${row.id}` } : {}) };
 }

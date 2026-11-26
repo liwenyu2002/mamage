@@ -259,7 +259,8 @@ async function checkFeed(browser, width, jpeg) {
   const key = 'test-' + randomBytes(32).toString('base64url');
   const prefix = '/api/integrations/college-window/v1';
   const history = { id: 'aabaa101-0000-0000-0000-000000000000', albumName: '实验室展示', peopleNames: ['已确认的人物'],
-    description: '当年已经发布的 JPEG', imagePath: prefix + '/photos/aabaa101-0000-0000-0000-000000000000/image' };
+    description: '当年已经发布的 JPEG', tags: ['室内', '全景', '学术交流', '会议室', '白天'],
+    imagePath: prefix + '/photos/aabaa101-0000-0000-0000-000000000000/image' };
   const original = { id: sample.id, albumName: '校园原图', publicImagePath: sample.publicImagePath };
   const errors = [];
   let correct = 0, raw = 0, rejected = 0;
@@ -302,10 +303,13 @@ async function checkFeed(browser, width, jpeg) {
     const opened = page.getByRole('button', { name: '预览 实验室展示' });
     await opened.waitFor();
     assert.ok(correct > 0);
+    const chips = page.getByRole('list', { name: '照片标签' });
+    assert.deepEqual(await chips.getByRole('listitem').allTextContents(), ['室内', '全景', '学术交流', '+2']);
     await opened.click();
     const modal = page.getByRole('dialog', { name: '实验室展示' });
     await modal.getByText(history.description).waitFor();
     await modal.getByRole('img').waitFor();
+    assert.deepEqual(await modal.getByRole('list', { name: '照片标签' }).getByRole('listitem').allTextContents(), history.tags);
     const download = page.waitForEvent('download');
     await modal.getByRole('button', { name: '下载照片' }).click();
     assert.equal((await download).suggestedFilename(), history.id + '.jpg');
@@ -314,6 +318,7 @@ async function checkFeed(browser, width, jpeg) {
     const rawPreview = page.getByRole('button', { name: '预览 校园原图' });
     await rawPreview.scrollIntoViewIfNeeded();
     await rawPreview.getByRole('img').waitFor();
+    assert.equal(await chips.count(), 1, 'Photos without tags do not show an empty tag group');
     await page.waitForFunction(() => Array.from(document.images).some(img => img.alt === '校园原图' && img.naturalWidth > 0));
     assert.ok(raw > 0);
     assert.ok(await page.evaluate(value => !JSON.stringify([localStorage, sessionStorage]).includes(value), key));
