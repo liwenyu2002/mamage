@@ -22,6 +22,7 @@ async function runAnalysis(result, missingColumn = false) {
     },
     './video_analysis': {}, './video_render': {}, './video_semantic_source': {},
     './background_task_failure': require('../lib/background_task_failure'),
+    './college_window_policy': require('../lib/college_window_policy'),
     './distributed_runtime': { distributed: () => true, coordinator: { register: (kind, _lane, value) => { if (kind === 'semantic') handler = value; } } },
   };
   const module = { exports: {} };
@@ -46,6 +47,9 @@ test('worker saves the new field separately without changing short description, 
   assert.ok(saved);
   assert.deepEqual(Array.from(saved.params), ['短摘要。', '单独的详细白描。', '["无人"]', 61, '{"reason":"普通记录。"}', '清晰文字', 77]);
   assert.equal((saved.sql.match(/\?/g) || []).length, saved.params.length);
+  assert.match(saved.sql, /tags = JSON_MERGE_PRESERVE\(CAST\(\? AS JSON\)/);
+  assert.match(saved.sql, /JSON_ARRAY\('禁止外发'\)/);
+  assert.match(saved.sql, /JSON_ARRAY\('已脱敏'\)/);
   assert.match(saved.sql, /WHERE id = \?/);
   assert.doesNotMatch(saved.sql, /SET.*(?:project_id|organization_id|unit_id)\s*=/s);
 });

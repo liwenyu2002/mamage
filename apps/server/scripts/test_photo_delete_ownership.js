@@ -98,6 +98,11 @@ function fixture({ role='editor', accountRole='admin', collegeAdmin=false, enabl
       if(key==='../lib/queries/photos')return require('../lib/queries/photos');
       if(key==='../lib/face_access')return{getFacePermissions:async()=>({search:false,manage:false})};
       if(key==='../lib/user_access_admin')return require('../lib/user_access_admin');
+      if(key==='../lib/college_window_policy'){
+        const policy=require('../lib/college_window_policy');
+        const config=policy.readConfig({MAMAGE_COLLEGE_WINDOW_ORG_ID:'2',MAMAGE_COLLEGE_WINDOW_UNIT_ID:'1',MAMAGE_COLLEGE_WINDOW_MANAGER_IDS:'8'});
+        return {...policy,readConfig:()=>config};
+      }
       throw Error('Unexpected module '+key);
     },
   });
@@ -152,6 +157,7 @@ test('IAM identity metadata does not grant account administration or workspace a
     await serve(admin,async(_remove,me)=>{
       const user=await me();assert.equal(user.needsAssignment,false);
       assert.equal(user.canManageUserAccess,accountRole==='superadmin');
+      assert.equal(user.canManageCollegeWindow,false);
     });
   }
 });
