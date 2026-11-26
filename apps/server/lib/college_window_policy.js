@@ -4,11 +4,16 @@ const { unitRoleAllows } = require('./access_policy');
 
 const MAX_CANDIDATES = 30;
 const MAX_PUBLISH = 12;
+const MAX_BATCH = 20000;
 const DELIVERY_PATH = '/api/integrations/college-window/v1';
 const UUID = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
 const DIGEST = /^[a-f0-9]{64}$/;
 const RESTRICTED_TAGS = '禁止外发|不得外发|仅限内部|仅内部|保密';
 const ANONYMIZED_TAGS = '已脱敏|已匿名|已打码|人脸打码|人脸模糊|不公开姓名';
+
+class WindowError extends Error {
+  constructor(status, code) { super(code); this.status = status; this.code = code; }
+}
 
 function id(value) {
   if (!/^[1-9]\d*$/.test(String(value))) return null;
@@ -123,4 +128,4 @@ function automaticTags(generated) {
 }
 
 module.exports = { readConfig, canManage, consumerAllowed, publicationText, reviewDigest, selectRequest,
-  id, UUID, DIGEST, MAX_CANDIDATES, MAX_PUBLISH, DELIVERY_PATH, RESTRICTED_TAGS, ANONYMIZED_TAGS, automaticTags };
+  id, UUID, DIGEST, WindowError, MAX_CANDIDATES, MAX_PUBLISH, MAX_BATCH, DELIVERY_PATH, RESTRICTED_TAGS, ANONYMIZED_TAGS, automaticTags };

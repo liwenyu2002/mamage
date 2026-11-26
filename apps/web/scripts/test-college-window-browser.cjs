@@ -160,6 +160,86 @@ async function check(browser, width, jpeg) {
   } finally { await context.close(); }
 }
 
+async function checkBulk(browser, width, jpeg) {
+  const context = await browser.newContext({ viewport: { width, height: 850 } });
+  const page = await context.newPage();
+  const searchId = 'aabaa001-0000-0000-0000-000000000000';
+  const planId = 'aabaa002-0000-0000-0000-000000000000';
+  const errors = [];
+  const candidateQueries = [];
+  let submitted = 0;
+  let job = null;
+  page.on('pageerror', error => errors.push(error.message));
+  await page.addInitScript(() => localStorage.setItem('mamage_jwt_token', 'test-operator'));
+  await page.route('**/*', route => new URL(route.request().url()).origin === base.origin ? route.continue() : route.abort());
+  await page.route('**/api/**', route => {
+    const req = route.request();
+    const path = new URL(req.url()).pathname;
+    const json = value => route.fulfill({ json: value });
+    if (path === '/api/users/me') return json({ id: 7, name: '本地测试', activeUnitId: 1, canManageCollegeWindow: true,
+      permissions: ['photos.view'], workspaceEnabled: true });
+    if (path === '/api/workspaces') return json({ enabled: true, units: [{ id: 1, name: '学工与融媒体中心', role: 'manager' }], activeUnitId: 1 });
+    if (path === '/api/test-image') return route.fulfill({ body: jpeg, contentType: 'image/jpeg' });
+    if (path.endsWith('/college-window/candidates')) {
+      candidateQueries.push(req.postDataJSON());
+      assert.equal(candidateQueries.length, 1, 'Bulk selection must not fetch hundreds of previews or pages');
+      assert.equal(candidateQueries[0].capture, true);
+      return json({ photos: [71, 72].map(id => ({ photoId: id, albumName: id === 71 ? '校园景色' : '手动排除',
+        thumbUrl: '/api/test-image' })), total: 772, scanned: 2, nextPage: 2, searchId, contentFilter: 'no-faces' });
+    }
+    if (path.endsWith('/college-window/bulk/prepare')) {
+      const selection = req.postDataJSON();
+      assert.deepEqual(selection.excluded, [72]);
+      if (selection.mode === 'candidates') {
+        assert.deepEqual(selection.photoIds, [71]);
+        return json({ id: 'aabaa003-0000-0000-0000-000000000000', mode: 'candidates', count: 1 });
+      }
+      assert.deepEqual(selection, { mode: 'matches', searchId, excluded: [72] });
+      return json({ id: planId, count: 771, mode: 'matches', contentFilter: 'no-faces' });
+    }
+    if (path.endsWith('/college-window/bulk') && req.method() === 'POST') {
+      assert.deepEqual(req.postDataJSON(), { planId });
+      submitted++;
+      job = { id: planId, status: 'running', total: 771, processed: 80, published: 78, skipped: 1, failed: 1 };
+      return json(job);
+    }
+    if (path.endsWith('/college-window/bulk')) return json({ job });
+    return json({ list: [], items: [], total: 0, pendingCount: 0 });
+  });
+  try {
+    await page.goto(new URL('/college-window', base).href);
+    await page.getByLabel('选图需求').fill('无人脸照片');
+    await page.getByRole('button', { name: 'AI 选图' }).click();
+    await page.getByText(/本轮匹配 772 张，已加载 2 张/).waitFor();
+    await page.locator('article').filter({ hasText: '手动排除' }).getByRole('button', { name: '排除候选' }).click();
+    await page.getByRole('button', { name: '批量发布', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: '批量发布照片' });
+    await dialog.getByRole('button', { name: '确认发布 1 张' }).waitFor();
+    await dialog.getByRole('radio', { name: /本轮全部匹配/ }).check();
+    const confirm = dialog.getByRole('button', { name: '确认发布 771 张' });
+    await confirm.waitFor();
+    assert.equal(submitted, 0, 'No publishing until the confirmed count is accepted');
+    await page.screenshot({ path: path.join(output, 'batch-' + width + '.png'), fullPage: false });
+    await confirm.click();
+    await page.getByRole('progressbar', { name: '发布进度' }).waitFor();
+    assert.equal(submitted, 1);
+    await page.reload();
+    await page.getByRole('button', { name: '停止剩余发布' }).waitFor();
+    job = { ...job, status: 'done', processed: 771, published: 769, skipped: 1, failed: 1 };
+    await page.getByText('批量发布完成', { exact: true }).waitFor();
+    await page.getByText('已发布 769 张 · 跳过 1 张 · 失败 1 张', { exact: true }).waitFor();
+    assert.equal(submitted, 1, 'Restoring job progress does not resubmit it');
+    assert.equal(candidateQueries.length, 1);
+    assert.deepEqual(errors, []);
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+    console.log('College Window batch UI passed at ' + width + 'px.');
+  } catch (error) {
+    await page.screenshot({ path: path.join(output, 'batch-failure-' + width + '.png'), fullPage: true });
+    console.error(errors);
+    throw error;
+  } finally { await context.close(); }
+}
+
 (async () => {
   fs.mkdirSync(output, { recursive: true });
   const pixels = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="360" height="240"><rect width="360" height="240" fill="#a6c0c3"/><path d="M0 240v-46l110-106 67 84 75-54 108 66v56" fill="#548369"/><path d="M0 206l103-51 83 46 109-29 65 32v36H0" fill="#253b38"/></svg>');
@@ -167,5 +247,6 @@ async function check(browser, width, jpeg) {
   const browser = await chromium.launch();
   try {
     for (const width of [1440, 1100, 390]) await check(browser, width, jpeg);
+    for (const width of [1440, 390]) await checkBulk(browser, width, jpeg);
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

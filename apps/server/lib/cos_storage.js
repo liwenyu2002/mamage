@@ -277,7 +277,7 @@ async function uploadBuffer(key, buffer, options = {}) {
     ContentLength: buffer.length,
     ContentType: options.contentType || undefined,
     CacheControl: options.cacheControl || process.env.UPLOAD_CACHE_CONTROL || 'public, max-age=31536000, immutable',
-  }));
+  }), options.signal ? { abortSignal: options.signal } : undefined);
 
   return { key: normalized, url: objectUrlForKey(normalized), data: result };
 }
@@ -614,7 +614,7 @@ async function headObject(key, options = {}) {
   return s3.send(new HeadObjectCommand(input), options.signal ? { abortSignal: options.signal } : undefined);
 }
 
-async function deleteObjects(keysToDelete) {
+async function deleteObjects(keysToDelete, { signal } = {}) {
   const s3 = ensureClient();
   if (!s3) return { deleted: [], errors: [], skipped: keysToDelete || [] };
 
@@ -631,7 +631,7 @@ async function deleteObjects(keysToDelete) {
           Objects: chunk.map((Key) => ({ Key })),
           Quiet: false,
         },
-      }));
+      }), signal ? { abortSignal: signal } : undefined);
       const deleted = (result.Deleted || []).map((item) => item && item.Key).filter(Boolean);
       const errors = (result.Errors || result.Error || []).filter(Boolean);
       acc.deleted.push(...(deleted.length ? deleted : chunk));

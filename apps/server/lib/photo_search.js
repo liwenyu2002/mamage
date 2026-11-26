@@ -652,6 +652,16 @@ async function searchPhotos(options = {}) {
   });
 
   if (typeof options.onProgress !== 'function') {
+    const capture = options.collegeWindow?.capture;
+    if (capture && !interpreted.fallbackReason) {
+      const [rows] = await pool.query(`SELECT p.id, ${score.sql || '0'} AS relevanceScore ${baseFrom} ${whereSql}
+        ${orderBy} LIMIT ?`, [...score.params, ...whereParams, capture + 1]);
+      checkActive();
+      if (rows.length <= capture) {
+        const matchIds = rows.map(row => Number(row.id));
+        return { ...makeResult(matchIds.slice(offset, offset + pageSize).map(id => ({ id })), matchIds.length), matchIds };
+      }
+    }
     const total = await countTotal();
     return makeResult(total > 0 && offset < total ? await readBatch(pageSize, offset) : [], total);
   }

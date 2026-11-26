@@ -63,6 +63,15 @@ async function readSources(scope, workspace, ids, db = pool, { lock = false, con
   return rows;
 }
 
+async function eligibleIds(scope, workspace, ids, db = pool, contentFilter) {
+  if (!ids.length) return [];
+  const eligible = candidateWhere(scope, workspace, [], contentFilter);
+  const [rows] = await db.query(`SELECT p.id FROM photos p ${SOURCE_JOIN} WHERE p.id IN (?) AND ${eligible.sql}`,
+    [ids, ...eligible.params]);
+  const matched = new Set(rows.map(row => Number(row.id)));
+  return ids.filter(id => matched.has(id));
+}
+
 async function shortlist(scope, workspace, ids, db = pool, contentFilter) {
   const sources = new Map((await readSources(scope, workspace, ids, db, { contentFilter })).map(row => [Number(row.id), row]));
   return ids.flatMap(id => {
@@ -142,4 +151,4 @@ async function withdraw(scope, workspace, id, db = pool) {
   return result.affectedRows === 1;
 }
 
-module.exports = { candidateWhere, readSources, shortlist, confirmedNames, listPublished, getPublished, insertPublished, withdraw };
+module.exports = { candidateWhere, readSources, eligibleIds, shortlist, confirmedNames, listPublished, getPublished, insertPublished, withdraw };

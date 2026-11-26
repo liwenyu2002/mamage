@@ -13,11 +13,18 @@ const messages = {
   COLLEGE_WINDOW_IMAGE_UNAVAILABLE: '原照片或编辑版本暂时无法读取，未发布这张照片。',
   COLLEGE_WINDOW_UNAVAILABLE: '学院窗服务暂不可用。',
   COLLEGE_WINDOW_BUSY: '请求较多，请稍后再试。',
+  COLLEGE_WINDOW_SEARCH_EXPIRED: '本轮匹配已过期，请重新选图。',
+  COLLEGE_WINDOW_BATCH_ACTIVE: '已有一批照片正在发布。',
+  COLLEGE_WINDOW_BATCH_PLAN_EXPIRED: '确认已过期，请关闭后重新打开批量发布。',
+  COLLEGE_WINDOW_BATCH_EMPTY: '所选范围中没有可发布的照片。',
+  COLLEGE_WINDOW_BATCH_ACCESS_CHANGED: '供图权限已变更，剩余照片未发布。',
+  COLLEGE_WINDOW_BATCH_FAILED: '处理已中止，已发布的照片保留。',
 };
 function problem(error) {
+  if (messages[error.message]) return messages[error.message];
   if (error.status === 403) return '当前工作空间没有学院窗管理权限。';
-  if (error.status === 404 && !messages[error.message]) return '学院窗尚未开启。';
-  return messages[error.message] || (error.status ? error.message : '网络连接失败，请稍后重试。');
+  if (error.status === 404) return '学院窗尚未开启。';
+  return error.status ? error.message : '网络连接失败，请稍后重试。';
 }
 
 function stationPhotoIds(items) {
@@ -100,6 +107,80 @@ function Preview({ send, preview, close, onConfirm, hasNext }) {
   </Modal>;
 }
 
+const batchActive = job => ['queued', 'running'].includes(job?.status);
+
+function BulkDialog({ send, candidates, excluded, search, close, onStart }) {
+  const [mode, setMode] = React.useState(candidates.length ? 'candidates' : 'matches');
+  const [plan, setPlan] = React.useState(null);
+  const [error, setError] = React.useState('');
+  const [submitting, setSubmitting] = React.useState(false);
+  const lock = React.useRef(false);
+  React.useEffect(() => {
+    const controller = new AbortController();
+    setPlan(null);
+    setError('');
+    const selection = mode === 'matches' ? { searchId: search?.searchId } : { photoIds: candidates.map(item => item.photoId) };
+    send('/bulk/prepare', { method: 'POST', signal: controller.signal, data: { mode, excluded, ...selection } })
+      .then(value => { if (!controller.signal.aborted) setPlan(value); })
+      .catch(err => { if (!controller.signal.aborted) setError(problem(err)); });
+    return () => controller.abort();
+  }, [send, mode, candidates, excluded, search]);
+
+  async function start() {
+    if (lock.current || plan?.mode !== mode || !plan.count) return;
+    lock.current = true;
+    setSubmitting(true);
+    setError('');
+    try {
+      onStart(await send('/bulk', { method: 'POST', data: { planId: plan.id } }));
+    } catch (err) {
+      setError(problem(err));
+    } finally {
+      lock.current = false;
+      setSubmitting(false);
+    }
+  }
+  return <Modal visible title="批量发布照片" width={480}
+    onCancel={() => { if (!lock.current) close(); }} footer={<>
+      <Button type="tertiary" disabled={submitting} onClick={close}>取消</Button>
+      <Button type="primary" disabled={submitting || plan?.mode !== mode || !plan.count}
+        loading={submitting} onClick={start}>{plan?.mode === mode ? `确认发布 ${plan.count} 张` : '确认发布'}</Button>
+    </>}>
+    <fieldset className="college-window-batch-options" aria-label="发布范围" disabled={submitting}>
+      {!!candidates.length && <label>
+        <input type="radio" name="college-window-batch-scope" checked={mode === 'candidates'} onChange={() => { setPlan(null); setMode('candidates'); }} />
+        <span>当前候选</span><small>{candidates.length} 张</small>
+      </label>}
+      {search?.searchId && <label>
+        <input type="radio" name="college-window-batch-scope" checked={mode === 'matches'} onChange={() => { setPlan(null); setMode('matches'); }} />
+        <span>本轮全部匹配</span><small>{search.total} 张</small>
+      </label>}
+    </fieldset>
+    <p className="college-window-batch-note">
+      {mode === 'matches' && search?.nextPage && '包含尚未加载的结果。'}已排除的照片不会发布。发布后，对接方可以下载这些照片。
+    </p>
+    {plan?.contentFilter && <p className="college-window-batch-note">无人脸或无人条件仅依据图库标注初筛。</p>}
+    {error ? <p role="alert" className="college-window-error">{error}</p>
+      : !plan && <p role="status" className="college-window-batch-note">正在核对可发布照片…</p>}
+  </Modal>;
+}
+
+function BatchStatus({ job, stopping, onStop }) {
+  const active = batchActive(job);
+  const title = { queued: '等待发布', running: '正在发布', done: '批量发布完成', cancelled: '已停止剩余发布', failed: '批量发布中止' }[job.status];
+  return <div className="college-window-batch-status">
+    <div className="college-window-batch-progress" role="status">
+      <div><strong>{title}</strong> <span>{job.processed} / {job.total} 张</span></div>
+      {active && <progress aria-label="发布进度" value={job.processed} max={job.total} />}
+      <div className="college-window-secondary">
+        已发布 {job.published} 张{job.skipped > 0 && ` · 跳过 ${job.skipped} 张`}{job.failed > 0 && ` · 失败 ${job.failed} 张`}
+        {job.error && ` · ${messages[job.error] || messages.COLLEGE_WINDOW_BATCH_FAILED}`}
+      </div>
+    </div>
+    {active && <Button type="secondary" disabled={stopping} loading={stopping} onClick={onStop}>停止剩余发布</Button>}
+  </div>;
+}
+
 export default function CollegeWindow({ unitId, draft }) {
   const send = React.useCallback((path, options) => request(ROOT + path,
     { ...options, headers: { 'X-Mamage-Unit-Id': String(unitId) } }), [unitId]);
@@ -117,13 +198,65 @@ export default function CollegeWindow({ unitId, draft }) {
   const [preview, setPreview] = React.useState(null);
   const [published, setPublished] = React.useState({ photos: [], nextCursor: null });
   const [retract, setRetract] = React.useState(null);
+  const [batchOpen, setBatchOpen] = React.useState(false);
+  const [batch, setBatch] = React.useState(null);
+  const [pollRevision, restartPolling] = React.useReducer(value => value + 1, 0);
+  const knownBatch = React.useRef(draft?.current?.batchId ?? null);
+  const visible = React.useRef(null);
+  visible.current = { candidates, view };
   const submitLock = React.useRef(false);
   const ready = candidates.filter(item => reviewed[item.photoId]);
+  const batchRunning = batchActive(batch);
+  const busy = Boolean(pending) || batchRunning;
 
   React.useEffect(() => subscribeStation(items => setStationIds(stationPhotoIds(items))), []);
   React.useEffect(() => {
-    if (draft) draft.current = { query, candidates, candidateSearch, reviewed, excluded };
-  }, [draft, query, candidates, candidateSearch, reviewed, excluded]);
+    if (draft) draft.current = { query, candidates, candidateSearch, reviewed, excluded, batchId: knownBatch.current };
+  }, [draft, query, candidates, candidateSearch, reviewed, excluded, batch?.id, batch?.status]);
+
+  React.useEffect(() => {
+    const controller = new AbortController();
+    const { signal } = controller;
+    let timer;
+    async function poll() {
+      try {
+        const { job = null } = await send('/bulk', { signal });
+        if (signal.aborted) return;
+        if (batchActive(job)) {
+          knownBatch.current = job.id;
+          setBatch(job);
+          timer = setTimeout(poll, 1400);
+          return;
+        }
+        const completed = job && job.id === knownBatch.current;
+        knownBatch.current = null;
+        setBatch(job);
+        if (draft?.current) draft.current.batchId = null;
+        if (completed && job.published > 0) {
+          const { candidates: shown, view: currentView } = visible.current;
+          const ids = shown.map(item => item.photoId);
+          const remaining = new Set();
+          for (let index = 0; index < ids.length; index += 1000) {
+            const { photos } = await send('/candidates/from-station', { method: 'POST', signal, data: { photoIds: ids.slice(index, index + 1000) } });
+            photos.forEach(item => remaining.add(item.photoId));
+          }
+          if (signal.aborted) return;
+          const removed = new Set(ids.filter(id => !remaining.has(id)));
+          setCandidates(items => items.filter(item => !removed.has(item.photoId)));
+          setReviewed(items => Object.fromEntries(Object.entries(items).filter(([key]) => !removed.has(Number(key)))));
+          setCandidateSearch(search => search?.searchId ? search : null);
+          if (currentView === 'published') {
+            const page = await send('/published', { signal, data: { limit: LIMIT } });
+            if (!signal.aborted) setPublished(page);
+          }
+        }
+      } catch {
+        if (!signal.aborted && knownBatch.current) timer = setTimeout(poll, 2600);
+      }
+    }
+    poll();
+    return () => { controller.abort(); clearTimeout(timer); };
+  }, [send, draft, pollRevision]);
 
   async function run(action, work) {
     if (submitLock.current) return;
@@ -144,15 +277,16 @@ export default function CollegeWindow({ unitId, draft }) {
     const photos = result.photos.filter(item => !seen.has(item.photoId));
     setCandidates(prev => [...prev, ...photos]);
     setCandidateSearch({ filters, total: result.total, loaded: loaded + result.photos.length, nextPage: result.nextPage,
-      contentFilter: result.contentFilter });
+      contentFilter: result.contentFilter, searchId: result.searchId });
     if (result.selectionLimited) setMessage(photos.length ? 'AI 暂未返回结果，当前候选按现有资料匹配。' : 'AI 暂未返回结果，现有资料中没有匹配照片。');
     else if (page === 1 && !photos.length) setMessage('没有新的匹配照片。');
   }
   function search() {
     const seen = new Set([...candidates.map(item => item.photoId), ...excluded]);
-    return run('ai', () => fetchCandidates({ mode: 'ai', query, exclude: [...seen].slice(-500) }));
+    return run('ai', () => fetchCandidates({ mode: 'ai', query, exclude: [...seen].slice(-500), capture: true }));
   }
   function addFromStation(source) {
+    if (batchRunning) return;
     return run('station', async () => {
       const isBatch = source === 'all';
       const seen = new Set([...candidates.map(item => item.photoId), ...(isBatch ? excluded : [])]);
@@ -173,8 +307,8 @@ export default function CollegeWindow({ unitId, draft }) {
   function handleStationDragOver(event) {
     if (!isStationDrag(event)) return;
     event.preventDefault();
-    event.dataTransfer.dropEffect = submitLock.current ? 'none' : 'copy';
-    setStationDragOver(!submitLock.current);
+    event.dataTransfer.dropEffect = busy ? 'none' : 'copy';
+    setStationDragOver(!busy);
   }
   function handleStationDrop(event) {
     setStationDragOver(false);
@@ -185,7 +319,8 @@ export default function CollegeWindow({ unitId, draft }) {
   function moreCandidates() {
     if (!candidateSearch?.nextPage) return;
     // Keep the first request's exclusions fixed so loading or dismissing cards cannot shift the offset.
-    return run('candidate-page', () => fetchCandidates(candidateSearch.filters, candidateSearch.nextPage, candidateSearch.loaded));
+    const filters = candidateSearch.searchId ? { searchId: candidateSearch.searchId } : candidateSearch.filters;
+    return run('candidate-page', () => fetchCandidates(filters, candidateSearch.nextPage, candidateSearch.loaded));
   }
   async function fetchPublished(after) {
     const page = await send('/published', { data: { limit: LIMIT, ...(after ? { after } : {}) } });
@@ -227,6 +362,20 @@ export default function CollegeWindow({ unitId, draft }) {
       setMessage(`已发布 ${photos.length} 张照片。`);
     });
   }
+  function startBatch(job) {
+    knownBatch.current = job.id;
+    setBatchOpen(false);
+    setMessage('');
+    setError('');
+    setBatch(job);
+    restartPolling();
+  }
+  function stopBatch() {
+    return run('batch-cancel', async () => {
+      const { job } = await send(`/bulk/${batch.id}/cancel`, { method: 'POST' });
+      if (job) { setBatch(job); restartPolling(); }
+    });
+  }
   function withdraw() {
     const id = retract.id;
     setRetract(null);
@@ -253,7 +402,7 @@ export default function CollegeWindow({ unitId, draft }) {
         onChange={event => setQuery(event.target.value)} />
       <div className="college-window-actions">
         <Button type="primary" icon={<IconSparkleAI />} loading={pending === 'ai'} onClick={search}
-          disabled={!query.trim() || Boolean(pending)}>{candidates.length ? 'AI 补选' : 'AI 选图'}</Button>
+          disabled={!query.trim() || busy}>{candidates.length ? 'AI 补选' : 'AI 选图'}</Button>
       </div>
     </div>}
 
@@ -261,11 +410,14 @@ export default function CollegeWindow({ unitId, draft }) {
       <h2>{view === 'review' ? '候选照片' : '供图列表'} <span>{view === 'review' ? candidates.length : published.photos.length}</span></h2>
       {view === 'review' ? <div className="college-window-actions">
         {ready.length > LIMIT && <span className="college-window-secondary">已确认 {ready.length} 张</span>}
-        <Button type="primary" disabled={!ready.length || Boolean(pending)} loading={pending === 'publish'} onClick={publish}>
-          {ready.length ? `发布 ${Math.min(LIMIT, ready.length)} 张` : '发布'}
-        </Button>
+        {!!ready.length && <Button type="secondary" disabled={busy} loading={pending === 'publish'} onClick={publish}>
+          发布 {Math.min(LIMIT, ready.length)} 张
+        </Button>}
+        <Button type="primary" disabled={busy || (!candidates.length && !candidateSearch?.searchId)}
+          onClick={() => setBatchOpen(true)}>批量发布</Button>
       </div> : <Button type="secondary" disabled={Boolean(pending)} onClick={() => run('list', () => fetchPublished())}>刷新</Button>}
     </div>
+    {batch && <BatchStatus job={batch} stopping={pending === 'batch-cancel'} onStop={stopBatch} />}
     {view === 'review' && <div className={`college-window-station${stationDragOver ? ' is-drag-over' : ''}`}
       role="group" aria-label="中转站照片"
       onDragOver={handleStationDragOver}
@@ -277,7 +429,7 @@ export default function CollegeWindow({ unitId, draft }) {
         <strong>{stationDragOver ? '松开以添加' : '中转站'}</strong>
         <span className="college-window-secondary">{stationIds.length} 张照片</span>
       </div>
-      <Button type="secondary" icon={<IconPlus />} disabled={!stationIds.length || Boolean(pending)} loading={pending === 'station'}
+      <Button type="secondary" icon={<IconPlus />} disabled={!stationIds.length || busy} loading={pending === 'station'}
         onClick={() => addFromStation('all')}>添加中转站照片</Button>
     </div>}
     {error && <p role="alert" className="college-window-error">{error}</p>}
@@ -289,7 +441,7 @@ export default function CollegeWindow({ unitId, draft }) {
     {view === 'review' ? (candidates.length ? <div className="college-window-grid">
       {candidates.map(item => <article key={item.photoId} className="college-window-tile">
         <button type="button" className="college-window-tile-preview" aria-label={`预览 ${item.albumName || '未归类照片'}`}
-          disabled={Boolean(pending)} onClick={() => setPreview({ item })}>
+          disabled={busy} onClick={() => setPreview({ item })}>
           <span className="college-window-tile-media">
             {item.thumbUrl ? <img src={resolveAssetUrl(item.thumbUrl)} loading="lazy" alt="" /> : <span>无缩略图</span>}
           </span>
@@ -301,7 +453,7 @@ export default function CollegeWindow({ unitId, draft }) {
             </span>
           </div>
           <button type="button" className="college-window-icon" title="排除候选" aria-label="排除候选"
-            disabled={Boolean(pending)} onClick={() => dismiss(item.photoId)}><IconClose /></button>
+            disabled={busy} onClick={() => dismiss(item.photoId)}><IconClose /></button>
         </div>
       </article>)}
     </div> : <p className="college-window-empty" role="status">{pending ? '正在找图…' : '暂无候选照片'}</p>) :
@@ -320,7 +472,7 @@ export default function CollegeWindow({ unitId, draft }) {
         </article>)}
       </div> : <p className="college-window-empty" role="status">{pending ? '正在读取…' : '暂无已发布照片'}</p>)}
     {view === 'review' && candidateSearch?.nextPage && <div className="college-window-footer">
-      <Button type="secondary" disabled={Boolean(pending)} loading={pending === 'candidate-page'}
+      <Button type="secondary" disabled={busy} loading={pending === 'candidate-page'}
         icon={<IconChevronRight />} onClick={moreCandidates}>加载更多候选</Button>
     </div>}
     {view === 'published' && published.nextCursor && <div className="college-window-footer">
@@ -329,6 +481,8 @@ export default function CollegeWindow({ unitId, draft }) {
     </div>}
     {preview && <Preview key={preview.item.id || preview.item.photoId}
       send={send} preview={preview} close={() => setPreview(null)} onConfirm={confirm} hasNext={Boolean(nextCandidate(preview.item))} />}
+    {batchOpen && <BulkDialog send={send} candidates={candidates} excluded={excluded} search={candidateSearch}
+      close={() => setBatchOpen(false)} onStart={startBatch} />}
     {retract && <Modal visible title="撤回这张照片？" okText="撤回照片" onCancel={() => setRetract(null)} onOk={withdraw}>
       对接方将无法继续获取这张照片。已被下载的副本不会被删除。
     </Modal>}

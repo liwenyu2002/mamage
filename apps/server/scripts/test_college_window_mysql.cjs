@@ -11,27 +11,37 @@ const mysql = require('mysql2/promise');
 const sharp = require('sharp');
 process.env.JWT_SECRET = randomBytes(32).toString('hex');
 process.env.UPLOAD_BASE_URL = 'http://127.0.0.1:1/api/image';
+process.env.MAMAGE_DISTRIBUTED_RUNTIME = '1';
 const { splitStatements } = require('./run_migrations');
+const { createCoordinator } = require('../lib/distributed_runtime');
 const { createCollegeWindow } = require('../routes/college_window');
 const { candidateWhere } = require('../lib/queries/college_window');
+const { searchPhotos } = require('../lib/photo_search');
+const { pool: applicationPool } = require('../db');
 const { readConfig, consumerAllowed, selectRequest, automaticTags, DELIVERY_PATH } = require('../lib/college_window_policy');
 
 const photoPath = id => 'uploads/college-window-test/' + id + '.png';
 const schema = `
   CREATE DATABASE mamage_college_window_test CHARACTER SET utf8mb4;
   USE mamage_college_window_test;
+  CREATE TABLE users(id INT UNSIGNED PRIMARY KEY, organization_id INT UNSIGNED, role VARCHAR(32));
+  CREATE TABLE role_permissions(role VARCHAR(32), permission VARCHAR(50));
   CREATE TABLE organization_units(id INT UNSIGNED PRIMARY KEY, organization_id INT UNSIGNED, archived_at DATETIME NULL);
   CREATE TABLE projects(id INT UNSIGNED PRIMARY KEY, organization_id INT UNSIGNED, unit_id INT UNSIGNED, name VARCHAR(200),
     restricted_to_user_id INT UNSIGNED, tags TEXT);
   CREATE TABLE photos(id INT UNSIGNED PRIMARY KEY, organization_id INT UNSIGNED NOT NULL, unit_id INT UNSIGNED,
-    project_id INT UNSIGNED, photographer_id INT UNSIGNED, url VARCHAR(255), thumb_url VARCHAR(255), tags JSON,
-    adjustments JSON, type VARCHAR(50) NOT NULL, source_attribution JSON, ai_status VARCHAR(30), description TEXT,
+    project_id INT UNSIGNED, photographer_id INT UNSIGNED, timeline_section_id INT UNSIGNED,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, url VARCHAR(255), thumb_url VARCHAR(255), tags JSON,
+    adjustments JSON, type VARCHAR(50) NOT NULL, source_attribution JSON, ai_status VARCHAR(30), ai_score INT, description TEXT,
     detailed_description TEXT, FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE SET NULL);
+  CREATE TABLE project_timeline_sections(id INT UNSIGNED PRIMARY KEY);
   CREATE TABLE photo_faces(id BIGINT UNSIGNED PRIMARY KEY, photo_id INT UNSIGNED, person_id BIGINT UNSIGNED,
     organization_id INT UNSIGNED, status VARCHAR(20));
   CREATE TABLE face_persons(id BIGINT UNSIGNED PRIMARY KEY, organization_id INT UNSIGNED, name VARCHAR(120));
   CREATE TABLE face_identity_feedback(id INT UNSIGNED PRIMARY KEY, face_id BIGINT UNSIGNED, person_id BIGINT UNSIGNED,
     organization_id INT UNSIGNED, photo_id INT UNSIGNED, sample_kind VARCHAR(16));
+  INSERT INTO users VALUES (7,2,'operator'),(8,2,'member');
+  INSERT INTO role_permissions VALUES ('operator','photos.view'),('member','photos.view');
   INSERT INTO organization_units VALUES (1,2,NULL),(2,2,NULL);
   INSERT INTO projects VALUES (10,2,1,'校园活动',NULL,NULL),(11,2,1,'私有相册',7,NULL),
     (12,2,2,'别的小组',NULL,NULL),(13,2,1,'内部资料',NULL,'["禁止外发"]'),
@@ -78,19 +88,26 @@ async function verify(db) {
   const input = await sharp({ create: { width: 180, height: 120, channels: 3, background: '#317d6b' } })
     .withMetadata({ exif: { IFD0: { Artist: 'Private test metadata' } } }).png().toBuffer();
   const objects = new Map(fixture.map(([id]) => [photoPath(id), input]));
+  let pauseUpload;
   const store = {
     keyFromUrlOrPath: key => key, isSafeKey: () => true,
     getObject: async key => { assert.ok(objects.has(key), 'Only test objects are accessible'); return { Body: Readable.from([objects.get(key)]) }; },
     uploadBuffer: async (key, data, options) => {
       assert.equal(options.cacheControl, 'private, no-store');
       objects.set(key, data);
+      if (pauseUpload) {
+        const pause = pauseUpload;
+        pauseUpload = null;
+        await pause(key);
+      }
     },
     deleteObjects: async keys => keys.forEach(key => objects.delete(key)),
   };
   const app = express();
   app.use(express.json());
+  const runner = createCoordinator({ db, intervalMs: 100, maxActive: 1, onLost: error => { throw error; } });
   const { manage, delivery } = createCollegeWindow({
-    config, db, store, rate: { take: async () => ({ allowed: true }) },
+    config, db, store, batchRunner: runner, rate: { take: async () => ({ allowed: true }) },
     userGuard: (req, res, next) => {
       const id = Number(req.get('x-test-user'));
       if (!id) return res.sendStatus(401);
@@ -101,6 +118,12 @@ async function verify(db) {
       unitId: Number(req.get('x-mamage-unit-id')) || 1, role: 'manager', ownPhotosOnly: req.user.id === 8 }),
     facesFor: async ws => ({ search: !ws.ownPhotosOnly }),
     search: async options => {
+      if (options.collegeWindow.capture) {
+        const query = applicationPool.query;
+        applicationPool.query = db.query.bind(db);
+        try { return await searchPhotos({ ...options, faceSearchAllowed: false }); }
+        finally { applicationPool.query = query; }
+      }
       const { scope, workspace, excluded, contentFilter } = options.collegeWindow;
       const filter = candidateWhere(scope, workspace, excluded, contentFilter);
       const page = options.page || 1;
@@ -132,8 +155,8 @@ async function verify(db) {
     const publish = (photos, status = 201, user = 7) => call('/manage/publish', status, { user, method: 'POST', body: {
       photos: photos.map(({ photoId, review }) => ({ photoId, review })),
     } }).then(res => res.json());
-    const select = (user, exclude = [], query = '选 20 张校园活动', page = 1) => call('/manage/candidates', 200, { user, method: 'POST',
-      body: { mode: 'ai', query, exclude, page } }).then(res => res.json());
+    const select = (user, exclude = [], query = '选 20 张校园活动', page = 1, extra = {}) => call('/manage/candidates', 200, { user, method: 'POST',
+      body: { mode: 'ai', query, exclude, page, ...extra } }).then(res => res.json());
     const station = (user, photoIds, status = 200) => call('/manage/candidates/from-station', status,
       { user, method: 'POST', body: { photoIds } }).then(res => res.ok ? res.json() : res.text());
 
@@ -249,7 +272,82 @@ async function verify(db) {
     await db.query('UPDATE organization_units SET archived_at = NOW() WHERE id=1');
     await db.query('UPDATE organization_units SET archived_at = NULL WHERE id=1');
     assert.deepEqual((await list()).photos, []);
-  } finally { await new Promise(resolve => server.close(resolve)); }
+
+    async function addBatchPhotos(ids) {
+      await db.query(`INSERT INTO photos (id, organization_id, unit_id, project_id, photographer_id, url, type, tags, ai_status)
+        VALUES ?`, [ids.map(id => [id, 2, 1, 10, 7, photoPath(id), 'normal', '["无人"]', 'done'])]);
+      ids.forEach(id => objects.set(photoPath(id), input));
+    }
+    const prepareBatch = (body, user = 7, code = 200) => call('/manage/bulk/prepare', code, { user, method: 'POST', body }).then(res => res.json());
+    const startBatch = (planId, user = 7, code = 202) => call('/manage/bulk', code, { user, method: 'POST', body: { planId } }).then(res => res.json());
+    const jobStatus = (user = 7) => call('/manage/bulk', 200, { user }).then(res => res.json()).then(result => result.job);
+    async function waitBatch(status) {
+      for (let attempt = 0; attempt < 150; attempt++) {
+        const job = await jobStatus();
+        if (job?.status === status) return job;
+        if (job?.status === 'failed') throw new Error('Unexpected batch failure: ' + job.error);
+        await new Promise(resolve => setTimeout(resolve, 35));
+      }
+      throw new Error('Timed out waiting for batch: ' + status);
+    }
+    await addBatchPhotos(Array.from({ length: 30 }, (_, index) => 101 + index));
+    const round = await select(7, [], '选 3 张无人脸照片', 1, { capture: true });
+    assert.equal(round.total, 30);
+    assert.deepEqual(round.photos.map(item => item.photoId), [130, 129, 128]);
+    assert.ok(round.searchId);
+    await addBatchPhotos([131, 132]);
+    const following = await select(7, [], '', round.nextPage, { searchId: round.searchId });
+    assert.deepEqual(following.photos.map(item => item.photoId), [127, 126, 125]);
+    assert.equal(following.total, 30, 'New records do not enter an existing selection');
+    const selection = { mode: 'matches', searchId: round.searchId, excluded: [129] };
+    await prepareBatch(selection, 8, 409);
+    const plan = await prepareBatch(selection);
+    assert.equal(plan.count, 29);
+    assert.equal(plan.contentFilter, 'no-faces');
+    assert.equal((await list()).photos.length, 0, 'Preparing a batch does not publish anything');
+    await startBatch(plan.id, 8, 409);
+    await db.query(`UPDATE photos SET tags = CASE id WHEN 125 THEN JSON_ARRAY('侧脸') ELSE JSON_ARRAY('禁止外发') END
+      WHERE id IN (125,127)`);
+    objects.set(photoPath(130), Buffer.from('unreadable fixture'));
+    assert.equal((await startBatch(plan.id)).status, 'queued');
+    assert.equal((await startBatch(plan.id)).id, plan.id, 'Submitting twice does not create a second job');
+    assert.equal(await jobStatus(8), null, 'Status is isolated by operator');
+    runner.start();
+    const done = await waitBatch('done');
+    assert.deepEqual([done.processed, done.published, done.skipped, done.failed], [29, 26, 2, 1]);
+    const reserve = await call('/manage/published?limit=100', 200, { user: 7 }).then(res => res.json());
+    assert.equal(reserve.photos.length, 26);
+    for (const rejected of [125, 127, 129, 130, 131, 132]) assert.ok(!reserve.photos.some(item => item.photoId === rejected));
+
+    const hold = () => {
+      let release;
+      const paused = new Promise(resolve => { pauseUpload = key => new Promise(unblock => { release = unblock; resolve(key); }); });
+      return { paused, resume: () => release?.() };
+    };
+    const cancelledPlan = await prepareBatch({ mode: 'candidates', photoIds: [131, 132, 132, 2, 4, 5] });
+    assert.equal(cancelledPlan.count, 2, 'Batch preparation excludes denied sources and duplicates');
+    const cancelGate = hold();
+    await startBatch(cancelledPlan.id);
+    const staged = await cancelGate.paused;
+    try {
+      await call('/manage/bulk/' + cancelledPlan.id + '/cancel', 200, { user: 7, method: 'POST' });
+      assert.equal((await jobStatus()).status, 'cancelled');
+    } finally { cancelGate.resume(); }
+    for (let attempt = 0; objects.has(staged) && attempt < 40; attempt++) await new Promise(resolve => setTimeout(resolve, 25));
+    assert.ok(!objects.has(staged), 'Stopping before commit discards a staged rendition');
+    assert.equal((await list()).photos.length, 26);
+    await startBatch(plan.id, 7, 409);
+
+    const deniedPlan = await prepareBatch({ mode: 'candidates', photoIds: [131, 132] });
+    const deniedGate = hold();
+    await startBatch(deniedPlan.id);
+    await deniedGate.paused;
+    try { await db.query("DELETE FROM role_permissions WHERE role = 'operator'"); } finally { deniedGate.resume(); }
+    const denied = await waitBatch('failed');
+    assert.equal(denied.error, 'COLLEGE_WINDOW_BATCH_ACCESS_CHANGED');
+    assert.equal(denied.published, 0);
+    assert.equal((await list()).photos.length, 26);
+  } finally { pauseUpload = null; await runner.stop(); await new Promise(resolve => server.close(resolve)); }
 }
 
 async function main() {
@@ -273,7 +371,8 @@ async function main() {
     }
     assert.ok(connection, 'Disposable MySQL is required');
     await connection.query(schema);
-    const migrations = ['20261126_001_college_window.sql', '20261126_002_college_window_direct_imports.sql']
+    const migrations = ['20261013_003_shared_runtime.sql', '20261017_001_runtime_task_failures.sql',
+      '20261126_001_college_window.sql', '20261126_002_college_window_direct_imports.sql']
       .map(filename => fs.readFileSync(path.join(__dirname, 'migrations', filename), 'utf8'));
     for (let attempt = 0; attempt < 2; attempt++) {
       for (const migration of migrations) {
@@ -282,7 +381,7 @@ async function main() {
     }
     db = mysql.createPool({ socketPath, user: 'root', database: 'mamage_college_window_test', connectionLimit: 4 });
     await verify(db);
-    console.log('College Window: policy, preview, confirmed metadata, publish, pagination and durable withdrawal passed on isolated MySQL.');
+    console.log('College Window: individual and batch publication, search snapshot, exclusions, cancellation and durable withdrawal passed on isolated MySQL.');
   } finally {
     await db?.end();
     await connection?.end();
