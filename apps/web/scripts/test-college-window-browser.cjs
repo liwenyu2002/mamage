@@ -5,6 +5,7 @@ const { createRequire } = require('node:module');
 const serverRequire = createRequire(path.resolve(__dirname, '../../server/package.json'));
 const { chromium } = serverRequire('playwright');
 const sharp = serverRequire('sharp');
+const { randomBytes } = require('node:crypto');
 
 const output = path.resolve(__dirname, '../../../.local/college-window-qa');
 const base = new URL(process.env.MAMAGE_LOCAL_WEB || 'http://127.0.0.1:5300');
@@ -252,6 +253,91 @@ async function checkBulk(browser, width, jpeg) {
   } finally { await context.close(); }
 }
 
+async function checkFeed(browser, width, jpeg) {
+  const context = await browser.newContext({ viewport: { width, height: 850 }, acceptDownloads: true });
+  const page = await context.newPage();
+  const key = 'test-' + randomBytes(32).toString('base64url');
+  const prefix = '/api/integrations/college-window/v1';
+  const history = { id: 'aabaa101-0000-0000-0000-000000000000', albumName: '实验室展示', peopleNames: ['已确认的人物'],
+    description: '当年已经发布的 JPEG', imagePath: prefix + '/photos/aabaa101-0000-0000-0000-000000000000/image' };
+  const original = { id: sample.id, albumName: '校园原图', publicImagePath: sample.publicImagePath };
+  const errors = [];
+  let correct = 0, raw = 0, rejected = 0;
+  page.on('pageerror', error => errors.push(error.message));
+  await page.route('**/*', route => new URL(route.request().url()).origin === base.origin ? route.continue() : route.abort());
+  await page.route('**/api/**', route => {
+    const req = route.request();
+    const url = new URL(req.url());
+    const auth = req.headers().authorization;
+    assert.equal(req.headers().cookie, undefined);
+    assert.ok(!req.url().includes(key));
+    if (url.pathname === original.publicImagePath) {
+      assert.equal(auth, undefined, 'Never send the feed key with an original link');
+      raw++;
+      return route.fulfill({ body: jpeg, contentType: 'image/jpeg' });
+    }
+    assert.ok(url.pathname.startsWith(prefix + '/'), 'Viewer does not use IAM or personal MaMage routes');
+    if (auth !== 'Bearer ' + key) {
+      rejected++;
+      return route.fulfill({ status: 401, body: 'Unauthorized' });
+    }
+    correct++;
+    if (url.pathname === history.imagePath) return route.fulfill({ body: jpeg, contentType: 'image/jpeg' });
+    assert.equal(url.pathname, prefix + '/photos');
+    assert.equal(url.searchParams.get('limit'), '24');
+    return route.fulfill({ json: url.searchParams.get('after') === history.id
+      ? { photos: [original], nextCursor: null } : { photos: [history], nextCursor: history.id } });
+  });
+  try {
+    await page.goto(new URL('/college-window-feed', base).href);
+    const field = page.getByLabel('API Key');
+    await field.waitFor();
+    assert.equal(correct + rejected, 0);
+    await field.fill('wrong-key');
+    await page.getByRole('button', { name: '进入浏览' }).click();
+    await page.getByRole('alert').getByText('API Key 不正确或已失效。').waitFor();
+    assert.equal(rejected, 1);
+    await field.fill(key);
+    await field.press('Enter');
+    const opened = page.getByRole('button', { name: '预览 实验室展示' });
+    await opened.waitFor();
+    assert.ok(correct > 0);
+    await opened.click();
+    const modal = page.getByRole('dialog', { name: '实验室展示' });
+    await modal.getByText(history.description).waitFor();
+    await modal.getByRole('img').waitFor();
+    const download = page.waitForEvent('download');
+    await modal.getByRole('button', { name: '下载照片' }).click();
+    assert.equal((await download).suggestedFilename(), history.id + '.jpg');
+    await modal.getByRole('button', { name: '关闭' }).click();
+    await page.getByRole('button', { name: '加载更多' }).click();
+    const rawPreview = page.getByRole('button', { name: '预览 校园原图' });
+    await rawPreview.scrollIntoViewIfNeeded();
+    await rawPreview.getByRole('img').waitFor();
+    await page.waitForFunction(() => Array.from(document.images).some(img => img.alt === '校园原图' && img.naturalWidth > 0));
+    assert.ok(raw > 0);
+    assert.ok(await page.evaluate(value => !JSON.stringify([localStorage, sessionStorage]).includes(value), key));
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+    await page.screenshot({ path: path.join(output, 'feed-' + width + '.png'), fullPage: false });
+    await page.getByRole('button', { name: '退出浏览' }).click();
+    await field.waitFor();
+    assert.equal(await field.inputValue(), '');
+    await field.fill(key);
+    await field.press('Enter');
+    await opened.waitFor();
+    await page.reload();
+    await field.waitFor();
+    assert.equal(await field.inputValue(), '');
+    assert.equal(await opened.count(), 0);
+    assert.deepEqual(errors, []);
+    console.log('College Window key-only viewer passed at ' + width + 'px.');
+  } catch (error) {
+    await page.screenshot({ path: path.join(output, 'feed-failure-' + width + '.png'), fullPage: true });
+    console.error(errors);
+    throw error;
+  } finally { await context.close(); }
+}
+
 (async () => {
   fs.mkdirSync(output, { recursive: true });
   const pixels = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="360" height="240"><rect width="360" height="240" fill="#a6c0c3"/><path d="M0 240v-46l110-106 67 84 75-54 108 66v56" fill="#548369"/><path d="M0 206l103-51 83 46 109-29 65 32v36H0" fill="#253b38"/></svg>');
@@ -260,5 +346,6 @@ async function checkBulk(browser, width, jpeg) {
   try {
     for (const width of [1440, 1100, 390]) await check(browser, width, jpeg);
     for (const width of [1440, 390]) await checkBulk(browser, width, jpeg);
+    for (const width of [1440, 390]) await checkFeed(browser, width, jpeg);
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

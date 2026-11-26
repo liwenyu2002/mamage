@@ -14,7 +14,7 @@
 
 ## 内网对接
 
-普通 MaMage 域名不提供清单接口。对接服务从受控内网访问 MaMage API 的私有地址，使用服务端 Key。不要从浏览器、电子相框或客户端分发 Key，也不要复用 MaMage 用户登录令牌。原图的单张分享链接通过普通 MaMage 入口访问，接收方的网络仍需能访问对应对象存储。
+学校内网入口是 `http://10.1.131.37`。只有该 IP 的站点接收学院窗接口请求；其他站点入口仍不提供清单。对接服务在后端使用专用 Key 调用，不把 Key 放在相框或前端代码里。人工查看时可打开 `/college-window-feed`，填入同一个 Key；页面退出或刷新后需要重新输入。原图的单张分享链接仍可直接打开，接收方的网络需能访问对应对象存储。
 
 | 请求 | 说明 |
 | --- | --- |
@@ -22,6 +22,8 @@
 | `GET /api/integrations/college-window/v1/photos/{id}/image` | 新发布的原图返回 302，请跟随跳转；历史供图直接返回 JPEG。不存在、未发布或被撤回时返回 404。 |
 
 内网请求均要求 `Authorization: Bearer <服务端 Key>`。列表每项有 `id`、`width`、`height`、`sha256`、`publishedAt`、`albumName`、`peopleNames`、`description`、`imagePath`；未提供的文本为 `null`，无人名时为 `[]`。原图不额外读取宽高或计算校验和，这三项为 `null`，并额外返回可从普通 MaMage 入口打开的 `publicImagePath`，附 `?download=1` 可下载原文件。没有 ZIP 或视频接口。对接方可以多页读取并逐张下载，把原文件和对应文字预存到自己的服务，断网时使用。成功拉完整份列表后，以该列表为准对齐本地缓存；网络故障时保留上一次完整结果。
+
+跟随原图重定向时不要把 `Authorization` 转发给对象存储地址。每次下载从返回的 `imagePath` 或 `publicImagePath` 开始，不缓存对象存储临时地址。
 
 ## 部署配置
 
@@ -34,6 +36,8 @@
 | `MAMAGE_COLLEGE_WINDOW_MANAGER_IDS` | 经核对的田心原和李文宇的 MaMage 用户 ID，逗号分隔 |
 | `MAMAGE_COLLEGE_WINDOW_CONSUMER_TOKEN_SHA256` | 专用随机 Key 的 SHA-256 十六进制摘要（原始 Key 仅在对接服务的密钥管理中） |
 | `MAMAGE_COLLEGE_WINDOW_CONSUMER_PEERS` | 允许的直连源 IP 或受控子网，逗号分隔。不会信任 `X-Forwarded-For`。 |
+
+学校入口由主机 Nginx 区分，集群网站不开放清单路径。学校模式中 API 的直连对端是主机网关，主机入口检查校内源地址。先配置 Key 摘要和主机的直连地址并完成应用发布，再在校内服务器运行 `node scripts/configure-college-window-edge.cjs --apply`，仅更新学院窗的两条路由，切换前会保存旧配置并验证 Nginx。
 
 先应用学院窗的数据库迁移（包括 `20261126_003_college_window_original_links.sql`，迁移账号需要建触发器权限），再开启配置。升级前待旧版本正在处理的批量任务完成；旧确认不会自动变成原图发布。仅向受授权的对接服务开放清单路径。历史展示图的 `integrations/college-window/` 和原图存储继续保持私有，不开启对象桶的匿名权限。
 

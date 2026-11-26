@@ -15,7 +15,11 @@ applyGlassAppearance(readGlassAppearance());
 const container = document.getElementById('root');
 const root = createRoot(container);
 
-if (process.env.NODE_ENV !== 'production' && window.location.pathname === '/__prototype/share-album') {
+if (/^\/college-window-feed\/?$/.test(window.location.pathname)) {
+  import(/* webpackChunkName: "college-window-feed" */'./CollegeWindowFeed').then(({ default: CollegeWindowFeed }) => {
+    root.render(<CollegeWindowFeed />);
+  });
+} else if (process.env.NODE_ENV !== 'production' && window.location.pathname === '/__prototype/share-album') {
   import('./prototypes/ShareAlbumPrototype').then(({ default: ShareAlbumPrototype }) => {
     root.render(<ShareAlbumPrototype />);
   });
