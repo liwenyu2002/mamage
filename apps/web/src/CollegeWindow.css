@@ -87,6 +87,8 @@
 .college-window-tile-media img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .college-window-tile-label { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding: 10px 11px; }
 .college-window-tile-label strong { display: block; font-size: 14px; overflow-wrap: anywhere; line-height: 1.35; }
+.college-window-published-actions { display: flex; flex-shrink: 0; align-items: center; gap: 2px; }
+.college-window-original-link { display: inline-flex; align-items: center; min-height: 38px; padding: 0 8px; color: #187061; }
 .college-window-secondary, .college-window-confirmed { display: block; margin-top: 3px; color: #626d71; font-size: 12px; }
 .college-window-confirmed { color: #187061; font-weight: 650; }
 .college-window-icon, .college-window-text-button {

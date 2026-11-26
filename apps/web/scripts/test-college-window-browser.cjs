@@ -10,15 +10,18 @@ const output = path.resolve(__dirname, '../../../.local/college-window-qa');
 const base = new URL(process.env.MAMAGE_LOCAL_WEB || 'http://127.0.0.1:5300');
 assert.ok(['127.0.0.1', 'localhost'].includes(base.hostname), 'Run against the local UI only');
 const sample = { photoId: 71, id: '71aabbcc-0000-0000-0000-000000000000', albumName: '校园活动',
-  peopleNames: ['已确认人物'], description: '校园活动现场', publishedAt: '2026-11-26T00:00:00Z' };
+  peopleNames: ['已确认人物'], description: '校园活动现场', publishedAt: '2026-11-26T00:00:00Z',
+  publicImagePath: '/api/college-window-share/71aabbcc-0000-0000-0000-000000000000', thumbUrl: '/api/test-image' };
 
 async function check(browser, width, jpeg) {
   const context = await browser.newContext({ viewport: { width, height: 850 } });
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: base.origin });
   const page = await context.newPage();
   const errors = [];
   let queries = 0;
   let stationAdds = 0;
   let released = false;
+  let originalViews = 0;
   const candidates = [71, 72, 73, 74, 75].map((photoId, index) => ({
     photoId, albumName: ['校园活动', '不选这张', '第二页照片', '中转站单张', '中转站整批'][index],
     thumbUrl: '/api/test-image' }));
@@ -43,7 +46,8 @@ async function check(browser, width, jpeg) {
       unitId: 1, images: galleryPhotos, count: galleryPhotos.length });
     if (p === '/api/photos') return json({ list: galleryPhotos, total: galleryPhotos.length });
     if (/^\/api\/photos\/\d+$/.test(p)) return json(galleryPhotos.find(photo => photo.id === Number(p.split('/').at(-1))) || {});
-    if (p === '/api/test-image' || p.endsWith('/published/' + sample.id + '/image')) {
+    if (p === sample.publicImagePath) originalViews += 1;
+    if (p === '/api/test-image' || p === sample.publicImagePath) {
       return route.fulfill({ body: jpeg, contentType: 'image/jpeg' });
     }
     if (p.endsWith('/college-window/candidates')) {
@@ -71,9 +75,10 @@ async function check(browser, width, jpeg) {
       return json({ photos, skipped: photoIds.length - photos.length });
     }
     const preview = p.match(/\/candidates\/(\d+)\/preview$/);
-    if (preview) return json({ ...sample, id: undefined, photoId: Number(preview[1]), jpeg: jpeg.toString('base64'), review: 'a'.repeat(64) });
+    if (preview) return json({ ...sample, id: undefined, photoId: Number(preview[1]), imageUrl: '/api/test-image?original=1', review: 'a'.repeat(64) });
     if (p.endsWith('/college-window/publish')) {
-      assert.deepEqual(request.postDataJSON(), { photos: [71, 73, 74, 75].map(photoId => ({ photoId, review: 'a'.repeat(64) })) });
+      assert.deepEqual(request.postDataJSON(), { publicationMode: 'original-link',
+        photos: [71, 73, 74, 75].map(photoId => ({ photoId, review: 'a'.repeat(64) })) });
       released = true;
       return json({ photos: [sample] });
     }
@@ -143,8 +148,14 @@ async function check(browser, width, jpeg) {
     await page.getByRole('button', { name: '发布 4 张', exact: true }).click();
     await page.getByText('已发布 4 张照片。').waitFor();
     await page.getByRole('button', { name: '已发布', exact: true }).click();
+    await page.getByRole('button', { name: '复制原图链接', exact: true }).click();
+    assert.equal(originalViews, 0, 'Publishing and showing thumbnails do not load the original');
+    await page.getByText('已复制原图链接', { exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), new URL(sample.publicImagePath, base).href);
     await page.getByRole('button', { name: '预览已发布照片 校园活动' }).click();
     await page.getByRole('dialog', { name: '已发布照片' }).getByRole('img').waitFor();
+    await page.waitForFunction(() => document.querySelector('.college-window-preview-photo')?.naturalWidth > 0);
+    assert.equal(originalViews, 1);
     await page.screenshot({ path: path.join(output, 'preview-' + width + '.png'), fullPage: false });
     await page.getByRole('dialog', { name: '已发布照片' }).getByRole('button', { name: '关闭' }).click();
     await page.getByRole('button', { name: '撤回', exact: true }).click();
@@ -198,7 +209,7 @@ async function checkBulk(browser, width, jpeg) {
       return json({ id: planId, count: 771, mode: 'matches', contentFilter: 'no-faces' });
     }
     if (path.endsWith('/college-window/bulk') && req.method() === 'POST') {
-      assert.deepEqual(req.postDataJSON(), { planId });
+      assert.deepEqual(req.postDataJSON(), { planId, publicationMode: 'original-link' });
       submitted++;
       job = { id: planId, status: 'running', total: 771, processed: 80, published: 78, skipped: 1, failed: 1 };
       return json(job);
@@ -218,6 +229,7 @@ async function checkBulk(browser, width, jpeg) {
     await dialog.getByRole('radio', { name: /本轮全部匹配/ }).check();
     const confirm = dialog.getByRole('button', { name: '确认发布 771 张' });
     await confirm.waitFor();
+    await dialog.getByText(/拿到链接的人可以查看和下载原图/).waitFor();
     assert.equal(submitted, 0, 'No publishing until the confirmed count is accepted');
     await page.screenshot({ path: path.join(output, 'batch-' + width + '.png'), fullPage: false });
     await confirm.click();

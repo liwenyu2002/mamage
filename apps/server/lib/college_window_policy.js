@@ -6,6 +6,8 @@ const MAX_CANDIDATES = 30;
 const MAX_PUBLISH = 12;
 const MAX_BATCH = 20000;
 const DELIVERY_PATH = '/api/integrations/college-window/v1';
+const PUBLIC_IMAGE_PATH = '/api/college-window-share';
+const ORIGINAL_MODE = 'original-link';
 const UUID = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
 const DIGEST = /^[a-f0-9]{64}$/;
 const RESTRICTED_TAGS = '禁止外发|不得外发|仅限内部|仅内部|保密';
@@ -112,9 +114,9 @@ function selectRequest(body) {
     exclude: [...new Set((Array.isArray(body?.exclude) ? body.exclude.slice(0, 500) : []).map(id).filter(Boolean))] };
 }
 
-function reviewDigest(source, workspace, metadata, sha256) {
+function reviewDigest(source, workspace, metadata) {
   return createHash('sha256').update(JSON.stringify([
-    workspace.userId, source.id, source.projectId, source.sourceKey, source.adjustments, metadata, sha256,
+    ORIGINAL_MODE, workspace.userId, source.id, source.projectId, source.sourceKey, metadata,
   ])).digest('hex');
 }
 
@@ -128,4 +130,5 @@ function automaticTags(generated) {
 }
 
 module.exports = { readConfig, canManage, consumerAllowed, publicationText, reviewDigest, selectRequest,
-  id, UUID, DIGEST, WindowError, MAX_CANDIDATES, MAX_PUBLISH, MAX_BATCH, DELIVERY_PATH, RESTRICTED_TAGS, ANONYMIZED_TAGS, automaticTags };
+  id, UUID, DIGEST, WindowError, MAX_CANDIDATES, MAX_PUBLISH, MAX_BATCH, DELIVERY_PATH, PUBLIC_IMAGE_PATH, ORIGINAL_MODE,
+  RESTRICTED_TAGS, ANONYMIZED_TAGS, automaticTags };

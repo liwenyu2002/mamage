@@ -181,6 +181,7 @@ app.use((req, res, next) => {
 });
 const collegeWindow = require('./routes/college_window').createCollegeWindow();
 app.use(require('./lib/college_window_policy').DELIVERY_PATH, collegeWindow.delivery);
+app.use(require('./lib/college_window_policy').PUBLIC_IMAGE_PATH, collegeWindow.publicImages);
 app.use('/api/auth/iam', require('./routes/auth_iam'));
 app.use('/api/auth/oidc', require('./routes/auth_oidc'));
 app.use('/api', require('./lib/iam_account_guard').bearerGuard(keys.JWT_SECRET));

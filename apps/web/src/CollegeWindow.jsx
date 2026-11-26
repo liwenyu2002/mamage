@@ -1,16 +1,20 @@
 import React from 'react';
-import { Button, Modal } from './ui';
-import { IconChevronRight, IconPlus, IconSparkleAI, IconClose } from './ui/icons';
+import { Button, Modal, Toast } from './ui';
+import { IconChevronRight, IconPlus, IconSparkleAI, IconClose, IconShare } from './ui/icons';
 import { request, resolveAssetUrl } from './services/request';
 import { getAll as getStationItems, getMediaKind, subscribe as subscribeStation, STATION_PHOTO_DRAG_TYPE } from './services/transferStore';
+import { copyText } from './utils/clipboard';
 import './CollegeWindow.css';
 
 const ROOT = '/api/college-window';
 const LIMIT = 12;
+const ORIGINAL_MODE = 'original-link';
+const originalNotice = '拿到链接的人可以查看和下载原图，不应用裁切和调色，原文件可能包含拍摄信息。';
 const messages = {
   COLLEGE_WINDOW_NOT_FOUND: '这张照片已不存在、已发布或不再符合供图范围。',
   COLLEGE_WINDOW_REVIEW_CHANGED: '照片或资料已变更，请重新预览确认后再发布。',
-  COLLEGE_WINDOW_IMAGE_UNAVAILABLE: '原照片或编辑版本暂时无法读取，未发布这张照片。',
+  COLLEGE_WINDOW_ORIGINAL_UNAVAILABLE: '找不到可供图的原图，未发布这张照片。',
+  COLLEGE_WINDOW_ORIGINAL_CONFIRMATION_REQUIRED: '发布方式已改为原图链接，请刷新页面后重新确认。',
   COLLEGE_WINDOW_UNAVAILABLE: '学院窗服务暂不可用。',
   COLLEGE_WINDOW_BUSY: '请求较多，请稍后再试。',
   COLLEGE_WINDOW_SEARCH_EXPIRED: '本轮匹配已过期，请重新选图。',
@@ -19,6 +23,7 @@ const messages = {
   COLLEGE_WINDOW_BATCH_EMPTY: '所选范围中没有可发布的照片。',
   COLLEGE_WINDOW_BATCH_ACCESS_CHANGED: '供图权限已变更，剩余照片未发布。',
   COLLEGE_WINDOW_BATCH_FAILED: '处理已中止，已发布的照片保留。',
+  COLLEGE_WINDOW_BATCH_MODE_CHANGED: '发布方式已变更，剩余照片未发布，请重新确认。',
 };
 function problem(error) {
   if (messages[error.message]) return messages[error.message];
@@ -34,6 +39,12 @@ function stationPhotoIds(items) {
 
 function isStationDrag(event) {
   return Array.from(event.dataTransfer?.types || []).includes(STATION_PHOTO_DRAG_TYPE);
+}
+
+async function copyPublicImage(path) {
+  const url = new URL(resolveAssetUrl(path), window.location.origin).href;
+  try { await copyText(url); Toast.success('已复制原图链接'); }
+  catch { Toast.error('复制失败，可在预览中打开并复制链接。'); }
 }
 
 function usePublishedImage(send, id) {
@@ -57,7 +68,7 @@ function usePublishedImage(send, id) {
 function PublishedThumb({ send, item }) {
   const target = React.useRef(null);
   const [nearby, setNearby] = React.useState(false);
-  const photo = usePublishedImage(send, nearby ? item.id : null);
+  const photo = usePublishedImage(send, nearby && !item.publicImagePath ? item.id : null);
   React.useEffect(() => {
     if (!('IntersectionObserver' in window)) { setNearby(true); return undefined; }
     const observer = new IntersectionObserver(entries => {
@@ -67,14 +78,16 @@ function PublishedThumb({ send, item }) {
     return () => observer.disconnect();
   }, []);
   return <span ref={target} className="college-window-tile-media">
-    {photo.url ? <img src={photo.url} alt="" /> : photo.error ? <span>图片不可用</span> : null}
+    {item.publicImagePath ? (item.thumbUrl ? <img src={resolveAssetUrl(item.thumbUrl)} loading="lazy" alt="" /> : <span>无缩略图</span>)
+      : photo.url ? <img src={photo.url} alt="" /> : photo.error ? <span>图片不可用</span> : null}
   </span>;
 }
 
 function Preview({ send, preview, close, onConfirm, hasNext }) {
   const [state, setState] = React.useState({});
   const [decoded, setDecoded] = React.useState(false);
-  const published = usePublishedImage(send, preview.item.id);
+  const link = preview.item.publicImagePath;
+  const published = usePublishedImage(send, link ? null : preview.item.id);
   React.useEffect(() => {
     if (preview.item.id) return undefined;
     const controller = new AbortController();
@@ -87,10 +100,14 @@ function Preview({ send, preview, close, onConfirm, hasNext }) {
   }, [send, preview.item.id, preview.item.photoId]);
 
   const data = preview.item.id ? preview.item : state.data;
-  const url = preview.item.id ? published.url : data?.jpeg ? `data:image/jpeg;base64,${data.jpeg}` : null;
+  const url = preview.item.id ? (link ? resolveAssetUrl(link) : published.url)
+    : data?.imageUrl ? resolveAssetUrl(data.imageUrl) : null;
   const error = published.error || state.error;
   return <Modal visible title={preview.item.id ? '已发布照片' : '确认供图'} onCancel={close}
-    width={860} className="college-window-preview" footer={preview.item.id ? null : <>
+    width={860} className="college-window-preview" footer={preview.item.id ? (link ? <>
+      <a className="college-window-original-link" href={resolveAssetUrl(link)} target="_blank" rel="noreferrer">打开原图链接</a>
+      <Button type="primary" icon={<IconShare />} onClick={() => copyPublicImage(link)}>复制原图链接</Button>
+    </> : null) : <>
       <Button type="tertiary" onClick={close}>返回</Button>
       <Button type="primary" disabled={!url || !decoded || !data?.review} onClick={() => onConfirm(data)}>
         {hasNext ? '确认并看下一张' : '确认这张'}
@@ -99,6 +116,7 @@ function Preview({ send, preview, close, onConfirm, hasNext }) {
     {error ? <p role="alert" className="college-window-error">{error}</p> : !url ? <p role="status">正在读取供图预览…</p> :
       <img src={url} className="college-window-preview-photo" alt={data.albumName || '供图预览'}
         onLoad={() => setDecoded(true)} onError={() => setState({ error: '供图预览加载失败。' })} />}
+    {!preview.item.id && <p className="college-window-batch-note">{originalNotice}</p>}
     {data && <dl className="college-window-metadata">
       <dt>相册</dt><dd>{data.albumName || '不提供'}</dd>
       <dt>人物</dt><dd>{data.peopleNames?.join('、') || '无确认标注'}</dd>
@@ -132,7 +150,7 @@ function BulkDialog({ send, candidates, excluded, search, close, onStart }) {
     setSubmitting(true);
     setError('');
     try {
-      onStart(await send('/bulk', { method: 'POST', data: { planId: plan.id } }));
+      onStart(await send('/bulk', { method: 'POST', data: { planId: plan.id, publicationMode: ORIGINAL_MODE } }));
     } catch (err) {
       setError(problem(err));
     } finally {
@@ -157,7 +175,7 @@ function BulkDialog({ send, candidates, excluded, search, close, onStart }) {
       </label>}
     </fieldset>
     <p className="college-window-batch-note">
-      {mode === 'matches' && search?.nextPage && '包含尚未加载的结果。'}已排除的照片不会发布。发布后，对接方可以下载这些照片。
+      {mode === 'matches' && search?.nextPage && '包含尚未加载的结果。'}已排除的照片不会发布。{originalNotice}
     </p>
     {plan?.contentFilter && <p className="college-window-batch-note">无人脸或无人条件仅依据图库标注初筛。</p>}
     {error ? <p role="alert" className="college-window-error">{error}</p>
@@ -353,7 +371,7 @@ export default function CollegeWindow({ unitId, draft }) {
   function publish() {
     return run('publish', async () => {
       const photos = ready.slice(0, LIMIT).map(item => ({ photoId: item.photoId, review: reviewed[item.photoId] }));
-      await send('/publish', { method: 'POST', data: { photos } });
+      await send('/publish', { method: 'POST', data: { photos, publicationMode: ORIGINAL_MODE } });
       const ids = new Set(photos.map(item => item.photoId));
       setCandidates(items => items.filter(item => !ids.has(item.photoId)));
       setReviewed(prev => Object.fromEntries(Object.entries(prev).filter(([key]) => !ids.has(Number(key)))));
@@ -467,7 +485,11 @@ export default function CollegeWindow({ unitId, draft }) {
             <div><strong>{item.albumName || '未提供相册名'}</strong>
               <time className="college-window-secondary">{new Date(item.publishedAt).toLocaleDateString('zh-CN')}</time>
             </div>
-            <button type="button" className="college-window-text-button" disabled={Boolean(pending)} onClick={() => setRetract(item)}>撤回</button>
+            <div className="college-window-published-actions">
+              {item.publicImagePath && <button type="button" className="college-window-icon" title="复制原图链接"
+                aria-label="复制原图链接" onClick={() => copyPublicImage(item.publicImagePath)}><IconShare /></button>}
+              <button type="button" className="college-window-text-button" disabled={Boolean(pending)} onClick={() => setRetract(item)}>撤回</button>
+            </div>
           </div>
         </article>)}
       </div> : <p className="college-window-empty" role="status">{pending ? '正在读取…' : '暂无已发布照片'}</p>)}
@@ -484,7 +506,7 @@ export default function CollegeWindow({ unitId, draft }) {
     {batchOpen && <BulkDialog send={send} candidates={candidates} excluded={excluded} search={candidateSearch}
       close={() => setBatchOpen(false)} onStart={startBatch} />}
     {retract && <Modal visible title="撤回这张照片？" okText="撤回照片" onCancel={() => setRetract(null)} onOk={withdraw}>
-      对接方将无法继续获取这张照片。已被下载的副本不会被删除。
+      {retract.publicImagePath ? '分享链接撤回后失效，已打开的临时下载地址最多还可用 1 分钟。' : '对接方将无法继续获取这张照片。'}已被下载的副本不会被删除。
     </Modal>}
   </section>;
 }

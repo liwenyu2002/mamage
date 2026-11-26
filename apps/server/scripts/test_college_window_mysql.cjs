@@ -18,9 +18,12 @@ const { createCollegeWindow } = require('../routes/college_window');
 const { candidateWhere } = require('../lib/queries/college_window');
 const { searchPhotos } = require('../lib/photo_search');
 const { pool: applicationPool } = require('../db');
-const { readConfig, consumerAllowed, selectRequest, automaticTags, DELIVERY_PATH } = require('../lib/college_window_policy');
+const { readConfig, consumerAllowed, selectRequest, automaticTags, DELIVERY_PATH,
+  PUBLIC_IMAGE_PATH, ORIGINAL_MODE } = require('../lib/college_window_policy');
 
 const photoPath = id => 'uploads/college-window-test/' + id + '.png';
+const legacyId = 'aabaa099-0000-0000-0000-000000000000';
+const legacyKey = 'integrations/college-window/' + legacyId + '.jpg';
 const schema = `
   CREATE DATABASE mamage_college_window_test CHARACTER SET utf8mb4;
   USE mamage_college_window_test;
@@ -51,7 +54,7 @@ const schema = `
   INSERT INTO face_identity_feedback VALUES (301,201,100,2,1,'explicit'),(302,203,100,2,9,'explicit');
 `;
 
-async function verify(db) {
+async function verify(db, legacyBytes) {
   const token = randomBytes(32).toString('base64url');
   const hash = createHash('sha256').update(token).digest('hex');
   const config = readConfig({ MAMAGE_COLLEGE_WINDOW_ORG_ID: 2, MAMAGE_COLLEGE_WINDOW_UNIT_ID: 1,
@@ -88,25 +91,39 @@ async function verify(db) {
   const input = await sharp({ create: { width: 180, height: 120, channels: 3, background: '#317d6b' } })
     .withMetadata({ exif: { IFD0: { Artist: 'Private test metadata' } } }).png().toBuffer();
   const objects = new Map(fixture.map(([id]) => [photoPath(id), input]));
-  let pauseUpload;
+  let dispatchAllowed = true;
+  let renderedReads = 0, signedReads = 0;
   const store = {
     keyFromUrlOrPath: key => key, isSafeKey: () => true,
-    getObject: async key => { assert.ok(objects.has(key), 'Only test objects are accessible'); return { Body: Readable.from([objects.get(key)]) }; },
-    uploadBuffer: async (key, data, options) => {
-      assert.equal(options.cacheControl, 'private, no-store');
-      objects.set(key, data);
-      if (pauseUpload) {
-        const pause = pauseUpload;
-        pauseUpload = null;
-        await pause(key);
-      }
+    getObject: async key => {
+      assert.equal(key, legacyKey, 'Only legacy previews may read image bodies in MaMage');
+      renderedReads++;
+      return { Body: Readable.from([legacyBytes]) };
     },
-    deleteObjects: async keys => keys.forEach(key => objects.delete(key)),
+    headObject: async () => assert.fail('Publication must not request object metadata'),
+    uploadBuffer: async () => assert.fail('Publication must not upload a copy'),
+    deleteObjects: async () => assert.fail('Publication must not delete an object'),
+    signedGetUrl: async (key, options) => {
+      assert.ok(objects.has(key), 'Only existing fixture originals may be signed');
+      assert.equal(options.expires, 60);
+      assert.equal(options.contentType, 'image/png');
+      assert.equal(options.cacheControl, 'private, no-store');
+      signedReads++;
+      const query = new URLSearchParams({ key, ...(options.downloadName ? { filename: options.downloadName } : {}) });
+      return { signedUrl: 'http://127.0.0.1:' + server.address().port + '/fixture-original?' + query.toString() };
+    },
   };
   const app = express();
   app.use(express.json());
-  const runner = createCoordinator({ db, intervalMs: 100, maxActive: 1, onLost: error => { throw error; } });
-  const { manage, delivery } = createCollegeWindow({
+  app.get('/fixture-original', (req, res) => {
+    const bytes = objects.get(req.query.key);
+    if (!bytes) return res.sendStatus(404);
+    if (req.query.filename) res.attachment(req.query.filename);
+    res.type('png').send(bytes);
+  });
+  const runner = createCoordinator({ db, intervalMs: 100, maxActive: 1, canDispatch: () => dispatchAllowed,
+    onLost: error => { throw error; } });
+  const { manage, delivery, publicImages } = createCollegeWindow({
     config, db, store, batchRunner: runner, rate: { take: async () => ({ allowed: true }) },
     userGuard: (req, res, next) => {
       const id = Number(req.get('x-test-user'));
@@ -136,12 +153,13 @@ async function verify(db) {
   });
   app.use('/manage', manage);
   app.use(DELIVERY_PATH, delivery);
+  app.use(PUBLIC_IMAGE_PATH, publicImages);
   const server = app.listen(0, '127.0.0.1');
   try {
     await once(server, 'listening');
     const base = 'http://127.0.0.1:' + server.address().port;
     async function call(url, status, { token, user, unit, method = 'GET', body } = {}) {
-      const res = await fetch(base + url, { method, body: body ? JSON.stringify(body) : undefined, headers: {
+      const res = await fetch(base + url, { method, redirect: 'manual', body: body ? JSON.stringify(body) : undefined, headers: {
         ...(token ? { Authorization: 'Bearer ' + token } : {}),
         ...(user ? { 'x-test-user': String(user) } : {}),
         ...(unit ? { 'x-mamage-unit-id': String(unit) } : {}),
@@ -153,7 +171,7 @@ async function verify(db) {
     const list = (suffix = '') => call(DELIVERY_PATH + '/photos' + suffix, 200, { token }).then(res => res.json());
     const preview = (id, user = 7) => call('/manage/candidates/' + id + '/preview', 200, { user }).then(res => res.json());
     const publish = (photos, status = 201, user = 7) => call('/manage/publish', status, { user, method: 'POST', body: {
-      photos: photos.map(({ photoId, review }) => ({ photoId, review })),
+      publicationMode: ORIGINAL_MODE, photos: photos.map(({ photoId, review }) => ({ photoId, review })),
     } }).then(res => res.json());
     const select = (user, exclude = [], query = '选 20 张校园活动', page = 1, extra = {}) => call('/manage/candidates', 200, { user, method: 'POST',
       body: { mode: 'ai', query, exclude, page, ...extra } }).then(res => res.json());
@@ -163,6 +181,14 @@ async function verify(db) {
     await call('/manage/published', 403, { user: 99 });
     await call('/manage/published', 403, { user: 7, unit: 2 });
     await call(DELIVERY_PATH + '/photos', 401, { user: 7 });
+    const [legacy] = (await list()).photos;
+    assert.equal(legacy.id, legacyId);
+    assert.ok(!legacy.publicImagePath);
+    const historical = await call(legacy.imagePath, 200, { token });
+    assert.deepEqual(Buffer.from(await historical.arrayBuffer()), legacyBytes);
+    await call(PUBLIC_IMAGE_PATH + '/' + legacyId, 404);
+    await call('/manage/published/' + legacyId, 204, { user: 7, method: 'DELETE' });
+    assert.equal(renderedReads, 1);
     assert.deepEqual((await list()).photos, []);
     assert.deepEqual((await select(7, [10])).photos.map(item => item.photoId), [1, 7, 9]);
     assert.deepEqual((await select(8)).photos.map(item => item.photoId), [7]);
@@ -203,30 +229,42 @@ async function verify(db) {
     const one = await preview(1);
     const cropped = await preview(9);
     assert.deepEqual(one.peopleNames, ['已确认姓名']);
-    assert.equal(cropped.width, 90);
-    assert.deepEqual(cropped.peopleNames, []);
-    assert.equal(cropped.description, null);
+    assert.match(cropped.imageUrl, /[?&]original=1/);
+    assert.ok(!cropped.jpeg);
+    assert.deepEqual(cropped.peopleNames, ['已确认姓名']);
     assert.equal((await preview(7)).description, null);
+    await call('/manage/publish', 409, { user: 7, method: 'POST', body: { photos: [{ photoId: 1, review: one.review }] } });
     await publish([one], 409, 8);
     await db.query("UPDATE photos SET description = '更新后的校园活动' WHERE id = 1");
     await publish([one], 409);
     const reviewed = await preview(1);
-    const first = (await publish([reviewed, cropped])).photos.find(photo => photo.photoId === 1);
+    const releases = (await publish([reviewed, cropped])).photos;
+    const first = releases.find(photo => photo.photoId === 1);
+    assert.equal(renderedReads, 1);
+    assert.equal(signedReads, 0, 'Do not contact the storage signer while publishing');
     assert.deepEqual(await station(7, [1]), { photos: [], skipped: 1 });
     const before = await list('?limit=1');
     assert.equal(before.photos.length, 1);
     assert.ok(before.nextCursor);
     assert.equal((await list('?limit=1&after=' + before.nextCursor)).photos.length, 1);
     const imagePath = DELIVERY_PATH + '/photos/' + first.id + '/image';
-    const actual = await call(imagePath, 200, { token });
-    assert.equal(actual.headers.get('content-type'), 'image/jpeg');
+    const actual = await call(imagePath, 302, { token });
     assert.match(actual.headers.get('cache-control'), /no-store/);
-    const image = Buffer.from(await actual.arrayBuffer());
-    assert.deepEqual(image, Buffer.from(reviewed.jpeg, 'base64'));
-    assert.equal((await sharp(image).metadata()).exif, undefined);
+    const shared = await call(first.publicImagePath, 302);
+    assert.match(shared.headers.get('x-robots-tag'), /noindex/);
+    assert.equal(shared.headers.get('location'), actual.headers.get('location'));
+    assert.deepEqual(Buffer.from(await (await fetch(shared.headers.get('location'))).arrayBuffer()), input);
+    const croppedOriginal = await call(releases.find(photo => photo.photoId === 9).publicImagePath + '?download=1', 302);
+    const originalFile = await fetch(croppedOriginal.headers.get('location'));
+    assert.match(originalFile.headers.get('content-disposition'), /attachment/);
+    const originalBytes = Buffer.from(await originalFile.arrayBuffer());
+    assert.deepEqual(originalBytes, input, 'Bytes are unchanged even when the MaMage photo has saved crop settings');
+    assert.equal((await sharp(originalBytes).metadata()).width, 180);
+    assert.ok((await sharp(originalBytes).metadata()).exif);
     const { photos } = await list();
     assert.equal(photos.find(photo => photo.id === first.id).description, '更新后的校园活动');
-    assert.ok(photos.every(photo => !('photoId' in photo) && !('objectKey' in photo) && !('url' in photo)));
+    assert.ok(photos.every(photo => !('photoId' in photo) && !('objectKey' in photo) && !('originalUrl' in photo)
+      && photo.width === null && photo.sha256 === null));
     await db.query("UPDATE photos SET description = '发布后的文字变更' WHERE id = 1");
     assert.equal((await list()).photos.find(photo => photo.id === first.id).description, '更新后的校园活动');
     await db.query("UPDATE photos SET source_attribution = JSON_OBJECT('type','external_import','provider','alltuu') WHERE id = 1");
@@ -236,9 +274,14 @@ async function verify(db) {
     await db.query('UPDATE photos SET tags = ? WHERE id = 1', ['["禁止外发"]']);
     await db.query('UPDATE photos SET tags = NULL WHERE id = 1');
     await call(imagePath, 404, { token });
+    await call(first.publicImagePath, 404);
     assert.equal((await list()).photos.length, 1);
     const second = (await publish([await preview(1)])).photos[0];
     assert.notEqual(second.id, first.id);
+    await db.query('UPDATE photos SET url = ? WHERE id = 1', [photoPath(7)]);
+    await db.query('UPDATE photos SET url = ? WHERE id = 1', [photoPath(1)]);
+    await call(second.publicImagePath, 404);
+    await publish([await preview(1)]);
     await db.query('UPDATE projects SET restricted_to_user_id = 7 WHERE id = 10');
     await db.query('UPDATE projects SET restricted_to_user_id = NULL WHERE id = 10');
     assert.equal((await list()).photos.length, 1);
@@ -252,15 +295,16 @@ async function verify(db) {
     await db.query('UPDATE photos SET tags = ? WHERE id = 1', ['["已脱敏"]']);
     await call(DELIVERY_PATH + '/photos/' + fourth.id + '/image', 404, { token });
     await db.query('UPDATE photos SET tags = ' + tagUpdate.sql + ' WHERE id = 1', tagUpdate.params);
-    const anonymized = await preview(1);
-    assert.deepEqual(anonymized.peopleNames, []);
-    assert.equal(anonymized.description, null);
-    const fifth = (await publish([anonymized])).photos[0];
+    await call('/manage/candidates/1/preview', 404, { user: 7 });
+    assert.deepEqual(await station(7, [1]), { photos: [], skipped: 1 });
+    await db.query('UPDATE photos SET tags = NULL WHERE id = 1');
+    const fifth = (await publish([await preview(1)])).photos[0];
     await db.query('DELETE FROM projects WHERE id = 14');
     await call(DELIVERY_PATH + '/photos/' + fifth.id + '/image', 404, { token });
     const remaining = (await list()).photos[0];
     await call('/manage/published/' + remaining.id, 204, { user: 7, method: 'DELETE' });
     await call(remaining.imagePath, 404, { token });
+    await call(remaining.publicImagePath, 404);
     assert.equal((await list()).photos.length, 0);
     const again = (await publish([await preview(1), await preview(10)])).photos;
     await db.query('DELETE FROM photos WHERE id = 1');
@@ -279,10 +323,12 @@ async function verify(db) {
       ids.forEach(id => objects.set(photoPath(id), input));
     }
     const prepareBatch = (body, user = 7, code = 200) => call('/manage/bulk/prepare', code, { user, method: 'POST', body }).then(res => res.json());
-    const startBatch = (planId, user = 7, code = 202) => call('/manage/bulk', code, { user, method: 'POST', body: { planId } }).then(res => res.json());
+    const startBatch = (planId, user = 7, code = 202) => call('/manage/bulk', code,
+      { user, method: 'POST', body: { planId, publicationMode: ORIGINAL_MODE } }).then(res => res.json());
     const jobStatus = (user = 7) => call('/manage/bulk', 200, { user }).then(res => res.json()).then(result => result.job);
-    async function waitBatch(status) {
-      for (let attempt = 0; attempt < 150; attempt++) {
+    async function waitBatch(status, timeoutMs = 6000) {
+      const deadline = Date.now() + timeoutMs;
+      while (Date.now() < deadline) {
         const job = await jobStatus();
         if (job?.status === status) return job;
         if (job?.status === 'failed') throw new Error('Unexpected batch failure: ' + job.error);
@@ -305,49 +351,64 @@ async function verify(db) {
     assert.equal(plan.count, 29);
     assert.equal(plan.contentFilter, 'no-faces');
     assert.equal((await list()).photos.length, 0, 'Preparing a batch does not publish anything');
+    await call('/manage/bulk', 409, { user: 7, method: 'POST', body: { planId: plan.id } });
     await startBatch(plan.id, 8, 409);
     await db.query(`UPDATE photos SET tags = CASE id WHEN 125 THEN JSON_ARRAY('侧脸') ELSE JSON_ARRAY('禁止外发') END
       WHERE id IN (125,127)`);
-    objects.set(photoPath(130), Buffer.from('unreadable fixture'));
+    await db.query("UPDATE photos SET url = 'uploads/college-window-test/not-an-image.html' WHERE id = 130");
+    const signaturesBefore = signedReads;
     assert.equal((await startBatch(plan.id)).status, 'queued');
     assert.equal((await startBatch(plan.id)).id, plan.id, 'Submitting twice does not create a second job');
     assert.equal(await jobStatus(8), null, 'Status is isolated by operator');
     runner.start();
     const done = await waitBatch('done');
     assert.deepEqual([done.processed, done.published, done.skipped, done.failed], [29, 26, 2, 1]);
+    assert.equal(signedReads, signaturesBefore);
+    assert.equal(renderedReads, 1);
     const reserve = await call('/manage/published?limit=100', 200, { user: 7 }).then(res => res.json());
     assert.equal(reserve.photos.length, 26);
     for (const rejected of [125, 127, 129, 130, 131, 132]) assert.ok(!reserve.photos.some(item => item.photoId === rejected));
 
-    const hold = () => {
-      let release;
-      const paused = new Promise(resolve => { pauseUpload = key => new Promise(unblock => { release = unblock; resolve(key); }); });
-      return { paused, resume: () => release?.() };
-    };
+    dispatchAllowed = false;
     const cancelledPlan = await prepareBatch({ mode: 'candidates', photoIds: [131, 132, 132, 2, 4, 5] });
     assert.equal(cancelledPlan.count, 2, 'Batch preparation excludes denied sources and duplicates');
-    const cancelGate = hold();
     await startBatch(cancelledPlan.id);
-    const staged = await cancelGate.paused;
-    try {
-      await call('/manage/bulk/' + cancelledPlan.id + '/cancel', 200, { user: 7, method: 'POST' });
-      assert.equal((await jobStatus()).status, 'cancelled');
-    } finally { cancelGate.resume(); }
-    for (let attempt = 0; objects.has(staged) && attempt < 40; attempt++) await new Promise(resolve => setTimeout(resolve, 25));
-    assert.ok(!objects.has(staged), 'Stopping before commit discards a staged rendition');
+    await call('/manage/bulk/' + cancelledPlan.id + '/cancel', 200, { user: 7, method: 'POST' });
+    assert.equal((await jobStatus()).status, 'cancelled');
     assert.equal((await list()).photos.length, 26);
     await startBatch(plan.id, 7, 409);
 
+    const legacyPlan = await prepareBatch({ mode: 'candidates', photoIds: [131, 132] });
+    await startBatch(legacyPlan.id);
+    await db.query("UPDATE runtime_tasks SET payload = JSON_REMOVE(payload,'$.publicationMode') WHERE dedupe_key = ?", [legacyPlan.id]);
+    dispatchAllowed = true;
+    const legacyJob = await waitBatch('failed');
+    assert.equal(legacyJob.error, 'COLLEGE_WINDOW_BATCH_MODE_CHANGED');
+    assert.equal(legacyJob.published, 0, 'An old batch never silently becomes an original link');
+
+    dispatchAllowed = false;
     const deniedPlan = await prepareBatch({ mode: 'candidates', photoIds: [131, 132] });
-    const deniedGate = hold();
     await startBatch(deniedPlan.id);
-    await deniedGate.paused;
-    try { await db.query("DELETE FROM role_permissions WHERE role = 'operator'"); } finally { deniedGate.resume(); }
+    await db.query("DELETE FROM role_permissions WHERE role = 'operator'");
+    dispatchAllowed = true;
     const denied = await waitBatch('failed');
     assert.equal(denied.error, 'COLLEGE_WINDOW_BATCH_ACCESS_CHANGED');
     assert.equal(denied.published, 0);
     assert.equal((await list()).photos.length, 26);
-  } finally { pauseUpload = null; await runner.stop(); await new Promise(resolve => server.close(resolve)); }
+
+    await db.query("INSERT INTO role_permissions VALUES ('operator', 'photos.view')");
+    const largeIds = Array.from({ length: 675 }, (_, index) => 1000 + index);
+    await addBatchPhotos(largeIds);
+    const largePlan = await prepareBatch({ mode: 'candidates', photoIds: largeIds });
+    assert.equal(largePlan.count, 675);
+    const startedAt = Date.now();
+    await startBatch(largePlan.id);
+    const large = await waitBatch('done', 30000);
+    assert.equal(large.published, 675);
+    assert.equal(renderedReads, 1);
+    assert.equal(signedReads, signaturesBefore);
+    console.log('675 original links registered in ' + ((Date.now() - startedAt) / 1000).toFixed(2) + 's with no object-storage requests.');
+  } finally { await runner.stop(); await new Promise(resolve => server.close(resolve)); }
 }
 
 async function main() {
@@ -379,9 +440,15 @@ async function main() {
         for (const stmt of splitStatements(migration)) await connection.query(stmt);
       }
     }
+    const legacyBytes = await sharp({ create: { width: 180, height: 120, channels: 3, background: '#a6c0c3' } }).jpeg().toBuffer();
+    await connection.query(`INSERT INTO college_window_photos
+      (id, organization_id, unit_id, photo_id, object_key, metadata, width, height, sha256, published_by)
+      VALUES (?,2,1,7,?,'{}',180,120,?,7)`, [legacyId, legacyKey, createHash('sha256').update(legacyBytes).digest('hex')]);
+    const originalMigration = fs.readFileSync(path.join(__dirname, 'migrations/20261126_003_college_window_original_links.sql'), 'utf8');
+    for (const stmt of splitStatements(originalMigration)) await connection.query(stmt);
     db = mysql.createPool({ socketPath, user: 'root', database: 'mamage_college_window_test', connectionLimit: 4 });
-    await verify(db);
-    console.log('College Window: individual and batch publication, search snapshot, exclusions, cancellation and durable withdrawal passed on isolated MySQL.');
+    await verify(db, legacyBytes);
+    console.log('College Window: original links without storage I/O, legacy renditions, exclusions, cancellation and revocation passed on isolated MySQL.');
   } finally {
     await db?.end();
     await connection?.end();

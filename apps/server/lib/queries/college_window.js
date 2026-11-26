@@ -1,7 +1,7 @@
 const { pool } = require('../../db');
 const { buildMediaUrl } = require('../media_access');
 const { displayPhotoRow } = require('../photo_tone/artifacts.cjs');
-const { publicationText, DELIVERY_PATH, RESTRICTED_TAGS } = require('../college_window_policy');
+const { publicationText, DELIVERY_PATH, PUBLIC_IMAGE_PATH, RESTRICTED_TAGS, ANONYMIZED_TAGS } = require('../college_window_policy');
 
 // p/pr are the source rows, never an album or folder shortcut granted to this unit.
 const SOURCE_JOIN = 'LEFT JOIN projects pr ON pr.id = p.project_id';
@@ -21,6 +21,10 @@ const SOURCE_OK = `
   AND COALESCE(CAST(p.tags AS CHAR CHARACTER SET utf8mb4), '') NOT REGEXP '${RESTRICTED_TAGS}'
   AND EXISTS (SELECT 1 FROM organization_units ou
     WHERE ou.id = ? AND ou.organization_id = p.organization_id AND ou.archived_at IS NULL)`;
+const ORIGINAL_OK = `COALESCE(CAST(p.tags AS CHAR CHARACTER SET utf8mb4), '') NOT REGEXP '${ANONYMIZED_TAGS}'`;
+const CURRENT_PUBLICATION = `(w.original_url IS NULL OR (
+  CAST(w.original_url AS BINARY) = CAST(p.url AS BINARY) AND ${ORIGINAL_OK}
+))`;
 
 function sourceWhere(scope, workspace) {
   return { sql: SOURCE_OK + (workspace?.ownPhotosOnly ? ' AND p.photographer_id = ?' : ''),
@@ -45,7 +49,7 @@ function contentWhere(contentFilter) {
 function candidateWhere(scope, workspace, excluded = [], contentFilter) {
   const source = sourceWhere(scope, workspace);
   return {
-    sql: `(${source.sql} AND NOT EXISTS (SELECT 1 FROM college_window_photos active WHERE active.active_photo_id = p.id)
+    sql: `(${source.sql} AND ${ORIGINAL_OK} AND NOT EXISTS (SELECT 1 FROM college_window_photos active WHERE active.active_photo_id = p.id)
       ${excluded.length ? 'AND p.id NOT IN (?)' : ''} ${contentWhere(contentFilter)})`,
     params: [...source.params, ...(excluded.length ? [excluded] : [])],
   };
@@ -104,13 +108,15 @@ async function confirmedNames(scope, ids, db = pool, { lock = false } = {}) {
   return names;
 }
 
-const PUBLICATION_COLUMNS = 'w.id, w.photo_id AS photoId, w.width, w.height, w.sha256, w.metadata, w.published_at AS publishedAt';
+const PUBLICATION_COLUMNS = `w.id, w.photo_id AS photoId, w.width, w.height, w.sha256, w.metadata, w.published_at AS publishedAt,
+  w.original_url IS NOT NULL AS original, p.thumb_url AS thumbUrl`;
 
 function publicShape(row) {
   const metadata = typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata;
   return { id: row.id, width: row.width, height: row.height, sha256: row.sha256, publishedAt: row.publishedAt,
     albumName: metadata?.albumName ?? null, peopleNames: metadata?.peopleNames ?? [], description: metadata?.description ?? null,
-    imagePath: `${DELIVERY_PATH}/photos/${row.id}/image` };
+    imagePath: `${DELIVERY_PATH}/photos/${row.id}/image`,
+    ...(row.original ? { publicImagePath: `${PUBLIC_IMAGE_PATH}/${row.id}` } : {}) };
 }
 
 async function listPublished(scope, workspace, { after, limit }, db = pool) {
@@ -118,28 +124,31 @@ async function listPublished(scope, workspace, { after, limit }, db = pool) {
   const [rows] = await db.query(`SELECT ${PUBLICATION_COLUMNS} FROM college_window_photos w
     JOIN photos p ON p.id = w.photo_id ${SOURCE_JOIN}
     WHERE w.organization_id = ? AND w.unit_id = ? AND w.revoked_at IS NULL
-      AND ${eligible.sql}${after ? ' AND w.id > ?' : ''} ORDER BY w.id LIMIT ?`,
+      AND ${eligible.sql} AND ${CURRENT_PUBLICATION}${after ? ' AND w.id > ?' : ''} ORDER BY w.id LIMIT ?`,
   [scope.orgId, scope.unitId, ...eligible.params, ...(after ? [after] : []), limit + 1]);
   return {
-    photos: rows.slice(0, limit).map(row => workspace ? { ...publicShape(row), photoId: row.photoId } : publicShape(row)),
+    photos: rows.slice(0, limit).map(row => workspace ? { ...publicShape(row), photoId: row.photoId,
+      ...(row.original && row.thumbUrl ? { thumbUrl: buildMediaUrl(row.thumbUrl,
+        { userId: workspace.userId, photoId: row.photoId }) } : {}) } : publicShape(row)),
     nextCursor: rows.length > limit ? rows[limit - 1].id : null,
   };
 }
 
 async function getPublished(scope, workspace, id, db = pool) {
   const eligible = sourceWhere(scope, workspace);
-  const [rows] = await db.query(`SELECT w.object_key AS objectKey, w.sha256 FROM college_window_photos w
+  const [rows] = await db.query(`SELECT w.object_key AS objectKey, w.original_url AS originalUrl, w.sha256 FROM college_window_photos w
     JOIN photos p ON p.id = w.photo_id ${SOURCE_JOIN}
-    WHERE w.id = ? AND w.organization_id = ? AND w.unit_id = ? AND w.revoked_at IS NULL AND ${eligible.sql}`,
+    WHERE w.id = ? AND w.organization_id = ? AND w.unit_id = ? AND w.revoked_at IS NULL
+      AND ${eligible.sql} AND ${CURRENT_PUBLICATION}`,
   [id, scope.orgId, scope.unitId, ...eligible.params]);
   return rows[0] || null;
 }
 
 async function insertPublished(scope, workspace, releases, db) {
   await db.query(`INSERT INTO college_window_photos
-    (id, organization_id, unit_id, photo_id, object_key, metadata, width, height, sha256, published_by) VALUES ?`,
-  [releases.map(item => [item.id, scope.orgId, scope.unitId, item.photoId, item.objectKey, JSON.stringify(item.metadata),
-    item.width, item.height, item.sha256, workspace.userId])]);
+    (id, organization_id, unit_id, photo_id, object_key, original_url, metadata, width, height, sha256, published_by) VALUES ?`,
+  [releases.map(item => [item.id, scope.orgId, scope.unitId, item.photoId, item.objectKey ?? null,
+    item.originalUrl ?? null, JSON.stringify(item.metadata), item.width ?? null, item.height ?? null, item.sha256 ?? null, workspace.userId])]);
 }
 
 async function withdraw(scope, workspace, id, db = pool) {

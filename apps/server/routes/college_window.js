@@ -9,11 +9,13 @@ const { createRateLimit } = require('../lib/shared_rate_limit');
 const { createSharedStore } = require('../lib/shared_runtime_state');
 const { createCollegeWindowBatches, batchScope } = require('../lib/college_window_batch');
 const { searchPhotos } = require('../lib/photo_search');
+const { buildMediaUrl } = require('../lib/media_access');
+const { editableSourceUrl } = require('../lib/photo_tone/artifacts.cjs');
 const storage = require('../lib/cos_storage');
 const repository = require('../lib/queries/college_window');
 const media = require('../lib/college_window_media');
 const { canManage, consumerAllowed, readConfig, publicationText, reviewDigest, selectRequest,
-  id, UUID, DIGEST, WindowError, MAX_PUBLISH, MAX_BATCH } = require('../lib/college_window_policy');
+  id, UUID, DIGEST, WindowError, MAX_PUBLISH, MAX_BATCH, ORIGINAL_MODE, PUBLIC_IMAGE_PATH } = require('../lib/college_window_policy');
 const MAX_STATION_PHOTOS = 1000;
 const SEARCH_TTL = 60 * 60_000;
 const notFound = () => new WindowError(404, 'COLLEGE_WINDOW_NOT_FOUND');
@@ -66,6 +68,12 @@ function batchIds(value) {
   return ids;
 }
 
+function requireOriginalConfirmation(body) {
+  if (body?.publicationMode !== ORIGINAL_MODE) {
+    throw new WindowError(409, 'COLLEGE_WINDOW_ORIGINAL_CONFIRMATION_REQUIRED');
+  }
+}
+
 function createCollegeWindow({
   config = readConfig(), db = pool, repo = repository, store = storage, images = media, search = searchPhotos,
   userGuard = requirePermission('photos.view'), workspaceFor = resolveWorkspace, facesFor = getFacePermissions,
@@ -73,17 +81,9 @@ function createCollegeWindow({
 } = {}) {
   const manage = express.Router();
   const delivery = express.Router();
+  const publicImages = express.Router();
   const snapshots = createSharedStore('college-window-searches', { db });
   const batches = createCollegeWindowBatches({ db, publishPhoto: publishBatchPhoto, runner: batchRunner });
-  let rendersInFlight = 0;
-
-  async function render(source) {
-    if (rendersInFlight >= 3) throw new WindowError(429, 'COLLEGE_WINDOW_BUSY');
-    rendersInFlight += 1;
-    try { return await images.render(source, store); }
-    catch { throw new WindowError(422, 'COLLEGE_WINDOW_IMAGE_UNAVAILABLE'); }
-    finally { rendersInFlight -= 1; }
-  }
 
   async function loadSnapshot(ws, searchId) {
     if (!UUID.test(searchId || '')) throw searchExpired();
@@ -102,31 +102,30 @@ function createCollegeWindow({
       contentFilter: snapshot.contentFilter || null, aiUsed: snapshot.aiUsed, selectionLimited: false };
   }
 
-  async function prepareRelease(source, ws, names, expectedReview) {
-    const metadata = publicationText(source, names, images.hidesIdentity(source));
-    const { data, ...result } = await render(source);
-    const review = reviewDigest(source, ws, metadata, result.sha256);
-    if (expectedReview && review !== expectedReview) throw changed();
-    const objectKey = `${media.OBJECT_PREFIX}${randomUUID()}.jpg`;
-    return { ...result, data, review, id: randomUUID(), objectKey, photoId: Number(source.id), metadata };
+  function requireOriginal(sourceUrl) {
+    const original = images.originalObject(sourceUrl, config.unitId, store);
+    if (!original) throw new WindowError(422, 'COLLEGE_WINDOW_ORIGINAL_UNAVAILABLE');
+    return original;
   }
 
-  async function insertReleases(conn, releases, workspaceAtCommit, contentFilter) {
+  async function insertOriginals(conn, ids, workspaceAtCommit, { contentFilter, reviews } = {}) {
     const [units] = await conn.query('SELECT id FROM organization_units WHERE id = ? AND organization_id = ? AND archived_at IS NULL FOR UPDATE',
       [config.unitId, config.orgId]);
     if (!units.length) throw changed();
     const current = await workspaceAtCommit(conn);
     if (!canManage(config, current)) throw changed();
-    const ids = releases.map(release => release.photoId);
     const fresh = await repo.readSources(config, current, ids, conn, { lock: true, contentFilter });
-    if (fresh.length !== releases.length) throw changed();
+    if (fresh.length !== ids.length) throw changed();
     const names = (await facesFor(current, conn)).search ? await repo.confirmedNames(config, ids, conn, { lock: true }) : new Map();
-    for (const release of releases) {
-      const row = fresh.find(source => Number(source.id) === release.photoId);
-      const metadata = publicationText(row, names.get(release.photoId), images.hidesIdentity(row));
-      if (reviewDigest(row, current, metadata, release.sha256) !== release.review) throw changed();
-    }
+    const releases = fresh.map(row => {
+      const photoId = Number(row.id);
+      requireOriginal(row.sourceKey);
+      const metadata = publicationText(row, names.get(photoId));
+      if (reviews && reviewDigest(row, current, metadata) !== reviews.get(photoId)) throw changed();
+      return { id: randomUUID(), photoId, originalUrl: row.sourceKey, metadata };
+    });
     await repo.insertPublished(config, current, releases, conn);
+    return releases;
   }
 
   async function batchWorkspace(job, connection) {
@@ -143,24 +142,8 @@ function createCollegeWindow({
   }
 
   async function publishBatchPhoto(job, photoId, save) {
-    const ws = await batchWorkspace(job, db);
-    const [source] = await repo.readSources(config, ws, [photoId], db, { contentFilter: job.contentFilter });
-    if (!source) throw notFound();
-    const names = (await facesFor(ws, db)).search && !images.hidesIdentity(source)
-      ? (await repo.confirmedNames(config, [photoId], db)).get(photoId) : [];
-    const { data, ...release } = await prepareRelease(source, ws, names);
-    let saved = false;
-    try {
-      await store.uploadBuffer(release.objectKey, data, { contentType: 'image/jpeg', cacheControl: 'private, no-store',
-        signal: AbortSignal.timeout(30_000) });
-      saved = await save(conn => insertReleases(conn, [release], conn => batchWorkspace(job, conn), job.contentFilter));
-      return saved;
-    } catch (error) {
-      if (error.collegeWindowCommitUnknown) saved = true;
-      throw error;
-    } finally {
-      if (!saved) await store.deleteObjects([release.objectKey], { signal: AbortSignal.timeout(10_000) }).catch(() => {});
-    }
+    if (job.publicationMode !== ORIGINAL_MODE) throw new WindowError(412, 'COLLEGE_WINDOW_BATCH_MODE_CHANGED');
+    return save(conn => insertOriginals(conn, [photoId], conn => batchWorkspace(job, conn), { contentFilter: job.contentFilter }));
   }
 
   manage.use(noStore, (req, res, next) => config ? next() : res.sendStatus(404), userGuard);
@@ -176,6 +159,10 @@ function createCollegeWindow({
     if (!config?.tokenHash || !config.peers) return res.sendStatus(404);
     if (consumerAllowed(config, req.socket.remoteAddress, req.get('Authorization'))) return next();
     res.set('WWW-Authenticate', 'Bearer realm="college-window"').sendStatus(401);
+  });
+  publicImages.use(noStore, (req, res, next) => {
+    res.set({ 'Referrer-Policy': 'no-referrer', 'X-Robots-Tag': 'noindex, nofollow, noarchive' });
+    return config ? next() : res.sendStatus(404);
   });
 
   manage.post('/candidates', wrap(async (req, res) => {
@@ -229,13 +216,12 @@ function createCollegeWindow({
     const photoId = id(req.params.photoId);
     const [source] = photoId ? await repo.readSources(config, ws, [photoId], db) : [];
     if (!source) throw notFound();
-    const hidePeople = images.hidesIdentity(source);
-    const names = (await facesFor(ws, db)).search && !hidePeople
+    requireOriginal(source.sourceKey);
+    const names = (await facesFor(ws, db)).search
       ? (await repo.confirmedNames(config, [photoId], db)).get(photoId) : [];
-    const metadata = publicationText(source, names, hidePeople);
-    const result = await render(source);
-    res.json({ ...metadata, photoId, width: result.width, height: result.height, jpeg: result.data.toString('base64'),
-      review: reviewDigest(source, ws, metadata, result.sha256) });
+    const metadata = publicationText(source, names);
+    const imageUrl = editableSourceUrl(buildMediaUrl(source.sourceKey, { userId: ws.userId, photoId }));
+    res.json({ ...metadata, photoId, imageUrl, review: reviewDigest(source, ws, metadata) });
   }));
 
   manage.post('/bulk/prepare', wrap(async (req, res) => {
@@ -255,6 +241,7 @@ function createCollegeWindow({
   }));
 
   manage.post('/bulk', wrap(async (req, res) => {
+    requireOriginalConfirmation(req.body);
     const planId = req.body?.planId;
     if (typeof planId !== 'string' || !UUID.test(planId)) throw new WindowError(400, 'COLLEGE_WINDOW_BATCH_IDS_INVALID');
     res.status(202).json(await batches.start(req.collegeWindowWorkspace, planId));
@@ -267,39 +254,21 @@ function createCollegeWindow({
   }));
 
   manage.post('/publish', wrap(async (req, res) => {
-    const ws = req.collegeWindowWorkspace;
+    requireOriginalConfirmation(req.body);
     const reviews = reviewItems(req.body);
     const ids = [...reviews.keys()].sort((a, b) => a - b);
-    const rows = await repo.readSources(config, ws, ids, db);
-    if (rows.length !== ids.length) throw changed();
-    const canSeeNames = (await facesFor(ws, db)).search;
-    const names = canSeeNames ? await repo.confirmedNames(config, ids, db) : new Map();
-    const releases = [];
-    let committing = false;
+    const conn = await db.getConnection();
+    let releases;
     try {
-      for (const row of rows) {
-        const photoId = Number(row.id);
-        const { data, ...release } = await prepareRelease(row, ws, names.get(photoId), reviews.get(photoId));
-        releases.push(release);
-        await store.uploadBuffer(release.objectKey, data, { contentType: 'image/jpeg', cacheControl: 'private, no-store' });
-      }
-      const conn = await db.getConnection();
-      try {
-        await conn.beginTransaction();
-        await insertReleases(conn, releases, conn => {
-          delete req.workspace;
-          return workspaceFor(req, conn);
-        });
-        committing = true;
-        await conn.commit();
-      } catch (error) { await conn.rollback().catch(() => {}); throw error; }
-      finally { conn.release(); }
-    } catch (error) {
-      // A connection loss during COMMIT does not prove that the transaction rolled back.
-      if (!committing && releases.length) await store.deleteObjects(releases.map(item => item.objectKey)).catch(() => {});
-      throw error;
-    }
-    res.status(201).json({ photos: releases.map(({ id, photoId }) => ({ id, photoId })) });
+      await conn.beginTransaction();
+      releases = await insertOriginals(conn, ids, db => {
+        delete req.workspace;
+        return workspaceFor(req, db);
+      }, { reviews });
+      await conn.commit();
+    } catch (error) { await conn.rollback().catch(() => {}); throw error; }
+    finally { conn.release(); }
+    res.status(201).json({ photos: releases.map(({ id, photoId }) => ({ id, photoId, publicImagePath: `${PUBLIC_IMAGE_PATH}/${id}` })) });
   }));
 
   manage.get('/published', wrap(async (req, res) => {
@@ -315,20 +284,30 @@ function createCollegeWindow({
     res.json(await repo.listPublished(config, null, paging(req), db));
   }));
   delivery.get('/photos/:id/image', imageRoute(() => null));
+  publicImages.get('/:id', imageRoute(() => null, true));
 
-  function imageRoute(workspace) {
+  function imageRoute(workspace, originalOnly = false) {
     return wrap(async (req, res) => {
       const { id } = req.params;
       if (!UUID.test(id)) throw notFound();
       const ws = workspace(req);
       const row = await repo.getPublished(config, ws, id, db);
       if (!row) throw notFound();
+      if (row.originalUrl) {
+        const original = requireOriginal(row.originalUrl);
+        const signed = await store.signedGetUrl(original.key, { expires: 60, contentType: original.contentType,
+          cacheControl: 'private, no-store',
+          ...(req.query.download === '1' ? { downloadName: id + original.extension } : {}) });
+        if (!await repo.getPublished(config, ws, id, db)) throw notFound();
+        return res.redirect(302, signed.signedUrl);
+      }
+      if (originalOnly) throw notFound();
       const bytes = await images.load(row.objectKey, row.sha256, store);
       if (!await repo.getPublished(config, ws, id, db)) throw notFound();
       res.type('jpeg').set('Content-Disposition', `inline; filename="${id}.jpg"`).send(bytes);
     });
   }
-  return { manage, delivery };
+  return { manage, delivery, publicImages };
 }
 
 module.exports = { createCollegeWindow };

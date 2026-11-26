@@ -505,6 +505,7 @@ async function signedGetUrl(key, options = {}) {
     input.ResponseContentDisposition = buildAttachmentDisposition(options.downloadName);
     input.ResponseCacheControl = 'private, no-store';
   }
+  if (options.cacheControl) input.ResponseCacheControl = options.cacheControl;
   if (options.contentType) input.ResponseContentType = options.contentType;
   const expiresIn = Math.max(60, Number(options.expires || process.env.COS_SIGNED_READ_EXPIRES_SECONDS || 900));
 

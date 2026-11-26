@@ -1,7 +1,7 @@
 const { randomUUID } = require('node:crypto');
 const { coordinator, distributed } = require('./distributed_runtime');
 const { createSharedStore } = require('./shared_runtime_state');
-const { WindowError } = require('./college_window_policy');
+const { WindowError, ORIGINAL_MODE } = require('./college_window_policy');
 
 const KIND = 'college-window-publish';
 const PLAN_TTL = 15 * 60_000;
@@ -81,7 +81,9 @@ function createCollegeWindowBatches({ db, publishPhoto, runner = coordinator }) 
       }
     } catch (err) {
       console.warn('[college-window-publish]', err.code || err.name);
-      await mark(key, id, 'failed', err.status === 403 ? 'COLLEGE_WINDOW_BATCH_ACCESS_CHANGED' : 'COLLEGE_WINDOW_BATCH_FAILED');
+      const code = err.status === 403 ? 'COLLEGE_WINDOW_BATCH_ACCESS_CHANGED'
+        : err.code === 'COLLEGE_WINDOW_BATCH_MODE_CHANGED' ? err.code : 'COLLEGE_WINDOW_BATCH_FAILED';
+      await mark(key, id, 'failed', code);
     }
   }
 
@@ -91,7 +93,8 @@ function createCollegeWindowBatches({ db, publishPhoto, runner = coordinator }) 
       const key = batchScope(ws);
       if (active(await jobs.get(key))) throw new WindowError(409, 'COLLEGE_WINDOW_BATCH_ACTIVE');
       await plans.pruneExpired(30);
-      const plan = { id: randomUUID(), key, ids, mode, contentFilter, requiresFaceSearch, expiresAt: Date.now() + PLAN_TTL };
+      const plan = { id: randomUUID(), key, ids, mode, contentFilter, requiresFaceSearch,
+        publicationMode: ORIGINAL_MODE, expiresAt: Date.now() + PLAN_TTL };
       await plans.set(plan.id, plan);
       return { id: plan.id, count: ids.length, mode, contentFilter };
     },
@@ -102,7 +105,7 @@ function createCollegeWindowBatches({ db, publishPhoto, runner = coordinator }) 
         if (current?.id === id) return publicJob(current);
         if (active(current)) throw new WindowError(409, 'COLLEGE_WINDOW_BATCH_ACTIVE');
         const plan = await plans.get(id);
-        if (!plan || plan.key !== key || plan.consumed || plan.expiresAt <= Date.now()) {
+        if (!plan || plan.key !== key || plan.consumed || plan.expiresAt <= Date.now() || plan.publicationMode !== ORIGINAL_MODE) {
           throw new WindowError(409, 'COLLEGE_WINDOW_BATCH_PLAN_EXPIRED');
         }
         const job = { id, status: 'queued', total: plan.ids.length, processed: 0, published: 0, skipped: 0, failed: 0,
